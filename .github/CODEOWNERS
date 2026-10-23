@@ -1,0 +1,34 @@
+# 경로별 리뷰 담당. PR이 해당 경로를 바꾸면 GitHub이 담당자에게 리뷰를 자동 요청한다.
+# 담당이 정해지면 주석을 풀고 GitHub 아이디(@아이디)나 팀(@Good-Ticket-Service/팀이름)으로 바꾼다.
+# 아래쪽 규칙이 위쪽 규칙보다 우선한다.
+#
+# 기본 담당(그 밖의 모든 파일)
+# *                                   @<개발 리드>
+#
+# 플랫폼·공통: 모든 서비스에 영향
+# /backend/common-core/               @<담당>
+# /backend/common/                    @<담당>
+# /backend/build.gradle               @<담당>
+# /backend/settings.gradle            @<담당>
+# /backend/config-server/             @<담당>
+# /backend/eureka-server/             @<담당>
+# /backend/gateway-service/           @<담당>
+# /backend/config-repo/application*.yml @<담당>
+# /backend/config-repo/gateway-service.yml @<담당>
+# /docker-compose.yml                 @<담당>
+# /infra/                             @<담당>
+# /.github/                           @<담당>
+#
+# 업무 서비스 (모듈, 설정, 스키마)
+# /backend/user-service/              @<담당>
+# /backend/config-repo/user-service.yml @<담당>
+# /backend/sql/user-service/          @<담당>
+# /backend/event-service/             @<담당>
+# /backend/config-repo/event-service.yml @<담당>
+# /backend/sql/event-service/         @<담당>
+# /backend/reservation-service/       @<담당>
+# /backend/config-repo/reservation-service.yml @<담당>
+# /backend/sql/reservation-service/   @<담당>
+# /backend/payment-service/           @<담당>
+# /backend/config-repo/payment-service.yml @<담당>
+# /backend/sql/payment-service/       @<담당>

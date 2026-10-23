@@ -1,0 +1,31 @@
+name: 작업
+description: 문서·설정·인프라·리팩터링·조사 등 기능이 아닌 작업
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: type
+      options: [chore, docs, refactor, test, build, ci]
+    validations:
+      required: true
+  - type: input
+    id: scope
+    attributes:
+      label: scope
+      description: user, event, reservation, payment, gateway, config, eureka, common, infra, project 중 하나
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목적과 범위
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      value: |
+        - [ ]
+    validations:
+      required: true
