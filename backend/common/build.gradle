@@ -20,4 +20,6 @@ dependencies {
     testFixturesApi 'org.springframework.boot:spring-boot-testcontainers'
     testFixturesApi 'org.testcontainers:junit-jupiter'
     testFixturesApi 'org.testcontainers:postgresql'
+    // 서비스 계층 의존 규칙(LayeredArchitectureRules)
+    testFixturesApi 'com.tngtech.archunit:archunit-junit5:1.4.1'
 }
