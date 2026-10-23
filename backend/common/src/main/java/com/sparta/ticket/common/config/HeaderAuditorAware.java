@@ -21,7 +21,8 @@ public class HeaderAuditorAware implements AuditorAware<String> {
     public Optional<String> getCurrentAuditor() {
         return Optional.ofNullable(RequestContextHolder.getRequestAttributes())
                 .filter(ServletRequestAttributes.class::isInstance)
-                .map(attributes -> ((ServletRequestAttributes) attributes).getRequest().getHeader(UserHeaders.USERNAME))
+                .map(attributes ->
+                        ((ServletRequestAttributes) attributes).getRequest().getHeader(UserHeaders.USERNAME))
                 .filter(StringUtils::hasText)
                 .or(() -> Optional.of(SYSTEM));
     }

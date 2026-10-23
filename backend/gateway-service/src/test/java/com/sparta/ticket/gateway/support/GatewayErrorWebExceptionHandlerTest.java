@@ -1,8 +1,8 @@
 package com.sparta.ticket.gateway.support;
 
-import com.sparta.ticket.common.exception.CommonErrorCode;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -24,9 +24,11 @@ class GatewayErrorWebExceptionHandlerTest {
     void clientErrors() {
         assertThat(GatewayErrorWebExceptionHandler.toErrorCode(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .isEqualTo(CommonErrorCode.NOT_FOUND);
-        assertThat(GatewayErrorWebExceptionHandler.toErrorCode(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED)))
+        assertThat(GatewayErrorWebExceptionHandler.toErrorCode(
+                        new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED)))
                 .isEqualTo(CommonErrorCode.METHOD_NOT_ALLOWED);
-        assertThat(GatewayErrorWebExceptionHandler.toErrorCode(new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE)))
+        assertThat(GatewayErrorWebExceptionHandler.toErrorCode(
+                        new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE)))
                 .isEqualTo(CommonErrorCode.INVALID_REQUEST);
     }
 }

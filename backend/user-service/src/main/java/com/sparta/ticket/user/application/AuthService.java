@@ -56,8 +56,8 @@ public class AuthService {
         Optional<User> found = userRepository.findByUsername(command.username());
         String hash = found.map(User::getPassword).orElse(dummyPasswordHash);
         boolean matches = passwordEncoder.matches(command.password(), hash);
-        User user = found.filter(ignored -> matches)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.LOGIN_FAILED));
+        User user =
+                found.filter(ignored -> matches).orElseThrow(() -> new BusinessException(UserErrorCode.LOGIN_FAILED));
         return TokenResult.bearer(tokenIssuer.issue(user), tokenIssuer.expirationSeconds());
     }
 }

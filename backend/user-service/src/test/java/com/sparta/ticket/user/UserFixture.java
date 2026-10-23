@@ -6,8 +6,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 public final class UserFixture {
 
-    private UserFixture() {
-    }
+    private UserFixture() {}
 
     public static User user(String username, String encodedPassword) {
         User user = User.signup(username, encodedPassword, "홍길동");

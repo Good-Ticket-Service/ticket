@@ -16,13 +16,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * {@code @ServiceConnection}이 컨테이너의 접속 정보(url, username, password)를 spring.datasource.* 대신 넣어 준다.
  * H2 같은 대체 DB를 쓰지 않는 이유: 부분 인덱스, 네이티브 쿼리, 유니크 제약 동작이 운영 DB와 같아야 검증 의미가 있다.
  */
-@SpringBootTest(properties = {
-        "spring.cloud.config.enabled=false",
-        "eureka.client.enabled=false",
-        "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=file:../sql/${spring.application.name}/schema.sql",
-        "spring.jpa.hibernate.ddl-auto=validate"
-})
+@SpringBootTest(
+        properties = {
+            "spring.cloud.config.enabled=false",
+            "eureka.client.enabled=false",
+            "spring.sql.init.mode=always",
+            "spring.sql.init.schema-locations=file:../sql/${spring.application.name}/schema.sql",
+            "spring.jpa.hibernate.ddl-auto=validate"
+        })
 public abstract class PostgresIntegrationTest {
 
     @ServiceConnection

@@ -9,7 +9,9 @@
 - `docker-compose.yml`, `infra/`, `script/`는 루트에 있다. Compose의 빌드 컨텍스트는 `backend/`다.
 
 ## 명령
-- 빌드·테스트: `cd backend && ./gradlew build` (통합 테스트는 Docker 필요)
+- 빌드·테스트: `cd backend && ./gradlew build` (포맷·Checkstyle·계층 검사 포함, 통합 테스트는 Docker 필요)
+- 포맷: `cd backend && ./gradlew spotlessApply`. 손으로 정렬하지 않는다.
+- 계층 의존 규칙은 `common` 테스트 모듈의 `LayeredArchitectureRules`가 검사한다. 규칙을 어기는 코드는 고치고, 규칙이 틀렸다고 판단되면 규칙 변경을 먼저 제안한다.
 - 모듈 하나: `cd backend && ./gradlew :user-service:test`
 - 로컬 기동: `script/run.sh [서비스...]`, DB 초기화는 `script/run.sh --reset`
 - Gradle toolchain이 JDK 17로 고정한다. JAVA_HOME을 바꾸지 않는다.

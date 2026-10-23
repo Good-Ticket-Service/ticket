@@ -90,11 +90,15 @@ IDE로 서비스 하나만 띄울 때는 `docker compose up -d postgres redis co
 
 ```bash
 cd backend
-./gradlew build                    # 전체
+./gradlew build                    # 전체 (포맷·Checkstyle·계층 검사·테스트)
 ./gradlew :user-service:test       # 모듈 하나
+./gradlew spotlessApply            # 포맷 자동 정렬
 ```
 
 - 통합 테스트(`PostgresIntegrationTest`를 상속한 테스트)는 Testcontainers로 PostgreSQL 16을 띄우므로 Docker가 실행 중이어야 한다.
+- 포맷은 Spotless(Palantir Java Format)가 맞춘다. 손으로 정렬하지 않고 커밋 전에 `./gradlew spotlessApply`를 돌린다. 어긋나면 `build`의 `spotlessCheck`가 실패한다.
+- Checkstyle(`backend/config/checkstyle/checkstyle.xml`)은 이름 규칙, 와일드카드 import, 빈 문장, equals/hashCode 쌍 등을 검사한다.
+- 업무 서비스마다 `ArchitectureTest`가 계층 의존 방향을 검사한다. 규칙은 `common` 테스트 모듈의 `LayeredArchitectureRules`에 있다.
 - 셸 기본 JDK가 17이 아니어도 Gradle toolchain이 17로 컴파일·실행한다.
 
 ## 새 업무 기능을 추가할 때

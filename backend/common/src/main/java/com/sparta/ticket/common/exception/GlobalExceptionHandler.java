@@ -39,7 +39,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<Object> handleConstraint(ConstraintViolationException e, HttpServletRequest request) {
         List<ErrorResponse.FieldError> errors = e.getConstraintViolations().stream()
-                .map(violation -> new ErrorResponse.FieldError(violation.getPropertyPath().toString(), violation.getMessage()))
+                .map(violation ->
+                        new ErrorResponse.FieldError(violation.getPropertyPath().toString(), violation.getMessage()))
                 .toList();
         return validationError(request.getRequestURI(), errors);
     }
@@ -60,13 +61,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<Object> handleFeign(FeignException e, HttpServletRequest request) {
         log.warn("하위 서비스 호출 실패: {} {} cause={}", request.getMethod(), request.getRequestURI(), e.toString());
-        return respond(CommonErrorCode.SERVICE_UNAVAILABLE, CommonErrorCode.SERVICE_UNAVAILABLE.message(), request.getRequestURI(), null, null);
+        return respond(
+                CommonErrorCode.SERVICE_UNAVAILABLE,
+                CommonErrorCode.SERVICE_UNAVAILABLE.message(),
+                request.getRequestURI(),
+                null,
+                null);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleUnexpected(Exception e, HttpServletRequest request) {
         log.error("Unhandled exception: {} {}", request.getMethod(), request.getRequestURI(), e);
-        return respond(CommonErrorCode.INTERNAL_SERVER_ERROR, CommonErrorCode.INTERNAL_SERVER_ERROR.message(), request.getRequestURI(), null, null);
+        return respond(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                CommonErrorCode.INTERNAL_SERVER_ERROR.message(),
+                request.getRequestURI(),
+                null,
+                null);
     }
 
     /** 요청 본문 검증(@Valid) 실패: 필드별 사유를 담는다. */
@@ -114,9 +125,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case NOT_ACCEPTABLE -> CommonErrorCode.NOT_ACCEPTABLE;
             case UNSUPPORTED_MEDIA_TYPE -> CommonErrorCode.UNSUPPORTED_MEDIA_TYPE;
             case SERVICE_UNAVAILABLE -> CommonErrorCode.SERVICE_UNAVAILABLE;
-            default -> status.is4xxClientError()
-                    ? new SimpleErrorCode(status, CommonErrorCode.INVALID_REQUEST.code(), CommonErrorCode.INVALID_REQUEST.message())
-                    : CommonErrorCode.INTERNAL_SERVER_ERROR;
+            default ->
+                status.is4xxClientError()
+                        ? new SimpleErrorCode(
+                                status,
+                                CommonErrorCode.INVALID_REQUEST.code(),
+                                CommonErrorCode.INVALID_REQUEST.message())
+                        : CommonErrorCode.INTERNAL_SERVER_ERROR;
         };
     }
 
@@ -125,18 +140,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private ResponseEntity<Object> validationError(String path, List<ErrorResponse.FieldError> errors) {
-        return respond(CommonErrorCode.VALIDATION_ERROR, CommonErrorCode.VALIDATION_ERROR.message(), path, errors, null);
+        return respond(
+                CommonErrorCode.VALIDATION_ERROR, CommonErrorCode.VALIDATION_ERROR.message(), path, errors, null);
     }
 
-    private ResponseEntity<Object> respond(ErrorCode errorCode, String message, String path,
-                                           @Nullable List<ErrorResponse.FieldError> errors, @Nullable HttpHeaders headers) {
+    private ResponseEntity<Object> respond(
+            ErrorCode errorCode,
+            String message,
+            String path,
+            @Nullable List<ErrorResponse.FieldError> errors,
+            @Nullable HttpHeaders headers) {
         return ResponseEntity.status(errorCode.status())
                 .headers(headers)
                 .body(ErrorResponse.of(errorCode, message, path, errors));
     }
 
     private static String path(WebRequest request) {
-        return request instanceof ServletWebRequest servlet ? servlet.getRequest().getRequestURI() : null;
+        return request instanceof ServletWebRequest servlet
+                ? servlet.getRequest().getRequestURI()
+                : null;
     }
 
     private static boolean isCommitted(WebRequest request) {

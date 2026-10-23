@@ -9,5 +9,4 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @EnableFeignClients(basePackages = "com.sparta.ticket.payment")
-public class FeignConfig {
-}
+public class FeignConfig {}

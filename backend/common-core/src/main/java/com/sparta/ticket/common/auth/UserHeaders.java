@@ -13,6 +13,5 @@ public final class UserHeaders {
 
     public static final List<String> ALL = List.of(USER_ID, USERNAME, ROLE);
 
-    private UserHeaders() {
-    }
+    private UserHeaders() {}
 }

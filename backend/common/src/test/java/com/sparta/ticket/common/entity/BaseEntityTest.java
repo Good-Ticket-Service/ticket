@@ -38,6 +38,5 @@ class BaseEntityTest {
         assertThat(entity.getDeletedBy()).isEqualTo("hong01");
     }
 
-    private static class TestEntity extends BaseEntity {
-    }
+    private static class TestEntity extends BaseEntity {}
 }

@@ -31,7 +31,8 @@ public class UserHeaderSanitizingFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         // 1. 클라이언트가 보낸 X-User-* 헤더 제거
-        ServerHttpRequest stripped = exchange.getRequest().mutate()
+        ServerHttpRequest stripped = exchange.getRequest()
+                .mutate()
                 .headers(headers -> UserHeaders.ALL.forEach(headers::remove))
                 .build();
         ServerWebExchange sanitized = exchange.mutate().request(stripped).build();

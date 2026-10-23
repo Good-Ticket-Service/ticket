@@ -34,8 +34,11 @@ public class SearchPageableArgumentResolver implements HandlerMethodArgumentReso
     }
 
     @Override
-    public Pageable resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer,
-                                    NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
+    public Pageable resolveArgument(
+            MethodParameter parameter,
+            ModelAndViewContainer mavContainer,
+            NativeWebRequest webRequest,
+            WebDataBinderFactory binderFactory) {
         Pageable requested = delegate.resolveArgument(parameter, mavContainer, webRequest, binderFactory);
         int size = ALLOWED_SIZES.contains(requested.getPageSize()) ? requested.getPageSize() : DEFAULT_SIZE;
         Sort sort = requested.getSort().isSorted() ? requested.getSort() : DEFAULT_SORT;

@@ -22,7 +22,8 @@ class UserServiceClientTest {
     @Test
     @DisplayName("user-service가 응답하지 않으면 무한 대기하지 않고 제한 시간 뒤 실패한다")
     void timesOut() {
-        WebClient hanging = WebClient.builder().exchangeFunction(request -> Mono.never()).build();
+        WebClient hanging =
+                WebClient.builder().exchangeFunction(request -> Mono.never()).build();
         UserServiceClient client = new UserServiceClient(hanging, Duration.ofMillis(100));
 
         StepVerifier.create(client.fetch(userId))
@@ -43,7 +44,9 @@ class UserServiceClientTest {
                         .build()))
                 .build();
 
-        assertThat(new UserServiceClient(ok, Duration.ofSeconds(1)).fetch(userId).block())
+        assertThat(new UserServiceClient(ok, Duration.ofSeconds(1))
+                        .fetch(userId)
+                        .block())
                 .contains(new UserSnapshot(userId, "hong01", "MASTER"));
     }
 
@@ -51,9 +54,13 @@ class UserServiceClientTest {
     @DisplayName("내부 사용자 조회가 404면 탈퇴한 사용자로 보고 빈 값을 돌려준다")
     void notFoundIsEmpty() {
         WebClient notFound = WebClient.builder()
-                .exchangeFunction(request -> Mono.just(ClientResponse.create(HttpStatus.NOT_FOUND).build()))
+                .exchangeFunction(request ->
+                        Mono.just(ClientResponse.create(HttpStatus.NOT_FOUND).build()))
                 .build();
 
-        assertThat(new UserServiceClient(notFound, Duration.ofSeconds(1)).fetch(userId).block()).isEmpty();
+        assertThat(new UserServiceClient(notFound, Duration.ofSeconds(1))
+                        .fetch(userId)
+                        .block())
+                .isEmpty();
     }
 }

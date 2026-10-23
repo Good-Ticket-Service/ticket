@@ -19,13 +19,16 @@ public class AuthConfig {
      * 타임아웃은 Gateway 라우트 설정(response-timeout)과 별개라서 이 클라이언트에 직접 건다.
      */
     @Bean
-    public UserLookup userLookup(WebClient.Builder webClientBuilder,
-                                 ReactorLoadBalancerExchangeFilterFunction loadBalancer,
-                                 AuthProperties properties) {
+    public UserLookup userLookup(
+            WebClient.Builder webClientBuilder,
+            ReactorLoadBalancerExchangeFilterFunction loadBalancer,
+            AuthProperties properties) {
         HttpClient httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) properties.userLookupTimeout().toMillis())
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int)
+                        properties.userLookupTimeout().toMillis())
                 .responseTimeout(properties.userLookupTimeout());
-        WebClient webClient = webClientBuilder.clone()
+        WebClient webClient = webClientBuilder
+                .clone()
                 .baseUrl("http://user-service")
                 .filter(loadBalancer)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))

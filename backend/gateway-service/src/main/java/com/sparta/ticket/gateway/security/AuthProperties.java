@@ -14,6 +14,4 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record AuthProperties(
         List<String> whitelist,
         @DefaultValue("60s") Duration userCacheTtl,
-        @DefaultValue("3s") Duration userLookupTimeout
-) {
-}
+        @DefaultValue("3s") Duration userLookupTimeout) {}

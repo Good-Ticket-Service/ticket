@@ -33,6 +33,8 @@ public class RequireRoleInterceptor implements HandlerInterceptor {
 
     private RequireRole findRequireRole(HandlerMethod method) {
         RequireRole onMethod = AnnotatedElementUtils.findMergedAnnotation(method.getMethod(), RequireRole.class);
-        return onMethod != null ? onMethod : AnnotatedElementUtils.findMergedAnnotation(method.getBeanType(), RequireRole.class);
+        return onMethod != null
+                ? onMethod
+                : AnnotatedElementUtils.findMergedAnnotation(method.getBeanType(), RequireRole.class);
     }
 }
