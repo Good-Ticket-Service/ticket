@@ -11,8 +11,7 @@ import org.springframework.util.StringUtils;
  */
 final class UserContextExtractor {
 
-    private UserContextExtractor() {
-    }
+    private UserContextExtractor() {}
 
     static UserContext extract(UnaryOperator<String> header) {
         String userId = header.apply(UserHeaders.USER_ID);

@@ -75,9 +75,7 @@ class UserContextWebTest {
     @Test
     @DisplayName("사용자 이름이 없는 관리자 요청은 401 UNAUTHORIZED")
     void rejectsAdminWithoutUsername() throws Exception {
-        mockMvc.perform(get("/admin")
-                        .header(UserHeaders.USER_ID, USER_ID)
-                        .header(UserHeaders.ROLE, "MASTER"))
+        mockMvc.perform(get("/admin").header(UserHeaders.USER_ID, USER_ID).header(UserHeaders.ROLE, "MASTER"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -93,8 +91,7 @@ class UserContextWebTest {
     @Test
     @DisplayName("@RequireRole(MASTER) API를 MASTER가 호출하면 통과")
     void allowedForMaster() throws Exception {
-        mockMvc.perform(withUser(get("/admin"), "MASTER"))
-                .andExpect(status().isOk());
+        mockMvc.perform(withUser(get("/admin"), "MASTER")).andExpect(status().isOk());
     }
 
     @RestController

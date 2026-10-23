@@ -20,8 +20,8 @@ class ErrorResponseContractTest {
     @Test
     @DisplayName("에러 응답은 status, code, message, path, timestamp를 갖고 errors는 넣지 않는다")
     void errorShape() throws Exception {
-        JsonNode json = objectMapper.valueToTree(
-                ErrorResponse.of(CommonErrorCode.TOKEN_ROLE_MISMATCH, CommonErrorCode.TOKEN_ROLE_MISMATCH.message(), "/api/v1/events"));
+        JsonNode json = objectMapper.valueToTree(ErrorResponse.of(
+                CommonErrorCode.TOKEN_ROLE_MISMATCH, CommonErrorCode.TOKEN_ROLE_MISMATCH.message(), "/api/v1/events"));
 
         assertThat(json.get("status").asInt()).isEqualTo(401);
         assertThat(json.get("code").asText()).isEqualTo("TOKEN_ROLE_MISMATCH");
@@ -33,8 +33,11 @@ class ErrorResponseContractTest {
     @Test
     @DisplayName("VALIDATION_ERROR는 필드별 errors를 담는다")
     void validationShape() {
-        JsonNode json = objectMapper.valueToTree(ErrorResponse.of(CommonErrorCode.VALIDATION_ERROR, "요청 값이 올바르지 않습니다.",
-                "/api/v1/auth/signup", List.of(new ErrorResponse.FieldError("username", "형식 오류"))));
+        JsonNode json = objectMapper.valueToTree(ErrorResponse.of(
+                CommonErrorCode.VALIDATION_ERROR,
+                "요청 값이 올바르지 않습니다.",
+                "/api/v1/auth/signup",
+                List.of(new ErrorResponse.FieldError("username", "형식 오류"))));
 
         assertThat(json.get("errors").get(0).get("field").asText()).isEqualTo("username");
         assertThat(json.get("errors").get(0).get("reason").asText()).isEqualTo("형식 오류");

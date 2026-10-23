@@ -34,7 +34,8 @@ class SearchPageableArgumentResolverTest {
     void normalizesSize() throws Exception {
         mockMvc.perform(get("/search").param("size", "30")).andExpect(content().string("0/30/createdAt: DESC"));
         mockMvc.perform(get("/search").param("size", "20")).andExpect(content().string("0/10/createdAt: DESC"));
-        mockMvc.perform(get("/search").param("size", "1000")).andExpect(content().string("0/10/createdAt: DESC"));
+        mockMvc.perform(get("/search").param("size", "1000"))
+                .andExpect(content().string("0/10/createdAt: DESC"));
     }
 
     @Test

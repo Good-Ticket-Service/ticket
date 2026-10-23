@@ -42,8 +42,13 @@ public class CommonOpenApiAutoConfiguration {
         return new OpenAPI()
                 .info(new Info().title(applicationName + " API").version("v1"))
                 .servers(List.of(new Server().url("/")))
-                .components(new Components().addSecuritySchemes(BEARER,
-                        new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")))
+                .components(new Components()
+                        .addSecuritySchemes(
+                                BEARER,
+                                new SecurityScheme()
+                                        .type(SecurityScheme.Type.HTTP)
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER));
     }
 }

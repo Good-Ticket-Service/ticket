@@ -3,12 +3,12 @@ package com.sparta.ticket.gateway.support;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
 import reactor.core.publisher.Mono;
 
 /**
@@ -32,8 +32,11 @@ public class GatewayErrorWebExceptionHandler implements ErrorWebExceptionHandler
         }
         CommonErrorCode errorCode = toErrorCode(ex);
         if (errorCode == CommonErrorCode.SERVICE_UNAVAILABLE) {
-            log.warn("Gateway 라우팅 실패: {} {} cause={}", exchange.getRequest().getMethod(),
-                    exchange.getRequest().getPath(), ex.toString());
+            log.warn(
+                    "Gateway 라우팅 실패: {} {} cause={}",
+                    exchange.getRequest().getMethod(),
+                    exchange.getRequest().getPath(),
+                    ex.toString());
         }
         return errorWriter.write(exchange, errorCode);
     }
@@ -49,7 +52,8 @@ public class GatewayErrorWebExceptionHandler implements ErrorWebExceptionHandler
             case 403 -> CommonErrorCode.FORBIDDEN;
             case 404 -> CommonErrorCode.NOT_FOUND;
             case 405 -> CommonErrorCode.METHOD_NOT_ALLOWED;
-            default -> status.is4xxClientError() ? CommonErrorCode.INVALID_REQUEST : CommonErrorCode.SERVICE_UNAVAILABLE;
+            default ->
+                status.is4xxClientError() ? CommonErrorCode.INVALID_REQUEST : CommonErrorCode.SERVICE_UNAVAILABLE;
         };
     }
 }

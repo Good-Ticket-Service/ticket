@@ -11,10 +11,12 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
 class CommonJacksonAutoConfigurationTest {
 
-    enum Type { COMPANY, HUB }
-
-    record Request(Type type) {
+    enum Type {
+        COMPANY,
+        HUB
     }
+
+    record Request(Type type) {}
 
     private final ObjectMapper objectMapper = build();
 
@@ -34,6 +36,7 @@ class CommonJacksonAutoConfigurationTest {
     @Test
     @DisplayName("문자열 Enum은 그대로 받는다")
     void acceptsStringEnum() throws Exception {
-        assertThat(objectMapper.readValue("{\"type\":\"HUB\"}", Request.class).type()).isEqualTo(Type.HUB);
+        assertThat(objectMapper.readValue("{\"type\":\"HUB\"}", Request.class).type())
+                .isEqualTo(Type.HUB);
     }
 }

@@ -59,7 +59,9 @@ class GlobalExceptionHandlerTest {
     @Test
     @DisplayName("JSON 형식이 깨진 본문도 VALIDATION_ERROR로 응답한다")
     void unreadableBody() throws Exception {
-        mockMvc.perform(post("/sample/users").contentType(MediaType.APPLICATION_JSON).content("{"))
+        mockMvc.perform(post("/sample/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
@@ -86,7 +88,8 @@ class GlobalExceptionHandlerTest {
     void methodNotAllowed() throws Exception {
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/sample/users"))
                 .andExpect(status().isMethodNotAllowed())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Allow", "POST"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Allow", "POST"))
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
 
@@ -128,16 +131,24 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/sample/feign")
         void feign() {
-            throw new feign.RetryableException(-1, "Read timed out", feign.Request.HttpMethod.GET, (Long) null,
-                    feign.Request.create(feign.Request.HttpMethod.GET, "http://event-service/internal/events/1",
-                            java.util.Map.of(), null, java.nio.charset.StandardCharsets.UTF_8, null));
+            throw new feign.RetryableException(
+                    -1,
+                    "Read timed out",
+                    feign.Request.HttpMethod.GET,
+                    (Long) null,
+                    feign.Request.create(
+                            feign.Request.HttpMethod.GET,
+                            "http://event-service/internal/events/1",
+                            java.util.Map.of(),
+                            null,
+                            java.nio.charset.StandardCharsets.UTF_8,
+                            null));
         }
 
         @GetMapping("/sample/quantity")
         int quantity(@RequestParam @Min(value = 1, message = "1 이상이어야 합니다.") int quantity) {
             return quantity;
         }
-
 
         @GetMapping("/sample/forbidden")
         void forbidden() {
@@ -150,13 +161,10 @@ class GlobalExceptionHandlerTest {
         }
 
         @PostMapping("/sample/users")
-        void create(@Valid @RequestBody SampleRequest request) {
-        }
+        void create(@Valid @RequestBody SampleRequest request) {}
     }
 
     record SampleRequest(
             @Pattern(regexp = "^[a-z0-9]{4,10}$", message = "4~10자의 소문자와 숫자만 사용할 수 있습니다.")
-            String username
-    ) {
-    }
+            String username) {}
 }

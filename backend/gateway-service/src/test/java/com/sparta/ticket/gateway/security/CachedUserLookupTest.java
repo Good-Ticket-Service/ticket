@@ -19,10 +19,13 @@ class CachedUserLookupTest {
     private final AtomicLong nanos = new AtomicLong();
 
     private CachedUserLookup lookup(String... roles) {
-        return new CachedUserLookup(id -> {
-            String role = roles[Math.min(calls.getAndIncrement(), roles.length - 1)];
-            return Mono.just(Optional.of(new UserSnapshot(id, "hong01", role)));
-        }, Duration.ofSeconds(60), nanos::get);
+        return new CachedUserLookup(
+                id -> {
+                    String role = roles[Math.min(calls.getAndIncrement(), roles.length - 1)];
+                    return Mono.just(Optional.of(new UserSnapshot(id, "hong01", role)));
+                },
+                Duration.ofSeconds(60),
+                nanos::get);
     }
 
     @Test
@@ -54,9 +57,12 @@ class CachedUserLookupTest {
     @Test
     @DisplayName("조회 실패는 캐시하지 않고 다음 요청에서 다시 조회한다")
     void doesNotCacheFailure() {
-        CachedUserLookup lookup = new CachedUserLookup(id -> calls.incrementAndGet() == 1
-                ? Mono.error(new IllegalStateException("down"))
-                : Mono.just(Optional.empty()), Duration.ofSeconds(60), nanos::get);
+        CachedUserLookup lookup = new CachedUserLookup(
+                id -> calls.incrementAndGet() == 1
+                        ? Mono.error(new IllegalStateException("down"))
+                        : Mono.just(Optional.empty()),
+                Duration.ofSeconds(60),
+                nanos::get);
 
         assertThatThrownBy(() -> lookup.find(userId).block()).hasMessageContaining("down");
         assertThat(lookup.find(userId).block()).isEmpty();
@@ -66,11 +72,14 @@ class CachedUserLookupTest {
     @Test
     @DisplayName("같은 사용자의 동시 요청 중 하나가 취소돼도 다른 요청은 결과를 받는다")
     void cancelDoesNotBreakOthers() {
-        CachedUserLookup lookup = new CachedUserLookup(id -> {
-            calls.incrementAndGet();
-            return Mono.delay(java.time.Duration.ofMillis(200))
-                    .map(ignored -> Optional.of(new UserSnapshot(id, "hong01", "USER")));
-        }, Duration.ofSeconds(60), nanos::get);
+        CachedUserLookup lookup = new CachedUserLookup(
+                id -> {
+                    calls.incrementAndGet();
+                    return Mono.delay(java.time.Duration.ofMillis(200))
+                            .map(ignored -> Optional.of(new UserSnapshot(id, "hong01", "USER")));
+                },
+                Duration.ofSeconds(60),
+                nanos::get);
 
         reactor.core.Disposable first = lookup.find(userId).subscribe();
         Mono<Optional<UserSnapshot>> second = lookup.find(userId);

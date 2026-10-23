@@ -6,16 +6,15 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record UserResponse(
-        UUID userId,
-        String username,
-        String name,
-        Role role,
-        LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {
+        UUID userId, String username, String name, Role role, LocalDateTime createdAt, LocalDateTime updatedAt) {
 
     public static UserResponse from(UserResult result) {
-        return new UserResponse(result.userId(), result.username(), result.name(), result.role(),
-                result.createdAt(), result.updatedAt());
+        return new UserResponse(
+                result.userId(),
+                result.username(),
+                result.name(),
+                result.role(),
+                result.createdAt(),
+                result.updatedAt());
     }
 }

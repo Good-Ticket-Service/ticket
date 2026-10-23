@@ -24,11 +24,13 @@ class MasterAccountInitializerTest {
 
     @Mock
     private UserRepository userRepository;
+
     @Mock
     private PasswordEncoder passwordEncoder;
 
     private MasterAccountInitializer initializer(String username, String password) {
-        return new MasterAccountInitializer(new MasterAccountProperties(username, password), userRepository, passwordEncoder);
+        return new MasterAccountInitializer(
+                new MasterAccountProperties(username, password), userRepository, passwordEncoder);
     }
 
     @Test

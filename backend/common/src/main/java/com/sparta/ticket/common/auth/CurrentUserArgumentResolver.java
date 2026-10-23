@@ -20,8 +20,11 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
     }
 
     @Override
-    public UserContext resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer,
-                                       NativeWebRequest request, WebDataBinderFactory binderFactory) {
+    public UserContext resolveArgument(
+            MethodParameter parameter,
+            ModelAndViewContainer mavContainer,
+            NativeWebRequest request,
+            WebDataBinderFactory binderFactory) {
         return UserContextExtractor.extract(request::getHeader);
     }
 }

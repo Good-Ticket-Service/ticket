@@ -7,16 +7,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 
 /**
- * 목록(검색) 응답의 {@code data} 형식. 
+ * 목록(검색) 응답의 {@code data} 형식.
  */
-public record PageResponse<T>(
-        List<T> content,
-        int page,
-        int size,
-        long totalElements,
-        int totalPages,
-        String sort
-) {
+public record PageResponse<T>(List<T> content, int page, int size, long totalElements, int totalPages, String sort) {
 
     public static <T> PageResponse<T> from(Page<T> page) {
         return new PageResponse<>(
@@ -25,8 +18,7 @@ public record PageResponse<T>(
                 page.getSize(),
                 page.getTotalElements(),
                 page.getTotalPages(),
-                format(page.getSort())
-        );
+                format(page.getSort()));
     }
 
     /** Entity 페이지를 응답 DTO 페이지로 바꾼다. 예: {@code PageResponse.from(eventPage, EventResult::from)} */

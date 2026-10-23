@@ -12,8 +12,7 @@ import org.springframework.data.domain.Pageable;
  */
 public final class SortAllowList {
 
-    private SortAllowList() {
-    }
+    private SortAllowList() {}
 
     /** 허용 목록 밖의 정렬 필드가 있으면 InvalidSortException. 예: {@code SortAllowList.check(pageable, Set.of("createdAt", "name"))} */
     public static Pageable check(Pageable pageable, Set<String> allowed) {

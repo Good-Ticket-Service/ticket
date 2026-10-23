@@ -31,12 +31,13 @@ public class UserVerifyingJwtConverter implements Converter<Jwt, Mono<AbstractAu
         }
         String tokenRole = jwt.getClaimAsString("role");
 
-        return userLookup.find(userId)
+        return userLookup
+                .find(userId)
                 .onErrorMap(e -> new GatewayAuthenticationException(CommonErrorCode.SERVICE_UNAVAILABLE, e))
-                .flatMap(found -> found
-                        .filter(user -> user.role().equals(tokenRole))
+                .flatMap(found -> found.filter(user -> user.role().equals(tokenRole))
                         .map(user -> Mono.<AbstractAuthenticationToken>just(authenticated(user, jwt)))
-                        .orElseGet(() -> Mono.error(new GatewayAuthenticationException(CommonErrorCode.TOKEN_ROLE_MISMATCH))));
+                        .orElseGet(() ->
+                                Mono.error(new GatewayAuthenticationException(CommonErrorCode.TOKEN_ROLE_MISMATCH))));
     }
 
     private UsernamePasswordAuthenticationToken authenticated(UserSnapshot user, Jwt jwt) {

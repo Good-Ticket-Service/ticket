@@ -15,15 +15,15 @@ import org.springframework.data.domain.Sort;
  */
 public final class QuerydslSupport {
 
-    private QuerydslSupport() {
-    }
+    private QuerydslSupport() {}
 
     /**
      * Pageable의 정렬을 QueryDSL 정렬로 바꾼다. 허용 목록에 없는 필드는 InvalidSortException(400 VALIDATION_ERROR).
      *
      * @param allowed 정렬 필드명 → Q클래스 경로. 예: {@code Map.of("createdAt", event.createdAt, "name", event.name)}
      */
-    public static OrderSpecifier<?>[] toOrderSpecifiers(Sort sort, Map<String, ? extends ComparableExpressionBase<?>> allowed) {
+    public static OrderSpecifier<?>[] toOrderSpecifiers(
+            Sort sort, Map<String, ? extends ComparableExpressionBase<?>> allowed) {
         return sort.stream()
                 .map(order -> {
                     ComparableExpressionBase<?> path = allowed.get(order.getProperty());

@@ -32,7 +32,8 @@ class FeignHeaderInterceptorTest {
 
         interceptor.apply(template);
 
-        assertThat(template.headers()).containsKeys(UserHeaders.USER_ID, UserHeaders.ROLE)
+        assertThat(template.headers())
+                .containsKeys(UserHeaders.USER_ID, UserHeaders.ROLE)
                 .doesNotContainKey("Authorization");
     }
 

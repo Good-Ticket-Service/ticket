@@ -17,7 +17,6 @@ import org.springframework.security.config.web.server.ServerHttpSecurity.HttpBas
 import org.springframework.security.config.web.server.ServerHttpSecurity.LogoutSpec;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
@@ -44,22 +43,25 @@ public class SecurityConfig {
      * 토큰 검증에 걸려 401이 되기 때문이다.
      */
     @Bean
-    public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http, AuthProperties properties,
-                                                         UserLookup userLookup, ErrorResponseWriter errorWriter) {
+    public SecurityWebFilterChain securityWebFilterChain(
+            ServerHttpSecurity http,
+            AuthProperties properties,
+            UserLookup userLookup,
+            ErrorResponseWriter errorWriter) {
         JsonAuthenticationEntryPoint entryPoint = new JsonAuthenticationEntryPoint(errorWriter);
-        return http
-                .securityMatcher(new NegatedServerWebExchangeMatcher(
-                        ServerWebExchangeMatchers.pathMatchers(properties.whitelist().toArray(String[]::new))))
+        return http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        properties.whitelist().toArray(String[]::new))))
                 .csrf(CsrfSpec::disable)
                 .formLogin(FormLoginSpec::disable)
                 .httpBasic(HttpBasicSpec::disable)
                 .logout(LogoutSpec::disable)
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
                 .authorizeExchange(exchanges -> exchanges.anyExchange().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(new UserVerifyingJwtConverter(userLookup)))
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(
+                                jwt -> jwt.jwtAuthenticationConverter(new UserVerifyingJwtConverter(userLookup)))
                         .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler((exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
+                        .accessDeniedHandler(
+                                (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint))
                 .addFilterAfter(new UserHeaderInjectionFilter(), SecurityWebFiltersOrder.AUTHORIZATION)
                 .build();
@@ -73,7 +75,9 @@ public class SecurityConfig {
     @Bean
     public ReactiveJwtDecoder reactiveJwtDecoder(JwtProperties properties) {
         SecretKeySpec key = new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(key)
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 new JwtTimestampValidator(Duration.ZERO),
                 required(JwtClaimNames.SUB),
