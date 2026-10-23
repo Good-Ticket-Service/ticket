@@ -71,4 +71,7 @@ if gateway=$(host_url gateway-service 8080); then
 fi
 if eureka=$(host_url eureka-server 8761); then echo "Eureka       $eureka"; fi
 if config=$(host_url config-server 8888); then echo "Config       $config/user-service/default"; fi
+if kafka_ui=$(host_url kafka-ui 8080); then echo "Kafka UI     $kafka_ui"; fi
+if prometheus=$(host_url prometheus 9090); then echo "Prometheus   $prometheus/targets"; fi
+if grafana=$(host_url grafana 3000); then echo "Grafana      $grafana (admin / .env의 GRAFANA_ADMIN_PASSWORD)"; fi
 echo "서비스가 Eureka에 등록될 때까지 수십 초 걸린다. 로그: docker compose logs -f {서비스}"

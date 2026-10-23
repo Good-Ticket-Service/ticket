@@ -27,6 +27,9 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  # spring-kafka를 넣은 서비스만 이 값으로 연결한다. Compose 안에서는 KAFKA_BOOTSTRAP_SERVERS=kafka:29092가 들어온다.
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
   cloud:
     openfeign:
       client:
@@ -39,7 +42,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: Prometheus가 수집하는 메트릭(infra/prometheus/prometheus.yml)
+        include: health,info,prometheus
+  metrics:
+    tags:
+      # 모든 메트릭에 서비스 이름을 붙여 Grafana에서 서비스별로 나눠 본다
+      application: ${spring.application.name}
 
 springdoc:
   # 외부 문서에는 서비스 간 내부 API를 싣지 않는다(Gateway에서도 차단된다)

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Compose로 띄운 전체 시스템이 Gateway를 통해 연결되는지 점검한다. CI의 smoke 잡과 로컬에서 같이 쓴다.
 # 사용: docker compose up -d --build && script/smoke.sh
-# 점검: Gateway 기동 → 서비스 Eureka 등록 → 무인증 요청 401 → MASTER 로그인 → 토큰으로 내 정보 조회
+# 점검: Gateway 기동 → 서비스 Eureka 등록 → 무인증 요청 401 → Kafka 송수신 → Prometheus 수집·Grafana 연결
+#       → MASTER 로그인 → 토큰으로 내 정보 조회
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -66,6 +67,44 @@ status=$(request "$gateway/api/v1/users/me")
 [[ $status == 401 ]] && grep -q '"code":"UNAUTHORIZED"' "$body_file" \
   || fail "무인증 요청이 공통 401 응답이 아니다: $status $(cat "$body_file")"
 echo "ok: 무인증 요청 401"
+
+# Kafka: 컨테이너끼리 쓰는 INTERNAL 리스너(kafka:29092)로 토픽을 만들고 메시지를 보내고 받는다. 점검용 토픽은 지운다.
+if docker compose ps --services --status running | grep -qx kafka; then
+  # Note: Windows Git Bash는 /opt/... 인자를 Windows 경로로 바꾼다. 컨테이너 안 경로가 깨지지 않게 이 명령에서만 끈다.
+  kafka() { MSYS_NO_PATHCONV=1 docker compose exec -T kafka "/opt/kafka/bin/$1" --bootstrap-server kafka:29092 "${@:2}"; }
+  topic="smoke-check-$(date +%s)"
+  kafka kafka-topics.sh --create --topic "$topic" --partitions 1 --replication-factor 1 > /dev/null \
+    || fail "Kafka 토픽을 만들지 못했다"
+  echo "smoke" | kafka kafka-console-producer.sh --topic "$topic" || fail "Kafka에 메시지를 보내지 못했다"
+  received=$(kafka kafka-console-consumer.sh --topic "$topic" --from-beginning --max-messages 1 \
+    --timeout-ms 20000 2> /dev/null | tr -d '\r' || true)
+  kafka kafka-topics.sh --delete --topic "$topic" > /dev/null 2>&1 || true
+  [[ $received == smoke ]] || fail "Kafka에서 보낸 메시지를 받지 못했다: '$received'"
+  echo "ok: Kafka 송수신"
+fi
+
+# Prometheus: Eureka에서 찾은 앱이 모두 수집되는지(up=1) 확인한다.
+if prometheus=$(host_url prometheus 9090); then
+  scraped() {
+    [[ $(request -G --data-urlencode "query=up{job=\"spring-apps\",application=\"$1\"}" \
+      "$prometheus/api/v1/query") == 200 ]] && grep -q '"1"\]' "$body_file"
+  }
+  for app in gateway-service "${SERVICES[@]}"; do
+    wait_until "Prometheus가 $app 메트릭을 수집하지 못한다" scraped "$app"
+  done
+  echo "ok: Prometheus 수집 (gateway-service, ${SERVICES[*]})"
+fi
+
+# Grafana: 자동 등록한 Prometheus 데이터 소스가 연결되는지 확인한다.
+if grafana=$(host_url grafana 3000); then
+  grafana_password=$(env_value GRAFANA_ADMIN_PASSWORD)
+  datasource_ok() {
+    [[ $(request -u "admin:$grafana_password" "$grafana/api/datasources/uid/prometheus/health") == 200 ]] \
+      && grep -q '"status":"OK"' "$body_file"
+  }
+  wait_until "Grafana의 Prometheus 데이터 소스가 연결되지 않는다" datasource_ok
+  echo "ok: Grafana 데이터 소스"
+fi
 
 username=$(env_value MASTER_USERNAME)
 password=$(env_value MASTER_PASSWORD)

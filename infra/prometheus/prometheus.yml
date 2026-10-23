@@ -1,0 +1,23 @@
+# Prometheus 수집 설정. docker-compose.yml의 prometheus 서비스가 마운트한다.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Note: 서비스 주소를 직접 적지 않고 Eureka 등록 목록에서 찾는다. 인스턴스를 늘리거나 서비스를 추가해도 이 파일은 그대로다.
+  # Eureka에 등록하지 않는 config-server·eureka-server는 수집하지 않는다.
+  - job_name: spring-apps
+    metrics_path: /actuator/prometheus
+    eureka_sd_configs:
+      - server: http://eureka-server:8761/eureka
+        refresh_interval: 15s
+    relabel_configs:
+      # Eureka 앱 이름(USER-SERVICE)을 소문자 application 라벨로 붙인다. Grafana에서 서비스별로 나눠 볼 때 쓴다.
+      - source_labels: [__meta_eureka_app_name]
+        target_label: application
+        action: lowercase
+      - source_labels: [__meta_eureka_app_instance_id]
+        target_label: instance
