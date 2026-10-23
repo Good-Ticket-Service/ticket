@@ -1,0 +1,19 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common-core')
+    implementation 'org.springframework.cloud:spring-cloud-starter-config'
+    implementation 'org.springframework.cloud:spring-cloud-starter-gateway-server-webflux'
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+    implementation "org.springdoc:springdoc-openapi-starter-webflux-ui:${springdocVersion}"
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    // JWT 검증(ReactiveJwtDecoder, Nimbus). 발급은 user-service가 JJWT로 한다
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'io.projectreactor:reactor-test'
+}

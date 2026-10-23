@@ -1,0 +1,12 @@
+server:
+  port: 8083
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/ticket?currentSchema=reservation_schema
+    username: reservation_app
+    password: ${RESERVATION_DB_PASSWORD:reservation_local_pw}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: reservation_schema

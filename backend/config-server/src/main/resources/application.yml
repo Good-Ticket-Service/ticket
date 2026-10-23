@@ -1,0 +1,14 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          # 기본은 jar에 포함된 설정. 재빌드 없이 바로 바꿔 보려면 CONFIG_REPO_LOCATION=file:/절대경로/config-repo 로 덮어쓴다.
+          search-locations: ${CONFIG_REPO_LOCATION:classpath:/config-repo}

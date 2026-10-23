@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: user-service
+  profiles:
+    # 프로필을 지정하지 않으면 local로 뜬다. 다른 환경은 SPRING_PROFILES_ACTIVE(예: dev)로 바꾼다.
+    default: local
+  config:
+    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}
+  cloud:
+    config:
+      # config-server에 접속하지 못하면 기본값(포트 8080 등)으로 뜨지 않고 바로 실패한다
+      fail-fast: true

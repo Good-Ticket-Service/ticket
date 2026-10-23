@@ -1,0 +1,46 @@
+# 모든 클라이언트 서비스가 받는 공통 설정. 서비스 전용 값은 {서비스명}.yml에 둔다.
+# Note: 환경마다 달라지는 값은 ${ENV:기본값} 자리표시자로 두어 무엇을 바꿀 수 있는지 드러낸다. 자리표시자는 클라이언트 쪽 환경 변수로 풀린다.
+# spring.config.import로 받은 Config Server 값은 모듈 application.yml보다는 우선하지만 환경 변수·JVM 시스템 속성보다는 낮다. 그래서 SERVER_PORT 같은 환경 변수로도 덮어쓸 수 있다.
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+    # 등록 목록을 받아 오는 주기 (기본 30초). 새로 뜬 서비스를 Gateway·Feign이 빨리 찾게 한다.
+    registry-fetch-interval-seconds: 5
+  instance:
+    instance-id: ${spring.application.name}:${random.value}
+    prefer-ip-address: ${EUREKA_PREFER_IP:false}
+    # 로컬 개발용 값. 살아 있음을 5초마다 알리고, 15초 동안 신호가 없으면 Eureka가 목록에서 지운다 (기본 30초 / 90초).
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
+
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      # local 밖(dev 등)의 기본값. 테이블은 backend/sql/{서비스}/schema.sql을 DB에 적용해 만들고, Hibernate는 Entity와 맞는지만 검사한다.
+      # 다르면 기동을 멈춘다. local 프로필은 application-local.yml에서 create로 바꾼다.
+      ddl-auto: validate
+  # spring-boot-starter-data-redis를 넣은 서비스만 이 값으로 연결한다. 넣지 않은 서비스에는 영향이 없다.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 5000
+            read-timeout: 20000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  # 외부 문서에는 서비스 간 내부 API를 싣지 않는다(Gateway에서도 차단된다)
+  paths-to-exclude: /internal/**

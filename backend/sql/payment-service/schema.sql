@@ -1,0 +1,3 @@
+-- payment-service 스키마(payment_schema)의 현재 DDL. Entity를 추가·변경하면 이 파일도 같이 고친다.
+-- 통합 테스트(PostgresIntegrationTest)가 이 파일로 테이블을 만든 뒤 Entity와 맞는지 검사한다(ddl-auto=validate).
+-- 테이블 이름에 스키마를 붙이지 않는다. 서비스 계정(payment_app)으로 적용하면 계정 기본 search_path인 payment_schema에 만들어진다.

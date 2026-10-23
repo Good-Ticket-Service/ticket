@@ -1,0 +1,22 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/ticket?currentSchema=user_schema
+    username: user_app
+    password: ${USER_DB_PASSWORD:user_local_pw}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: user_schema
+
+# 기동할 때 이 username의 MASTER 계정이 없으면 만든다(MasterAccountInitializer). 값이 비어 있으면 건너뛴다.
+master:
+  username: ${MASTER_USERNAME:}
+  password: ${MASTER_PASSWORD:}
+
+jwt:
+  # 서명 키는 저장소에 두지 않는다. compose는 .env의 JWT_SECRET을 넘기고, 로컬 실행은 환경 변수로 지정한다.
+  secret: ${JWT_SECRET}
+  expiration-seconds: 3600

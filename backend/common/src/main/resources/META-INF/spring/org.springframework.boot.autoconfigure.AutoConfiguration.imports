@@ -1,0 +1,6 @@
+com.sparta.ticket.common.autoconfigure.CommonWebAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonJpaAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonQuerydslAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonFeignAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonJacksonAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonOpenApiAutoConfiguration

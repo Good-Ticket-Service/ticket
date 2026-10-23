@@ -1,0 +1,23 @@
+plugins {
+    id 'java-library'
+    id 'java-test-fixtures'
+}
+
+dependencies {
+    // 서비스가 그대로 쓰는 라이브러리는 api로 노출한다(서비스 build.gradle에 반복하지 않는다)
+    api project(':common-core')
+    api "org.springdoc:springdoc-openapi-starter-webmvc-api:${springdocVersion}"
+    api "io.github.openfeign.querydsl:querydsl-jpa:${querydslVersion}"
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+}
+
+dependencies {
+    // 서비스 통합 테스트 공통 기반(PostgresIntegrationTest). 서비스는 testImplementation(testFixtures(project(':common')))로 쓴다
+    testFixturesApi 'org.springframework.boot:spring-boot-starter-test'
+    testFixturesApi 'org.springframework.boot:spring-boot-testcontainers'
+    testFixturesApi 'org.testcontainers:junit-jupiter'
+    testFixturesApi 'org.testcontainers:postgresql'
+}

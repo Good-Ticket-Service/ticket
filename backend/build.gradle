@@ -1,0 +1,73 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.16' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+allprojects {
+    group = 'com.sparta'
+    version = '0.0.1-SNAPSHOT'
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    // Note: 셸 JAVA_HOME과 무관하게 컴파일·테스트·bootRun을 JDK 17로 고정하는 설정. 팀원 간 JDK 차이를 빌드 수준에서 없앤다.
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    // Note: Boot BOM과 Cloud BOM을 함께 가져와 서로 호환되는 버전 묶음을 쓴다. 각 모듈은 starter에 버전을 적지 않는다.
+    dependencyManagement {
+        imports {
+            mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+            mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        }
+    }
+
+    dependencies {
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    // Note: Spring이 @RequestParam, @PathVariable 이름을 리플렉션으로 읽으려면 -parameters가 필요하다.
+    // Boot 플러그인을 쓰는 모듈은 자동으로 붙지만 common 같은 라이브러리 모듈은 빠지므로 모든 모듈에 명시한다.
+    // 소스 인코딩을 지정하지 않으면 OS 기본값을 따른다. Windows 한글 환경(MS949)에서 한글 주석·메시지가 깨지지 않게 UTF-8로 고정한다.
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs << '-parameters'
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+    }
+
+    // 실행 jar 이름을 버전과 무관하게 app.jar로 고정한다. Dockerfile이 버전을 몰라도 되고, 버전을 올려도 이미지 빌드가 깨지지 않는다.
+    // 실행할 수 없는 plain jar는 만들지 않는다(build/libs에 jar가 하나만 남는다).
+    plugins.withId('org.springframework.boot') {
+        tasks.named('bootJar') {
+            archiveFileName = 'app.jar'
+        }
+        tasks.named('jar') {
+            enabled = false
+        }
+    }
+}
+
+// Note: JPA를 쓰는 모듈(common + 비즈니스 서비스)에만 QueryDSL Q클래스 생성을 건다. 서비스마다 같은 설정을 반복하지 않게 루트에서 한 번 선언한다.
+// common도 포함하는 이유: 서비스 Entity의 Q클래스(QUser)가 상위 클래스의 Q클래스(QBaseEntity)를 상속하기 때문이다.
+configure(subprojects.findAll { it.name == 'common' || (it.name.endsWith('-service') && it.name != 'gateway-service') }) {
+    dependencies {
+        annotationProcessor "io.github.openfeign.querydsl:querydsl-apt:${querydslVersion}:jpa"
+        annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+    }
+}

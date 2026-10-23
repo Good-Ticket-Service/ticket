@@ -1,0 +1,15 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation 'org.springframework.cloud:spring-cloud-config-server'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+}
+
+// Note: 루트의 config-repo/를 jar 안 classpath:/config-repo 로 넣는다. 로컬 실행과 컨테이너가 같은 설정을 읽고, 설정을 바꾸면 config-server만 다시 빌드하면 된다.
+processResources {
+    from(rootProject.file('config-repo')) {
+        into 'config-repo'
+    }
+}

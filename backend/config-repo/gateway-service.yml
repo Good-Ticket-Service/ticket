@@ -1,0 +1,85 @@
+server:
+  port: 8080
+
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 5000
+            # Note: 내부 호출이 이어지는 요청이 Gateway에서 먼저 끊기지 않게 하위 서비스 read 타임아웃(20초)보다 길게 둔다.
+            response-timeout: 60s
+          # Note: lb:// 는 Eureka에 등록된 서비스 이름으로 인스턴스를 찾아 라운드로빈으로 분산한다. 인스턴스를 늘려도 Gateway 설정은 바뀌지 않는다.
+          routes:
+            - id: user-service
+              uri: lb://user-service
+              predicates:
+                - Path=/api/v1/auth/**, /api/v1/users/**
+            - id: event-service
+              uri: lb://event-service
+              predicates:
+                - Path=/api/v1/events/**
+            - id: reservation-service
+              uri: lb://reservation-service
+              predicates:
+                - Path=/api/v1/reservations/**
+            - id: payment-service
+              uri: lb://payment-service
+              predicates:
+                - Path=/api/v1/payments/**
+            # 서비스별 OpenAPI 문서. Gateway Swagger UI가 /{서비스}/v3/api-docs 로 불러온다.
+            - id: user-service-docs
+              uri: lb://user-service
+              predicates:
+                - Path=/user-service/v3/api-docs
+              filters:
+                - RewritePath=/user-service/v3/api-docs, /v3/api-docs
+            - id: event-service-docs
+              uri: lb://event-service
+              predicates:
+                - Path=/event-service/v3/api-docs
+              filters:
+                - RewritePath=/event-service/v3/api-docs, /v3/api-docs
+            - id: reservation-service-docs
+              uri: lb://reservation-service
+              predicates:
+                - Path=/reservation-service/v3/api-docs
+              filters:
+                - RewritePath=/reservation-service/v3/api-docs, /v3/api-docs
+            - id: payment-service-docs
+              uri: lb://payment-service
+              predicates:
+                - Path=/payment-service/v3/api-docs
+              filters:
+                - RewritePath=/payment-service/v3/api-docs, /v3/api-docs
+
+jwt:
+  secret: ${JWT_SECRET}
+
+auth:
+  # 인증 없이 통과시키는 경로
+  whitelist:
+    - /api/v1/auth/signup
+    - /api/v1/auth/login
+    - /swagger-ui.html
+    - /swagger-ui/**
+    - /webjars/**
+    - /v3/api-docs/**
+    - /*/v3/api-docs/**
+    # 기동 확인용. 상세 정보 없이 상태(UP/DOWN)만 응답한다
+    - /actuator/health
+  # 권한 재확인 결과 캐시 시간. 권한 변경·탈퇴는 최대 이 시간만큼 늦게 반영된다
+  user-cache-ttl: 60s
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: user-service
+        url: /user-service/v3/api-docs
+      - name: event-service
+        url: /event-service/v3/api-docs
+      - name: reservation-service
+        url: /reservation-service/v3/api-docs
+      - name: payment-service
+        url: /payment-service/v3/api-docs

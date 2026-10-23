@@ -1,0 +1,8 @@
+# local 프로필(기본 프로필) 공통 설정. 같은 이름의 값은 application.yml보다 우선한다.
+# Note: 클라이언트가 local 프로필로 요청하면 config-server가 application.yml, application-local.yml, {서비스}.yml을 함께 내려준다.
+
+spring:
+  jpa:
+    hibernate:
+      # Hibernate가 기동할 때마다 Entity 기준으로 테이블을 지우고 다시 만든다. 재시작하면 로컬 데이터가 사라진다.
+      ddl-auto: create

@@ -1,0 +1,2 @@
+com.sparta.ticket.common.autoconfigure.CommonJpaAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonQuerydslAutoConfiguration

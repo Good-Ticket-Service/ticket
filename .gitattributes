@@ -1,0 +1,12 @@
+# 저장소에는 LF로 저장한다. Windows에서 clone해도 Docker(Linux) 안에서 실행되는 파일은 LF를 유지해야 한다.
+* text=auto
+
+# 컨테이너 안에서 실행되는 파일. CRLF로 checkout되면 "/bin/sh^M: bad interpreter"로 실패한다.
+gradlew text eol=lf
+*.sh    text eol=lf
+
+# Windows 배치 파일은 checkout 시 CRLF를 유지한다.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+*.jar   binary

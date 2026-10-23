@@ -1,0 +1,16 @@
+plugins {
+    id 'java-library'
+}
+
+// Note: 웹 스택(MVC, WebFlux)과 무관한 공통 계약만 둔다. MVC 기반 common에 의존할 수 없는 gateway(WebFlux)도
+// 같은 에러 코드, 에러 응답, 사용자 헤더 이름을 쓰게 해서 두 곳에 따로 정의하다 어긋나는 일을 막는다.
+dependencies {
+    // HttpStatus, HttpStatusCode: spring-web은 MVC와 WebFlux가 함께 쓰는 기반 모듈이다
+    api 'org.springframework:spring-web'
+    api 'com.fasterxml.jackson.core:jackson-annotations'
+}
+
+dependencies {
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+    testImplementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

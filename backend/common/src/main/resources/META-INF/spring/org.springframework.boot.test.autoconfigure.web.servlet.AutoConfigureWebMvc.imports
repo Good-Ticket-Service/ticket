@@ -1,0 +1,2 @@
+com.sparta.ticket.common.autoconfigure.CommonWebAutoConfiguration
+com.sparta.ticket.common.autoconfigure.CommonJacksonAutoConfiguration

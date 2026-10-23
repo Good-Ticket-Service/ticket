@@ -1,0 +1,6 @@
+# 빌드 컨텍스트는 backend/다. 빌드에 필요한 소스만 보낸다(build 단계에서 Gradle로 컴파일)
+**/build
+**/out
+.gradle
+.idea
+*.md
