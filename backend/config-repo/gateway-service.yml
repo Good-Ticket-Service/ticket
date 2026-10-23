@@ -69,6 +69,9 @@ auth:
     - /*/v3/api-docs/**
     # 기동 확인용. 상세 정보 없이 상태(UP/DOWN)만 응답한다
     - /actuator/health
+    # Prometheus 수집용. Note: Gateway 8080은 외부에 공개되므로 배포할 때는 이 경로를 외부에서 막거나
+    # management.server.port로 관리 포트를 분리해야 한다. 지금은 로컬 개발 환경만 가정한다.
+    - /actuator/prometheus
   # 권한 재확인 결과 캐시 시간. 권한 변경·탈퇴는 최대 이 시간만큼 늦게 반영된다
   user-cache-ttl: 60s
 

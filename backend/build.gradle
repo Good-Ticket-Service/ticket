@@ -76,6 +76,10 @@ subprojects {
     // 실행 jar 이름을 버전과 무관하게 app.jar로 고정한다. Dockerfile이 버전을 몰라도 되고, 버전을 올려도 이미지 빌드가 깨지지 않는다.
     // 실행할 수 없는 plain jar는 만들지 않는다(build/libs에 jar가 하나만 남는다).
     plugins.withId('org.springframework.boot') {
+        // Note: actuator가 있는 앱은 /actuator/prometheus로 메트릭을 내보낸다(노출 설정은 config-repo/application.yml).
+        dependencies {
+            runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+        }
         tasks.named('bootJar') {
             archiveFileName = 'app.jar'
         }
