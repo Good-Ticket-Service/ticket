@@ -29,7 +29,8 @@ public class UserHeaderInjectionFilter implements WebFilter {
     }
 
     private ServerWebExchange withUserHeaders(ServerWebExchange exchange, UserSnapshot user) {
-        ServerHttpRequest request = exchange.getRequest().mutate()
+        ServerHttpRequest request = exchange.getRequest()
+                .mutate()
                 .header(UserHeaders.USER_ID, user.userId().toString())
                 .header(UserHeaders.USERNAME, user.username())
                 .header(UserHeaders.ROLE, user.role())

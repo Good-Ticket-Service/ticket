@@ -33,7 +33,8 @@ public class FeignErrorDecoder implements ErrorDecoder {
         if (status.is4xxClientError()) {
             JsonNode body = readBody(response);
             if (body != null && body.hasNonNull("code") && body.hasNonNull("message")) {
-                return new BusinessException(new SimpleErrorCode(status, body.get("code").asText(), body.get("message").asText()));
+                return new BusinessException(new SimpleErrorCode(
+                        status, body.get("code").asText(), body.get("message").asText()));
             }
         }
         log.warn("하위 서비스 호출 실패: {} status={}", methodKey, response.status());

@@ -32,10 +32,13 @@ class AuthServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
     @Mock
     private PasswordEncoder passwordEncoder;
+
     @Mock
     private TokenIssuer tokenIssuer;
+
     private AuthService authService;
 
     private final SignupCommand signup = new SignupCommand("hong01", "Sparta!2026", "홍길동");
@@ -66,7 +69,8 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.signup(signup))
                 .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
         verify(userRepository, never()).saveAndFlush(any());
     }
 
@@ -75,10 +79,12 @@ class AuthServiceTest {
     void uniqueViolationOnSave() {
         given(userRepository.existsByUsernameIncludingDeleted("hong01")).willReturn(false);
         given(passwordEncoder.encode("Sparta!2026")).willReturn("hashed");
-        given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException("uk_username"));
+        given(userRepository.saveAndFlush(any(User.class)))
+                .willThrow(new DataIntegrityViolationException("uk_username"));
 
         assertThatThrownBy(() -> authService.signup(signup))
-                .extracting("errorCode").isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
     }
 
     @Test
@@ -104,9 +110,11 @@ class AuthServiceTest {
         given(userRepository.findByUsername("nobody")).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(new LoginCommand("hong01", "wrong")))
-                .extracting("errorCode").isEqualTo(UserErrorCode.LOGIN_FAILED);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.LOGIN_FAILED);
         assertThatThrownBy(() -> authService.login(new LoginCommand("nobody", "Sparta!2026")))
-                .extracting("errorCode").isEqualTo(UserErrorCode.LOGIN_FAILED);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.LOGIN_FAILED);
     }
 
     @Test
@@ -115,7 +123,8 @@ class AuthServiceTest {
         given(userRepository.findByUsername("nobody")).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(new LoginCommand("nobody", "Sparta!2026")))
-                .extracting("errorCode").isEqualTo(UserErrorCode.LOGIN_FAILED);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.LOGIN_FAILED);
         verify(passwordEncoder).matches("Sparta!2026", "dummy-hash");
     }
 }

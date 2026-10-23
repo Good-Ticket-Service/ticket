@@ -20,15 +20,16 @@ public class UserServiceClient {
     private final Duration timeout;
 
     public Mono<Optional<UserSnapshot>> fetch(UUID userId) {
-        return webClient.get()
+        return webClient
+                .get()
                 .uri("/internal/users/{userId}", userId)
                 .retrieve()
                 .bodyToMono(UserSnapshot.class)
                 .map(Optional::of)
                 // 연결·응답 타임아웃과 별개로, 인스턴스 선택부터 본문 해석까지 전체에 상한을 둔다
                 .timeout(timeout)
-                .onErrorResume(WebClientResponseException.class, e -> e.getStatusCode() == HttpStatus.NOT_FOUND
-                        ? Mono.just(Optional.empty())
-                        : Mono.error(e));
+                .onErrorResume(
+                        WebClientResponseException.class,
+                        e -> e.getStatusCode() == HttpStatus.NOT_FOUND ? Mono.just(Optional.empty()) : Mono.error(e));
     }
 }

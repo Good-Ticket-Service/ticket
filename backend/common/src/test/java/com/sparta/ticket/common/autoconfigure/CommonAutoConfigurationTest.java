@@ -28,8 +28,12 @@ import org.springframework.context.annotation.Configuration;
 class CommonAutoConfigurationTest {
 
     private static final List<Class<?>> COMMON = List.of(
-            CommonWebAutoConfiguration.class, CommonJpaAutoConfiguration.class, CommonQuerydslAutoConfiguration.class,
-            CommonFeignAutoConfiguration.class, CommonJacksonAutoConfiguration.class, CommonOpenApiAutoConfiguration.class);
+            CommonWebAutoConfiguration.class,
+            CommonJpaAutoConfiguration.class,
+            CommonQuerydslAutoConfiguration.class,
+            CommonFeignAutoConfiguration.class,
+            CommonJacksonAutoConfiguration.class,
+            CommonOpenApiAutoConfiguration.class);
 
     private final WebApplicationContextRunner web = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
@@ -39,7 +43,9 @@ class CommonAutoConfigurationTest {
     @Test
     @DisplayName("자동 설정 6개가 AutoConfiguration.imports에 등록돼 있다")
     void registeredInImports() {
-        List<String> candidates = ImportCandidates.load(AutoConfiguration.class, getClass().getClassLoader()).getCandidates();
+        List<String> candidates = ImportCandidates.load(
+                        AutoConfiguration.class, getClass().getClassLoader())
+                .getCandidates();
 
         assertThat(candidates).containsAll(COMMON.stream().map(Class::getName).toList());
     }
@@ -48,19 +54,22 @@ class CommonAutoConfigurationTest {
     @DisplayName("MVC 서비스에는 웹·Feign·Jackson·OpenAPI 공통 빈이 등록된다")
     void registersDefaults() {
         web.run(context -> {
-            assertThat(context).hasSingleBean(GlobalExceptionHandler.class)
+            assertThat(context)
+                    .hasSingleBean(GlobalExceptionHandler.class)
                     .hasSingleBean(CommonWebMvcConfigurer.class)
                     .hasSingleBean(FeignHeaderInterceptor.class)
                     .hasSingleBean(FeignErrorDecoder.class)
                     .hasSingleBean(OpenAPI.class);
-            assertThat(context.getBean(ObjectMapper.class).isEnabled(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)).isTrue();
+            assertThat(context.getBean(ObjectMapper.class).isEnabled(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS))
+                    .isTrue();
         });
     }
 
     @Test
     @DisplayName("JPA가 설정되지 않은 서비스는 Audit·QueryDSL 설정만 빠지고 정상 기동한다")
     void skipsJpaWithoutEntityManagerFactory() {
-        web.run(context -> assertThat(context).hasNotFailed()
+        web.run(context -> assertThat(context)
+                .hasNotFailed()
                 .doesNotHaveBean(JPAQueryFactory.class)
                 .doesNotHaveBean("auditorAware"));
     }
@@ -68,15 +77,21 @@ class CommonAutoConfigurationTest {
     @Test
     @DisplayName("묶음마다 common.<묶음>.enabled=false로 끌 수 있다")
     void canDisableEachGroup() {
-        web.withPropertyValues("common.web.enabled=false", "common.feign.enabled=false",
-                        "common.openapi.enabled=false", "common.jackson.enabled=false")
+        web.withPropertyValues(
+                        "common.web.enabled=false",
+                        "common.feign.enabled=false",
+                        "common.openapi.enabled=false",
+                        "common.jackson.enabled=false")
                 .run(context -> {
-                    assertThat(context).doesNotHaveBean(GlobalExceptionHandler.class)
+                    assertThat(context)
+                            .doesNotHaveBean(GlobalExceptionHandler.class)
                             .doesNotHaveBean(CommonWebMvcConfigurer.class)
                             .doesNotHaveBean(FeignHeaderInterceptor.class)
                             .doesNotHaveBean(FeignErrorDecoder.class)
                             .doesNotHaveBean(OpenAPI.class);
-                    assertThat(context.getBean(ObjectMapper.class).isEnabled(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)).isFalse();
+                    assertThat(context.getBean(ObjectMapper.class)
+                                    .isEnabled(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS))
+                            .isFalse();
                 });
     }
 
@@ -94,15 +109,19 @@ class CommonAutoConfigurationTest {
     @DisplayName("웹 애플리케이션이 아니면 MVC 공통 설정과 OpenAPI가 빠진다")
     void skipsWebInNonWebContext() {
         new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(CommonWebAutoConfiguration.class, CommonOpenApiAutoConfiguration.class))
-                .run(context -> assertThat(context).doesNotHaveBean(GlobalExceptionHandler.class).doesNotHaveBean(OpenAPI.class));
+                .withConfiguration(
+                        AutoConfigurations.of(CommonWebAutoConfiguration.class, CommonOpenApiAutoConfiguration.class))
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(GlobalExceptionHandler.class)
+                        .doesNotHaveBean(OpenAPI.class));
     }
 
     @Test
     @DisplayName("Feign이 클래스패스에 없으면 Feign 공통 설정만 빠진다")
     void skipsFeignWithoutFeign() {
         web.withClassLoader(new FilteredClassLoader(RequestInterceptor.class))
-                .run(context -> assertThat(context).hasNotFailed()
+                .run(context -> assertThat(context)
+                        .hasNotFailed()
                         .doesNotHaveBean(FeignHeaderInterceptor.class)
                         .hasSingleBean(GlobalExceptionHandler.class));
     }
@@ -121,6 +140,5 @@ class CommonAutoConfigurationTest {
         }
     }
 
-    static class ServiceExceptionHandler extends GlobalExceptionHandler {
-    }
+    static class ServiceExceptionHandler extends GlobalExceptionHandler {}
 }

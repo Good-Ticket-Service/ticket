@@ -39,6 +39,7 @@ public class CachedUserLookup implements UserLookup {
      */
     @Override
     public Mono<Optional<UserSnapshot>> find(UUID userId) {
-        return Mono.fromFuture(() -> cache.get(userId, (key, executor) -> loader.apply(key).toFuture()), true);
+        return Mono.fromFuture(
+                () -> cache.get(userId, (key, executor) -> loader.apply(key).toFuture()), true);
     }
 }

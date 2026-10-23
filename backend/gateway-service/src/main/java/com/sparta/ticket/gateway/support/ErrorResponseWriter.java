@@ -1,9 +1,9 @@
 package com.sparta.ticket.gateway.support;
 
-import com.sparta.ticket.common.exception.ErrorCode;
-import com.sparta.ticket.common.exception.ErrorResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.ticket.common.exception.ErrorCode;
+import com.sparta.ticket.common.exception.ErrorResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.MediaType;
@@ -23,7 +23,8 @@ public class ErrorResponseWriter {
         if (exchange.getResponse().isCommitted()) {
             return Mono.empty();
         }
-        ErrorResponse body = ErrorResponse.of(errorCode, errorCode.message(), exchange.getRequest().getPath().value());
+        ErrorResponse body = ErrorResponse.of(
+                errorCode, errorCode.message(), exchange.getRequest().getPath().value());
 
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(errorCode.status());

@@ -32,21 +32,27 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"jwt.secret=test-only-jwt-secret-key-0123456789abcdef", "jwt.expiration-seconds=3600"})
+@TestPropertySource(
+        properties = {"jwt.secret=test-only-jwt-secret-key-0123456789abcdef", "jwt.expiration-seconds=3600"})
 class UserAuthIntegrationTest extends PostgresIntegrationTest {
 
     private static final String PASSWORD = "Sparta!2026";
 
     @Autowired
     private AuthService authService;
+
     @Autowired
     private UserQueryService userQueryService;
+
     @Autowired
     private UserRepository userRepository;
+
     @Autowired
     private TransactionTemplate transactionTemplate;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -73,15 +79,18 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
     @DisplayName("논리 삭제된 사용자는 로그인 실패, 내부 조회 404이고, 같은 username으로 다시 가입할 수 없다")
     void withdrawnUser() {
         SignupResult result = authService.signup(signup("itdel01"));
-        transactionTemplate.executeWithoutResult(status ->
-                userRepository.findById(result.userId()).orElseThrow().softDelete("master01"));
+        transactionTemplate.executeWithoutResult(
+                status -> userRepository.findById(result.userId()).orElseThrow().softDelete("master01"));
 
         assertThatThrownBy(() -> authService.login(new LoginCommand("itdel01", PASSWORD)))
-                .extracting("errorCode").isEqualTo(UserErrorCode.LOGIN_FAILED);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.LOGIN_FAILED);
         assertThatThrownBy(() -> userQueryService.getInternalUser(result.userId()))
-                .extracting("errorCode").isEqualTo(UserErrorCode.USER_NOT_FOUND);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThatThrownBy(() -> authService.signup(signup("itdel01")))
-                .extracting("errorCode").isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
     }
 
     @Test
@@ -110,7 +119,8 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
         executor.shutdown();
 
         assertThat(results).filteredOn(SignupResult.class::isInstance).hasSize(1);
-        assertThat(results).filteredOn(result -> !(result instanceof SignupResult))
+        assertThat(results)
+                .filteredOn(result -> !(result instanceof SignupResult))
                 .hasSize(threads - 1)
                 .containsOnly(UserErrorCode.DUPLICATE_USERNAME);
     }
@@ -132,7 +142,7 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
     @DisplayName("테이블은 Hibernate가 아니라 backend/sql/user-service/schema.sql로 만들어진다(이름 붙인 제약이 있다)")
     void schemaFromSqlFile() {
         assertThat(jdbcTemplate.queryForList(
-                "SELECT conname FROM pg_constraint WHERE conrelid = 'p_users'::regclass", String.class))
+                        "SELECT conname FROM pg_constraint WHERE conrelid = 'p_users'::regclass", String.class))
                 .contains("uk_p_users_username", "ck_p_users_role");
     }
 }

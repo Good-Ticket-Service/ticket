@@ -38,7 +38,8 @@ class JwtProviderTest {
         assertThat(claims.getSubject()).isEqualTo(user.getId().toString());
         assertThat(claims.get("username", String.class)).isEqualTo("hong01");
         assertThat(claims.get("role", String.class)).isEqualTo("USER");
-        assertThat(claims.getExpiration().toInstant().getEpochSecond() - claims.getIssuedAt().toInstant().getEpochSecond())
+        assertThat(claims.getExpiration().toInstant().getEpochSecond()
+                        - claims.getIssuedAt().toInstant().getEpochSecond())
                 .isEqualTo(3600);
     }
 }

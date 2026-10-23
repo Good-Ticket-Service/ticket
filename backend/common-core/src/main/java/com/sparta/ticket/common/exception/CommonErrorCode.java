@@ -13,7 +13,6 @@ import org.springframework.http.HttpStatus;
 @Accessors(fluent = true)
 @RequiredArgsConstructor
 public enum CommonErrorCode implements ErrorCode {
-
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청을 처리할 수 없습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),

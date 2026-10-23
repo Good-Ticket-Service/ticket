@@ -10,16 +10,9 @@ import java.util.List;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ErrorResponse(
-        int status,
-        String code,
-        String message,
-        String path,
-        LocalDateTime timestamp,
-        List<FieldError> errors
-) {
+        int status, String code, String message, String path, LocalDateTime timestamp, List<FieldError> errors) {
 
-    public record FieldError(String field, String reason) {
-    }
+    public record FieldError(String field, String reason) {}
 
     public static ErrorResponse of(ErrorCode errorCode, String message, String path) {
         return of(errorCode, message, path, null);
@@ -32,7 +25,6 @@ public record ErrorResponse(
                 message,
                 path,
                 LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS),
-                errors
-        );
+                errors);
     }
 }

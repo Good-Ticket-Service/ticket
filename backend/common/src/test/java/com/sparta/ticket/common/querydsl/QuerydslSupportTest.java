@@ -25,7 +25,8 @@ class QuerydslSupportTest {
     void convertsAllowedSort() {
         Sort sort = Sort.by(Sort.Order.asc("name"), Sort.Order.desc("createdAt"));
 
-        OrderSpecifier<?>[] orders = QuerydslSupport.toOrderSpecifiers(sort, Map.of("name", name, "createdAt", createdAt));
+        OrderSpecifier<?>[] orders =
+                QuerydslSupport.toOrderSpecifiers(sort, Map.of("name", name, "createdAt", createdAt));
 
         assertThat(orders).hasSize(2);
         assertThat(orders[0].getTarget()).isEqualTo(name);
