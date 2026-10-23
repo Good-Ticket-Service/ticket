@@ -1,0 +1,53 @@
+name: 기능
+description: 새 기능이나 동작 변경
+title: "feat(<scope>): "
+body:
+  - type: input
+    id: scope
+    attributes:
+      label: scope
+      description: user, event, reservation, payment, gateway, config, eureka, common, infra, project 중 하나 (CONTRIBUTING.md 참고)
+      placeholder: reservation
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목적
+      description: 왜 필요한지, 누가 무엇을 할 수 있게 되는지
+    validations:
+      required: true
+  - type: textarea
+    id: range
+    attributes:
+      label: 범위
+      description: 이번 이슈에서 하는 것과 하지 않는 것
+      value: |
+        하는 것:
+        -
+        하지 않는 것:
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 확인할 수 있는 조건으로 적는다
+      value: |
+        - [ ]
+        - [ ] 바꾼 동작의 테스트 추가
+        - [ ] `cd backend && ./gradlew build` 통과
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: API·DB·Kafka 메시지 변경
+      description: 외부·내부 API, schema.sql, Kafka 토픽·메시지 변경이 있으면 적고 영향을 받는 담당자를 멘션한다. 없으면 "없음"
+      placeholder: 없음
+  - type: textarea
+    id: refs
+    attributes:
+      label: 참고
+      description: 관련 이슈, 결정 사항, 문서
