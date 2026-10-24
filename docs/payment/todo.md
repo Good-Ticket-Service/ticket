@@ -43,7 +43,7 @@
 **완료 조건:**
 - [ ] Compose로 뜨고 Gateway 라우트에 없다
 - [ ] 장애 설정(지연, 실패율, 승인 후 응답 유실, 승인 처리 지연, 초당 한도 초과 시 429)이 즉시 반영된다
-- [ ] 같은 `Idempotency-Key`의 승인·취소 재요청은 거절을 포함해 같은 응답을 돌려준다 (실제 토스 동작)
+- [ ] 같은 `Idempotency-Key`의 승인·취소 재요청은 업무 응답(성공·거절)을 그대로 재현하고, 5xx·429는 재현하지 않는다
 **의존:** 1 · **규모:** M
 
 ### Task 5: fake-pg (카카오 흉내)
@@ -80,23 +80,31 @@
 
 ### Task 8: 결제 승인 (Inline)
 **참조:** plan.md 4절 결제 ③, 6절 트랜잭션 경계·잠근 뒤 다시 판단
-**할 일:** `POST /internal/payments/{orderId}/confirm`, `PaymentService.confirm`, `PaymentProcessor`, `markInProgress`·`complete`(4절 11)의 모든 행), `InlinePaymentDispatcher`, `NoopResultPublisher`를 만든다.
+**할 일:** `POST /internal/payments/{orderId}/confirm`, `PaymentService.confirm`, `PaymentProcessor`, `markInProgress`(4절 8)의 모든 분기, 서킷 확인 포함)·`complete`(4절 10)의 모든 행), `ensureRefund`, `InlinePaymentDispatcher`, `NoopResultPublisher`를 만든다.
 **완료 조건:**
 - [ ] 금액 불일치는 400, 만료는 FAILED(`EXPIRED`), 재사용된 paymentKey는 FAILED(`INVALID_AUTH_TOKEN`)이고 셋 모두 PG 승인을 부르지 않는다
 - [ ] 같은 orderId로 승인 요청 50개를 동시에 보내도 PG 승인은 한 번만 불린다
-- [ ] Approved → DONE + 쿠폰 USED, Rejected → FAILED + 쿠폰 AVAILABLE, Unknown → IN_PROGRESS, FAILED 결제에 Approved → FAILED 유지 + AUTO_VOID 환불 행
+- [ ] Approved → DONE + 쿠폰 USED, Rejected·금액 불일치 → FAILED + 쿠폰 AVAILABLE(금액 불일치는 승인 금액으로 AUTO_VOID), Unknown → IN_PROGRESS, FAILED 결제에 Approved → FAILED 유지 + AUTO_VOID. 이미 IN_PROGRESS인 결제는 중복 승인 요청이 FAILED로 바꾸지 못한다
 **검증:** `PgClient` 포트 픽스처를 쓰는 통합 테스트
 **의존:** 7 · **규모:** M
 
 ### Task 9: 결제 복구 잡
 **참조:** plan.md 5절
-**할 일:** `PaymentRecoveryJob`, 점유·백오프, 조회 기반 확정, NotFound 유예, 시간 기준 차단, 관리자 `unblock` API를 만든다.
+**할 일:** `PaymentRecoveryJob`, 점유(점유 기간 30초 이상)·백오프, 조회 기반 확정(Approved·Canceled·NotFound·Unknown), NotFound 유예, `recovery_started_at` 기준 차단, 관리자 `unblock`·`resolve` API를 만든다.
 **완료 조건:**
 - [ ] 승인 후 응답이 유실된 결제는 DONE이 되고, 만료된 READY는 PG 호출 없이 FAILED(`EXPIRED`)가 된다. NotFound는 유예 시간 안에는 확정하지 않고 지나면 FAILED(`NOT_APPROVED`)다
 - [ ] 두 인스턴스에서 동시에 돌려도 같은 결제를 두 번 조회하지 않고, 점유하는 동안 DB 트랜잭션을 열어 두지 않는다
-- [ ] 후보 하나의 예외가 다음 후보를 막지 않고, `give-up-minutes` 뒤 IN_PROGRESS + 차단으로 남으며 `unblock`으로 다시 처리된다
+- [ ] 후보 하나의 예외가 다음 후보를 막지 않고, `give-up-minutes` 뒤 IN_PROGRESS + 차단으로 남으며 `unblock`으로 다시 처리되거나 `resolve`로 확정된다
 **검증:** `payment.recovery.enabled=false`로 두고 잡을 직접 호출하는 통합 테스트
 **의존:** 6, 8 · **규모:** M
+
+### Task 9-1: 최소 대사
+**참조:** plan.md 5절 8번
+**할 일:** `PaymentReconcileJob`을 만든다. 복구 잡과 같은 방식으로 점유하고, PG 승인을 호출했던 FAILED 결제를 확정 후 한 번 더 조회해 승인돼 있으면 `ensureRefund`를 부른다.
+**완료 조건:**
+- [ ] fake-pg "승인 처리 지연"으로 유예 뒤 승인된 결제가 대사 실행 후 AUTO_VOID로 취소되고, 각 결제는 한 번만 조회된다
+- [ ] PG 승인을 호출하지 않은 FAILED는 조회하지 않고, 조회가 Unknown이면 `reconciled_at`을 남기지 않아 다음 주기에 다시 본다
+**의존:** 9 · **규모:** S
 
 ### Checkpoint B
 - [ ] 예매 서비스와 연동해 Gateway를 거친 "준비 → 결제창 대체 → 승인 → 예매 확정"이 두 PG 모두에서 동작한다
@@ -104,9 +112,9 @@
 
 ### Task 10: 환불과 환불 복구
 **참조:** plan.md 4절 환불, 5절
-**할 일:** `POST /internal/payments/{orderId}/refund`, 결제 상태별 처리(4절 환불 2), `RefundService`, `RefundTransactions`, `RefundRecoveryJob`, 관리자 `refund/retry` API, AUTO_VOID 처리를 만든다.
+**할 일:** `POST /internal/payments/{orderId}/refund`(payment 잠금 후 상태별 처리), `RefundService`, `RefundTransactions`, `RefundRecoveryJob`, 관리자 `refund/retry` API를 만든다. 잠금 순서는 항상 payment → refund다.
 **완료 조건:**
-- [ ] READY·FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED로 처리된다. 같은 결제 환불 재요청은 PG를 다시 부르지 않는다
+- [ ] READY·FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
 - [ ] 일시 장애·응답 유실은 REQUESTED로 남아 복구가 같은 키로 다시 보내고, fake-pg 거래는 한 번만 취소된다
 - [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다)
 **의존:** 9 · **규모:** M
@@ -124,7 +132,7 @@
 **완료 조건:**
 - [ ] 이중 결제 0, 중복 환불 0, 해소되지 않은 결과 불명 0, FAILED인데 PG 승인 상태로 남은 건 0 (늦은 승인은 모두 AUTO_VOID로 취소)
 - [ ] payment 기록과 fake-pg `pg_transaction`이 건마다 일치한다
-**의존:** 9, 10 · **규모:** M
+**의존:** 9-1, 10 · **규모:** M
 
 ### Checkpoint C: MVP (11/6)
 - [ ] 전체 빌드와 CI 통과
@@ -141,12 +149,12 @@
 
 ## Phase 3. 트러블슈팅 기간 (11/9~11/16)
 
-Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 무관하다. Task 16과 19-1만 예매 연동이 필요하다.
+Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 무관하다. Task 16과 18-1만 예매 연동이 필요하다.
 
 ### Task 14: 장애 격리 (시나리오 1a, 단독)
 **완료 조건:**
 - [ ] 타임아웃 → 벌크헤드 → 서킷 브레이커 단계별 결과가 같은 조건으로 기록됐다
-- [ ] 서킷이 열리면 markInProgress 전에 FAILED(`PG_UNAVAILABLE`) + 쿠폰 release로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
+- [ ] 서킷이 열리면 markInProgress 안에서(잠금과 READY 확인 뒤) FAILED(`PG_UNAVAILABLE`) + 쿠폰 release로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
 **의존:** 13 · **규모:** M
 
 ### Task 15: Kafka 부하 평탄화 (시나리오 2, 단독)
@@ -174,7 +182,7 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 - [ ] 순차·병렬·Kafka 결과가 기록됐다
 **의존:** 10, 15 · **규모:** M
 
-### Task 19-1: 전체 연결 확인 (시나리오 1b·3)
+### Task 18-1: 전체 연결 확인 (시나리오 1b·3)
 **할 일:** 예매 연동이 안정되면 전체 Compose에서 1b·3을 개선 전후로 1~2회 잰다. 일정이 밀리면 빼고 그 사실을 결과에 적는다.
 **완료 조건:**
 - [ ] 단독에서 고른 개선이 전체 연결에서도 유지되는지 결과가 기록됐다
@@ -188,6 +196,6 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 
 | Task | 완료 조건 | 의존 |
 |---|---|---|
-| 19 대사 배치 | payment·refund 기록과 `pg_transaction`의 불일치를 찾아 보고한다 | 12 |
+| 19 전체 대사 | 최소 대사(9-1)를 넘어 payment·refund 전체 기록과 `pg_transaction`의 불일치를 찾아 보고한다 | 12 |
 | 20 정산 | 판매자별 일 정산, 재실행 시 같은 결과, 100만 건 배치 시간 측정 | 19, 열린 질문 1·2 |
 | 21 샌드박스 실연동 | 토스·카카오 샌드박스로 결제·취소 1건씩 성공 | 6 |
