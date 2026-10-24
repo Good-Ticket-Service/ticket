@@ -31,7 +31,7 @@
 | 0 | 단독 | 기준선 (PG 50ms, 실패 0) | - | - | 승인 처리량·p95, 조회 API p95 |
 | 1a | 단독 | PG 지연 1·3·5초 | 승인 대기가 payment 스레드를 다 잡아 결제 조회 API까지 느려진다 | 타임아웃 조정 → 벌크헤드 → 서킷 브레이커 → Kafka | 조회 API p95, 활성 스레드, 결과 불명 수 |
 | 2 | 단독 | PG 처리 한도 초과 (초당 50건, 초과 429) | 동기는 거절이 폭증한다 | 백오프 재시도 → 속도 제한기 → Kafka 부하 평탄화 | 429 수, 성공률, 완료 시간, 소비 지연, 만료 실패(`EXPIRED`) 수 |
-| 4 | 단독 | 승인 후 응답 유실 10%, PG 호출 중 payment 강제 종료 | 복구가 모든 건을 정확히 마무리한다 | 동기 vs Kafka, 대사 | 불명 해소 수·시간, 대사 불일치 수, 이중 결제 수 |
+| 4 | 단독 | 승인 후 응답 유실 10%, 승인 처리 지연, PG 호출 중 payment 강제 종료 | 복구가 모든 건을 정확히 마무리한다 | 동기 vs Kafka, 대사 | 불명 해소 수·시간, 대사 불일치 수, 이중 결제 수, 늦은 승인 자동 취소 수 |
 | 5 | 단독 | 회차 취소 대량 환불 5,000건 | 한 요청으로는 불가하고, 병렬은 PG 한도에 걸린다 | 순차 → 병렬 → Kafka | 완료 시간, PG 거절 수, DLT 수 |
 | 1b | 전체 | PG 지연 3초 | 결제 지연이 예매 스레드를 잡아 좌석 조회까지 느려진다 | 개선 전 vs 1a에서 고른 개선 | 좌석 조회 p95, 예매 활성 스레드 |
 | 3 | 전체 | payment 30초 중지 | 동기는 예매의 승인 요청까지 실패한다 | 동기 vs Kafka | 장애 구간 승인 요청 성공률, 복구 시간, 미보상 수 |
@@ -46,6 +46,7 @@
 | `payment_result_total{result, provider}` | 결과 분포 (done, failed, unknown) |
 | `payment_unknown_current` | 지금 결과를 모르는 결제 수 |
 | `payment_recovery_blocked_total` | 복구 차단 수 |
+| `payment_auto_void_total{cause}` | 늦은 승인·금액 불일치 자동 취소 수 |
 | `pg_call_duration{provider, operation}` 히스토그램 | PG 지연 |
 | `refund_result_total{result, reason}` | 환불 결과 |
 | Resilience4j, Kafka 소비 지연 | 장애 격리·처리량 (트러블슈팅 기간) |
