@@ -68,22 +68,34 @@ pg:
 
 ### 패키지
 
+물류 MSA의 hub와 같은 규칙으로 **계층 → 종류 → 하위 도메인** 순서로 나눈다. enum과 값 객체는 엔티티 옆(`domain/model/{하위 도메인}`)에 둔다. 쿠폰 담당 코드도 같은 규칙으로 각 종류 아래 `coupon/`에 둔다.
+
 ```
 com.sparta.ticket.payment
-├── presentation/internal   InternalPaymentController, InternalAdminController
+├── presentation
+│   ├── controller/payment   InternalPaymentController
+│   ├── controller/admin     InternalAdminController
+│   └── dto/payment          요청·응답 DTO
 ├── application
-│   ├── PaymentService, PaymentProcessor, RefundService   흐름 지휘. 트랜잭션 없음
-│   ├── PaymentTransactions, RefundTransactions           @Transactional 메서드만. 상태 전이 하나 = 메서드 하나
-│   ├── PaymentRecoveryJob, RefundRecoveryJob, PaymentReconcileJob   @Scheduled. 흐름 클래스를 부른다
-│   ├── port/   PgClient, PaymentDispatcher, PaymentResultPublisher
-│   ├── dto/    PaymentCommand, PaymentResult, RefundResult
-│   └── coupon/ CouponUsage 와 구현                          쿠폰 담당 소유. 결제는 CouponUsage만 부른다
-├── domain      Payment, Refund, PaymentStatus, RefundStatus, PgProvider, PgResult, PgInquiry, 저장소 인터페이스
-│   └── coupon/ UserCoupon 등                                쿠폰 담당 소유
+│   ├── service/payment      PaymentService, PaymentProcessor, PaymentTransactions
+│   ├── service/refund       RefundService, RefundTransactions
+│   ├── service/recovery     PaymentRecoveryJob, RefundRecoveryJob, PaymentReconcileJob
+│   ├── service/pg           PgClientRegistry
+│   ├── port/pg              PgClient
+│   ├── port/payment         PaymentDispatcher, PaymentResultPublisher
+│   └── dto/payment, dto/refund
+├── domain
+│   ├── model/payment        Payment, PaymentStatus, PaymentFailureCode, PaymentOrder
+│   ├── model/refund         Refund, RefundStatus, RefundReason
+│   ├── model/pg             PgProvider, PgResult, PgInquiry, PgReadyResult
+│   ├── model/recovery       Recovery (결제·환불 공통 복구 값)
+│   ├── exception/payment    PaymentErrorCode
+│   └── repository/payment, repository/refund
 └── infrastructure
-    ├── pg/      toss/, kakao/, PgClientRegistry
-    ├── dispatch/  InlinePaymentDispatcher (Kafka 전환 후 KafkaPaymentDispatcher)
-    └── messaging/ NoopResultPublisher (Kafka 전환 후 KafkaResultPublisher, PaymentCommandConsumer)
+    ├── persistence/payment, persistence/refund   JPA 저장소
+    ├── pg/toss, pg/kakao    PgClient 구현
+    ├── dispatch             InlinePaymentDispatcher (Kafka 전환 후 KafkaPaymentDispatcher)
+    └── messaging            NoopResultPublisher (Kafka 전환 후 KafkaResultPublisher, PaymentCommandConsumer)
 ```
 
 `PgClient`는 `ready`, `approve`, `inquire`, `cancel`을 가진다.

@@ -14,8 +14,9 @@ import lombok.NoArgsConstructor;
  * Note: 결과 불명과 자동 처리 중단은 상태(status)로 만들지 않고 이 값으로 표현한다.
  * 상태는 업무 결과(승인·거절)만 나타내고, "다시 볼 시각"과 "자동 처리 중단"은 운영 정보라 따로 둔다.
  *
- * 변경 메서드는 Payment·Refund가 다른 패키지에서 부르므로 public이다. 바깥에서는 이 값을 직접 바꾸지 않고
- * 엔티티의 메서드(deferRecovery, blockRecovery 등)를 거친다. 엔티티가 상태를 함께 검사하기 때문이다.
+ * 변경 메서드는 Payment·Refund가 다른 패키지에서 부르므로 public이다. 대신 두 엔티티는 이 객체를 getter로 내주지 않고
+ * 필요한 값만 꺼내 준다. 그래서 바깥에서는 엔티티의 메서드(deferRecovery, blockRecovery 등)를 거쳐야만 바꿀 수 있고,
+ * 엔티티가 그때 상태를 함께 검사한다.
  */
 @Getter
 @Embeddable

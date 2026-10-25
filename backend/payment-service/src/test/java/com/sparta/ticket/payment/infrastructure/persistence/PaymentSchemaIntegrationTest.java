@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
+import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
 import com.sparta.ticket.payment.domain.model.payment.PaymentStatus;
 import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
@@ -51,6 +52,18 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
 
     private Payment saveReady(long reservationId) {
         return paymentRepository.saveAndFlush(Payment.ready(order(newOrderId(), reservationId), 5_000));
+    }
+
+    @Test
+    @DisplayName("DB에서 다시 읽은 결제도 같은 준비 요청과 일치한다 (나노초까지 있는 만료 시각)")
+    void reloadedPaymentMatchesSameOrder() {
+        PaymentOrder order =
+                order(newOrderId(), newReservationId(), NOW.plusMinutes(10).plusNanos(123_456_789));
+        paymentRepository.saveAndFlush(Payment.ready(order, 0));
+
+        Payment reloaded = paymentRepository.findByOrderId(order.orderId()).orElseThrow();
+
+        assertThat(reloaded.matches(order)).isTrue();
     }
 
     @Test
@@ -131,7 +144,7 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
 
         Payment reloaded = paymentRepository.findById(saved.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
-        assertThat(reloaded.getRecovery().getNextAttemptAt()).isEqualTo(NOW.plusSeconds(30));
+        assertThat(reloaded.getNextAttemptAt()).isEqualTo(NOW.plusSeconds(30));
         assertThat(refundRepository.findByPaymentId(saved.getId())).isEmpty();
     }
 

@@ -14,7 +14,11 @@ public final class PaymentFixture {
     private PaymentFixture() {}
 
     public static PaymentOrder order(String orderId, long reservationId) {
+        return order(orderId, reservationId, NOW.plusMinutes(10));
+    }
+
+    public static PaymentOrder order(String orderId, long reservationId, LocalDateTime expiresAt) {
         return new PaymentOrder(
-                orderId, reservationId, USER_ID, SELLER_ID, 10L, 20L, PgProvider.TOSS, 50_000, 7L, NOW.plusMinutes(10));
+                orderId, reservationId, USER_ID, SELLER_ID, 10L, 20L, PgProvider.TOSS, 50_000, 7L, expiresAt);
     }
 }

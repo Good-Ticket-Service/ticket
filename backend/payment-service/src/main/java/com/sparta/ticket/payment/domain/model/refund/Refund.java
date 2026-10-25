@@ -73,8 +73,30 @@ public class Refund extends BaseEntity {
 
     private LocalDateTime refundedAt;
 
+    /** 바깥에 그대로 내주지 않는다. 바꾸는 일은 상태를 함께 검사하는 이 클래스의 메서드로만 한다. */
+    @Getter(AccessLevel.NONE)
     @Embedded
     private Recovery recovery = Recovery.none();
+
+    public LocalDateTime getNextAttemptAt() {
+        return recovery.getNextAttemptAt();
+    }
+
+    public LocalDateTime getRecoveryStartedAt() {
+        return recovery.getStartedAt();
+    }
+
+    public int getRecoveryAttempts() {
+        return recovery.getAttempts();
+    }
+
+    public boolean isRecoveryBlocked() {
+        return recovery.isBlocked();
+    }
+
+    public String getLastError() {
+        return recovery.getLastError();
+    }
 
     private Refund(Payment payment, RefundReason reason, int refundAmount, RefundStatus status) {
         if (refundAmount <= 0) {
