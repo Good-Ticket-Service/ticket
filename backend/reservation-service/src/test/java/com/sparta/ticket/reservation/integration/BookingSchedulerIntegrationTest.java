@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -108,6 +108,10 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         return meterRegistry.counter(meter).count();
     }
 
+    private double gauge(String meter) {
+        return meterRegistry.get(meter).gauge().value();
+    }
+
     @Test
     @DisplayName("만료 스케줄러는 시간이 지난 HOLD만 EXPIRED로 바꾸고 좌석을 잠근 뒤 돌려준다")
     void expiresDueHolds() {
@@ -146,23 +150,19 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("만료 스케줄러 두 개가 동시에 돌아도 예약마다 한 번만 만료하고 좌석도 한 번만 돌려준다")
+    @DisplayName("만료 스케줄러 두 개가 같은 예약을 동시에 잠그고 바꿔도 한 번만 만료하고 좌석도 한 번만 돌려준다")
     void concurrentExpiry() throws Exception {
         for (int i = 0; i < 5; i++) {
             hold(Duration.ofMinutes(1), UUID.randomUUID());
         }
         clock.advance(Duration.ofMinutes(5));
 
+        seats.syncLocksWith(new CyclicBarrier(2));
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
         List<Future<Integer>> futures = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            futures.add(executor.submit(() -> {
-                start.await();
-                return holdExpiryService.expireDue(10, BUDGET);
-            }));
+            futures.add(executor.submit(() -> holdExpiryService.expireDue(10, BUDGET)));
         }
-        start.countDown();
         int expired = 0;
         for (Future<Integer> future : futures) {
             expired += future.get();
@@ -228,17 +228,37 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("상한 시간을 넘겨 결제 중인 예약은 알림을 세고 상태는 바꾸지 않는다")
-    void countsStuckPayments() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
-        paymentInProgress(reservationId);
-        clock.advance(Duration.ofMinutes(31));
-        double before = count("reservation.payment.stuck");
+    @DisplayName("결제 중 예약 수와 상한을 넘긴 예약 수를 게이지로 남기고, 상태는 바꾸지 않는다")
+    void reportsPaymentBacklog() {
+        UUID stuck = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        paymentInProgress(stuck);
+        clock.advance(Duration.ofMinutes(20));
+        paymentInProgress(hold(Duration.ofMinutes(10), UUID.randomUUID()));
+        clock.advance(Duration.ofMinutes(11));
 
         reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
+        reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
 
-        assertThat(count("reservation.payment.stuck")).isEqualTo(before + 1);
-        assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(gauge("reservation.payment.in_progress")).isEqualTo(2);
+        assertThat(gauge("reservation.payment.stuck")).as("실행을 반복해도 예약 수를 센다").isEqualTo(1);
+        assertThat(statusOf(stuck)).isEqualTo("PAYMENT_IN_PROGRESS");
+    }
+
+    @Test
+    @DisplayName("결과가 안 바뀌는 예약이 한 묶음보다 많아도 새로 결과를 모르게 된 예약까지 차례가 온다")
+    void doesNotStarveOnUnchangedPayments() {
+        for (int i = 0; i < 3; i++) {
+            paymentInProgress(hold(Duration.ofMinutes(10), UUID.randomUUID()));
+            clock.advance(Duration.ofSeconds(1));
+        }
+        UUID newest = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        payment.lookupReturns(paymentInProgress(newest), PaymentLookup.of(Status.SUCCEEDED));
+        clock.advance(Duration.ofMinutes(2));
+
+        reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 2, BUDGET);
+        reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 2, BUDGET);
+
+        assertThat(statusOf(newest)).isEqualTo("CONFIRMED");
     }
 
     @Test
@@ -250,8 +270,11 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         clock.advance(Duration.ofMinutes(2));
         payment.lookupDelay(Duration.ofMillis(300));
 
+        long started = System.nanoTime();
         reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, Duration.ofMillis(450));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
 
         assertThat(payment.lookedUpOrderIds).hasSize(2);
+        assertThat(elapsed).as("예산 450ms에 진행 중이던 조회 하나(300ms)만큼만 넘친다").isLessThan(Duration.ofMillis(1_000));
     }
 }

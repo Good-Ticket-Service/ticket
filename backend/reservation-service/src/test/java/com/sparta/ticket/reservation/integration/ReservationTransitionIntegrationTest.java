@@ -17,10 +17,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -96,7 +97,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 전이를 여러 스레드가 동시에 시도해도 한쪽만 1행이다")
+    @DisplayName("여러 트랜잭션이 모두 열린 뒤 같은 전이를 동시에 시도해도 한쪽만 1행이다")
     void concurrentTransition() throws Exception {
         UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
         inTransaction(() -> reservationRepository.recordCheckout(
@@ -104,16 +105,15 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
 
         int threads = 8;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
-        CountDownLatch start = new CountDownLatch(1);
+        CyclicBarrier allInTransaction = new CyclicBarrier(threads);
         List<Future<Integer>> futures = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
-            futures.add(executor.submit(() -> {
-                start.await();
-                return inTransaction(() -> reservationRepository.startPayment(
-                        reservationId, userId, "order-1", "pg-token", changeStamps.stamp()));
-            }));
+            futures.add(executor.submit(() -> inTransaction(() -> {
+                allInTransaction.await(5, TimeUnit.SECONDS);
+                return reservationRepository.startPayment(
+                        reservationId, userId, "order-1", "pg-token", changeStamps.stamp());
+            })));
         }
-        start.countDown();
         int updated = 0;
         for (Future<Integer> future : futures) {
             updated += future.get();

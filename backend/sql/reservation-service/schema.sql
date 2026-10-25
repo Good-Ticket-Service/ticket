@@ -16,6 +16,8 @@ CREATE TABLE p_reservations
     payment_amount  BIGINT,
     -- 결제 중에만 둔다. 승인 요청이 payment에 닿지 않았을 때 같은 요청을 다시 보내는 데 쓴다
     pg_auth_token   VARCHAR(255),
+    -- 결과 확인 스케줄러가 마지막으로 확인한 시각. 확인한 예약을 다음 차례에서 뒤로 보내 같은 행만 고르지 않게 한다
+    payment_checked_at TIMESTAMP,
     created_at      TIMESTAMP    NOT NULL,
     created_by      VARCHAR(100) NOT NULL,
     updated_at      TIMESTAMP    NOT NULL,

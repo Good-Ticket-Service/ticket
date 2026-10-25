@@ -42,15 +42,19 @@ public class PaymentResultApplier {
         };
     }
 
+    /** 지금 시도의 결제 중 예약일 때만 좌석을 잠그고 확정한다. 그 밖의 성공은 좌석을 건드리지 않고 가린다. */
     private boolean applySuccess(Reservation reservation, String orderId, ChangeStamp stamp) {
         UUID id = reservation.getId();
-        if (transitionExecutor.execute(
-                ReservationTransition.CONFIRM,
-                reservation.getSeatIds(),
-                () -> reservationRepository.confirm(id, orderId, stamp))) {
-            return true;
+        Reservation current = reservation;
+        if (isCurrentPayment(reservation, orderId)) {
+            if (transitionExecutor.execute(
+                    ReservationTransition.CONFIRM,
+                    reservation.getSeatIds(),
+                    () -> reservationRepository.confirm(id, orderId, stamp))) {
+                return true;
+            }
+            current = reservationRepository.reload(id).orElseThrow();
         }
-        Reservation current = reservationRepository.findById(id).orElseThrow();
         if (current.isAttempt(orderId) && current.getStatus() == ReservationStatus.CONFIRMED) {
             return false;
         }
@@ -64,8 +68,11 @@ public class PaymentResultApplier {
         return false;
     }
 
-    /** 같은 실패가 다시 왔거나 지난 시도의 실패면 조건부 UPDATE가 0행이라 아무것도 바뀌지 않는다. */
+    /** 같은 실패가 다시 왔거나 지난 시도의 실패면 아무것도 바꾸지 않는다. */
     private boolean applyFailure(Reservation reservation, String orderId, ChangeStamp stamp) {
+        if (!isCurrentPayment(reservation, orderId)) {
+            return false;
+        }
         UUID id = reservation.getId();
         if (reservation.isHoldExpiredAt(stamp.at())) {
             return transitionExecutor.execute(
@@ -77,5 +84,9 @@ public class PaymentResultApplier {
                 ReservationTransition.RETURN_TO_HOLD,
                 reservation.getSeatIds(),
                 () -> reservationRepository.returnToHold(id, orderId, stamp));
+    }
+
+    private static boolean isCurrentPayment(Reservation reservation, String orderId) {
+        return reservation.getStatus() == ReservationStatus.PAYMENT_IN_PROGRESS && reservation.isAttempt(orderId);
     }
 }

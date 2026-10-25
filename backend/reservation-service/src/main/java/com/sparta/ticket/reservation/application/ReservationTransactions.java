@@ -41,9 +41,8 @@ public class ReservationTransactions {
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
 
-    /** 결과를 확인할 결제 중 예약. since는 결제 중이 된 시각(updated_at)이다. */
-    public record PendingPayment(
-            UUID reservationId, String orderId, String pgAuthToken, long amount, LocalDateTime since) {}
+    /** 결과를 확인할 결제 중 예약과 다시 보낼 승인 요청 값. */
+    public record PendingPayment(UUID reservationId, String orderId, String pgAuthToken, long amount) {}
 
     @Transactional(readOnly = true)
     public CheckoutTarget loadCheckoutTarget(UUID userId, UUID reservationId) {
@@ -72,7 +71,7 @@ public class ReservationTransactions {
         if (updated == 1) {
             return;
         }
-        if (find(target.reservationId()).isHoldExpiredAt(stamp.at())) {
+        if (reload(target.reservationId()).isHoldExpiredAt(stamp.at())) {
             throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
         }
         throw new BusinessException(ReservationErrorCode.CHECKOUT_CONFLICT);
@@ -80,7 +79,8 @@ public class ReservationTransactions {
 
     /**
      * HOLD → PAYMENT_IN_PROGRESS. 0행이면 다시 읽고 이유를 가린다.
-     * 같은 orderId의 승인이 이미 진행됐거나 끝났으면 오류 대신 지금 상태를 돌려준다(더블 클릭, 클라이언트 재시도).
+     * 같은 orderId의 승인이 이미 진행 중이거나 확정됐으면 오류 대신 지금 상태를 돌려준다(더블 클릭, 클라이언트 재시도).
+     * 만료는 만료 스케줄러가 돌았는지와 관계없이 HOLD_EXPIRED로 답한다.
      */
     @Transactional
     public PaymentStart startPayment(UUID userId, UUID reservationId, ConfirmCommand command) {
@@ -90,7 +90,7 @@ public class ReservationTransactions {
                 List.of(),
                 () -> reservationRepository.startPayment(
                         reservationId, userId, command.orderId(), command.pgAuthToken(), stamp));
-        Reservation reservation = find(reservationId);
+        Reservation reservation = reload(reservationId);
         if (started) {
             return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));
         }
@@ -98,23 +98,28 @@ public class ReservationTransactions {
         if (!reservation.isAttempt(command.orderId())) {
             throw new BusinessException(ReservationErrorCode.ORDER_ID_MISMATCH);
         }
-        if (reservation.getStatus() != ReservationStatus.HOLD) {
-            return new PaymentStart(false, 0, ReservationResult.from(reservation));
-        }
-        if (reservation.isHoldExpiredAt(stamp.at())) {
-            throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
-        }
-        throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
+        return switch (reservation.getStatus()) {
+            case PAYMENT_IN_PROGRESS, CONFIRMED -> new PaymentStart(false, 0, ReservationResult.from(reservation));
+            case EXPIRED -> throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
+            case HOLD ->
+                throw new BusinessException(
+                        reservation.isHoldExpiredAt(stamp.at())
+                                ? ReservationErrorCode.HOLD_EXPIRED
+                                : CommonErrorCode.INVALID_STATUS_TRANSITION);
+            case CANCELLED -> throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
+        };
     }
 
-    /** HOLD → EXPIRED와 좌석 반환. 이미 다른 경로로 바뀌었으면 false. */
+    /** HOLD → EXPIRED와 좌석 반환. 이미 다른 경로로 바뀌었으면 좌석을 잠그지 않고 false. */
     @Transactional
     public boolean expireHold(UUID reservationId) {
+        ChangeStamp stamp = changeStamps.stamp();
         Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
-        if (reservation == null) {
+        if (reservation == null
+                || reservation.getStatus() != ReservationStatus.HOLD
+                || !reservation.isHoldExpiredAt(stamp.at())) {
             return false;
         }
-        ChangeStamp stamp = changeStamps.stamp();
         boolean expired = transitionExecutor.execute(
                 ReservationTransition.EXPIRE_HOLD,
                 reservation.getSeatIds(),
@@ -123,6 +128,12 @@ public class ReservationTransactions {
             metrics.expiredHold();
         }
         return expired;
+    }
+
+    /** 결과 확인 스케줄러가 이 예약을 확인했다고 남긴다. 다음 차례에서 뒤로 간다. */
+    @Transactional
+    public void markPaymentChecked(UUID reservationId) {
+        reservationRepository.markPaymentChecked(reservationId, changeStamps.now());
     }
 
     /** 아직 결제 중이면 다시 보낼 값을 돌려준다. 그사이 다른 경로로 끝났으면 비어 있다. */
@@ -135,8 +146,7 @@ public class ReservationTransactions {
                         reservation.getId(),
                         reservation.getOrderId(),
                         reservation.getPgAuthToken(),
-                        reservation.getPaymentAmount(),
-                        reservation.getUpdatedAt()));
+                        reservation.getPaymentAmount()));
     }
 
     @Transactional(readOnly = true)
@@ -147,6 +157,12 @@ public class ReservationTransactions {
     private Reservation find(UUID reservationId) {
         return reservationRepository
                 .findById(reservationId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
+    }
+
+    private Reservation reload(UUID reservationId) {
+        return reservationRepository
+                .reload(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
     }
 

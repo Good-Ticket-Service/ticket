@@ -1,17 +1,20 @@
 package com.sparta.ticket.reservation.application;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 
-/** 예약과 결제가 어긋난 건수를 센다. 측정의 불일치 건수와 결제 중 체류 알림의 근거가 된다. */
+/** 예약과 결제가 어긋난 정도를 센다. 측정의 불일치 건수와 결제 중 체류 알림의 근거가 된다. */
 @Component
 public class BookingMetrics {
 
     private final Counter expiredHolds;
     private final Counter resentConfirms;
     private final Counter lateSuccesses;
-    private final Counter stuckPayments;
+    private final AtomicLong paymentsInProgress = new AtomicLong();
+    private final AtomicLong stuckPayments = new AtomicLong();
 
     public BookingMetrics(MeterRegistry registry) {
         this.expiredHolds = Counter.builder("reservation.expired")
@@ -23,8 +26,11 @@ public class BookingMetrics {
         this.lateSuccesses = Counter.builder("reservation.payment.late_success")
                 .description("이미 끝났거나 지난 시도인 예약에 도착한 결제 성공 수. 자동 환불 대상(F6)")
                 .register(registry);
-        this.stuckPayments = Counter.builder("reservation.payment.stuck")
-                .description("상한 시간을 넘겨 결제 중으로 머문 예약을 발견한 수")
+        Gauge.builder("reservation.payment.in_progress", paymentsInProgress, AtomicLong::get)
+                .description("결제 중 예약 수. 결과 확인 스케줄러가 실행마다 갱신한다")
+                .register(registry);
+        Gauge.builder("reservation.payment.stuck", stuckPayments, AtomicLong::get)
+                .description("상한 시간을 넘겨 결제 중인 예약 수. 0보다 크면 관리자가 확인한다")
                 .register(registry);
     }
 
@@ -40,7 +46,8 @@ public class BookingMetrics {
         lateSuccesses.increment();
     }
 
-    public void stuckPayment() {
-        stuckPayments.increment();
+    public void paymentBacklog(long inProgress, long stuck) {
+        paymentsInProgress.set(inProgress);
+        stuckPayments.set(stuck);
     }
 }

@@ -31,7 +31,7 @@ public class PaymentReconcileService {
     /**
      * threshold 이상 결제 중인 예약을 한 묶음 확인하고, 상태가 바뀐 건수를 돌려준다.
      * threshold는 처리 중인 승인 요청을 또 보내지 않도록 승인 호출의 최대 대기보다 길어야 한다.
-     * stuckAfter를 넘긴 예약은 알림을 남긴다. 상태는 바꾸지 않는다.
+     * 시간 예산이 다 되면 다음 원격 호출을 시작하지 않는다. 이미 시작한 호출 하나만큼은 넘칠 수 있다.
      */
     public int reconcile(Duration threshold, Duration stuckAfter, int batchSize, Duration timeBudget) {
         long deadline = System.nanoTime() + timeBudget.toNanos();
@@ -42,33 +42,27 @@ public class PaymentReconcileService {
                 break;
             }
             try {
-                if (reconcileOne(reservationId, now.minus(stuckAfter))) {
+                if (reconcileOne(reservationId, deadline)) {
                     changed++;
                 }
             } catch (RuntimeException e) {
                 log.warn("결제 결과 확인에 실패했다. 다음 실행에서 다시 고른다. reservationId={}", reservationId, e);
             }
         }
+        updateBacklog(now.minus(stuckAfter));
         return changed;
     }
 
-    private boolean reconcileOne(UUID reservationId, LocalDateTime stuckBefore) {
+    private boolean reconcileOne(UUID reservationId, long deadline) {
         PendingPayment pending = transactions.readPendingPayment(reservationId).orElse(null);
         if (pending == null) {
             return false;
         }
-        if (!pending.since().isAfter(stuckBefore)) {
-            metrics.stuckPayment();
-            log.warn(
-                    "결제 중으로 너무 오래 머물렀다. 관리자 확인이 필요하다. reservationId={}, orderId={}, since={}",
-                    reservationId,
-                    pending.orderId(),
-                    pending.since());
-        }
+        transactions.markPaymentChecked(reservationId);
         PaymentLookup lookup = paymentPort.find(pending.orderId());
         return switch (lookup.status()) {
             case SUCCEEDED, FAILED -> resultApplier.apply(reservationId, pending.orderId(), lookup.toOutcome());
-            case NOT_RECEIVED -> resend(pending);
+            case NOT_RECEIVED -> System.nanoTime() <= deadline && resend(pending);
             case IN_PROGRESS -> false;
             case UNKNOWN_ORDER -> {
                 log.error(
@@ -91,5 +85,13 @@ public class PaymentReconcileService {
             return false;
         }
         return resultApplier.apply(pending.reservationId(), pending.orderId(), outcome);
+    }
+
+    private void updateBacklog(LocalDateTime stuckBefore) {
+        long stuck = reservationRepository.countStalePayments(stuckBefore);
+        metrics.paymentBacklog(reservationRepository.countPaymentsInProgress(), stuck);
+        if (stuck > 0) {
+            log.warn("결제 중으로 상한 시간을 넘긴 예약이 {}건이다. 관리자 확인이 필요하다. 기준 시각={}", stuck, stuckBefore);
+        }
     }
 }
