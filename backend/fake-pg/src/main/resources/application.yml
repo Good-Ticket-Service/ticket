@@ -1,0 +1,38 @@
+# Note: fake PG는 Config Server·Eureka를 쓰지 않는 바깥 시스템 흉내라서, 팀 서비스와 달리 설정을 이 파일에 직접 둔다.
+# payment-service는 Eureka가 아니라 주소(pg.toss.base-url)로 찾아온다.
+spring:
+  application:
+    name: fake-pg
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/ticket?currentSchema=fake_pg_schema
+    username: fake_pg_app
+    password: ${FAKE_PG_DB_PASSWORD:fake_pg_local_pw}
+  sql:
+    init:
+      # 기동할 때마다 schema.sql(IF NOT EXISTS)을 실행해 테이블을 만든다. Hibernate는 Entity와 맞는지만 검사한다.
+      mode: always
+      schema-locations: classpath:db/schema.sql
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+server:
+  port: 8090
+  tomcat:
+    threads:
+      # 응답 유실 장애는 요청 스레드를 오래 붙잡는다. 부하 실험에서 fake PG 스레드가 먼저 바닥나지 않게 넉넉히 둔다.
+      max: 400
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+fake-pg:
+  toss:
+    # 토스 시크릿 키 흉내. payment-service는 Basic 인증(base64("시크릿 키:"))으로 보낸다. 로컬 전용 값이다.
+    secret-key: ${FAKE_PG_TOSS_SECRET_KEY:test_sk_fake_toss}
+  # 결제 인증 후 승인까지 허용하는 시간(토스는 약 10분)
+  auth-valid-minutes: 10

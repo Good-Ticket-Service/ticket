@@ -1,0 +1,25 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+// Note: fake PG는 우리 서비스가 아니라 바깥 PG(토스)를 흉내 내는 테스트용 서버다. 그래서 팀 공통 모듈(common)·Config Server·Eureka를
+// 쓰지 않는다. common을 넣으면 공통 예외 처리가 PG 형식의 오류 응답을 바꿔 버리고, 실제 PG처럼 주소(base-url)로만 찾아가야 하기 때문이다.
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+}
+
+// 스키마 DDL은 팀 규칙대로 backend/sql/fake-pg/schema.sql에 두고, 기동할 때 실행하도록 jar 안(classpath:db/schema.sql)에 복사한다.
+tasks.named('processResources') {
+    from('../sql/fake-pg') {
+        into 'db'
+    }
+}
