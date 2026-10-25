@@ -2,9 +2,9 @@ package com.sparta.ticket.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.sparta.ticket.payment.archfixture.application.SampleFlowService;
-import com.sparta.ticket.payment.archfixture.application.SampleFlowTransactions;
-import com.sparta.ticket.payment.archfixture.application.SampleTransactionalFlow;
+import com.sparta.ticket.payment.support.archfixture.application.SampleFlowService;
+import com.sparta.ticket.payment.support.archfixture.application.SampleFlowTransactions;
+import com.sparta.ticket.payment.support.archfixture.application.SampleTransactionalFlow;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.DisplayName;
