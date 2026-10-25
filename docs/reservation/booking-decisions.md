@@ -11,6 +11,7 @@ booking 담당(한얼)이 혼자 정할 수 있는 결정과 그 이유를 모�
 | 버전 | 날짜 | 변경 |
 | --- | --- | --- |
 | 0.1 | 2026-10-25 | 첫 판. orchestration.md 0.3 기준 |
+| 0.2 | 2026-10-25 | 구현(이슈 #15)에 맞춰 "지키는 검사"를 테스트 이름으로 바꿨다. 예약 생성을 3장으로 옮기고, `hold_expires_at`을 지금은 예약에 둔다고 적었다. 코드 리뷰로 B21~B26을 더했다 |
 
 ---
 
@@ -26,41 +27,47 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 
 | # | 결정 | 이유 | 지키는 검사 |
 | --- | --- | --- | --- |
-| B1 | 허용되는 전이는 상태 enum 안의 전이 표 한 곳에서 정의한다. 상태를 바꾸는 쿼리는 전이 표의 항목을 받아 from과 to를 쓴다. 다른 코드에서 상태를 비교해 전이 여부를 가리지 않는다. **공유**: 상태 enum | 전이 규칙이 여러 메서드와 쿼리에 흩어지면 새 전이를 넣을 때 한 곳을 빠뜨린다 | 컴파일: 예약 Entity에 상태 setter가 없다. 리뷰: 상태를 바꾸는 쿼리는 전이 저장소 메서드 하나뿐이다 |
-| B2 | 상태는 조건부 UPDATE(`WHERE id = ? AND status = ?`와 전이 조건)로만 바꾼다. Entity를 읽어 값을 바꾸고 저장하는 방식은 쓰지 않는다 | 읽기와 쓰기 사이에 다른 요청이 끼면 둘 다 성공한다. 조건부 UPDATE는 DB가 한쪽만 성공시킨다(설계서 2.1) | 통합(`PostgresIntegrationTest`): 같은 전이를 두 스레드가 동시에 시도하면 한쪽만 1행이다. 상태 setter가 없으니(B1) 읽고 저장하는 길은 막혀 있다 |
-| B3 | 결제 결과 반영에서 UPDATE가 0행이면 지금 상태를 다시 읽고 가른다. 같은 결과가 다시 왔으면 무시한다. 이미 끝난 예약에 성공이 왔으면 F6으로 보낸다. 지난 시도의 결과면 B4를 따른다 | 0행을 모두 오류로 보면 중복 수신이 F6 환불로 번지거나, 성공한 결제가 사용자 화면에 실패로 보인다. 결제 준비와 승인 요청의 0행 처리는 orchestration.md 5.2를 따른다 | 단위: 결과 반영기에 세 경우를 넣는다 |
-| B4 | 결제 결과는 결과의 `orderId`가 예약의 `order_id`와 같을 때만 반영한다. 다르면 지난 시도의 결과다. 실패면 무시하고, 성공이면 F6으로 보낸다 | 한 예약에 결제 시도가 여러 번 있을 수 있다(payment 답변, P1). 늦게 온 지난 시도의 결과가 지금 시도를 덮으면 안 된다 | 단위: 지난 `orderId`의 실패와 성공 |
-| B5 | 조건부 UPDATE 쿼리는 `updated_at`과 `updated_by`를 직접 설정한다. `updated_by`는 `AuditorAware`에서 받는다. 그러면 사용자 요청에서는 헤더의 사용자가, 스케줄러와 리스너처럼 요청 밖에서 도는 작업에서는 `SYSTEM`이 들어간다 | 조건부 UPDATE는 JPA 감사(`@LastModifiedDate`, `@LastModifiedBy`)를 거치지 않는다. 감사가 쓰는 `HeaderAuditorAware`와 같은 값을 써야 감사 컬럼의 뜻이 하나로 유지된다 | 통합: 요청 경로의 전이는 사용자 이름을, 스케줄러 전이는 `SYSTEM`을 남기고, 둘 다 `updated_at`이 바뀐다 |
-| B6 | 시간 판정은 reservation 서버 시계로 한다. 현재 시각은 `Clock` 빈으로 주입하고, 조건부 UPDATE의 `updated_at`도 이 `Clock`으로 채운다 | payment 시계와 몇 초 달라도 만료 스케줄러가 결국 맞춘다. `Clock`을 주입하면 만료 경계를 테스트에서 고정할 수 있다. JPA 감사가 채우는 시각은 `Clock`을 따르지 않으므로, 시간에 민감한 테스트는 `updated_at`을 직접 넣는다 | 단위: 고정 `Clock`으로 만료 직전과 직후 |
+| B1 | 허용되는 전이는 전이 표(`ReservationTransition`) 한 곳에서 정의한다. 표에는 전이마다 from, to, 좌석 영향(없음, 판매, 반환)이 있다. 상태를 바꾸는 쿼리는 전이 표의 항목을 받아 from과 to를 쓴다. 다른 코드에서 상태를 비교해 전이 여부를 가리지 않는다. **공유**: 상태 enum | 전이 규칙이 여러 메서드와 쿼리에 흩어지면 새 전이를 넣을 때 한 곳을 빠뜨린다 | 컴파일: `Reservation`에 상태 setter가 없다. 리뷰: 전이는 `ReservationJpaRepository`의 default 전이 메서드만 부르고 from·to는 `ReservationTransition`에서 받는다. 순서는 `ReservationTransitionExecutorIntegrationTest` |
+| B2 | 상태는 조건부 UPDATE(`WHERE id = ? AND status = ?`와 전이 조건)로만 바꾼다. Entity를 읽어 값을 바꾸고 저장하는 방식은 쓰지 않는다 | 읽기와 쓰기 사이에 다른 요청이 끼면 둘 다 성공한다. 조건부 UPDATE는 DB가 한쪽만 성공시킨다(설계서 2.1) | `ReservationTransitionIntegrationTest.concurrentTransition`(모든 트랜잭션이 열린 뒤 동시에 UPDATE) |
+| B3 | 결제 결과 반영에서 UPDATE가 0행이면 지금 상태를 다시 읽고 가른다. 같은 결과가 다시 왔으면 무시한다. 이미 끝난 예약에 성공이 왔으면 F6으로 보낸다. 지난 시도의 결과면 B4를 따른다 | 0행을 모두 오류로 보면 중복 수신이 F6 환불로 번지거나, 성공한 결제가 사용자 화면에 실패로 보인다. 결제 준비와 승인 요청의 0행 처리는 orchestration.md 5.2를 따른다 | `ReservationPaymentIntegrationTest.staleAndDuplicateResults`, `ReservationPaymentIntegrationTest.failureAfterExpiry`(끝난 예약에 온 성공) |
+| B4 | 결제 결과는 결과의 `orderId`가 예약의 `order_id`와 같을 때만 반영한다. 다르면 지난 시도의 결과다. 실패면 무시하고, 성공이면 F6으로 보낸다 | 한 예약에 결제 시도가 여러 번 있을 수 있다(payment 답변, P1). 늦게 온 지난 시도의 결과가 지금 시도를 덮으면 안 된다 | `ReservationPaymentIntegrationTest.staleAndDuplicateResults`, `ReservationTransitionIntegrationTest.conditionsGuardTransitions` |
+| B5 | 조건부 UPDATE 쿼리는 `updated_at`과 `updated_by`를 직접 설정한다. `updated_by`는 `AuditorAware`에서 받는다. 그러면 사용자 요청에서는 헤더의 사용자가, 스케줄러와 리스너처럼 요청 밖에서 도는 작업에서는 `SYSTEM`이 들어간다 | 조건부 UPDATE는 JPA 감사(`@LastModifiedDate`, `@LastModifiedBy`)를 거치지 않는다. 감사가 쓰는 `HeaderAuditorAware`와 같은 값을 써야 감사 컬럼의 뜻이 하나로 유지된다 | `ReservationTransitionIntegrationTest.auditColumns`(SYSTEM), `ReservationPaymentIntegrationTest.checkoutAndConfirm`(요청한 사용자) |
+| B6 | 시간 판정은 reservation 서버 시계로 한다. 현재 시각은 `Clock` 빈으로 주입하고, 조건부 UPDATE의 `updated_at`도 이 `Clock`으로 채운다 | payment 시계와 몇 초 달라도 만료 스케줄러가 결국 맞춘다. `Clock`을 주입하면 만료 경계를 테스트에서 고정할 수 있다. JPA 감사가 채우는 시각은 `Clock`을 따르지 않으므로, 시간에 민감한 테스트는 `updated_at`을 직접 넣는다 | `ReservationTransitionIntegrationTest.paymentFailureDependsOnHoldTime`, `ReservationPaymentIntegrationTest.failureAfterExpiry` |
 
 ### 2.2 결제 흐름
 
 | # | 결정 | 이유 | 지키는 검사 |
 | --- | --- | --- | --- |
-| B7 | 결제 결과를 반영하는 코드는 한 곳(`PaymentResultApplier`)에만 둔다. Phase 1은 Feign 응답이, Phase 2는 Kafka 리스너가 같은 코드를 부른다 | 두 Phase의 측정 차이를 통신 방식 때문이라고 말하려면 반영 코드가 같아야 한다(설계서 6.2) | ArchUnit: Feign 어댑터와 Kafka 리스너는 예약 저장소에 의존하지 않는다 |
-| B8 | 결제 실패는 선점 시간이 남았으면 `HOLD`로, 지났으면 `EXPIRED`와 좌석 반환으로 반영한다 | 남은 선점 시간 안에서 다시 결제할 수 있게 한다(F2) | 단위: 고정 `Clock`으로 두 경우 |
-| B9 | 원격 호출은 트랜잭션 밖에서 한다. 원격 호출이 있는 유스케이스는 "트랜잭션, 원격 호출, 트랜잭션" 세 단계로 나눈다 | PG가 늦는 동안 DB 커넥션을 잡으면, Phase 1 측정이 스레드 포화가 아니라 커넥션 풀 고갈을 재게 된다(설계서 2.1) | 통합: 가짜 포트가 호출될 때 `TransactionSynchronizationManager.isActualTransactionActive()`가 false다 |
-| B10 | 클라이언트가 보낸 금액은 받지 않는다. 결제 금액은 서버 쪽 값만 쓴다 | 금액 위변조를 막는다(설계서 8.2). 기본 금액의 출처와 할인 후 금액은 3장에 둔다 | 리뷰: presentation의 결제 요청 DTO에 금액 필드가 없다 |
-| B11 | 결제 명령(준비, 승인, 환불)은 자동 재시도하지 않는다. 같은 승인을 다시 보내는 일은 결과 확인 스케줄러만 한다. 그래서 명령과 조회를 같은 Feign 클라이언트에 두지 않는다 | `IdempotentRetryConfig`는 메서드가 아니라 클라이언트 단위로 붙는다. 명령에 재시도가 붙으면 승인 한 번이 read 대기의 3배까지 늘어나 Phase 1 스레드 점유가 커진다 | 리뷰: 명령 클라이언트의 `configuration`에 `IdempotentRetryConfig`가 없다 |
-| B12 | `PaymentPort`는 booking의 말로 정의하고, payment의 응답 값은 어댑터에서 그 말로 바꾼다. 유스케이스 테스트는 가짜 구현으로 한다 | payment의 응답 형식(P1, P2)이나 전송 방식(Phase 1, 2)이 바뀌어도 어댑터 한 곳만 바뀐다. 결과 종류의 목록은 3장에 둔다 | ArchUnit(기존 계층 규칙): payment 응답 DTO는 infrastructure에 두므로, application이 쓰면 `LayeredArchitectureRules`가 깨진다 |
-| B13 | 결과 종류는 enum으로 두고 switch 식으로 다룬다. 결과 enum의 switch에는 `default`를 두지 않는다 | 툴체인이 JDK 17이다. sealed 타입에 대한 switch 패턴 매칭은 17에서 미리보기 기능이고 21에서 정식이 됐다. `default` 없는 enum switch 식은 빠진 경우를 컴파일러가 잡는다 | 리뷰: 결과 enum switch에 `default`가 없다 |
+| B7 | 결제 결과를 반영하는 코드는 한 곳(`PaymentResultApplier`)에만 둔다. Phase 1은 Feign 응답이, Phase 2는 Kafka 리스너가 같은 코드를 부른다 | 두 Phase의 측정 차이를 통신 방식 때문이라고 말하려면 반영 코드가 같아야 한다(설계서 6.2) | `ArchitectureTest.PAYMENT_ADAPTERS_DO_NOT_CHANGE_RESERVATIONS` |
+| B8 | 결제 실패는 선점 시간이 남았으면 `HOLD`로, 지났으면 `EXPIRED`와 좌석 반환으로 반영한다 | 남은 선점 시간 안에서 다시 결제할 수 있게 한다(F2) | `ReservationPaymentIntegrationTest.failureReturnsToHold`, `ReservationPaymentIntegrationTest.failureAfterExpiry` |
+| B9 | 원격 호출은 트랜잭션 밖에서 한다. 원격 호출이 있는 유스케이스는 "트랜잭션, 원격 호출, 트랜잭션" 세 단계로 나눈다 | PG가 늦는 동안 DB 커넥션을 잡으면, Phase 1 측정이 스레드 포화가 아니라 커넥션 풀 고갈을 재게 된다(설계서 2.1) | `ReservationPaymentIntegrationTest.checkoutAndConfirm`(호출 중 트랜잭션 없음, 빌려 간 DB 연결 0개), `BookingSchedulerIntegrationTest.resendsWhenNotReceived`. 테스트도 운영처럼 open-in-view를 끈다 |
+| B10 | 클라이언트가 보낸 금액은 받지 않는다. 결제 금액은 서버 쪽 값만 쓴다 | 금액 위변조를 막는다(설계서 8.2). 기본 금액의 출처와 할인 후 금액은 3장에 둔다 | 리뷰: `CheckoutRequest`와 `ConfirmRequest`에 금액 필드가 없다 |
+| B11 | 결제 명령(준비, 승인, 환불)은 자동 재시도하지 않는다. 같은 승인을 다시 보내는 일은 결과 확인 스케줄러만 한다. 그래서 명령과 조회를 같은 Feign 클라이언트에 두지 않는다 | `IdempotentRetryConfig`는 메서드가 아니라 클라이언트 단위로 붙는다. 명령에 재시도가 붙으면 승인 한 번이 read 대기의 3배까지 늘어나 Phase 1 스레드 점유가 커진다 | `ReservationPaymentIntegrationTest.unknownOutcome`(요청 경로에서 다시 보내지 않음). 리뷰: Feign 어댑터를 만들 때 명령 클라이언트에 `IdempotentRetryConfig`가 없다 |
+| B12 | `PaymentPort`는 booking의 말로 정의하고, payment의 응답 값은 어댑터에서 그 말로 바꾼다. 유스케이스 테스트는 가짜 구현으로 한다 | payment의 응답 형식(P1, P2)이나 전송 방식(Phase 1, 2)이 바뀌어도 어댑터 한 곳만 바뀐다. 결과 종류의 목록은 3장에 둔다 | `ArchitectureTest.LAYERS`(기존 계층 규칙). payment 응답 DTO는 infrastructure에 두므로 application이 쓰면 깨진다 |
+| B13 | 결과 종류는 enum으로 두고 switch 식으로 다룬다. 결과 enum의 switch에는 `default`를 두지 않는다 | 툴체인이 JDK 17이다. sealed 타입에 대한 switch 패턴 매칭은 17에서 미리보기 기능이고 21에서 정식이 됐다. `default` 없는 enum switch 식은 빠진 경우를 컴파일러가 잡는다 | 리뷰: `ConfirmOutcome.Result`, `PaymentLookup.Status`의 switch에 `default`가 없다 |
+| B21 | 결제가 실패해 HOLD로 돌아가면 `order_id`와 결제 금액을 지운다. 다시 결제하려면 새로 준비해야 한다 | 지우지 않으면 실패한 orderId로 승인이 다시 들어와 payment를 또 부른다(더블 클릭). 지운 뒤에도 늦게 온 그 시도의 결과는 orderId가 달라 지난 시도로 걸러진다(B4) | `ReservationPaymentIntegrationTest.failureReturnsToHold` |
+| B22 | 선점 시간이 지난 뒤의 승인은 만료 스케줄러가 돌았는지와 관계없이 `HOLD_EXPIRED`로 답한다. 같은 승인이 다시 와서 지금 상태를 돌려주는 것은 결제 중이거나 확정일 때뿐이다 | 스케줄러 실행 시점에 따라 같은 상황에 409와 200이 섞이면 클라이언트 계약이 둘이 된다 | `ReservationPaymentIntegrationTest.confirmAfterExpiry` |
+| B23 | 승인 뒤 결과 반영이 실패하면 오류 대신 지금 예약 상태(결제 중)를 돌려준다 | 승인은 성공했을 수 있다(F5). 오류로 답하면 클라이언트는 결제 실패로 안다. 결제 중이면 클라이언트는 폴링하고 결과 확인 스케줄러가 다시 반영한다 | `ReservationPaymentIntegrationTest.applyFailureReturnsState` |
+| B24 | 조건부 UPDATE 뒤에 영속성 컨텍스트 전체를 비우지 않는다(`clearAutomatically`를 쓰지 않는다). UPDATE 뒤에 예약을 다시 봐야 하면 `reload`로 예약 하나만 다시 읽는다 | 예약과 좌석은 한 트랜잭션에서 바뀐다. 전체를 비우면 seat 모듈이 잠가 둔 좌석 Entity까지 준영속이 되고, 그 뒤 seat가 바꾼 값은 오류 없이 버려진다 | 리뷰: `@Modifying`에 `clearAutomatically`가 없다 |
 
 ### 2.3 스케줄러
 
 | # | 결정 | 이유 | 지키는 검사 |
 | --- | --- | --- | --- |
-| B14 | 만료 스케줄러는 후보를 잠그지 않고 고르고, 건마다 트랜잭션 하나로 처리한다. 결제 중(`PAYMENT_IN_PROGRESS`) 예약은 만료하지 않는다. 건별 트랜잭션 안의 좌석 연산과 잠금 순서는 3장을 따른다 | 건별 트랜잭션이라 한 건이 실패해도 나머지가 진행된다. 결제 중 예약을 만료하면 좌석이 풀린 뒤 결제 성공이 도착해 "결제는 됐는데 표가 없는" 상태가 된다. seat도 이 좌석을 고르지 않아야 완전히 막힌다(S5) | 통합: 만료된 `HOLD`는 `EXPIRED`가 되고, 결제 중 예약은 그대로다 |
-| B15 | 만료 스케줄러는 인스턴스가 여러 개여도 분산 락을 두지 않는다. 중복 작업이 측정에서 문제로 보이면 그때 `FOR UPDATE SKIP LOCKED`를 넣는다 | 만료는 DB 전이뿐이라 조건부 UPDATE가 한 번만 성공시킨다. 원격 호출을 하는 결과 확인 스케줄러는 여기에 들지 않는다(3장) | 통합: 만료 스케줄러 두 개를 동시에 돌려도 한 번만 반영되고 좌석 반환도 한 번이다 |
-| B16 | 결과 확인 스케줄러는 결제 중으로 기준 시간 이상 머문 예약만 고른다. 기준 시간은 그 예약의 승인 요청이 아직 처리 중일 수 있는 최대 시간보다 길다. Phase 1에서는 승인 호출의 connect와 read 대기의 합이고, Phase 2에서는 consumer 지연까지 더한다 | 기준 시간이 짧으면 처리 중인 승인을 또 보낸다 | 통합: `updated_at`을 직접 넣어 기준 시간 전후의 예약을 만들고, 전의 예약은 고르지 않는다 |
-| B17 | 결제 중으로 상한 시간을 넘겨 머문 예약은 알림을 남긴다. 상태는 바꾸지 않는다 | 결제 중 예약은 만료하지 않는다(B14). 상한이 없으면 좌석이 묶인 채 아무도 모른다 | 통합: 상한을 넘긴 예약의 상태는 그대로이고 알림 지표가 오른다 |
-| B18 | 스케줄러의 주기와 기준 시간은 `config-repo/reservation-service.yml`에 둔다. 한 번 실행은 건수가 아니라 시간으로 끊어서 다음 주기 전에 끝낸다. **공유**: 이 설정 파일 | 측정하면서 바꿀 값이라 코드에 넣지 않는다. payment가 느리면 조회 한 건이 재시도까지 수십 초 걸린다. 건수로만 끊으면 한 번 실행이 주기를 크게 넘긴다 | 통합: 느린 가짜 포트로 돌려도 한 번 실행이 정해진 시간 안에 끝난다 |
+| B14 | 만료 스케줄러는 후보를 잠그지 않고 고르고, 건마다 트랜잭션 하나로 처리한다. 결제 중(`PAYMENT_IN_PROGRESS`) 예약은 만료하지 않는다. 처리 직전에 다시 읽어 이미 바뀐 예약은 좌석을 잠그지 않고 넘긴다. 건별 트랜잭션 안의 좌석 연산과 잠금 순서는 3장을 따른다 | 건별 트랜잭션이라 한 건이 실패해도 나머지가 진행된다. 결제 중 예약을 만료하면 좌석이 풀린 뒤 결제 성공이 도착해 "결제는 됐는데 표가 없는" 상태가 된다. seat도 이 좌석을 고르지 않아야 완전히 막힌다(S5). 한계: 같은 예약이 계속 실패해 한 묶음을 다 채우면 뒤 예약이 밀린다. 실패는 경고 로그로 드러난다 | `BookingSchedulerIntegrationTest.expiresDueHolds`, `BookingSchedulerIntegrationTest.oneFailureDoesNotStopOthers` |
+| B15 | 만료 스케줄러는 인스턴스가 여러 개여도 분산 락을 두지 않는다. 중복 작업이 측정에서 문제로 보이면 그때 `FOR UPDATE SKIP LOCKED`를 넣는다 | 만료는 DB 전이뿐이라 조건부 UPDATE가 한 번만 성공시킨다. 원격 호출을 하는 결과 확인 스케줄러는 여기에 들지 않는다(3장) | `BookingSchedulerIntegrationTest.concurrentExpiry`(두 실행이 같은 예약을 잠금 직전에 맞춰 함께 처리) |
+| B16 | 결과 확인 스케줄러는 결제 중으로 기준 시간 이상 머문 예약만 고른다. 기준 시간은 그 예약의 승인 요청이 아직 처리 중일 수 있는 최대 시간보다 길다. Phase 1에서는 승인 호출의 connect와 read 대기의 합이고, Phase 2에서는 consumer 지연까지 더한다 | 기준 시간이 짧으면 처리 중인 승인을 또 보낸다 | `BookingSchedulerIntegrationTest.respectsThreshold`, `BookingSchedulerPropertiesTest` |
+| B17 | 결제 중 예약 수와, 상한 시간을 넘겨 결제 중인 예약 수를 게이지로 남기고 경고 로그를 쓴다. 상태는 바꾸지 않는다 | 결제 중 예약은 만료하지 않는다(B14). 상한이 없으면 좌석이 묶인 채 아무도 모른다. 카운터로 세면 같은 예약을 실행마다 다시 세서 건수가 부풀므로 게이지로 지금 수를 보인다 | `BookingSchedulerIntegrationTest.reportsPaymentBacklog` |
+| B18 | 스케줄러의 주기와 기준 시간은 `config-repo/reservation-service.yml`에만 두고 코드에 기본값을 두지 않는다. 한 번 실행은 건수와 시간 예산으로 끊는다. 예산이 다 되면 다음 원격 호출을 시작하지 않고, 이미 시작한 호출 하나만큼만 넘칠 수 있다. **공유**: 이 설정 파일 | 측정하면서 바꿀 값이라 한곳에 둔다. payment가 느리면 조회 한 건이 재시도까지 수십 초 걸린다. 건수로만 끊으면 한 번 실행이 주기를 크게 넘긴다 | `BookingSchedulerIntegrationTest.stopsAtTimeBudget`(걸린 시간), `BookingSchedulerPropertiesTest`, `BookingSchedulingConfigTest` |
+| B25 | 결과 확인은 마지막으로 확인한 시각(`payment_checked_at`)이 오래된 예약부터 고른다. 확인한 예약은 다음 차례에서 뒤로 간다 | 결과가 오래 안 바뀌는 예약(F4, 모르는 주문)이 한 묶음을 채우면, `updated_at` 순으로만 고를 때 새로 결과를 모르게 된 예약은 영영 차례가 오지 않는다 | `BookingSchedulerIntegrationTest.doesNotStarveOnUnchangedPayments` |
+| B26 | 스케줄러는 booking 전용 스레드 두 개로 돌리고, 그 스레드 풀을 `TaskScheduler` 빈으로 내놓지 않는다 | Boot 기본 스케줄러는 스레드가 하나라 결과 확인이 payment를 기다리는 동안 만료가 멈춘다. 빈으로 내놓으면 다른 모듈의 `@Scheduled`가 이 스레드를 함께 쓴다 | `BookingSchedulingConfigTest` |
 
 ### 2.4 보상과 관측
 
 | # | 결정 | 이유 | 지키는 검사 |
 | --- | --- | --- | --- |
-| B19 | "결제는 됐는데 표가 없는" 상태는 자동 환불로 끝낸다. MVP에서는 감지해서 알림과 지표만 남기고, 환불 요청은 트러블슈팅 기간에 붙인다 | 설계서 10장의 원칙이다. 환불 요청 키는 3장, P3를 따른다 | 단위: F6 경우에 감지 지표가 오른다 |
-| B20 | 어긋남을 셀 지표를 둔다. 만료 처리, 결제 중 예약 수, 승인 재요청, F6 감지, 상한 초과를 센다 | 9장 측정의 "불일치 건수"와 B17 알림의 근거가 된다 | 통합: 각 경우를 만들고 해당 지표가 오르는지 본다 |
+| B19 | "결제는 됐는데 표가 없는" 상태는 자동 환불로 끝낸다. MVP에서는 감지해서 알림과 지표만 남기고, 환불 요청은 트러블슈팅 기간에 붙인다 | 설계서 10장의 원칙이다. 환불 요청 키는 3장, P3를 따른다 | `ReservationPaymentIntegrationTest.staleAndDuplicateResults` |
+| B20 | 어긋남을 셀 지표를 둔다. 만료 처리, 승인 재요청, F6 감지는 카운터로, 결제 중 예약 수와 상한 초과 수는 게이지로 둔다 | 9장 측정의 "불일치 건수"와 B17 알림의 근거가 된다 | `BookingSchedulerIntegrationTest.expiresDueHolds`, `BookingSchedulerIntegrationTest.resendsWhenNotReceived`, `BookingSchedulerIntegrationTest.reportsPaymentBacklog`, `ReservationPaymentIntegrationTest.staleAndDuplicateResults` |
 
 ---
 
@@ -70,6 +77,7 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | --- | --- | --- |
 | 예약과 좌석을 함께 바꾸는 트랜잭션 | booking 유스케이스는 좌석 연산을 요구 포트로 부르고 같은 트랜잭션에 묶는다. 필요한 연산은 잠금, 판매, 반환, 가격 네 가지다. 만료(B14)도 건별 트랜잭션 안에서 좌석 잠금, 조건부 UPDATE, 좌석 반환 순서로 한다. 테스트는 가짜 구현으로 한다 | S3 (시그니처) |
 | 잠금 순서 | booking 유스케이스는 좌석을 id 오름차순으로 먼저 잠그고 예약을 나중에 바꾼다 | S6 (seat도 같은 순서인지) |
+| 예약 생성 | seat가 선점 트랜잭션 안에서 `BookingFacade.hold`를 부르고, booking이 HOLD 예약과 좌석 id를 저장한다. 바깥 트랜잭션 없이 부르면 막는다(`Propagation.MANDATORY`). 예약을 만드는 경로가 없으면 나머지 흐름을 시험할 수 없어 이 원칙대로 먼저 구현했다 | S2 (D12) |
 | `BookingFacade.expire` | `HOLD`이고 시간이 지났을 때만 `EXPIRED`로 바꾸고 true를 돌려준다. 그 밖에는 false다 | S4 (누가 부를지) |
 | 결제 금액 | 기본 금액은 좌석 가격 스냅샷으로 계산해 준비 요청에 담는다. 할인 후 금액은 payment가 정하고, 준비 응답의 값을 저장해 승인 요청에 쓴다 | S3, D3 (스냅샷), P1 (승인 `amount`) |
 | 결제 준비 | `orderId`를 만들고, 트랜잭션 밖에서 부르고, 처음 읽은 `order_id`와 같을 때만 새 값을 기록한다 | P1 (응답 필드, 쿠폰) |
@@ -91,9 +99,8 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 
 | 항목 | 기다리는 답 | 정해지면 |
 | --- | --- | --- |
-| `hold_expires_at` 위치 (예약 또는 좌석) | S4 (D13) | 시간 판정(B6)이 읽는 컬럼을 정한다 |
+| `hold_expires_at` 위치 (예약 또는 좌석) | S4 (D13) | 지금은 예약 테이블에 두었다(`schema.sql`). 좌석에 두기로 하면 시간 판정(B6)이 읽는 컬럼과 만료 후보 쿼리를 바꾼다 |
 | 결제 중 좌석의 선택 가능 판정 | S5 (D13) | seat 쪽 규칙이다. B14의 이유가 완전해진다 |
-| 예약 생성 (`BookingFacade.hold`) | S2 (D12) | 2.1에 생성 전이를 더한다 |
 | 1인 매수 제한 집계 | S3, D5 | 3장에 집계 쿼리의 내 쪽 원칙을 더한다 |
 | 예약 취소 흐름 | P3 (D14), 취소 가능 기간 D6 | B안이면 상태를 더하지 않고 2.2에 넣는다. A안이면 `CANCEL_REQUESTED` 전이를 2.1에 더한다 |
 | 결제 승인 응답 형식 | T5 (D16) | 3장에 넣는다 |
@@ -112,7 +119,7 @@ orchestration.md 10장의 이슈 후보마다 완료 조건으로 넣는다.
 
 | 이슈 후보 | 만들 검사 |
 | --- | --- |
-| 예약 상태 모델 | B1, B2, B5, B6 |
+| 예약 상태 모델 | B1, B2, B5, B6, B24 |
 | 선점 만료 스케줄러 | B14, B15, B18 |
-| 결제 준비·승인과 결과 반영 Phase 1 | B3, B4, B7, B8, B9, B10, B11, B12, B13 |
-| 결과 확인 스케줄러 | B16, B17, B19, B20 |
+| 결제 준비·승인과 결과 반영 Phase 1 | B3, B4, B7, B8, B9, B10, B11, B12, B13, B21, B22, B23 |
+| 결과 확인 스케줄러 | B16, B17, B19, B20, B25, B26 |
