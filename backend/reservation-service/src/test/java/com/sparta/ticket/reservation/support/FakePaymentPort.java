@@ -23,6 +23,7 @@ public class FakePaymentPort implements PaymentPort {
     public final List<String> confirmedOrderIds = new CopyOnWriteArrayList<>();
     public final List<Long> confirmedAmounts = new CopyOnWriteArrayList<>();
     public final List<Boolean> calledInTransaction = new CopyOnWriteArrayList<>();
+    public final List<String> lookedUpOrderIds = new CopyOnWriteArrayList<>();
     private final Map<String, PaymentLookup> lookups = new ConcurrentHashMap<>();
 
     private volatile long discount;
@@ -34,6 +35,7 @@ public class FakePaymentPort implements PaymentPort {
         confirmedOrderIds.clear();
         confirmedAmounts.clear();
         calledInTransaction.clear();
+        lookedUpOrderIds.clear();
         lookups.clear();
         discount = 0;
         confirmResult = ConfirmOutcome::succeeded;
@@ -84,6 +86,7 @@ public class FakePaymentPort implements PaymentPort {
     @Override
     public PaymentLookup find(String orderId) {
         calledInTransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+        lookedUpOrderIds.add(orderId);
         sleep(lookupDelay);
         return lookups.getOrDefault(orderId, PaymentLookup.of(PaymentLookup.Status.IN_PROGRESS));
     }
