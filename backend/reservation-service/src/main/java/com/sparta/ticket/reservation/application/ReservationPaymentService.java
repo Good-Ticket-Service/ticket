@@ -54,7 +54,19 @@ public class ReservationPaymentService {
         if (!start.started()) {
             return start.current();
         }
-        resultApplier.apply(reservationId, command.orderId(), requestConfirm(command, start.amount()));
+        ConfirmOutcome outcome = requestConfirm(command, start.amount());
+        try {
+            resultApplier.apply(reservationId, command.orderId(), outcome);
+        } catch (RuntimeException e) {
+            // Note: 승인은 성공했을 수 있는데 반영만 실패했다(F5). 오류로 답하면 클라이언트는 결제 실패로 안다.
+            // 예약은 결제 중 그대로이므로 그 상태를 돌려주고, 결과 확인 스케줄러가 조회해 다시 반영한다.
+            log.error(
+                    "결제 결과 반영에 실패했다(F5). reservationId={}, orderId={}, result={}",
+                    reservationId,
+                    command.orderId(),
+                    outcome.result(),
+                    e);
+        }
         return transactions.read(reservationId);
     }
 

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.reservation.application.BookingFacade;
+import com.sparta.ticket.reservation.application.HoldExpiryService;
 import com.sparta.ticket.reservation.application.PaymentResultApplier;
 import com.sparta.ticket.reservation.application.ReservationTransactions;
 import com.sparta.ticket.reservation.application.ReservationTransactions.CheckoutTarget;
@@ -57,6 +58,9 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     private PaymentResultApplier paymentResultApplier;
 
     @Autowired
+    private HoldExpiryService holdExpiryService;
+
+    @Autowired
     private FakePaymentPort payment;
 
     @Autowired
@@ -101,7 +105,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
 
     private ResultActions checkout(UUID reservationId, UUID user) throws Exception {
         return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/checkout", reservationId), user)
-                .content("{\"pgProvider\": \"TOSS\"}"));
+                .content("{}"));
     }
 
     private String checkoutOrderId(UUID reservationId) throws Exception {
@@ -147,14 +151,18 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         assertThat(payment.confirmedAmounts).as("승인 금액은 준비 응답의 값이다").containsExactly(17_000L);
         assertThat(seats.locked).containsExactly(List.of(seatA, seatB));
         assertThat(seats.sold).containsExactly(List.of(seatA, seatB));
+        assertThat(seats.events).containsExactly("lock", "sell");
         assertThat(payment.calledInTransaction).as("payment 호출은 트랜잭션 밖이다").containsOnly(false);
+        assertThat(payment.activeConnectionsAtCall)
+                .as("payment 호출 중에 DB 연결을 잡고 있지 않다")
+                .containsOnly(0);
         Map<String, Object> row = row(reservationId);
         assertThat(row.get("pg_auth_token")).isNull();
         assertThat(row.get("updated_by")).as("요청 경로의 전이는 요청한 사용자를 남긴다").isEqualTo(USERNAME);
     }
 
     @Test
-    @DisplayName("결제가 거절되면 선점 시간이 남은 동안 HOLD로 돌아오고, 다시 준비하면 이전 orderId의 승인은 거절된다")
+    @DisplayName("결제가 거절되면 HOLD로 돌아오고, 실패한 orderId로는 다시 승인할 수 없어 새로 준비해야 한다")
     void failureReturnsToHold() throws Exception {
         UUID reservationId = hold();
         String firstOrderId = checkoutOrderId(reservationId);
@@ -163,12 +171,21 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         confirm(reservationId, firstOrderId, userId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("HOLD"));
+        assertThat(row(reservationId).get("order_id"))
+                .as("실패한 시도의 orderId를 지운다")
+                .isNull();
 
-        String secondOrderId = checkoutOrderId(reservationId);
-        assertThat(secondOrderId).isNotEqualTo(firstOrderId);
         confirm(reservationId, firstOrderId, userId)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ORDER_ID_MISMATCH"));
+        assertThat(payment.confirmedOrderIds)
+                .as("실패한 orderId로 payment를 다시 부르지 않는다")
+                .hasSize(1);
+
+        payment.confirmReturns(ConfirmOutcome.succeeded());
+        String secondOrderId = checkoutOrderId(reservationId);
+        confirm(reservationId, secondOrderId, userId)
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
         assertThat(seats.released).isEmpty();
     }
 
@@ -185,8 +202,42 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         confirm(reservationId, orderId, userId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("EXPIRED"));
-
         assertThat(seats.released).containsExactly(List.of(seatA, seatB));
+
+        double lateBefore = lateSuccessCount();
+        assertThat(paymentResultApplier.apply(reservationId, orderId, ConfirmOutcome.succeeded()))
+                .isFalse();
+        assertThat(lateSuccessCount()).as("끝난 예약에 온 같은 orderId의 성공은 F6이다").isEqualTo(lateBefore + 1);
+        assertThat(seats.locked).as("끝난 예약의 좌석은 다시 잠그지 않는다").hasSize(1);
+    }
+
+    @Test
+    @DisplayName("선점 시간이 지난 뒤의 승인은 만료 스케줄러가 돌았는지와 관계없이 HOLD_EXPIRED다")
+    void confirmAfterExpiry() throws Exception {
+        UUID reservationId = hold();
+        String orderId = checkoutOrderId(reservationId);
+        clock.advance(Duration.ofMinutes(11));
+
+        confirm(reservationId, orderId, userId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HOLD_EXPIRED"));
+        assertThat(holdExpiryService.expireDue(10, Duration.ofSeconds(5))).isEqualTo(1);
+        confirm(reservationId, orderId, userId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HOLD_EXPIRED"));
+        assertThat(payment.confirmedOrderIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("승인 뒤 결과 반영이 실패해도 오류 대신 결제 중 상태로 답한다(F5)")
+    void applyFailureReturnsState() throws Exception {
+        UUID reservationId = hold();
+        String orderId = checkoutOrderId(reservationId);
+        seats.failOnLock(seatA);
+
+        confirm(reservationId, orderId, userId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PAYMENT_IN_PROGRESS"));
     }
 
     @Test

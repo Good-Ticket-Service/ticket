@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -24,6 +25,8 @@ public class FakePaymentPort implements PaymentPort {
     public final List<Long> confirmedAmounts = new CopyOnWriteArrayList<>();
     public final List<Boolean> calledInTransaction = new CopyOnWriteArrayList<>();
     public final List<String> lookedUpOrderIds = new CopyOnWriteArrayList<>();
+    public final List<Integer> activeConnectionsAtCall = new CopyOnWriteArrayList<>();
+    private volatile IntSupplier activeConnections = () -> 0;
     private final Map<String, PaymentLookup> lookups = new ConcurrentHashMap<>();
 
     private volatile long discount;
@@ -36,10 +39,16 @@ public class FakePaymentPort implements PaymentPort {
         confirmedAmounts.clear();
         calledInTransaction.clear();
         lookedUpOrderIds.clear();
+        activeConnectionsAtCall.clear();
         lookups.clear();
         discount = 0;
         confirmResult = ConfirmOutcome::succeeded;
         lookupDelay = Duration.ZERO;
+    }
+
+    /** 호출될 때 커넥션 풀에서 빌려 간 연결 수를 함께 기록한다. 원격 호출 중에 DB 연결을 잡고 있지 않은지 본다. */
+    public void watchConnections(IntSupplier activeConnections) {
+        this.activeConnections = activeConnections;
     }
 
     public void discount(long amount) {
@@ -70,14 +79,14 @@ public class FakePaymentPort implements PaymentPort {
 
     @Override
     public PreparedPayment prepare(PaymentPrepareRequest request) {
-        calledInTransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+        record();
         prepared.add(request);
         return new PreparedPayment(request.baseAmount() - discount, null);
     }
 
     @Override
     public ConfirmOutcome confirm(String orderId, String pgAuthToken, long amount) {
-        calledInTransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+        record();
         confirmedOrderIds.add(orderId);
         confirmedAmounts.add(amount);
         return confirmResult.get();
@@ -85,10 +94,15 @@ public class FakePaymentPort implements PaymentPort {
 
     @Override
     public PaymentLookup find(String orderId) {
-        calledInTransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+        record();
         lookedUpOrderIds.add(orderId);
         sleep(lookupDelay);
         return lookups.getOrDefault(orderId, PaymentLookup.of(PaymentLookup.Status.IN_PROGRESS));
+    }
+
+    private void record() {
+        calledInTransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+        activeConnectionsAtCall.add(activeConnections.getAsInt());
     }
 
     private static void sleep(Duration delay) {

@@ -62,6 +62,8 @@ public class Reservation extends BaseEntity {
     @Column(length = 255)
     private String pgAuthToken;
 
+    private LocalDateTime paymentCheckedAt;
+
     @ElementCollection
     @CollectionTable(name = "p_reservation_seats", joinColumns = @JoinColumn(name = "reservation_id"))
     @Column(name = "seat_id", nullable = false)

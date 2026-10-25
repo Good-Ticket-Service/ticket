@@ -17,12 +17,13 @@ import org.springframework.data.repository.query.Param;
 
 /**
  * 전이 메서드는 default 메서드가 {@link ReservationTransition}에서 from·to를 꺼내 아래 쿼리에 넘긴다.
- * 쿼리 문자열에 상태 이름을 쓰지 않아 전이 규칙이 표 한 곳에만 남는다.
+ * 쿼리 문자열에 전이의 상태 이름을 쓰지 않아 전이 규칙이 표 한 곳에만 남는다. updateXxx를 직접 부르지 않는다.
  *
- * Note: 조건부 UPDATE는 영속성 컨텍스트를 거치지 않고 DB를 바로 바꾼다. 앞서 읽어 둔 Entity가 옛 상태로 남지 않게
- * clearAutomatically로 컨텍스트를 비우고, 아직 쓰지 않은 변경이 UPDATE보다 늦게 나가지 않게 flushAutomatically를 켠다.
+ * Note: 조건부 UPDATE는 영속성 컨텍스트를 거치지 않고 DB를 바로 바꾼다. 아직 쓰지 않은 변경이 UPDATE보다 늦게 나가지 않게
+ * flushAutomatically를 켠다. 컨텍스트는 비우지 않는다(이유는 ReservationReloaderImpl). UPDATE 뒤에 예약을 다시 봐야 하면 reload를 쓴다.
  */
-public interface ReservationJpaRepository extends JpaRepository<Reservation, UUID>, ReservationRepository {
+public interface ReservationJpaRepository
+        extends JpaRepository<Reservation, UUID>, ReservationRepository, ReservationReloader {
 
     @Override
     default int recordCheckout(
@@ -46,13 +47,13 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
     @Override
     default int returnToHold(UUID id, String orderId, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.RETURN_TO_HOLD;
-        return updatePaymentFailureBeforeExpiry(id, t.from(), t.to(), orderId, stamp.at(), stamp.by());
+        return updateReturnToHold(id, t.from(), t.to(), orderId, stamp.at(), stamp.by());
     }
 
     @Override
     default int expireAfterFailure(UUID id, String orderId, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.EXPIRE_AFTER_FAILURE;
-        return updatePaymentFailureAfterExpiry(id, t.from(), t.to(), orderId, stamp.at(), stamp.by());
+        return updateExpireAfterFailure(id, t.from(), t.to(), orderId, stamp.at(), stamp.by());
     }
 
     @Override
@@ -63,16 +64,16 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
 
     @Override
     default List<UUID> findExpiredHoldIds(LocalDateTime now, int limit) {
-        return selectExpiredHoldIds(ReservationStatus.HOLD, now, PageRequest.of(0, limit));
+        return selectExpiredHoldIds(now, PageRequest.of(0, limit));
     }
 
     @Override
     default List<UUID> findStalePaymentIds(LocalDateTime updatedBefore, int limit) {
-        return selectStaleIds(ReservationStatus.PAYMENT_IN_PROGRESS, updatedBefore, PageRequest.of(0, limit));
+        return selectStalePaymentIds(updatedBefore, PageRequest.of(0, limit));
     }
 
     /** order_id를 처음 읽은 값과 비교한다. 처음 준비라 둘 다 null인 경우도 같다고 본다. */
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.orderId = :orderId, r.paymentAmount = :paymentAmount, r.updatedAt = :at, r.updatedBy = :by
@@ -89,7 +90,7 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = :pgAuthToken, r.updatedAt = :at, r.updatedBy = :by
@@ -106,7 +107,7 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
@@ -120,13 +121,14 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
-               SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
+               SET r.status = :to, r.orderId = NULL, r.paymentAmount = NULL, r.pgAuthToken = NULL,
+                   r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId AND r.holdExpiresAt > :at
             """)
-    int updatePaymentFailureBeforeExpiry(
+    int updateReturnToHold(
             @Param("id") UUID id,
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
@@ -134,13 +136,13 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId AND r.holdExpiresAt <= :at
             """)
-    int updatePaymentFailureAfterExpiry(
+    int updateExpireAfterFailure(
             @Param("id") UUID id,
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
@@ -148,7 +150,7 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
@@ -161,21 +163,44 @@ public interface ReservationJpaRepository extends JpaRepository<Reservation, UUI
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r SET r.paymentCheckedAt = :checkedAt
+             WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+            """)
+    int markPaymentChecked(@Param("id") UUID id, @Param("checkedAt") LocalDateTime checkedAt);
+
+    /** 상태를 리터럴로 써야 schema.sql의 부분 인덱스(WHERE status = 'HOLD')를 확실히 탄다. */
     @Query("""
             SELECT r.id FROM Reservation r
-             WHERE r.status = :status AND r.holdExpiresAt <= :now
+             WHERE r.status = com.sparta.ticket.reservation.domain.ReservationStatus.HOLD
+               AND r.holdExpiresAt <= :now
              ORDER BY r.holdExpiresAt
             """)
-    List<UUID> selectExpiredHoldIds(
-            @Param("status") ReservationStatus status, @Param("now") LocalDateTime now, Pageable pageable);
+    List<UUID> selectExpiredHoldIds(@Param("now") LocalDateTime now, Pageable pageable);
 
+    /** 확인한 적 없는 예약을 먼저, 그다음 오래전에 확인한 예약을 고른다. 결과가 안 바뀌는 예약이 앞자리를 막지 않는다. */
     @Query("""
             SELECT r.id FROM Reservation r
-             WHERE r.status = :status AND r.updatedAt <= :updatedBefore
-             ORDER BY r.updatedAt
+             WHERE r.status = com.sparta.ticket.reservation.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.updatedAt <= :updatedBefore
+             ORDER BY COALESCE(r.paymentCheckedAt, r.updatedAt), r.id
             """)
-    List<UUID> selectStaleIds(
-            @Param("status") ReservationStatus status,
-            @Param("updatedBefore") LocalDateTime updatedBefore,
-            Pageable pageable);
+    List<UUID> selectStalePaymentIds(@Param("updatedBefore") LocalDateTime updatedBefore, Pageable pageable);
+
+    @Override
+    @Query("""
+            SELECT COUNT(r) FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+            """)
+    long countPaymentsInProgress();
+
+    @Override
+    @Query("""
+            SELECT COUNT(r) FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.updatedAt <= :updatedBefore
+            """)
+    long countStalePayments(@Param("updatedBefore") LocalDateTime updatedBefore);
 }

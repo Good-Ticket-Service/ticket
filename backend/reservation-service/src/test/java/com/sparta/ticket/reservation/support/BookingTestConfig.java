@@ -1,6 +1,9 @@
 package com.sparta.ticket.reservation.support;
 
+import com.zaxxer.hikari.HikariDataSource;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
+import javax.sql.DataSource;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -23,7 +26,10 @@ public class BookingTestConfig {
 
     @Bean
     @Primary
-    public FakePaymentPort fakePaymentPort() {
-        return new FakePaymentPort();
+    public FakePaymentPort fakePaymentPort(DataSource dataSource) throws SQLException {
+        FakePaymentPort payment = new FakePaymentPort();
+        HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);
+        payment.watchConnections(() -> hikari.getHikariPoolMXBean().getActiveConnections());
+        return payment;
     }
 }
