@@ -9,6 +9,7 @@ set -euo pipefail
 : "${EVENT_DB_PASSWORD:?EVENT_DB_PASSWORD가 필요하다}"
 : "${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}"
 : "${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}"
+: "${FAKE_PG_DB_PASSWORD:?FAKE_PG_DB_PASSWORD가 필요하다}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
@@ -29,3 +30,5 @@ create_service_schema user_schema user_app "$USER_DB_PASSWORD"
 create_service_schema event_schema event_app "$EVENT_DB_PASSWORD"
 create_service_schema reservation_schema reservation_app "$RESERVATION_DB_PASSWORD"
 create_service_schema payment_schema payment_app "$PAYMENT_DB_PASSWORD"
+# 테스트용 fake PG(backend/fake-pg)의 거래 기록
+create_service_schema fake_pg_schema fake_pg_app "$FAKE_PG_DB_PASSWORD"
