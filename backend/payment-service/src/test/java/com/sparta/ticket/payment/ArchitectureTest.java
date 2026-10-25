@@ -35,7 +35,7 @@ class ArchitectureTest {
             .that()
             .resideInAPackage("..application..")
             .and()
-            .resideOutsideOfPackage("..application.coupon..")
+            .resideOutsideOfPackage("..application..coupon..")
             .and()
             .haveSimpleNameNotEndingWith("Transactions")
             .should(notUseTransactional())
