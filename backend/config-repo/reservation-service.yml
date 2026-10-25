@@ -10,3 +10,21 @@ spring:
     properties:
       hibernate:
         default_schema: reservation_schema
+
+# booking의 만료·결과 확인 스케줄러. 측정하면서 바꿀 값이라 코드에 기본값을 두지 않는다(docs/reservation/booking-decisions.md B18)
+reservation:
+  booking:
+    scheduler:
+      hold-expiry:
+        interval: 10s
+        batch-size: 100
+        # 한 번 실행이 이 시간을 넘기면 남은 건은 다음 실행에 넘긴다
+        time-budget: 5s
+      payment-reconcile:
+        interval: 30s
+        # 처리 중인 승인을 또 보내지 않도록 승인 호출의 최대 대기(connect + read)보다 길게 둔다
+        threshold: 1m
+        # 결제 중으로 이보다 오래 머물면 알림을 남긴다. 선점 시간보다 충분히 길어야 정상 결제가 걸리지 않는다
+        stuck-after: 30m
+        batch-size: 20
+        time-budget: 20s

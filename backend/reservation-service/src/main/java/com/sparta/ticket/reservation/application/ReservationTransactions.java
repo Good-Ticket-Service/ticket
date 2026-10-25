@@ -13,6 +13,7 @@ import com.sparta.ticket.reservation.domain.ReservationStatus;
 import com.sparta.ticket.reservation.domain.ReservationTransition;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -39,6 +40,10 @@ public class ReservationTransactions {
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
+
+    /** 결과를 확인할 결제 중 예약. since는 결제 중이 된 시각(updated_at)이다. */
+    public record PendingPayment(
+            UUID reservationId, String orderId, String pgAuthToken, long amount, LocalDateTime since) {}
 
     @Transactional(readOnly = true)
     public CheckoutTarget loadCheckoutTarget(UUID userId, UUID reservationId) {
@@ -118,6 +123,20 @@ public class ReservationTransactions {
             metrics.expiredHold();
         }
         return expired;
+    }
+
+    /** 아직 결제 중이면 다시 보낼 값을 돌려준다. 그사이 다른 경로로 끝났으면 비어 있다. */
+    @Transactional(readOnly = true)
+    public Optional<PendingPayment> readPendingPayment(UUID reservationId) {
+        return reservationRepository
+                .findById(reservationId)
+                .filter(reservation -> reservation.getStatus() == ReservationStatus.PAYMENT_IN_PROGRESS)
+                .map(reservation -> new PendingPayment(
+                        reservation.getId(),
+                        reservation.getOrderId(),
+                        reservation.getPgAuthToken(),
+                        reservation.getPaymentAmount(),
+                        reservation.getUpdatedAt()));
     }
 
     @Transactional(readOnly = true)
