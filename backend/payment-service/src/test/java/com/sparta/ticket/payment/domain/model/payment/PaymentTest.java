@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,18 @@ class PaymentTest {
             assertThat(payment.matches(order("order-1", 1L))).isTrue();
             assertThat(payment.matches(order("order-1", 2L))).isFalse();
         }
+
+        @Test
+        @DisplayName("만료 시각은 DB 정밀도(마이크로초)로 저장하고 같은 정밀도로 비교한다")
+        void comparesExpiryAtDbPrecision() {
+            LocalDateTime expiresAt = NOW.plusMinutes(10).plusNanos(123_456_789);
+            Payment payment = Payment.ready(order("order-1", 1L, expiresAt), 0);
+
+            assertThat(payment.getExpiresAt()).isEqualTo(NOW.plusMinutes(10).plusNanos(123_456_000));
+            assertThat(payment.matches(order("order-1", 1L, expiresAt))).isTrue();
+            assertThat(payment.matches(order("order-1", 1L, expiresAt.plusNanos(1_000))))
+                    .isFalse();
+        }
     }
 
     @Nested
@@ -89,8 +102,8 @@ class PaymentTest {
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
             assertThat(payment.getPgTransactionId()).isEqualTo("payment-key");
             assertThat(payment.getApproveRequestedAt()).isEqualTo(NOW);
-            assertThat(payment.getRecovery().getNextAttemptAt()).isEqualTo(NOW.plus(FIRST_CHECK));
-            assertThat(payment.getRecovery().getStartedAt()).isEqualTo(NOW);
+            assertThat(payment.getNextAttemptAt()).isEqualTo(NOW.plus(FIRST_CHECK));
+            assertThat(payment.getRecoveryStartedAt()).isEqualTo(NOW);
         }
 
         @Test
@@ -99,7 +112,7 @@ class PaymentTest {
             Payment payment = done();
 
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DONE);
-            assertThat(payment.getRecovery().getNextAttemptAt()).isNull();
+            assertThat(payment.getNextAttemptAt()).isNull();
         }
 
         @Test
@@ -185,8 +198,8 @@ class PaymentTest {
             Payment payment = inProgress();
             payment.deferRecovery("READ_TIMEOUT", NOW.plusSeconds(40));
 
-            assertThat(payment.getRecovery().getAttempts()).isEqualTo(1);
-            assertThat(payment.getRecovery().getLastError()).isEqualTo("READ_TIMEOUT");
+            assertThat(payment.getRecoveryAttempts()).isEqualTo(1);
+            assertThat(payment.getLastError()).isEqualTo("READ_TIMEOUT");
             assertThat(payment.isRecoveryGivenUp(NOW.plusMinutes(59), Duration.ofHours(1)))
                     .isFalse();
             assertThat(payment.isRecoveryGivenUp(NOW.plusHours(1), Duration.ofHours(1)))
@@ -200,8 +213,8 @@ class PaymentTest {
             payment.blockRecovery("GIVE_UP");
             payment.unblockRecovery(NOW.plusHours(2));
 
-            assertThat(payment.getRecovery().isBlocked()).isFalse();
-            assertThat(payment.getRecovery().getStartedAt()).isEqualTo(NOW.plusHours(2));
+            assertThat(payment.isRecoveryBlocked()).isFalse();
+            assertThat(payment.getRecoveryStartedAt()).isEqualTo(NOW.plusHours(2));
             assertThat(payment.getApproveRequestedAt()).isEqualTo(NOW);
         }
 

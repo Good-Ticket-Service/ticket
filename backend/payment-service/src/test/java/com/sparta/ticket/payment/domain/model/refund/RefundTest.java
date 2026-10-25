@@ -33,7 +33,7 @@ class RefundTest {
 
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.REQUESTED);
         assertThat(refund.getRequestedAt()).isEqualTo(NOW);
-        assertThat(refund.getRecovery().getNextAttemptAt()).isEqualTo(NOW);
+        assertThat(refund.getNextAttemptAt()).isEqualTo(NOW);
         assertThat(refund.getRefundAmount()).isEqualTo(45_000);
     }
 
@@ -73,14 +73,14 @@ class RefundTest {
         refund.reject("NOT_CANCELABLE", "취소 불가");
 
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.FAILED);
-        assertThat(refund.getRecovery().isBlocked()).isTrue();
+        assertThat(refund.isRecoveryBlocked()).isTrue();
         assertThat(refund.pgCancelKey("order-1")).isEqualTo("order-1:cancel:0");
 
         refund.retryByAdmin(NOW.plusHours(1));
 
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.REQUESTED);
-        assertThat(refund.getRecovery().isBlocked()).isFalse();
-        assertThat(refund.getRecovery().getNextAttemptAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(refund.isRecoveryBlocked()).isFalse();
+        assertThat(refund.getNextAttemptAt()).isEqualTo(NOW.plusHours(1));
         assertThat(refund.pgCancelKey("order-1")).isEqualTo("order-1:cancel:1");
         assertThat(refund.getRequestedAt()).isEqualTo(NOW);
     }

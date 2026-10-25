@@ -17,6 +17,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
@@ -100,6 +101,8 @@ public class Payment extends BaseEntity {
 
     private LocalDateTime reconciledAt;
 
+    /** 바깥에 그대로 내주지 않는다. 바꾸는 일은 상태를 함께 검사하는 이 클래스의 메서드로만 한다. */
+    @Getter(AccessLevel.NONE)
     @Embedded
     private Recovery recovery = Recovery.none();
 
@@ -113,7 +116,7 @@ public class Payment extends BaseEntity {
         this.pgProvider = order.pgProvider();
         this.totalPrice = order.totalPrice();
         this.userCouponId = order.userCouponId();
-        this.expiresAt = order.expiresAt();
+        this.expiresAt = toDbPrecision(order.expiresAt());
         this.discountAmount = discountAmount;
         this.amount = order.totalPrice() - discountAmount;
         this.status = PaymentStatus.READY;
@@ -138,7 +141,35 @@ public class Payment extends BaseEntity {
                 && pgProvider == order.pgProvider()
                 && totalPrice == order.totalPrice()
                 && Objects.equals(userCouponId, order.userCouponId())
-                && expiresAt.equals(order.expiresAt());
+                && expiresAt.equals(toDbPrecision(order.expiresAt()));
+    }
+
+    /**
+     * Note: PostgreSQL TIMESTAMP는 마이크로초까지만 저장한다. 더 정밀한 시각(Windows는 100나노초 단위)을 그대로 두면
+     * 저장 후 다시 읽은 값과 요청 값이 달라져, 같은 요청의 재전송을 다른 요청(409)으로 오판한다. 저장과 비교 모두 같은 정밀도로 맞춘다.
+     */
+    private static LocalDateTime toDbPrecision(LocalDateTime time) {
+        return time.truncatedTo(ChronoUnit.MICROS);
+    }
+
+    public LocalDateTime getNextAttemptAt() {
+        return recovery.getNextAttemptAt();
+    }
+
+    public LocalDateTime getRecoveryStartedAt() {
+        return recovery.getStartedAt();
+    }
+
+    public int getRecoveryAttempts() {
+        return recovery.getAttempts();
+    }
+
+    public boolean isRecoveryBlocked() {
+        return recovery.isBlocked();
+    }
+
+    public String getLastError() {
+        return recovery.getLastError();
     }
 
     /** 카카오 준비 결과. 같은 orderId의 준비 재요청에 결제창 URL을 그대로 돌려주기 위해 저장한다. */
