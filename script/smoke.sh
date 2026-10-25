@@ -2,6 +2,7 @@
 # Compose로 띄운 전체 시스템이 Gateway를 통해 연결되는지 점검한다. CI의 smoke 잡과 로컬에서 같이 쓴다.
 # 사용: docker compose up -d --build && script/smoke.sh
 # 점검: Gateway 기동 → 서비스 Eureka 등록 → 무인증 요청 401 → Kafka 송수신 → Prometheus 수집·Grafana 연결
+#       → fake PG 결제 인증·승인
 #       → MASTER 로그인 → 토큰으로 내 정보 조회
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -104,6 +105,23 @@ if grafana=$(host_url grafana 3000); then
   }
   wait_until "Grafana의 Prometheus 데이터 소스가 연결되지 않는다" datasource_ok
   echo "ok: Grafana 데이터 소스"
+fi
+
+# fake PG: 결제 인증 시뮬레이션으로 paymentKey를 받고, 토스 형식 승인이 DONE으로 끝나는지 확인한다.
+if fake_pg=$(host_url fake-pg 8090); then
+  fake_pg_up() { [[ $(request "$fake_pg/actuator/health") == 200 ]]; }
+  wait_until "fake PG health가 200이 아니다" fake_pg_up
+  order_id="smoke-$(date +%s)-$RANDOM"
+  status=$(request -H 'Content-Type: application/json' -d "{\"orderId\":\"$order_id\",\"amount\":1000}" \
+    "$fake_pg/fake/toss/checkout")
+  payment_key=$(sed -n 's/.*"paymentKey":"\([^"]*\)".*/\1/p' "$body_file")
+  [[ $status == 200 && -n "$payment_key" ]] || fail "fake PG 결제 인증 시뮬레이션 실패: $status $(cat "$body_file")"
+  toss_auth=$(printf '%s' "${FAKE_PG_TOSS_SECRET_KEY:-test_sk_fake_toss}:" | base64)
+  status=$(request -H "Authorization: Basic $toss_auth" -H 'Content-Type: application/json' \
+    -d "{\"paymentKey\":\"$payment_key\",\"orderId\":\"$order_id\",\"amount\":1000}" "$fake_pg/v1/payments/confirm")
+  [[ $status == 200 ]] && grep -q '"status":"DONE"' "$body_file" \
+    || fail "fake PG 승인 실패: $status $(cat "$body_file")"
+  echo "ok: fake PG 결제 인증·승인"
 fi
 
 username=$(env_value MASTER_USERNAME)

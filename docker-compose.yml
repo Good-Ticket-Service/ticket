@@ -52,6 +52,7 @@ services:
       EVENT_DB_PASSWORD: ${EVENT_DB_PASSWORD:?EVENT_DB_PASSWORD가 필요하다}
       RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}
+      FAKE_PG_DB_PASSWORD: ${FAKE_PG_DB_PASSWORD:-fake_pg_local_pw}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -220,6 +221,27 @@ services:
     environment:
       <<: *service-env
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD}
+
+  # 토스 형식의 API를 흉내 내는 테스트용 PG(backend/fake-pg). 바깥 PG처럼 Eureka·Config Server 없이 주소로만 찾아간다.
+  # payment-service와 k6가 부르고, 관리 API(/fake/admin/**)로 장애를 건다. Gateway 라우트에는 없다.
+  fake-pg:
+    <<: *app
+    build:
+      context: ./backend
+      args: { MODULE: fake-pg }
+    networks: [ticket-net, ticket-data]
+    ports:
+      - "127.0.0.1:${FAKE_PG_PORT:-8090}:8090"
+    environment:
+      DB_HOST: postgres
+      FAKE_PG_DB_PASSWORD: ${FAKE_PG_DB_PASSWORD:-fake_pg_local_pw}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:8090/actuator/health || exit 1"]
+      interval: 5s
+      retries: 20
 
 networks:
   # 앞단. 대역을 고정해야 위의 preferred-networks 접두어와 맞출 수 있다. Docker 기본 풀(172.17~31, 192.168)과 겹치지 않고,
