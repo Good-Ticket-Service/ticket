@@ -23,19 +23,19 @@ Kafka 메시지 스키마는 Phase 2에서 `events/`에 추가한다.
 | 상태 | 뜻 |
 |---|---|
 | 초안 | 제공하는 쪽이 제안했다. 쓰는 쪽은 아직 이 내용에 기대지 않는다 |
-| 합의 (#이슈) | 담당자들이 확인했다. 양쪽이 이 문서로 개발한다 |
+| 합의 (#이슈 또는 Notion) | 담당자들이 확인했다. 양쪽이 이 문서로 개발한다 |
 | 구현됨 (#PR) | 제공하는 쪽 구현이 머지됐다 |
 
 ## 계약 목록
 
 | 계약 | 제공 | 소비 | 상태 |
 |---|---|---|---|
-| [결제 내부 API](internal-api/payment.md) | 결제 | 예매 | 초안 |
+| [결제 내부 API](internal-api/payment.md) | 결제 | 예매 | 합의 |
 | [CouponUsage](modules/coupon-usage.md) | 쿠폰 | 결제 | 초안 |
-| [공연 내부 API](internal-api/event.md) (판매 검증) | 공연 | 예매 | 초안 |
-| [좌석 내부 API](internal-api/seat.md) (회차 좌석 준비) | 좌석 | 공연 | 초안 |
-| [회원 내부 API](internal-api/user.md) | 회원 | 미정 | 초안 |
+| [공연 내부 API](internal-api/event.md) (판매 검증) | 공연 | 예매 | 합의 |
+| [좌석 내부 API](internal-api/seat.md) (회차 좌석 준비) | 좌석 | 공연 | 합의 |
+| [회원 내부 API](internal-api/user.md) | 회원 | 미정 | 합의 |
 
-결제 외 계약은 Notion에서 옮긴 초안이다. 각 제공 담당자가 계약 이슈로 합의를 시작한다.
+내부 API 계약은 Notion에서 합의한 내용(2026-10-26 기준)이다. CouponUsage는 결제 계획에서 옮긴 초안이고 Notion 쿠폰 명세(reserve·use·release)와 메서드 구성이 달라 쿠폰 담당과 맞춰야 한다.
 
 계약을 추가하면 이 표에 한 줄을 더한다.
