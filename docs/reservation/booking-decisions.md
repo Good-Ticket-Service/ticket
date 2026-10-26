@@ -12,6 +12,9 @@ booking 담당(한얼)이 혼자 정할 수 있는 결정과 그 이유를 모�
 | --- | --- | --- |
 | 0.1 | 2026-10-25 | 첫 판. orchestration.md 0.3 기준 |
 | 0.2 | 2026-10-25 | 구현(이슈 #15)에 맞춰 "지키는 검사"를 테스트 이름으로 바꿨다. 예약 생성을 3장으로 옮기고, `hold_expires_at`을 지금은 예약에 둔다고 적었다. 코드 리뷰로 B21~B26을 더했다 |
+| 0.3 | 2026-10-26 | 예약 테이블 DDL을 `schema.sql`에서 `booking.sql`로 나눴다(B27) |
+| 0.4 | 2026-10-26 | 예약이 담은 좌석을 티켓으로 키우고, 좌석 판매·반환에 예약 ID를 넘긴다(B28) |
+| 0.5 | 2026-10-26 | 취소에 중간 상태 `CANCELING`을 두고, 취소 상태 철자를 `CANCELED`로 맞췄다(B29) |
 
 ---
 
@@ -33,6 +36,8 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | B4 | 결제 결과는 결과의 `orderId`가 예약의 `order_id`와 같을 때만 반영한다. 다르면 지난 시도의 결과다. 실패면 무시하고, 성공이면 F6으로 보낸다 | 한 예약에 결제 시도가 여러 번 있을 수 있다(payment 답변, P1). 늦게 온 지난 시도의 결과가 지금 시도를 덮으면 안 된다 | `ReservationPaymentIntegrationTest.staleAndDuplicateResults`, `ReservationTransitionIntegrationTest.conditionsGuardTransitions` |
 | B5 | 조건부 UPDATE 쿼리는 `updated_at`과 `updated_by`를 직접 설정한다. `updated_by`는 `AuditorAware`에서 받는다. 그러면 사용자 요청에서는 헤더의 사용자가, 스케줄러와 리스너처럼 요청 밖에서 도는 작업에서는 `SYSTEM`이 들어간다 | 조건부 UPDATE는 JPA 감사(`@LastModifiedDate`, `@LastModifiedBy`)를 거치지 않는다. 감사가 쓰는 `HeaderAuditorAware`와 같은 값을 써야 감사 컬럼의 뜻이 하나로 유지된다 | `ReservationTransitionIntegrationTest.auditColumns`(SYSTEM), `ReservationPaymentIntegrationTest.checkoutAndConfirm`(요청한 사용자) |
 | B6 | 시간 판정은 reservation 서버 시계로 한다. 현재 시각은 `Clock` 빈으로 주입하고, 조건부 UPDATE의 `updated_at`도 이 `Clock`으로 채운다 | payment 시계와 몇 초 달라도 만료 스케줄러가 결국 맞춘다. `Clock`을 주입하면 만료 경계를 테스트에서 고정할 수 있다. JPA 감사가 채우는 시각은 `Clock`을 따르지 않으므로, 시간에 민감한 테스트는 `updated_at`을 직접 넣는다 | `ReservationTransitionIntegrationTest.paymentFailureDependsOnHoldTime`, `ReservationPaymentIntegrationTest.failureAfterExpiry` |
+| B27 | booking이 소유한 테이블의 DDL은 `backend/sql/reservation-service/booking.sql`에 두고, seat와 함께 쓰는 `schema.sql`은 고치지 않는다. 통합 테스트는 `schema.sql` 다음에 `booking.sql`을 실행한다 | reservation-service는 booking과 seat가 함께 쓴다. 한 파일을 둘이 고치면 충돌이 나고 고칠 때마다 서로 알려야 한다. 테이블 소유(설계서 D12)대로 파일을 나누면 각자 자기 파일만 고친다. 팀 규칙은 아직 서비스마다 `schema.sql` 하나라서, 그 전까지는 이 서비스 테스트만 두 파일을 실행하게 설정한다. 도메인별 파일을 팀 규칙으로 바꾸는 일은 플랫폼 이슈로 따로 낸다 | `ReservationTransitionIntegrationTest.schemaFromSqlFile`. 모든 통합 테스트가 `ddl-auto=validate`로 예약 Entity와 `booking.sql`을 대조한다 |
+| B28 | 예약이 담은 좌석은 booking이 소유한 티켓(`p_tickets`)에 둔다. 선점 때 좌석 id와 선점 시점 가격으로 만들고, 확정 때 티켓 코드를 발급하며, 만료·취소돼도 지우지 않는다. 티켓이 유효한지는 예약 상태로 판단하고, 1차에는 티켓 상태를 두지 않는다. 좌석 판매·반환은 예약 ID를 함께 넘긴다 | 설계서 3장은 다른 모듈의 Entity를 쓰지 않고 Facade로만 부르게 한다. booking이 자기 예약의 좌석과 가격을 스스로 알아야 seat에 묻지 않고 전이를 실행하고 금액을 계산한다. `schedule_seat.reservation_id`는 "지금 이 좌석을 잡은 예약"이고 티켓은 "이 예약이 담은 좌석"이라 서로 다른 사실이다. 만료된 선점은 정리 전에 다른 예약이 다시 잡을 수 있어서, 좌석 id만으로 반환하면 남의 좌석을 푼다. 1차는 예약 하나에 티켓 한 장이라 티켓 상태는 예약 상태의 복사본이 된다 | `ReservationTransitionIntegrationTest.hold`(티켓·가격, 같은 좌석 거절), `ReservationPaymentIntegrationTest.checkoutAndConfirm`(코드 발급, 판매 대상 예약), `BookingSchedulerIntegrationTest.expiresDueHolds`(티켓 유지, 반환 대상 예약) |
 
 ### 2.2 결제 흐름
 
@@ -68,6 +73,7 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | --- | --- | --- | --- |
 | B19 | "결제는 됐는데 표가 없는" 상태는 자동 환불로 끝낸다. MVP에서는 감지해서 알림과 지표만 남기고, 환불 요청은 트러블슈팅 기간에 붙인다 | 설계서 10장의 원칙이다. 환불 요청 키는 3장, P3를 따른다 | `ReservationPaymentIntegrationTest.staleAndDuplicateResults` |
 | B20 | 어긋남을 셀 지표를 둔다. 만료 처리, 승인 재요청, F6 감지는 카운터로, 결제 중 예약 수와 상한 초과 수는 게이지로 둔다 | 9장 측정의 "불일치 건수"와 B17 알림의 근거가 된다 | `BookingSchedulerIntegrationTest.expiresDueHolds`, `BookingSchedulerIntegrationTest.resendsWhenNotReceived`, `BookingSchedulerIntegrationTest.reportsPaymentBacklog`, `ReservationPaymentIntegrationTest.staleAndDuplicateResults` |
+| B29 | 예약 취소는 환불을 요청하기 전에 `CONFIRMED → CANCELING`을 기록한다. payment가 환불 요청을 받으면 `CANCELED`와 좌석 반환, 명시적으로 거절하면 `CONFIRMED`로 되돌린다. 결과를 모르면 `CANCELING`으로 두고 취소 확인 스케줄러가 마무리한다. `CANCELING` 동안 좌석은 `SOLD` 그대로이고, 1인 매수 제한에서 유효한 예약으로 센다. 취소 상태 철자는 ERD와 같은 `CANCELING`, `CANCELED`다 | 2026-10-26 팀원 제안이다. 환불을 먼저 부르고 결과를 확인한 뒤 취소하던 이전 설계는, 결과를 모르면 예약이 `CONFIRMED`로 남아 사용자가 다시 취소하지 않는 한 "돈은 돌려받는데 티켓은 유효"가 남았다. 결제 승인의 `PAYMENT_IN_PROGRESS`와 같은 방식으로 표시를 먼저 남기면 스케줄러가 고칠 수 있다. 환불 완료가 아니라 접수까지만 기다리는 것은 P3의 B안 원칙(환불은 payment 책임)을 따른다 | 취소 구현 때 만든다. 지금은 `ReservationStatus`의 `CANCELED`와 DDL CHECK만 맞췄다 |
 
 ---
 
@@ -75,11 +81,11 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 
 | 항목 | 내 쪽 원칙 | 기다리는 답 |
 | --- | --- | --- |
-| 예약과 좌석을 함께 바꾸는 트랜잭션 | booking 유스케이스는 좌석 연산을 요구 포트로 부르고 같은 트랜잭션에 묶는다. 필요한 연산은 잠금, 판매, 반환, 가격 네 가지다. 만료(B14)도 건별 트랜잭션 안에서 좌석 잠금, 조건부 UPDATE, 좌석 반환 순서로 한다. 테스트는 가짜 구현으로 한다 | S3 (시그니처) |
+| 예약과 좌석을 함께 바꾸는 트랜잭션 | booking 유스케이스는 좌석 연산을 요구 포트로 부르고 같은 트랜잭션에 묶는다. 필요한 연산은 잠금, 판매, 반환 세 가지다. 판매와 반환은 예약 ID를 함께 넘겨, seat가 이 예약이 잡은 좌석만 바꾸게 한다. 만료(B14)도 건별 트랜잭션 안에서 좌석 잠금, 조건부 UPDATE, 좌석 반환 순서로 한다. 테스트는 가짜 구현으로 한다 | S3 (시그니처) |
 | 잠금 순서 | booking 유스케이스는 좌석을 id 오름차순으로 먼저 잠그고 예약을 나중에 바꾼다 | S6 (seat도 같은 순서인지) |
-| 예약 생성 | seat가 선점 트랜잭션 안에서 `BookingFacade.hold`를 부르고, booking이 HOLD 예약과 좌석 id를 저장한다. 바깥 트랜잭션 없이 부르면 막는다(`Propagation.MANDATORY`). 예약을 만드는 경로가 없으면 나머지 흐름을 시험할 수 없어 이 원칙대로 먼저 구현했다 | S2 (D12) |
+| 예약 생성 | seat가 선점 트랜잭션 안에서 `BookingFacade.hold`를 부르고, booking이 HOLD 예약과 좌석마다 티켓(좌석 id, 선점 시점 가격)을 저장한다. 바깥 트랜잭션 없이 부르면 막는다(`Propagation.MANDATORY`). 예약을 만드는 경로가 없으면 나머지 흐름을 시험할 수 없어 이 원칙대로 먼저 구현했다 | S2 (D12) |
 | `BookingFacade.expire` | `HOLD`이고 시간이 지났을 때만 `EXPIRED`로 바꾸고 true를 돌려준다. 그 밖에는 false다 | S4 (누가 부를지) |
-| 결제 금액 | 기본 금액은 좌석 가격 스냅샷으로 계산해 준비 요청에 담는다. 할인 후 금액은 payment가 정하고, 준비 응답의 값을 저장해 승인 요청에 쓴다 | S3, D3 (스냅샷), P1 (승인 `amount`) |
+| 결제 금액 | 기본 금액은 티켓 가격(선점 시점 스냅샷)의 합계로 계산해 준비 요청에 담는다. 할인 후 금액은 payment가 정하고, 준비 응답의 값을 저장해 승인 요청에 쓴다 | S3, D3 (스냅샷), P1 (승인 `amount`) |
 | 결제 준비 | `orderId`를 만들고, 트랜잭션 밖에서 부르고, 처음 읽은 `order_id`와 같을 때만 새 값을 기록한다 | P1 (응답 필드, 쿠폰) |
 | 결제 승인 | 트랜잭션 1, 트랜잭션 밖 승인, 트랜잭션 2. 같은 승인이 다시 오면 지금 상태를 돌려준다 | P1, P2 (결과 값) |
 | `PaymentPort`의 결과 종류 | 승인은 성공, 실패, 모름이다. Phase 2 승인은 접수만 돌려준다. 조회는 끝남, 받지 못함, 진행 중, 모르는 주문이다 | P1, P2 |
@@ -99,10 +105,10 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 
 | 항목 | 기다리는 답 | 정해지면 |
 | --- | --- | --- |
-| `hold_expires_at` 위치 (예약 또는 좌석) | S4 (D13) | 지금은 예약 테이블에 두었다(`schema.sql`). 좌석에 두기로 하면 시간 판정(B6)이 읽는 컬럼과 만료 후보 쿼리를 바꾼다 |
+| `hold_expires_at` 위치 (예약 또는 좌석) | S4 (D13) | 지금은 예약 테이블에 두었다(`booking.sql`). 좌석에 두기로 하면 시간 판정(B6)이 읽는 컬럼과 만료 후보 쿼리를 바꾼다 |
 | 결제 중 좌석의 선택 가능 판정 | S5 (D13) | seat 쪽 규칙이다. B14의 이유가 완전해진다 |
 | 1인 매수 제한 집계 | S3, D5 | 3장에 집계 쿼리의 내 쪽 원칙을 더한다 |
-| 예약 취소 흐름 | P3 (D14), 취소 가능 기간 D6 | B안이면 상태를 더하지 않고 2.2에 넣는다. A안이면 `CANCEL_REQUESTED` 전이를 2.1에 더한다 |
+| 예약 취소 구현 | P3 (D14, 접수·거절 응답), 취소 가능 기간 D6 | 흐름은 B29로 정했다. 합의되면 `CANCELING` 전이와 취소 확인 스케줄러를 구현하고 검사를 단다 |
 | 결제 승인 응답 형식 | T5 (D16) | 3장에 넣는다 |
 | 이벤트 DTO 위치 | T2 (D17) | 3장 "Phase 2 발행"에 더한다 |
 | 토픽, payload, 파티션 키 | P4 | 3장 "Phase 2 발행"에 더한다 |
@@ -119,7 +125,7 @@ orchestration.md 10장의 이슈 후보마다 완료 조건으로 넣는다.
 
 | 이슈 후보 | 만들 검사 |
 | --- | --- |
-| 예약 상태 모델 | B1, B2, B5, B6, B24 |
+| 예약 상태 모델 | B1, B2, B5, B6, B24, B27, B28 |
 | 선점 만료 스케줄러 | B14, B15, B18 |
 | 결제 준비·승인과 결과 반영 Phase 1 | B3, B4, B7, B8, B9, B10, B11, B12, B13, B21, B22, B23 |
 | 결과 확인 스케줄러 | B16, B17, B19, B20, B25, B26 |
