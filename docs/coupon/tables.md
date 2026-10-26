@@ -46,7 +46,7 @@ erDiagram
 | 소유 | 쿠폰 담당 (결제는 CouponUsage의 reserve / use / release로만 접근) |
 | 공통 규칙 | Audit 컬럼 6개, BaseEntity 상속, @SQLRestriction("deleted_at IS NULL") |
 
-결제와의 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다. 계약 초안은 메서드 4개(`reserve`, `use`, `releaseReservation`, `restoreAfterRefund`)이고, 이 명세는 3개(`reserve`, `use`, `release`)다. 계약 이슈에서 맞춘다.
+결제와의 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다. 이 명세대로 메서드 3개(`reserve`, `use`, `release`)로 합의했다.
 
 ### 테이블 관계
 

@@ -119,7 +119,7 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
 | `NOT_APPROVED` | `NOT_APPROVED`, `CANCELED_AT_PG`, `MANUAL` | 결제 안 됨으로 확정. 다시 결제 가능 |
 | `CLOSED` | `SUPERSEDED`, `ABANDONED`, `READY_FAILED` | 이 시도는 끝. 필요하면 새 준비 |
 
-**모든 FAILED 전이는 같은 트랜잭션에서 `CouponUsage.releaseReservation`을 부른다.** 쿠폰이 없거나 이미 반납됐으면 아무것도 하지 않는다. 결제 후 환불의 쿠폰 처리는 `restoreAfterRefund`로 따로 한다(9절).
+**모든 FAILED 전이는 같은 트랜잭션에서 `CouponUsage.release`를 부른다.** 쿠폰이 없거나 이미 반납됐으면 아무것도 하지 않는다. 환불 DONE도 같은 `release`로 쿠폰을 돌려주되, AUTO_VOID는 부르지 않는다(9절).
 
 | refund | 의미 | 다음 |
 |---|---|---|
@@ -147,14 +147,14 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
           1) order_id로 기존 결제 조회. 있으면 내용 비교 후 재현(같음) / 409 PAYMENT_ORDER_CONFLICT(다름)
              재현할 결제가 카카오 READY인데 tid가 없으면(준비 직후 중단) 3)부터 다시 한다
           2) tx prepare:
-             - 같은 예매의 이전 READY를 FAILED(SUPERSEDED) + 쿠폰 releaseReservation   ← 반드시 새 reserve보다 먼저
+             - 같은 예매의 이전 READY를 FAILED(SUPERSEDED) + 쿠폰 release   ← 반드시 새 reserve보다 먼저
              - 같은 예매에 IN_PROGRESS·DONE 결제가 있으면 409 PAYMENT_ALREADY_IN_PROGRESS / PAYMENT_ALREADY_DONE
                승인 요청이 이미 접수된(confirm_requested_at이 있는) READY도 대체하지 않고 409 PAYMENT_ALREADY_IN_PROGRESS
              - CouponUsage.reserve → 할인액. 할인액은 total_price - min-amount를 넘지 않게 자른다
              - 새 Payment READY(금액 확정, expires_at) 커밋
              order_id UK 충돌이면 이긴 행을 1)처럼 재현, reservation 부분 UK 충돌(동시 준비)이면 409 PAYMENT_CHECKOUT_CONFLICT
           3) PgClient.ready (트랜잭션 밖. 카카오만 PG 호출)
-             카카오 성공 → tx: tid·결제창 URL 저장 / 실패·불명 → tx: FAILED(READY_FAILED) + 쿠폰 releaseReservation
+             카카오 성공 → tx: tid·결제창 URL 저장 / 실패·불명 → tx: FAILED(READY_FAILED) + 쿠폰 release
         응답: orderId, amount, status, (카카오) 결제창 URL
 ② 인증  사용자가 결제창에서 인증한다. fake-pg에서는 "결제창 대체" API가 대신한다
 ③ 승인  사용자 → reservation: confirm {orderId, pgAuthToken}
@@ -203,7 +203,7 @@ POST /internal/payments/{orderId}/refund {reason}
      동시 요청이 UK에 걸리면 이긴 행을 재현한다
   3) REQUESTED면 커밋 후 바로 PgClient.cancel(PG 키 = orderId + ":cancel:" + cancel_attempt) (트랜잭션 밖)
   4) tx complete: payment → refund 순서로 잠근 뒤 refund가 REQUESTED일 때만
-     성공 → refund DONE (+ 결제가 DONE이면 CANCELED와 CouponUsage.restoreAfterRefund. AUTO_VOID는 쿠폰을 건드리지 않는다)
+     성공 → refund DONE (+ 결제가 DONE이면 CANCELED와 CouponUsage.release. AUTO_VOID는 쿠폰을 건드리지 않는다)
      업무 거절 → FAILED + recovery_blocked + 경보
      일시 장애·불명 (연결 실패, 429, 타임아웃, 5xx) → REQUESTED 유지, 복구가 같은 키로 다시 보낸다
 ```
@@ -223,7 +223,7 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
    - `recovery_blocked = false`이고 `next_attempt_at`이 지난 refund REQUESTED
 3. **점유:** 짧은 트랜잭션에서 `FOR UPDATE SKIP LOCKED`로 후보를 잠그고 `next_attempt_at = now + max(점유 기간, 백오프)`로 갱신한 뒤 바로 커밋한다. 다른 인스턴스는 갱신된 시각 때문에 같은 행을 잡지 않는다. 점유 기간은 PG 최대 호출 시간(connect + read)보다 길어야 하므로 30초로 둔다. 백오프는 `min(5초 × 2^recovery_attempts, backoff-max-seconds)`다. PG 호출은 그 뒤 트랜잭션 밖에서 하고, 결과 저장은 4절 complete처럼 다시 잠근 뒤 상태를 확인한다.
 4. 처리:
-   - READY: PG를 부르지 않고 FAILED(`EXPIRED`) + 쿠폰 releaseReservation
+   - READY: PG를 부르지 않고 FAILED(`EXPIRED`) + 쿠폰 release
    - IN_PROGRESS: PG에 **조회**한다(승인을 다시 보내지 않는다)
      - Approved → 4절 10) complete
      - Canceled → FAILED(`CANCELED_AT_PG`). 돈은 PG에서 이미 돌려줬다
@@ -241,7 +241,7 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 | 준비 요청 유실 | 기록 없음 또는 READY. reservation이 같은 orderId로 다시 준비하면 재현된다 |
 | 카카오 준비 성공 후 tid 저장 전 중단 | tid 없는 READY. 같은 orderId 재준비 때 카카오 준비를 다시 부른다. 재준비가 없으면 만료 |
 | 카카오 준비 결과 불명 | FAILED(`READY_FAILED`). 돈이 오가지 않았고 tid를 사용자에게 주지 않았으므로 안전하다 |
-| 사용자가 결제창을 닫음 | READY가 `expires_at`까지 남았다가 FAILED(`EXPIRED`) + 쿠폰 releaseReservation |
+| 사용자가 결제창을 닫음 | READY가 `expires_at`까지 남았다가 FAILED(`EXPIRED`) + 쿠폰 release |
 | 승인 요청이 payment에 도착하지 못함 | READY. reservation이 저장한 인증값으로 같은 승인 요청을 다시 보낸다(9절) |
 | 승인 요청이 만료 후 도착 (Kafka 대기 포함) | 4절 8)에서 FAILED(`EXPIRED`). PG를 부르지 않는다 |
 | 같은 결제의 승인 요청이 중복으로 옴 (재전송, Kafka 중복) | 4절 4)·8)의 잠금과 READY 확인에서 걸려 현재 상태만 재현한다 |
@@ -286,7 +286,7 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 - **동시 처리:** 같은 결제를 두 곳에서 처리하지 않게 하는 수단은 DB 잠금과 5절 점유다. 여러 인스턴스(`--scale payment-service=2`)에서도 성립해야 한다.
   - 점유 기간(30초)을 넘겨 한 호출이 멈추면(GC 정지 등) 같은 취소가 두 번 나갈 수 있다. 전액 취소에서는 토스는 멱등 키, 카카오는 "이미 취소됨" 응답 후 조회로 막히고, 결과 저장은 REQUESTED일 때만 하므로 돈 사고는 없다. 부분 환불을 도입하면 이중 취소가 실제 금액 오류가 되므로 그때 실행 소유자(lease owner)나 fencing token을 둔다.
 - **감사 컬럼:** 팀 `HeaderAuditorAware`가 요청 밖 작업을 `SYSTEM`으로 남긴다. 결제 주체는 `user_id`로 추적한다.
-- **쿠폰 접근:** 쿠폰 처리는 쿠폰 담당이 만든 `CouponUsage`의 `reserve`, `use`, `releaseReservation`, `restoreAfterRefund`로만 한다. 결제 코드는 `user_coupon`을 직접 조회·수정하지 않는다. `CouponUsage`는 호출한 쪽 트랜잭션에 합류하므로(`REQUIRED`) 결제 상태와 쿠폰 상태가 한 트랜잭션에 커밋된다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
+- **쿠폰 접근:** 쿠폰 처리는 쿠폰 담당이 만든 `CouponUsage`의 `reserve`, `use`, `release`로만 한다. 결제 코드는 `user_coupon`을 직접 조회·수정하지 않는다. `CouponUsage`는 호출한 쪽 트랜잭션에 합류하므로(`REQUIRED`) 결제 상태와 쿠폰 상태가 한 트랜잭션에 커밋된다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
 - **결과 이벤트 (Kafka 전환 후):** 결제·환불의 모든 확정 전이(DONE, FAILED, CANCELED, refund DONE·FAILED·SKIPPED)는 같은 트랜잭션에서 Outbox에 쓴다. 요청 경로든 복구 잡이든 같다.
 - **승인 명령 (Kafka 전환 후):** `confirm_requested_at` 기록과 승인 명령(Outbox) 저장을 한 트랜잭션으로 묶는다. 그래야 커밋 후 발행이 실패해도 payment 안에서 다시 발행된다(예매의 재전송에 기대지 않는다). 명령에 실린 인증값은 발행이 끝나면 Outbox에서 지우고, 토픽 보관 기간은 짧게(예: 1시간) 둔다.
 - **삭제:** payment·refund는 금융 기록이라 삭제 API를 두지 않는다. 팀 규칙대로 `@SQLRestriction`은 붙인다.
@@ -337,7 +337,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 
 ### CouponUsage 계약
 
-[shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)에 있다. 메서드 4개(`reserve`, `use`, `releaseReservation`, `restoreAfterRefund`)의 동작·실패 규칙과 쿠폰 쪽에 필요한 것을 적었다.
+[shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)에 있다. 메서드 3개(`reserve`, `use`, `release`)의 동작, 결제가 부르는 때, 쿠폰 쪽이 지킬 것을 적었다.
 
 ### 예매가 결제 결과를 모를 때
 
