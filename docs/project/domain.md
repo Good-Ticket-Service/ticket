@@ -27,4 +27,4 @@
 
 ## 도메인 이벤트
 
-Phase 2(Kafka)에서 채운다. 메시지 스키마는 [shared/events/](../shared/events/README.md)에 둔다.
+Phase 2(Kafka)에서 채운다. 메시지 스키마는 그때 `shared/events/`에 둔다.

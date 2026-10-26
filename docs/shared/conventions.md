@@ -51,10 +51,25 @@ Gateway가 JWT를 검증한 뒤 주입한다. 이름은 `common-core`의 `UserHe
 
 | 항목 | 규칙 |
 |---|---|
-| 시각 | API는 `+09:00` 오프셋을 포함한 ISO 8601. DB 표현은 도메인별 `tables.md`를 따른다 |
+| 시각 | ISO 8601. 오프셋 포함 여부는 아래 "합의가 필요한 차이"를 본다. DB 표현은 도메인별 `tables.md`를 따른다 |
 | 금액 | 원 단위 정수. 통화는 KRW 고정 |
 | 회원 ID | 협의 필요. 결제 초안은 UUID로 적었다 |
 | 열거값 | 대문자 스네이크 문자열 (`IN_PROGRESS`) |
+
+## 합의가 필요한 차이
+
+Notion에서 옮긴 도메인 명세끼리 공통 규약이 다르다. 합의 전까지 각 도메인 문서는 Notion 원문을 그대로 두었다.
+
+| 항목 | 이 문서·회원·예매·쿠폰·결제 | 공연·좌석 초안 |
+|---|---|---|
+| 외부 경로 | `/api/v1/**` (Gateway 라우트와 같다) | `/api/**` (예: `/api/seller/performances`, `/api/schedules/{id}/holds`) |
+| 성공 응답 | `ApiResponse`로 감싼다 | 래퍼 없이 DTO를 직접 반환 |
+| 실패 응답 | `ErrorResponse` (`status`, `code`, `message`, `path`, `timestamp`, `errors`) | `{code, message, traceId, fieldErrors}` |
+| BIGINT ID | 숫자 | 문자열 |
+| 시각 | 예매·쿠폰은 오프셋 없는 KST | `+09:00` 포함 |
+| 선점 상태·만료 오류 | 예매: `HOLD`, 409 `HOLD_EXPIRED` | 공연 5.12: `HELD`, 410 `HOLD_EXPIRED` |
+
+`/api/**` 경로는 지금 Gateway 라우트에 없어서 그대로 구현하면 외부에서 호출되지 않는다.
 
 ## 멱등성과 재시도
 

@@ -7,7 +7,8 @@
 | [conventions.md](conventions.md) | 모든 API가 따르는 공통 규약: 헤더, 응답·오류 형식, 시각·ID 타입, 멱등 키 |
 | `internal-api/{제공 도메인}.md` | 서비스 간 `/internal/**` API. 제공하는 쪽 기준으로 파일을 나눈다 |
 | `modules/` | 같은 서비스 안의 모듈 간 인터페이스 |
-| [events/](events/README.md) | Kafka 메시지 스키마 (Phase 2) |
+
+Kafka 메시지 스키마는 Phase 2에서 `events/`에 추가한다.
 
 ## 계약 변경 흐름
 
@@ -31,5 +32,10 @@
 |---|---|---|---|
 | [결제 내부 API](internal-api/payment.md) | 결제 | 예매 | 초안 |
 | [CouponUsage](modules/coupon-usage.md) | 쿠폰 | 결제 | 초안 |
+| [공연 내부 API](internal-api/event.md) (판매 검증) | 공연 | 예매 | 초안 |
+| [좌석 내부 API](internal-api/seat.md) (회차 좌석 준비) | 좌석 | 공연 | 초안 |
+| [회원 내부 API](internal-api/user.md) | 회원 | 미정 | 초안 |
+
+결제 외 계약은 Notion에서 옮긴 초안이다. 각 제공 담당자가 계약 이슈로 합의를 시작한다.
 
 계약을 추가하면 이 표에 한 줄을 더한다.
