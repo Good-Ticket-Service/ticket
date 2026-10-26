@@ -171,7 +171,7 @@ public interface ReservationJpaRepository
             """)
     int markPaymentChecked(@Param("id") UUID id, @Param("checkedAt") LocalDateTime checkedAt);
 
-    /** 상태를 리터럴로 써야 schema.sql의 부분 인덱스(WHERE status = 'HOLD')를 확실히 탄다. */
+    /** 상태를 리터럴로 써야 booking.sql의 부분 인덱스(WHERE status = 'HOLD')를 확실히 탄다. */
     @Query("""
             SELECT r.id FROM Reservation r
              WHERE r.status = com.sparta.ticket.reservation.domain.ReservationStatus.HOLD
