@@ -31,3 +31,19 @@
 - `.env`, 토큰, 실제 비밀번호는 커밋하지 않는다.
 - 완료 보고는 실행한 빌드·테스트 결과를 근거로 한다. 돌리지 못한 테스트는 그 사실과 이유를 적는다.
 - 개인 지침은 `CLAUDE.local.md`(gitignore 대상)에 둔다.
+
+## 어디를 볼지
+| 도메인 | 모듈 | 문서 | 담당 |
+|---|---|---|---|
+| 회원 | `user-service` | `docs/user/` | 김태현 |
+| 공연 | `event-service` | `docs/event/` | 박의연 |
+| 좌석 | `reservation-service` seat | `docs/seat/` | 변정민 |
+| 예매 | `reservation-service` booking | `docs/reservation/` | 지한얼 |
+| 대기열 | `reservation-service` queue | `docs/queue/` | 김태현 |
+| 결제 | `payment-service` payment, `fake-pg` | `docs/payment/` | 강현민 |
+| 쿠폰 | `payment-service` coupon | `docs/coupon/` | 성윤범 |
+
+- 서비스·모듈 간 계약: `docs/shared/` (계약 변경 흐름은 `docs/shared/README.md`)
+- 경로별 규칙: `.claude/rules/` (도메인 문서 먼저 읽기, 계약, API, 도메인·영속성)
+- 스킬: `/add-service` (서비스 추가 절차). `/add-internal-api`, `/load-test`는 아직 틀이다
+- 동시성·트랜잭션 리뷰: `concurrency-reviewer` 에이전트
