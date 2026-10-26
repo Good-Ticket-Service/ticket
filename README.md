@@ -13,6 +13,7 @@
 ```
 ticket/
 ├── backend/            # Gradle 루트: 모듈, gradlew, Dockerfile, config-repo, sql(서비스별 DDL)
+├── docs/               # 도메인별 API·테이블 명세와 구현 계획, 서비스 간 계약(shared/). 목록은 docs/README.md
 ├── infra/              # Compose가 쓰는 실행 환경(PostgreSQL 초기화 등)
 ├── script/run.sh       # 로컬 전체 기동
 ├── docker-compose.yml  # 전체 시스템 정의(빌드 컨텍스트는 backend/)

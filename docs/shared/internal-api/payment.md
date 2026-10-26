@@ -1,0 +1,182 @@
+# 결제 내부 API
+
+- 제공: 결제 (`payment-service`, 강현민)
+- 소비: 예매 (`reservation-service` booking 모듈). 관리자 API는 운영자가 직접 부른다.
+- 설계 근거: [payment/plan.md](../../payment/plan.md) 4절(처리 흐름), 5절(복구)
+
+## 공통
+
+- Gateway에 노출하지 않는다. 응답 본문을 `ApiResponse`로 감싸지 않고, 오류는 `ErrorResponse`다([conventions.md](../conventions.md)).
+- 모두 `orderId` 기준으로 멱등하다. 같은 `orderId`의 같은 요청을 다시 보내면 처음 결과를 돌려준다.
+- 업무 결과(승인·거절·결과 불명)는 HTTP 상태가 아니라 본문 `status`로 알린다. 4xx는 잘못된 요청과 아래에 적은 충돌에만 쓴다.
+- `orderId`는 예매가 결제 준비 시도마다 새로 만든다(최대 64자). 같은 시도의 재요청에는 같은 값을 쓴다.
+
+### failureType
+
+`status`가 `FAILED`이면 `failureType`과 `failureCode`가 함께 온다. 예매는 `failureType`만 보고 다음 행동을 고른다.
+
+| failureType | failureCode | 예매가 할 일 |
+|---|---|---|
+| REJECTED | PG_REJECTED, AMOUNT_MISMATCH, INVALID_AUTH_TOKEN | 다른 수단으로 다시 결제 |
+| UNAVAILABLE | PG_UNAVAILABLE, PG_BUSY | 잠시 후 같은 수단으로 다시 시도 |
+| EXPIRED | EXPIRED | 선점이 끝났으면 만료, 아니면 다시 준비 |
+| NOT_APPROVED | NOT_APPROVED, CANCELED_AT_PG, MANUAL | 결제 안 됨으로 확정. 다시 결제 가능 |
+| CLOSED | SUPERSEDED, ABANDONED, READY_FAILED | 이 시도는 끝. 필요하면 새 준비 |
+
+---
+
+## POST /internal/payments — 결제 준비
+
+- 상태: 초안
+- 멱등성: `orderId` 기준. 같은 `orderId`·같은 내용이면 처음 응답을 그대로 돌려준다. 같은 예매의 이전 READY 결제는 실패(`SUPERSEDED`) 처리하고 새로 만든다.
+- 재시도: 같은 `orderId`로 재시도해도 된다.
+
+요청
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| orderId | String(64) | Y | 예매가 만든 시도 ID |
+| reservationId | Long | Y | |
+| userId | UUID | Y | |
+| sellerId | UUID | Y | 정산 대상 판매자 |
+| performanceId | Long | Y | |
+| scheduleId | Long | Y | |
+| totalPrice | Integer | Y | 할인 전 금액 |
+| couponId | Long | N | 사용할 쿠폰 |
+| pgProvider | String | Y | `TOSS`, `KAKAO` |
+| expiresAt | DateTime | Y | 결제 허용 시각(좌석 선점 만료). 이 뒤에는 PG 승인을 부르지 않는다 |
+
+응답 200
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| paymentId | Long | |
+| orderId | String | |
+| amount | Integer | 할인 후 결제 금액. 결제창에 넘긴다 |
+| status | String | `READY` / `FAILED` |
+| failureType, failureCode | String | FAILED일 때 |
+| checkoutUrl | String | 카카오 결제창 URL. 토스는 null |
+
+오류
+
+| 상태 | 코드 | 때 |
+|---|---|---|
+| 409 | `PAYMENT_ORDER_CONFLICT` | 같은 orderId에 다른 내용 |
+| 409 | `PAYMENT_ALREADY_IN_PROGRESS` | 같은 예매에 승인 진행 중(IN_PROGRESS, 또는 승인 요청을 받은 READY) |
+| 409 | `PAYMENT_ALREADY_DONE` | 같은 예매가 이미 결제됨 |
+| 409 | `PAYMENT_CHECKOUT_CONFLICT` | 같은 예매의 준비가 동시에 옴 |
+| 400 | `COUPON_NOT_AVAILABLE` | 쿠폰을 쓸 수 없음 |
+| 400 | `VALIDATION_ERROR` | 입력값 오류 (공통 코드) |
+
+## POST /internal/payments/{orderId}/confirm — 결제 승인
+
+- 상태: 초안
+- 멱등성: `orderId` 기준. 이미 READY가 아니면 PG를 다시 부르지 않고 현재 상태를 돌려준다.
+- 타임아웃: 최악 응답 약 14초. 예매 read timeout은 20초를 제안한다.
+- 재시도: 응답을 받지 못하면 바로 재전송하지 말고 결제 조회로 확인한다(아래 "결과를 모를 때").
+
+요청
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| pgAuthToken | String | Y | 사용자 인증 결과. 토스 paymentKey, 카카오 pg_token |
+| amount | Integer | Y | 결제창에 넘긴 금액. 저장 금액과 대조한다 |
+
+응답 200
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| paymentId | Long | |
+| status | String | `DONE` / `FAILED` / `IN_PROGRESS`(결과 불명). Kafka 전환 후에는 `ACCEPTED` |
+| failureType, failureCode | String | FAILED일 때 |
+
+오류
+
+| 상태 | 코드 | 때 |
+|---|---|---|
+| 400 | `PAYMENT_AMOUNT_MISMATCH` | 금액이 저장 금액과 다름. PG를 부르지 않는다 |
+| 404 | `PAYMENT_NOT_FOUND` | 준비 기록 없음 |
+
+## GET /internal/payments/{orderId} — 결제 조회
+
+- 상태: 초안
+- 멱등성: 조회. 재시도해도 된다.
+
+응답 200
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| paymentId, orderId, reservationId | | |
+| status | String | `READY` / `IN_PROGRESS` / `DONE` / `FAILED` / `CANCELED` |
+| amount | Integer | |
+| failureType, failureCode | String | |
+| confirmRequestedAt | DateTime | 승인 요청을 받은 시각. 예매가 재전송 여부를 판단한다 |
+| approvedAt | DateTime | |
+| refund | Object | `{status, reason, refundAmount, refundedAt}`. 없으면 null |
+
+오류: 404 `PAYMENT_NOT_FOUND`.
+
+## POST /internal/payments/{orderId}/refund — 환불 요청
+
+- 상태: 초안
+- 멱등성: `orderId` 기준. 이미 환불이 있으면 기존 환불을 돌려준다.
+- 책임: 예매는 환불 완료를 기다리지 않는다. 환불을 끝까지 처리할 책임은 결제가 진다.
+
+요청
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| reason | String | Y | `USER_CANCEL`, `SCHEDULE_CANCELED`, `CONFIRM_FAILED` |
+
+응답 200
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| refundStatus | String | `WAITING` / `REQUESTED` / `DONE` / `FAILED` / `SKIPPED` / `NOT_REQUIRED` |
+| refundAmount | Integer | |
+
+결제 상태별 처리: READY는 결제 포기(`NOT_REQUIRED`), FAILED는 `NOT_REQUIRED`, IN_PROGRESS는 `WAITING`, DONE은 `REQUESTED` 후 PG 취소, CANCELED는 기존 환불을 돌려준다.
+
+오류: 404 `PAYMENT_NOT_FOUND`.
+
+## 관리자 API
+
+- 상태: 초안
+- 운영자가 PG 상태를 확인한 뒤 직접 부른다. 예매는 부르지 않는다.
+
+| Method | URI | 요청 | 하는 일 |
+|---|---|---|---|
+| POST | `/internal/admin/payments/{orderId}/unblock` | | 차단된 IN_PROGRESS 결제나 REQUESTED 환불을 다시 자동 처리에 넣는다. 다른 상태면 409 `INVALID_STATUS_TRANSITION` |
+| POST | `/internal/admin/payments/{orderId}/refund/retry` | | FAILED 환불을 새 PG 취소 키 세대로 REQUESTED로 되돌린다 |
+| POST | `/internal/admin/payments/{orderId}/resolve` | `{result: DONE \| FAILED, evidence}` | 차단된 IN_PROGRESS 결제를 PG 콘솔 확인 결과로 확정한다 |
+
+---
+
+## 예매가 결제 결과를 모를 때
+
+승인 요청이나 그 응답이 중간에 끊기면 예매는 PAYMENT_IN_PROGRESS로 남는다. 예매는 `GET /internal/payments/{orderId}`로 조회하고 결과에 따라 마무리한다. 예매 복구 잡도 오래된 PAYMENT_IN_PROGRESS를 같은 표로 처리한다.
+
+| 결제 결과 | 뜻 | 예매가 할 일 |
+|---|---|---|
+| DONE | 승인 확정 | CONFIRMED, 좌석 SOLD. 확정할 수 없으면 `CONFIRM_FAILED` 환불 요청 |
+| FAILED | 돈이 오가지 않음으로 확정 | HOLD로 복귀 (선점 만료 후면 만료) |
+| IN_PROGRESS | PG 결과를 모름. 결제 복구가 확정한다 | 기다린다 |
+| READY | 승인 요청이 결제에 도착하지 못했거나 아직 처리 전 | `confirmRequestedAt`이 없거나 1분 넘게 지났으면 저장한 pgAuthToken으로 같은 승인 요청을 다시 보낸다. READY만 보고 HOLD로 되돌리지 않는다(늦게 도착한 승인과 경쟁한다) |
+| 404 | 준비가 기록되지 않았다 | 다시 준비한다 |
+
+## 합의할 항목
+
+결제 쪽 제안이다. 계약 이슈에서 예매 담당과 정한다. 근거는 [payment/plan.md](../../payment/plan.md) 9절 "예매 쪽에 제안하는 보완"이다.
+
+1. 예매가 `orderId`를 먼저 기록(트랜잭션)한 뒤 결제 준비를 부른다.
+2. 환불 전에 예매를 `CANCEL_PENDING`(티켓 사용 불가)으로 커밋하고, 환불 요청 후 CANCELLED로 바꾼다.
+3. 결과를 모르는 동안(PAYMENT_IN_PROGRESS) 좌석을 해제하지 않는다.
+4. 승인 호출 read timeout 20초.
+5. 준비 요청에 `pgProvider`를 넣는다.
+6. 재전송용 `pgAuthToken`은 확정·만료 후 지우고 로그·응답·이벤트에 싣지 않는다.
+
+## 변경 이력
+
+| 날짜 | 이슈·PR | 내용 |
+|---|---|---|
+| 2026-10-26 | #3 | 초안. payment/spec.md에서 옮김 |

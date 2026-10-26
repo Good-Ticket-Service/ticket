@@ -8,6 +8,10 @@
 - 서비스 설정은 `backend/config-repo/{서비스}.yml`, `local` 프로필 전용 값은 `backend/config-repo/application-local.yml`에 둔다. 모듈의 `application.yml`에는 이름과 `spring.config.import`만 둔다.
 - `docker-compose.yml`, `infra/`, `script/`는 루트에 있다. Compose의 빌드 컨텍스트는 `backend/`다.
 
+## 문서
+- 문서 목록과 도메인·담당 표는 `docs/README.md`에 있다. 도메인 기능을 구현하기 전에 `docs/{도메인}/`의 `plan.md`, `api.md`, `tables.md`를 읽는다.
+- 서비스·모듈 간 계약은 `docs/shared/`에 있다. `/internal/**` API나 Feign 클라이언트를 만들 때 계약 문서와 대조하고, 다르면 구현을 바꾸지 말고 알린다. 계약은 `docs/shared/README.md`의 흐름으로만 바꾼다.
+
 ## 명령
 - 빌드·테스트: `cd backend && ./gradlew build` (포맷·Checkstyle·계층 검사 포함, 통합 테스트는 Docker 필요)
 - 포맷: `cd backend && ./gradlew spotlessApply`. 손으로 정렬하지 않는다.
