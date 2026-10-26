@@ -6,10 +6,9 @@
 
 | 경로 | 내용 | 바꾸는 방법 |
 |---|---|---|
-| [shared/](shared/README.md) | 서비스·모듈 간 계약 (내부 API, 모듈 인터페이스, 이벤트), 공통 규약 | 계약 변경 흐름을 따른다 |
+| [shared/](shared/README.md) | 서비스·모듈 간 계약(내부 API, 모듈 인터페이스)과 공통 규약 | 계약 변경 흐름을 따른다 |
 | `{도메인}/` | 도메인 안의 외부 API, 테이블, 구현 계획 | 담당자가 구현 PR과 함께 고친다 |
-| [project/](project/decisions.md) | 팀 결정사항, 용어집·상태 전이 | 팀 합의 후 고친다 |
-| [adr/](adr/README.md) | 기술 결정 기록 | 결정할 때 한 건씩 추가한다 |
+| [project/](project/decisions.md) | 팀 결정사항, 용어집·상태 | 팀 합의 후 고친다 |
 | [perf/](perf/README.md) | 부하 테스트 기록 | 측정할 때마다 추가한다 |
 | [_template/](_template/) | 계약·API·테이블·계획 문서 양식 | 팀 합의 후 고친다 |
 
@@ -17,20 +16,20 @@
 
 ## 도메인
 
-| 도메인 | 폴더 | 서비스·모듈 | 담당 |
+| 도메인 | 서비스·모듈 | 담당 | 문서 |
 |---|---|---|---|
-| 회원 | [user/](user/) | `user-service` | |
-| 공연 | [event/](event/) | `event-service` | |
-| 좌석 | [seat/](seat/) | `reservation-service` seat 모듈 | 변정민 |
-| 예매 | [reservation/](reservation/) | `reservation-service` booking 모듈 | |
-| 대기열 | [queue/](queue/) | `reservation-service` queue 모듈 | 김태현 |
-| 결제 | [payment/](payment/) | `payment-service`, `fake-pg` | 강현민 |
-| 쿠폰 | [coupon/](coupon/) | `payment-service` coupon 모듈 | |
-| 티켓 | [ticket/](ticket/) | 미정 | |
+| 회원 | `user-service` | | [api](user/api.md) · [tables](user/tables.md) |
+| 공연 | `event-service` | | [api](event/api.md) · [tables](event/tables.md) |
+| 좌석 | `reservation-service` seat 모듈 | 변정민 | [api](seat/api.md) · [tables](seat/tables.md) |
+| 예매 | `reservation-service` booking 모듈 | | [api](reservation/api.md) · [tables](reservation/tables.md) · [설계](reservation/orchestration.md) |
+| 대기열 | `reservation-service` queue 모듈 | 김태현 | [api](queue/api.md) |
+| 결제 | `payment-service`, `fake-pg` | 강현민 | [plan](payment/plan.md) · [api](payment/api.md) · [tables](payment/tables.md) |
+| 쿠폰 | `payment-service` coupon 모듈 | | [api](coupon/api.md) · [tables](coupon/tables.md) |
+| 티켓 | 미정 | | |
 
-빈 담당 칸은 각 담당자가 채운다.
+빈 담당 칸은 각 담당자가 채운다. 결제 외 도메인 문서는 Notion(2026-10-26 기준)에서 옮긴 것이다.
 
-도메인 폴더의 기본 파일은 셋이다. 필요하면 문서를 더 두고 `plan.md`에서 링크한다.
+도메인 폴더에는 아래 파일을 둔다. 없는 파일은 [_template/](_template/)을 복사해 만든다. 예시는 [payment/](payment/)다.
 
 | 파일 | 내용 |
 |---|---|
@@ -40,7 +39,7 @@
 
 ## 도메인 문서 채우는 법
 
-1. [_template/](_template/)의 양식을 보고 자기 도메인 폴더의 `api.md`, `tables.md`, `plan.md`를 채운다. 예시는 [payment/](payment/)다.
+1. 자기 도메인 문서를 고치거나 양식으로 새로 만든다.
 2. 문서 상단의 `상태`를 `작성 중`이나 `작성 완료`로 바꾼다.
 3. 자기 도메인 문서만 담아 PR을 올린다.
-4. 다른 서비스가 부르는 내부 API는 바로 `shared/`에 쓰지 않고 [계약 변경 흐름](shared/README.md#계약-변경-흐름)의 이슈부터 시작한다.
+4. 다른 서비스가 부르는 내부 API를 바꾸거나 새로 만들 때는 [계약 변경 흐름](shared/README.md#계약-변경-흐름)의 이슈부터 시작한다.
