@@ -4,7 +4,6 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.application.port.SeatPort;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,22 +14,17 @@ import org.springframework.stereotype.Component;
 public class UnconnectedSeatAdapter implements SeatPort {
 
     @Override
-    public void lockSeats(List<UUID> seatIds) {
+    public void lockSeats(List<Long> seatIds) {
         throw notConnected();
     }
 
     @Override
-    public void sell(List<UUID> seatIds) {
+    public void sell(Long reservationId, List<Long> seatIds) {
         throw notConnected();
     }
 
     @Override
-    public void release(List<UUID> seatIds) {
-        throw notConnected();
-    }
-
-    @Override
-    public long priceSnapshot(List<UUID> seatIds) {
+    public void release(Long reservationId, List<Long> seatIds) {
         throw notConnected();
     }
 

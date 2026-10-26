@@ -21,6 +21,8 @@ import com.sparta.ticket.reservation.support.FakePaymentPort;
 import com.sparta.ticket.reservation.support.FakeSeatPort;
 import com.sparta.ticket.reservation.support.MutableClock;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.sparta.ticket.reservation.support.TestIds;
+import com.sparta.ticket.reservation.support.TestSeats;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -79,21 +81,24 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     private final UUID userId = UUID.randomUUID();
-    private final UUID seatA = UUID.fromString("00000000-0000-0000-0000-00000000000a");
-    private final UUID seatB = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+    private final Long seatA = 10L;
+    private final Long seatB = 11L;
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM p_reservation_seats");
+        jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
         payment.reset();
         seats.reset();
     }
 
-    private UUID hold() {
+    private Long hold() {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                userId, UUID.randomUUID(), List.of(seatB, seatA), clock.now().plusMinutes(10)));
+                userId,
+                TestIds.next(),
+                TestSeats.priced(seatB, seatA),
+                clock.now().plusMinutes(10)));
     }
 
     private MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, UUID user) {
@@ -103,12 +108,12 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON);
     }
 
-    private ResultActions checkout(UUID reservationId, UUID user) throws Exception {
+    private ResultActions checkout(Long reservationId, UUID user) throws Exception {
         return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/checkout", reservationId), user)
                 .content("{}"));
     }
 
-    private String checkoutOrderId(UUID reservationId) throws Exception {
+    private String checkoutOrderId(Long reservationId) throws Exception {
         String body = checkout(reservationId, userId)
                 .andExpect(status().isOk())
                 .andReturn()
@@ -118,12 +123,12 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         return data.get("orderId").asText();
     }
 
-    private ResultActions confirm(UUID reservationId, String orderId, UUID user) throws Exception {
+    private ResultActions confirm(Long reservationId, String orderId, UUID user) throws Exception {
         return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/confirm", reservationId), user)
                 .content(objectMapper.writeValueAsString(Map.of("orderId", orderId, "pgAuthToken", "pk-1"))));
     }
 
-    private Map<String, Object> row(UUID reservationId) {
+    private Map<String, Object> row(Long reservationId) {
         return jdbcTemplate.queryForMap(
                 "SELECT status, order_id, payment_amount, pg_auth_token, updated_by FROM p_reservations"
                         + " WHERE reservation_id = ?",
@@ -137,7 +142,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결제 준비와 승인이 성공하면 CONFIRMED가 되고 좌석을 먼저 잠근 뒤 판매한다")
     void checkoutAndConfirm() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         payment.discount(3_000L);
 
         String orderId = checkoutOrderId(reservationId);
@@ -151,7 +156,14 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         assertThat(payment.confirmedAmounts).as("승인 금액은 준비 응답의 값이다").containsExactly(17_000L);
         assertThat(seats.locked).containsExactly(List.of(seatA, seatB));
         assertThat(seats.sold).containsExactly(List.of(seatA, seatB));
+        assertThat(seats.soldFor).as("이 예약이 잡은 좌석만 판매한다").containsExactly(reservationId);
         assertThat(seats.events).containsExactly("lock", "sell");
+        assertThat(jdbcTemplate.queryForList(
+                        "SELECT ticket_code FROM p_tickets WHERE reservation_id = ?", String.class, reservationId))
+                .as("확정되면 티켓마다 코드가 발급된다")
+                .hasSize(2)
+                .doesNotContainNull()
+                .doesNotHaveDuplicates();
         assertThat(payment.calledInTransaction).as("payment 호출은 트랜잭션 밖이다").containsOnly(false);
         assertThat(payment.activeConnectionsAtCall)
                 .as("payment 호출 중에 DB 연결을 잡고 있지 않다")
@@ -164,7 +176,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결제가 거절되면 HOLD로 돌아오고, 실패한 orderId로는 다시 승인할 수 없어 새로 준비해야 한다")
     void failureReturnsToHold() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String firstOrderId = checkoutOrderId(reservationId);
         payment.confirmReturns(ConfirmOutcome.failed("CARD_DECLINED"));
 
@@ -192,7 +204,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결제가 거절됐을 때 선점 시간이 지났으면 EXPIRED가 되고 좌석을 돌려준다")
     void failureAfterExpiry() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         payment.confirmAnswers(() -> {
             clock.advance(Duration.ofMinutes(11));
@@ -214,7 +226,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("선점 시간이 지난 뒤의 승인은 만료 스케줄러가 돌았는지와 관계없이 HOLD_EXPIRED다")
     void confirmAfterExpiry() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         clock.advance(Duration.ofMinutes(11));
 
@@ -231,7 +243,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("승인 뒤 결과 반영이 실패해도 오류 대신 결제 중 상태로 답한다(F5)")
     void applyFailureReturnsState() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         seats.failOnLock(seatA);
 
@@ -243,7 +255,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("승인 결과를 모르면 PAYMENT_IN_PROGRESS로 응답하고 다시 보낼 인증값을 남긴다")
     void unknownOutcome() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         payment.confirmTimesOut();
 
@@ -258,7 +270,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("같은 승인이 다시 오면 payment를 다시 부르지 않고 지금 상태를 돌려준다")
     void duplicateConfirm() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         confirm(reservationId, orderId, userId).andExpect(status().isOk());
 
@@ -272,7 +284,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("다른 사용자의 예약은 조회·준비·승인할 수 없다")
     void otherUser() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
         UUID stranger = UUID.randomUUID();
 
@@ -290,7 +302,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("선점 시간이 지난 예약은 결제를 준비할 수 없고, 금액과 인증값이 없는 승인 요청은 400이다")
     void rejectsExpiredAndInvalidRequests() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         clock.advance(Duration.ofMinutes(10));
 
         checkout(reservationId, userId)
@@ -306,7 +318,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("준비 결과를 기록하기 전에 다른 준비가 먼저 기록되면 CHECKOUT_CONFLICT")
     void checkoutConflict() {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         CheckoutTarget first = reservationTransactions.loadCheckoutTarget(userId, reservationId);
         CheckoutTarget second = reservationTransactions.loadCheckoutTarget(userId, reservationId);
 
@@ -321,7 +333,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("지난 시도의 실패는 무시하고, 지난 시도의 성공과 끝난 예약의 성공은 F6으로 센다. 같은 성공이 다시 오면 무시한다")
     void staleAndDuplicateResults() throws Exception {
-        UUID reservationId = hold();
+        Long reservationId = hold();
         String oldOrderId = checkoutOrderId(reservationId);
         String orderId = checkoutOrderId(reservationId);
         payment.confirmTimesOut();

@@ -9,9 +9,9 @@ import java.util.UUID;
  */
 public record PaymentPrepareRequest(
         String orderId,
-        UUID reservationId,
+        Long reservationId,
         UUID userId,
         long baseAmount,
-        UUID couponId,
+        Long couponId,
         String pgProvider,
         LocalDateTime expiresAt) {}

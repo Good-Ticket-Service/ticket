@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.application;
 
+import com.sparta.ticket.reservation.domain.SeatPrice;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -10,6 +11,6 @@ import java.util.UUID;
  */
 public interface BookingFacade {
 
-    /** 좌석 선점 트랜잭션 안에서 HOLD 예약을 만들고 id를 돌려준다. */
-    UUID hold(UUID userId, UUID scheduleId, List<UUID> seatIds, LocalDateTime holdExpiresAt);
+    /** 좌석 선점 트랜잭션 안에서 HOLD 예약과 좌석마다 티켓을 만들고 예약 id를 돌려준다. 가격은 선점 시점의 좌석 가격이다. */
+    Long hold(UUID userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt);
 }

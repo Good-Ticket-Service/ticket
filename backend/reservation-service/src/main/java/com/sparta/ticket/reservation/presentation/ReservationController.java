@@ -12,7 +12,6 @@ import com.sparta.ticket.reservation.presentation.dto.ReservationResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,7 +31,7 @@ public class ReservationController {
 
     @Operation(summary = "예약 상태 조회", description = "결제 승인 뒤 PAYMENT_IN_PROGRESS를 받았으면 이 API로 폴링한다.")
     @GetMapping("/{reservationId}")
-    public ApiResponse<ReservationResponse> get(@CurrentUser UserContext user, @PathVariable UUID reservationId) {
+    public ApiResponse<ReservationResponse> get(@CurrentUser UserContext user, @PathVariable Long reservationId) {
         return ApiResponse.ok(ReservationResponse.from(reservationQueryService.get(user, reservationId)));
     }
 
@@ -40,7 +39,7 @@ public class ReservationController {
     @PostMapping("/{reservationId}/payments/checkout")
     public ApiResponse<CheckoutResponse> checkout(
             @CurrentUser UserContext user,
-            @PathVariable UUID reservationId,
+            @PathVariable Long reservationId,
             @Valid @RequestBody CheckoutRequest request) {
         return ApiResponse.ok(
                 CheckoutResponse.from(reservationPaymentService.checkout(user, reservationId, request.toCommand())));
@@ -52,7 +51,7 @@ public class ReservationController {
     @PostMapping("/{reservationId}/payments/confirm")
     public ApiResponse<ReservationResponse> confirm(
             @CurrentUser UserContext user,
-            @PathVariable UUID reservationId,
+            @PathVariable Long reservationId,
             @Valid @RequestBody ConfirmRequest request) {
         return ApiResponse.ok(
                 ReservationResponse.from(reservationPaymentService.confirm(user, reservationId, request.toCommand())));

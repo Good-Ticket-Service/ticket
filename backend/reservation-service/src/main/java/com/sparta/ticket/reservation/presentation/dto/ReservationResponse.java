@@ -4,12 +4,11 @@ import com.sparta.ticket.reservation.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.domain.ReservationStatus;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 
 public record ReservationResponse(
-        UUID reservationId,
-        UUID scheduleId,
-        List<UUID> seatIds,
+        Long reservationId,
+        Long scheduleId,
+        List<Long> seatIds,
         ReservationStatus status,
         LocalDateTime holdExpiresAt,
         String orderId,

@@ -6,7 +6,6 @@ import com.sparta.ticket.reservation.domain.Reservation;
 import com.sparta.ticket.reservation.domain.ReservationRepository;
 import com.sparta.ticket.reservation.domain.ReservationStatus;
 import com.sparta.ticket.reservation.domain.ReservationTransition;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,7 +27,7 @@ public class PaymentResultApplier {
 
     /** 예약 상태가 바뀌었으면 true. 결과를 모르거나, 같은 결과가 다시 왔거나, 지난 시도의 결과면 false. */
     @Transactional
-    public boolean apply(UUID reservationId, String orderId, ConfirmOutcome outcome) {
+    public boolean apply(Long reservationId, String orderId, ConfirmOutcome outcome) {
         Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
         if (reservation == null) {
             log.warn("결제 결과의 예약이 없다. reservationId={}, orderId={}", reservationId, orderId);
@@ -44,13 +43,15 @@ public class PaymentResultApplier {
 
     /** 지금 시도의 결제 중 예약일 때만 좌석을 잠그고 확정한다. 그 밖의 성공은 좌석을 건드리지 않고 가린다. */
     private boolean applySuccess(Reservation reservation, String orderId, ChangeStamp stamp) {
-        UUID id = reservation.getId();
+        Long id = reservation.getId();
         Reservation current = reservation;
         if (isCurrentPayment(reservation, orderId)) {
             if (transitionExecutor.execute(
                     ReservationTransition.CONFIRM,
+                    id,
                     reservation.getSeatIds(),
                     () -> reservationRepository.confirm(id, orderId, stamp))) {
+                reservation.issueTicketCodes();
                 return true;
             }
             current = reservationRepository.reload(id).orElseThrow();
@@ -73,15 +74,17 @@ public class PaymentResultApplier {
         if (!isCurrentPayment(reservation, orderId)) {
             return false;
         }
-        UUID id = reservation.getId();
+        Long id = reservation.getId();
         if (reservation.isHoldExpiredAt(stamp.at())) {
             return transitionExecutor.execute(
                     ReservationTransition.EXPIRE_AFTER_FAILURE,
+                    id,
                     reservation.getSeatIds(),
                     () -> reservationRepository.expireAfterFailure(id, orderId, stamp));
         }
         return transitionExecutor.execute(
                 ReservationTransition.RETURN_TO_HOLD,
+                id,
                 reservation.getSeatIds(),
                 () -> reservationRepository.returnToHold(id, orderId, stamp));
     }

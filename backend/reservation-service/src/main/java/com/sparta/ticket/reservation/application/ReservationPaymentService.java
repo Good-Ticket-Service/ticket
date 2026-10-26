@@ -30,7 +30,7 @@ public class ReservationPaymentService {
     private final PaymentPort paymentPort;
 
     /** 결제를 준비한다. 상태는 HOLD 그대로이고, 새 orderId와 결제 금액을 기록한다. */
-    public CheckoutResult checkout(UserContext user, UUID reservationId, CheckoutCommand command) {
+    public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
         CheckoutTarget target = transactions.loadCheckoutTarget(user.userId(), reservationId);
         String orderId = UUID.randomUUID().toString();
         PreparedPayment prepared = paymentPort.prepare(new PaymentPrepareRequest(
@@ -49,7 +49,7 @@ public class ReservationPaymentService {
      * 결제를 승인한다. 결과를 모르면 PAYMENT_IN_PROGRESS로 두고 응답하며, 결과 확인 스케줄러가 마무리한다.
      * 사용자 요청 경로에서는 승인을 다시 보내지 않는다. 기다리는 동안 요청 스레드를 붙잡지 않기 위해서다.
      */
-    public ReservationResult confirm(UserContext user, UUID reservationId, ConfirmCommand command) {
+    public ReservationResult confirm(UserContext user, Long reservationId, ConfirmCommand command) {
         PaymentStart start = transactions.startPayment(user.userId(), reservationId, command);
         if (!start.started()) {
             return start.current();
