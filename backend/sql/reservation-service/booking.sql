@@ -28,7 +28,7 @@ CREATE TABLE p_reservations
 
     CONSTRAINT uk_p_reservations_order_id UNIQUE (order_id),
     CONSTRAINT ck_p_reservations_status
-        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'EXPIRED', 'CANCELED'))
+        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'EXPIRED', 'RELEASED', 'CANCELED'))
 );
 
 -- 만료 스케줄러가 시간이 지난 HOLD를 고른다

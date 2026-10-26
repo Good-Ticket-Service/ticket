@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 public class BookingMetrics {
 
     private final Counter expiredHolds;
+    private final Counter releasedHolds;
     private final Counter resentConfirms;
     private final Counter lateSuccesses;
     private final AtomicLong paymentsInProgress = new AtomicLong();
@@ -18,7 +19,10 @@ public class BookingMetrics {
 
     public BookingMetrics(MeterRegistry registry) {
         this.expiredHolds = Counter.builder("reservation.expired")
-                .description("만료 스케줄러가 EXPIRED로 바꾼 예약 수")
+                .description("선점 시간이 지나 EXPIRED로 바꾼 예약 수. 만료 스케줄러와 선점 해제 때의 정리를 함께 센다")
+                .register(registry);
+        this.releasedHolds = Counter.builder("reservation.released")
+                .description("사용자가 선점을 직접 해제해 RELEASED로 바꾼 예약 수")
                 .register(registry);
         this.resentConfirms = Counter.builder("reservation.payment.confirm.resent")
                 .description("payment가 받지 못한 승인 요청을 다시 보낸 수")
@@ -36,6 +40,10 @@ public class BookingMetrics {
 
     public void expiredHold() {
         expiredHolds.increment();
+    }
+
+    public void releasedHold() {
+        releasedHolds.increment();
     }
 
     public void resentConfirm() {

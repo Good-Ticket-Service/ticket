@@ -14,6 +14,7 @@ import lombok.experimental.Accessors;
 public enum ReservationTransition {
     START_PAYMENT(ReservationStatus.HOLD, ReservationStatus.PAYMENT_IN_PROGRESS, SeatEffect.NONE),
     EXPIRE_HOLD(ReservationStatus.HOLD, ReservationStatus.EXPIRED, SeatEffect.RELEASE),
+    RELEASE_HOLD(ReservationStatus.HOLD, ReservationStatus.RELEASED, SeatEffect.RELEASE),
     CONFIRM(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.CONFIRMED, SeatEffect.SELL),
     RETURN_TO_HOLD(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.HOLD, SeatEffect.NONE),
     EXPIRE_AFTER_FAILURE(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.EXPIRED, SeatEffect.RELEASE);

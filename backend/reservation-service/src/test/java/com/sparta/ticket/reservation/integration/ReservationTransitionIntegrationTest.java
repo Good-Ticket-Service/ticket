@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.application.BookingFacade;
 import com.sparta.ticket.reservation.application.ChangeStamps;
 import com.sparta.ticket.reservation.domain.ReservationRepository;
@@ -77,6 +78,10 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         });
     }
 
+    private void release(UUID user, Long reservationId) {
+        transactionTemplate.executeWithoutResult(status -> bookingFacade.release(user, reservationId));
+    }
+
     private String statusOf(Long reservationId) {
         return jdbcTemplate.queryForObject(
                 "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
@@ -112,6 +117,54 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         assertThatThrownBy(() -> hold(Duration.ofMinutes(10), seatA, seatA))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("같은 좌석");
+    }
+
+    @Test
+    @DisplayName("선점 해제: HOLD는 RELEASED, 시간이 지난 HOLD는 EXPIRED로 정리한다. 다시 와도 정상으로 끝나고 티켓은 남는다")
+    void releaseHold() {
+        Long released = hold(Duration.ofMinutes(10), TestIds.next());
+        Long stale = hold(Duration.ofMinutes(1), TestIds.next());
+        inTransaction(() ->
+                reservationRepository.recordCheckout(released, userId, null, "order-r", 10_000L, changeStamps.stamp()));
+        clock.advance(Duration.ofMinutes(5));
+
+        release(userId, released);
+        release(userId, stale);
+        release(userId, released);
+
+        assertThat(statusOf(released)).isEqualTo("RELEASED");
+        assertThat(statusOf(stale)).as("시간 초과와 사용자 해제를 따로 센다").isEqualTo("EXPIRED");
+        assertThat(inTransaction(() -> reservationRepository.startPayment(
+                        released, userId, "order-r", "pg-token", changeStamps.stamp())))
+                .as("해제한 예약은 준비해 둔 주문으로도 결제를 시작할 수 없다")
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM p_tickets WHERE reservation_id = ?", Integer.class, released))
+                .isEqualTo(1);
+        assertThatThrownBy(() -> bookingFacade.release(userId, released))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
+    @DisplayName("결제 중이거나 끝난 예약, 다른 사용자의 예약은 선점을 해제할 수 없다")
+    void releaseRejected() {
+        Long paying = hold(Duration.ofMinutes(10), TestIds.next());
+        inTransaction(() ->
+                reservationRepository.recordCheckout(paying, userId, null, "order-1", 10_000L, changeStamps.stamp()));
+        inTransaction(
+                () -> reservationRepository.startPayment(paying, userId, "order-1", "pg-token", changeStamps.stamp()));
+        Long other = hold(Duration.ofMinutes(10), TestIds.next());
+
+        assertThatThrownBy(() -> release(userId, paying))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_STATUS_TRANSITION));
+        assertThat(statusOf(paying)).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThatThrownBy(() -> release(UUID.randomUUID(), other))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.FORBIDDEN));
+        assertThat(statusOf(other)).isEqualTo("HOLD");
     }
 
     @Test

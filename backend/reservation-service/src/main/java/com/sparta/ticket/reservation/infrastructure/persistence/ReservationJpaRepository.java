@@ -63,6 +63,12 @@ public interface ReservationJpaRepository
     }
 
     @Override
+    default int releaseHold(Long id, UUID userId, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.RELEASE_HOLD;
+        return updateReleaseHold(id, t.from(), t.to(), userId, stamp.at(), stamp.by());
+    }
+
+    @Override
     default List<Long> findExpiredHoldIds(LocalDateTime now, int limit) {
         return selectExpiredHoldIds(now, PageRequest.of(0, limit));
     }
@@ -160,6 +166,20 @@ public interface ReservationJpaRepository
             @Param("id") Long id,
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from AND r.userId = :userId AND r.holdExpiresAt > :at
+            """)
+    int updateReleaseHold(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
+            @Param("userId") UUID userId,
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
