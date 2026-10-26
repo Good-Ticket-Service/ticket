@@ -1,0 +1,92 @@
+name: 계약
+description: 서비스·모듈 간 계약(내부 API, 모듈 인터페이스, Kafka 메시지)의 추가·변경 제안
+title: "docs(<scope>): 계약 - "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        계약 변경 흐름의 1단계다. 이 이슈에서 담당자들이 댓글로 합의한 뒤, 합의한 내용만 `docs/shared/`에 계약 PR로 올린다.
+        흐름과 양식은 `docs/shared/README.md`, `docs/_template/contract.md`를 본다.
+  - type: input
+    id: scope
+    attributes:
+      label: scope
+      description: 계약을 제공하는 쪽. user, event, reservation, payment 중 하나
+      placeholder: payment
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 종류
+      options: [내부 API, 모듈 인터페이스, Kafka 메시지]
+    validations:
+      required: true
+  - type: dropdown
+    id: change
+    attributes:
+      label: 구분
+      options: [새 계약, 기존 계약 변경, 계약 삭제]
+    validations:
+      required: true
+  - type: textarea
+    id: parties
+    attributes:
+      label: 제공·소비
+      description: 제공하는 도메인과 담당자, 쓰는 도메인과 담당자. 소비 담당자를 멘션한다
+      value: |
+        - 제공:
+        - 소비:
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: 필요한 이유
+      description: 기존 계약 변경이면 무엇이 왜 바뀌는지
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: 계약 초안
+      description: 경로(또는 메서드·토픽), 요청, 응답, 오류 코드. 기존 계약 변경이면 바뀌는 부분만 적는다
+      value: |
+        ### {METHOD} /internal/{경로} — {기능}
+
+        요청
+        | 필드 | 타입 | 필수 | 설명 |
+        |---|---|---|---|
+        | | | | |
+
+        응답
+        | 필드 | 타입 | 설명 |
+        |---|---|---|
+        | | | |
+
+        오류
+        | 상태 | 코드 | 때 |
+        |---|---|---|
+        | | | |
+    validations:
+      required: true
+  - type: textarea
+    id: semantics
+    attributes:
+      label: 멱등성·타임아웃·재시도
+      description: 같은 요청을 다시 보내면 어떻게 되는지, 제공하는 쪽 최악 응답 시간, 재시도 허용 여부
+      value: |
+        - 멱등성:
+        - 타임아웃:
+        - 재시도:
+    validations:
+      required: true
+  - type: textarea
+    id: agreement
+    attributes:
+      label: 합의
+      description: 담당자가 댓글로 확인하면 체크한다. 모두 체크되면 계약 PR을 올린다
+      value: |
+        - [ ] 제공 담당자 확인
+        - [ ] 소비 담당자 확인
+        - [ ] 계약 PR: #

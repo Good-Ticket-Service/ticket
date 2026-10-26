@@ -32,3 +32,19 @@
 # /backend/payment-service/           @<담당>
 # /backend/config-repo/payment-service.yml @<담당>
 # /backend/sql/payment-service/       @<담당>
+
+# 문서: 도메인별 명세와 서비스 간 계약 (docs/README.md, docs/shared/README.md)
+# 계약 파일은 제공 담당과 소비 담당을 함께 둔다. 계약을 바꾸는 PR에 양쪽 리뷰가 요청된다.
+/docs/user/                           @nuyheat
+/docs/event/                          @kiteof-park
+/docs/seat/                           @wjdals717
+/docs/reservation/                    @jihaneol
+/docs/queue/                          @nuyheat
+/docs/payment/                        @rkddk7165
+/docs/coupon/                         @sybeom
+/docs/shared/                         @rkddk7165 @nuyheat @kiteof-park @wjdals717 @jihaneol @sybeom
+/docs/shared/internal-api/payment.md  @rkddk7165 @jihaneol
+/docs/shared/internal-api/event.md    @kiteof-park @jihaneol @wjdals717
+/docs/shared/internal-api/seat.md     @wjdals717 @kiteof-park
+/docs/shared/internal-api/user.md     @nuyheat
+/docs/shared/modules/coupon-usage.md  @sybeom @rkddk7165

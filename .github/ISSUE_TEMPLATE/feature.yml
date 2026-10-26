@@ -44,7 +44,7 @@ body:
     id: contract
     attributes:
       label: API·DB·Kafka 메시지 변경
-      description: 외부·내부 API, schema.sql, Kafka 토픽·메시지 변경이 있으면 적고 영향을 받는 담당자를 멘션한다. 없으면 "없음"
+      description: 외부·내부 API, schema.sql, Kafka 토픽·메시지 변경이 있으면 적고 영향을 받는 담당자를 멘션한다. 서비스·모듈 간 계약 변경은 "계약" 이슈로 먼저 합의한다. 없으면 "없음"
       placeholder: 없음
   - type: textarea
     id: refs
