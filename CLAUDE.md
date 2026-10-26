@@ -48,6 +48,7 @@
 | 쿠폰 | `payment-service` coupon | `docs/coupon/` | 성윤범 |
 
 - 서비스·모듈 간 계약: `docs/shared/` (계약 변경 흐름은 `docs/shared/README.md`)
+- 전체 그림: 서비스 책임·통신·예매 흐름은 `docs/project/architecture.md`, 서버 배치·포트·배포는 `docs/project/infra.md`. 계약·도메인 문서와 다르면 계약·도메인 문서가 기준이다
 - 경로별 규칙: `.claude/rules/` (도메인 문서 먼저 읽기, 계약, API, 도메인·영속성)
 - 스킬: `/add-service` (서비스 추가 절차). `/add-internal-api`, `/load-test`는 아직 틀이다
 - 동시성·트랜잭션 리뷰: `concurrency-reviewer` 에이전트
