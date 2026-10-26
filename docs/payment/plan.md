@@ -4,7 +4,11 @@
 
 | 문서 | 내용 | 읽는 때 |
 |---|---|---|
-| plan.md (이 문서) | 무엇을 어떻게 만드는가: 구조, 상태, 흐름, 복구, 구현 규칙, ERD, API | 구현 전 항상 |
+| plan.md (이 문서) | 무엇을 어떻게 만드는가: 구조, 상태, 흐름, 복구, 구현 규칙 | 구현 전 항상 |
+| [tables.md](tables.md) | ERD와 테이블 명세 | 엔티티·스키마를 만들 때 |
+| [api.md](api.md) | 외부 API(없음), fake PG API | PG 어댑터·테스트를 만들 때 |
+| [shared/internal-api/payment.md](../shared/internal-api/payment.md) | 예매와의 내부 API 계약 | 컨트롤러·예매 연동을 만들 때 |
+| [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md) | 쿠폰 모듈과의 계약 | 쿠폰 연동을 만들 때 |
 | [todo.md](todo.md) | 작업 순서와 완료 조건 | 작업을 고를 때 |
 | [decisions.md](decisions.md) | 설계 결정의 이유와 대안 | 규칙의 이유가 궁금할 때, 규칙을 바꾸고 싶을 때 |
 | [experiments.md](experiments.md) | 부하·장애 실험 시나리오와 메트릭 | Task 11 이후 |
@@ -58,7 +62,7 @@ payment:
     give-up-minutes: 60     # 승인 호출 후 이 시간이 지나도 모르면 차단한다
   reconcile:
     delay-minutes: 60       # 최소 대사 실행 간격
-    after-minutes: 60       # FAILED 확정 후 이 시간이 지난 건을 한 번 더 조회한다
+    checkpoints-minutes: [60, 1440]  # FAILED 확정 후 1시간, 24시간에 한 번씩 조회한다
 pg:
   connect-timeout-ms: 2000
   read-timeout-ms: 10000
@@ -68,34 +72,22 @@ pg:
 
 ### 패키지
 
-물류 MSA의 hub와 같은 규칙으로 **계층 → 종류 → 하위 도메인** 순서로 나눈다. enum과 값 객체는 엔티티 옆(`domain/model/{하위 도메인}`)에 둔다. 쿠폰 담당 코드도 같은 규칙으로 각 종류 아래 `coupon/`에 둔다.
-
 ```
 com.sparta.ticket.payment
-├── presentation
-│   ├── controller/payment   InternalPaymentController
-│   ├── controller/admin     InternalAdminController
-│   └── dto/payment          요청·응답 DTO
+├── presentation/internal   InternalPaymentController, InternalAdminController
 ├── application
-│   ├── service/payment      PaymentService, PaymentProcessor, PaymentTransactions
-│   ├── service/refund       RefundService, RefundTransactions
-│   ├── service/recovery     PaymentRecoveryJob, RefundRecoveryJob, PaymentReconcileJob
-│   ├── service/pg           PgClientRegistry
-│   ├── port/pg              PgClient
-│   ├── port/payment         PaymentDispatcher, PaymentResultPublisher
-│   └── dto/payment, dto/refund
-├── domain
-│   ├── model/payment        Payment, PaymentStatus, PaymentFailureCode, PaymentOrder
-│   ├── model/refund         Refund, RefundStatus, RefundReason
-│   ├── model/pg             PgProvider, PgResult, PgInquiry, PgReadyResult
-│   ├── model/recovery       Recovery (결제·환불 공통 복구 값)
-│   ├── exception/payment    PaymentErrorCode
-│   └── repository/payment, repository/refund
+│   ├── PaymentService, PaymentProcessor, RefundService   흐름 지휘. 트랜잭션 없음
+│   ├── PaymentTransactions, RefundTransactions           @Transactional 메서드만. 상태 전이 하나 = 메서드 하나
+│   ├── PaymentRecoveryJob, RefundRecoveryJob, PaymentReconcileJob   @Scheduled. 흐름 클래스를 부른다
+│   ├── port/   PgClient, PaymentDispatcher, PaymentResultPublisher
+│   ├── dto/    PaymentCommand, PaymentResult, RefundResult
+│   └── coupon/ CouponUsage 와 구현                          쿠폰 담당 소유. 결제는 CouponUsage만 부른다
+├── domain      Payment, Refund, PaymentStatus, RefundStatus, PgProvider, PgResult, PgInquiry, 저장소 인터페이스
+│   └── coupon/ UserCoupon 등                                쿠폰 담당 소유
 └── infrastructure
-    ├── persistence/payment, persistence/refund   JPA 저장소
-    ├── pg/toss, pg/kakao    PgClient 구현
-    ├── dispatch             InlinePaymentDispatcher (Kafka 전환 후 KafkaPaymentDispatcher)
-    └── messaging            NoopResultPublisher (Kafka 전환 후 KafkaResultPublisher, PaymentCommandConsumer)
+    ├── pg/      toss/, kakao/, PgClientRegistry
+    ├── dispatch/  InlinePaymentDispatcher (Kafka 전환 후 KafkaPaymentDispatcher)
+    └── messaging/ NoopResultPublisher (Kafka 전환 후 KafkaResultPublisher, PaymentCommandConsumer)
 ```
 
 `PgClient`는 `ready`, `approve`, `inquire`, `cancel`을 가진다.
@@ -115,9 +107,19 @@ com.sparta.ticket.payment
 | FAILED | 돈이 오가지 않음으로 확정 (종료). 늦은 승인이 발견되면 자동 취소 환불이 붙는다(4절) | - |
 | CANCELED | 전액 환불 완료 (종료) | - |
 
-FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카카오 준비 실패), `EXPIRED`(결제 허용 시각 경과), `ABANDONED`(승인 전 예매 취소), `PG_UNAVAILABLE`(연결 실패·서킷 열림), `PG_BUSY`(429), `INVALID_AUTH_TOKEN`(인증값 재사용·조작), `NOT_APPROVED`(조회로 승인 없음 확정), `AMOUNT_MISMATCH`(승인 금액 불일치, AUTO_VOID 동반), `CANCELED_AT_PG`(조회해 보니 PG에서 이미 취소됨), `MANUAL`(관리자 확정), 그 밖은 PG 거절 코드.
+FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카카오 준비 실패), `EXPIRED`(결제 허용 시각 경과), `ABANDONED`(승인 전 예매 취소), `PG_UNAVAILABLE`(연결 실패·서킷 열림), `PG_BUSY`(429), `INVALID_AUTH_TOKEN`(인증값 재사용·조작), `NOT_APPROVED`(조회로 승인 없음 확정), `AMOUNT_MISMATCH`(승인 금액 불일치, AUTO_VOID 동반), `CANCELED_AT_PG`(조회해 보니 PG에서 이미 취소됨), `MANUAL`(관리자 확정), `PG_REJECTED`(PG 업무 거절. 원본 코드는 `pg_failure_code`에 둔다).
 
-**모든 FAILED 전이는 같은 트랜잭션에서 `CouponUsage.release`를 부른다.** 쿠폰이 없거나 이미 반납됐으면 release는 아무것도 하지 않는다.
+응답에는 예매가 다음 행동을 고를 수 있게 `failureType`을 함께 싣는다.
+
+| failureType | failure_code | 예매가 할 일 |
+|---|---|---|
+| `REJECTED` | `PG_REJECTED`, `AMOUNT_MISMATCH`, `INVALID_AUTH_TOKEN` | 사용자가 다른 수단으로 다시 결제 |
+| `UNAVAILABLE` | `PG_UNAVAILABLE`, `PG_BUSY` | 잠시 후 같은 수단으로 다시 시도 |
+| `EXPIRED` | `EXPIRED` | 선점이 끝났으면 만료, 아니면 다시 준비 |
+| `NOT_APPROVED` | `NOT_APPROVED`, `CANCELED_AT_PG`, `MANUAL` | 결제 안 됨으로 확정. 다시 결제 가능 |
+| `CLOSED` | `SUPERSEDED`, `ABANDONED`, `READY_FAILED` | 이 시도는 끝. 필요하면 새 준비 |
+
+**모든 FAILED 전이는 같은 트랜잭션에서 `CouponUsage.releaseReservation`을 부른다.** 쿠폰이 없거나 이미 반납됐으면 아무것도 하지 않는다. 결제 후 환불의 쿠폰 처리는 `restoreAfterRefund`로 따로 한다(9절).
 
 | refund | 의미 | 다음 |
 |---|---|---|
@@ -145,14 +147,14 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
           1) order_id로 기존 결제 조회. 있으면 내용 비교 후 재현(같음) / 409 PAYMENT_ORDER_CONFLICT(다름)
              재현할 결제가 카카오 READY인데 tid가 없으면(준비 직후 중단) 3)부터 다시 한다
           2) tx prepare:
-             - 같은 예매의 이전 READY를 FAILED(SUPERSEDED) + 쿠폰 release   ← 반드시 새 reserve보다 먼저
+             - 같은 예매의 이전 READY를 FAILED(SUPERSEDED) + 쿠폰 releaseReservation   ← 반드시 새 reserve보다 먼저
              - 같은 예매에 IN_PROGRESS·DONE 결제가 있으면 409 PAYMENT_ALREADY_IN_PROGRESS / PAYMENT_ALREADY_DONE
                승인 요청이 이미 접수된(confirm_requested_at이 있는) READY도 대체하지 않고 409 PAYMENT_ALREADY_IN_PROGRESS
              - CouponUsage.reserve → 할인액. 할인액은 total_price - min-amount를 넘지 않게 자른다
              - 새 Payment READY(금액 확정, expires_at) 커밋
              order_id UK 충돌이면 이긴 행을 1)처럼 재현, reservation 부분 UK 충돌(동시 준비)이면 409 PAYMENT_CHECKOUT_CONFLICT
           3) PgClient.ready (트랜잭션 밖. 카카오만 PG 호출)
-             카카오 성공 → tx: tid·결제창 URL 저장 / 실패·불명 → tx: FAILED(READY_FAILED) + 쿠폰 release
+             카카오 성공 → tx: tid·결제창 URL 저장 / 실패·불명 → tx: FAILED(READY_FAILED) + 쿠폰 releaseReservation
         응답: orderId, amount, status, (카카오) 결제창 URL
 ② 인증  사용자가 결제창에서 인증한다. fake-pg에서는 "결제창 대체" API가 대신한다
 ③ 승인  사용자 → reservation: confirm {orderId, pgAuthToken}
@@ -201,7 +203,7 @@ POST /internal/payments/{orderId}/refund {reason}
      동시 요청이 UK에 걸리면 이긴 행을 재현한다
   3) REQUESTED면 커밋 후 바로 PgClient.cancel(PG 키 = orderId + ":cancel:" + cancel_attempt) (트랜잭션 밖)
   4) tx complete: payment → refund 순서로 잠근 뒤 refund가 REQUESTED일 때만
-     성공 → refund DONE (+ 결제가 DONE이면 CANCELED와 쿠폰 release)
+     성공 → refund DONE (+ 결제가 DONE이면 CANCELED와 CouponUsage.restoreAfterRefund. AUTO_VOID는 쿠폰을 건드리지 않는다)
      업무 거절 → FAILED + recovery_blocked + 경보
      일시 장애·불명 (연결 실패, 429, 타임아웃, 5xx) → REQUESTED 유지, 복구가 같은 키로 다시 보낸다
 ```
@@ -221,7 +223,7 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
    - `recovery_blocked = false`이고 `next_attempt_at`이 지난 refund REQUESTED
 3. **점유:** 짧은 트랜잭션에서 `FOR UPDATE SKIP LOCKED`로 후보를 잠그고 `next_attempt_at = now + max(점유 기간, 백오프)`로 갱신한 뒤 바로 커밋한다. 다른 인스턴스는 갱신된 시각 때문에 같은 행을 잡지 않는다. 점유 기간은 PG 최대 호출 시간(connect + read)보다 길어야 하므로 30초로 둔다. 백오프는 `min(5초 × 2^recovery_attempts, backoff-max-seconds)`다. PG 호출은 그 뒤 트랜잭션 밖에서 하고, 결과 저장은 4절 complete처럼 다시 잠근 뒤 상태를 확인한다.
 4. 처리:
-   - READY: PG를 부르지 않고 FAILED(`EXPIRED`) + 쿠폰 release
+   - READY: PG를 부르지 않고 FAILED(`EXPIRED`) + 쿠폰 releaseReservation
    - IN_PROGRESS: PG에 **조회**한다(승인을 다시 보내지 않는다)
      - Approved → 4절 10) complete
      - Canceled → FAILED(`CANCELED_AT_PG`). 돈은 PG에서 이미 돌려줬다
@@ -231,14 +233,15 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 5. 후보 하나의 예외는 로그만 남기고 다음 후보로 넘어간다.
 6. `recovery_started_at`부터 `give-up-minutes`가 지나도 확정되지 않으면 `recovery_blocked = true`, 경고 로그와 메트릭을 남긴다. 횟수가 아니라 시간으로 정해서, 짧은 PG 장애에 대량 차단되지 않게 한다. 결제가 차단될 때 WAITING 환불이 있으면 경보에 함께 표시한다(예매는 이미 취소됐다).
 7. 차단 건은 관리자가 PG 상태를 확인한 뒤 관리자 API(8절)로 다시 자동 처리에 넣거나, 근거를 남기고 직접 확정한다.
-8. **최소 대사:** `PaymentReconcileJob`이 PG 승인을 실제로 호출했는데 FAILED로 끝난 결제(`approve_requested_at`이 있고 `reconciled_at`이 없으며, FAILED 확정 후 `after-minutes`가 지난 건)를 PG에 한 번 더 조회한다. Approved면 4절 10)의 늦은 승인처럼 ensureRefund + 경보, NotFound·Canceled면 그대로 둔다. 이 셋일 때만 `reconciled_at`을 기록해 한 번만 본다. Unknown이면 기록하지 않고 다음 주기에 다시 보며, 24시간이 지나도 Unknown이면 경보를 남긴다. PG 승인을 부르지 않은 FAILED(만료, 대체, 서킷 등)는 돈이 빠질 수 없어 대상이 아니다.
+8. **최소 대사:** `PaymentReconcileJob`이 PG 승인을 실제로 호출했는데 FAILED로 끝난 결제(`approve_requested_at`이 있는 건)를 FAILED 확정 1시간 뒤와 24시간 뒤에 PG에 조회한다(`checkpoints-minutes`). Approved면 4절 10)의 늦은 승인처럼 ensureRefund + 경보, NotFound·Canceled면 다음 시점으로 넘긴다. 확정된 결과일 때만 `reconcile_count`를 올리고 `next_reconcile_at`을 다음 시점으로 옮기며, 마지막 시점이 끝나면 `next_reconcile_at`을 비운다. Unknown이면 그대로 두고 다음 주기에 다시 보며, 한 시점에서 24시간 넘게 Unknown이면 경보를 남긴다.
+   - **가정:** 토스는 인증 후 약 10분 안에 승인해야 하므로, FAILED 확정 24시간 뒤에도 승인되지 않은 거래는 이후에도 승인되지 않는다고 본다. 실제 PG의 보장 범위는 샌드박스·문서로 확인한다(10절). 이 가정 밖의 누락은 전체 대사(Task 19)와 정산 내역 비교가 마지막으로 찾는다. PG 승인을 부르지 않은 FAILED(만료, 대체, 서킷 등)는 돈이 빠질 수 없어 대상이 아니다.
 
 | 실패 지점 | 처리 |
 |---|---|
 | 준비 요청 유실 | 기록 없음 또는 READY. reservation이 같은 orderId로 다시 준비하면 재현된다 |
 | 카카오 준비 성공 후 tid 저장 전 중단 | tid 없는 READY. 같은 orderId 재준비 때 카카오 준비를 다시 부른다. 재준비가 없으면 만료 |
 | 카카오 준비 결과 불명 | FAILED(`READY_FAILED`). 돈이 오가지 않았고 tid를 사용자에게 주지 않았으므로 안전하다 |
-| 사용자가 결제창을 닫음 | READY가 `expires_at`까지 남았다가 FAILED(`EXPIRED`) + 쿠폰 release |
+| 사용자가 결제창을 닫음 | READY가 `expires_at`까지 남았다가 FAILED(`EXPIRED`) + 쿠폰 releaseReservation |
 | 승인 요청이 payment에 도착하지 못함 | READY. reservation이 저장한 인증값으로 같은 승인 요청을 다시 보낸다(9절) |
 | 승인 요청이 만료 후 도착 (Kafka 대기 포함) | 4절 8)에서 FAILED(`EXPIRED`). PG를 부르지 않는다 |
 | 같은 결제의 승인 요청이 중복으로 옴 (재전송, Kafka 중복) | 4절 4)·8)의 잠금과 READY 확인에서 걸려 현재 상태만 재현한다 |
@@ -269,131 +272,45 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 |---|---|
 | 2xx 성공 | Approved |
 | TCP 연결 단계 실패(connect timeout, connection refused). 요청 바이트를 보내기 전 실패만 해당 | Rejected(`PG_UNAVAILABLE`) |
-| PG 본체가 보낸 429 | Rejected(`PG_BUSY`) |
-| PG 업무 거절 코드 (잔액 부족, 카드 거절, 취소 불가 등) | Rejected(PG 코드) |
+| PG 계약상 "처리하지 않았음"이 보장되는 429 | Rejected(`PG_BUSY`). fake PG는 이렇게 정의했다. 실제 PG는 문서로 확인되기 전까지 Unknown으로 둔다 |
+| PG 업무 거절 코드 (잔액 부족, 카드 거절, 취소 불가 등) | Rejected(`PG_REJECTED`, PG 원본 코드) |
 | 읽기 타임아웃, 쓰기 후 연결 끊김, 5xx, 프록시가 보낸 오류, 해석 불가 응답, "이미 처리됨" | Unknown |
 
   - Feign은 연결 실패와 읽기 타임아웃을 같은 `RetryableException`으로 감싼다. 어댑터는 원인 예외(`ConnectException`, `SocketTimeoutException`의 단계)를 보고 구분하고, 구분할 수 없으면 Unknown이다.
   - 환불에서는 Rejected(`PG_UNAVAILABLE`·`PG_BUSY`)도 일시 장애로 보고 REQUESTED를 유지한다. 업무 거절 코드만 FAILED다.
   - 카카오는 승인 응답의 금액도 저장 금액과 대조한다(토스는 PG가 대조한다).
   - 취소의 "이미 취소됨"은 업무 거절이 아니다. 어댑터가 조회해 Canceled면 성공이다.
+  - Rejected는 "확실히 승인되지 않았다"일 때만 쓴다. 조금이라도 처리됐을 가능성이 있으면 Unknown이다.
 - **자동 재시도 없음:** PG 승인·취소 클라이언트는 자동 재시도를 끈다(`Retryer.NEVER_RETRY` 또는 같은 설정). 재시도는 복구 잡만 한다. PG 조회는 GET이라 팀 `IdempotentRetryConfig`를 붙여도 된다.
-- **타임아웃 예산:** PG connect 2초 + read 10초, payment DB 커넥션 대기(Hikari `connection-timeout`) 2초로 payment의 승인 응답이 15초 안에 끝나게 한다. reservation의 payment 호출 read timeout은 15초보다 길고 Gateway(60초)보다 짧게 둔다.
+- **타임아웃 예산:** PG connect 2초 + read 10초, payment DB 커넥션 대기(Hikari `connection-timeout`) 2초로 payment의 승인 응답이 15초 안에 끝나게 한다. payment의 최악 응답이 약 14초이므로 reservation의 payment 호출 read timeout은 20초로 두고(15초는 여유가 부족하다) Gateway(60초)보다 짧게 둔다.
 - **동시 처리:** 같은 결제를 두 곳에서 처리하지 않게 하는 수단은 DB 잠금과 5절 점유다. 여러 인스턴스(`--scale payment-service=2`)에서도 성립해야 한다.
+  - 점유 기간(30초)을 넘겨 한 호출이 멈추면(GC 정지 등) 같은 취소가 두 번 나갈 수 있다. 전액 취소에서는 토스는 멱등 키, 카카오는 "이미 취소됨" 응답 후 조회로 막히고, 결과 저장은 REQUESTED일 때만 하므로 돈 사고는 없다. 부분 환불을 도입하면 이중 취소가 실제 금액 오류가 되므로 그때 실행 소유자(lease owner)나 fencing token을 둔다.
 - **감사 컬럼:** 팀 `HeaderAuditorAware`가 요청 밖 작업을 `SYSTEM`으로 남긴다. 결제 주체는 `user_id`로 추적한다.
-- **쿠폰 접근:** 쿠폰 잡기·사용·반납은 쿠폰 담당이 만든 `CouponUsage`의 `reserve`, `use`, `release`로만 한다. 결제 코드는 `user_coupon`을 직접 조회·수정하지 않는다. `CouponUsage`는 호출한 쪽 트랜잭션에 합류하므로(`REQUIRED`) 결제 상태와 쿠폰 상태가 한 트랜잭션에 커밋된다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
+- **쿠폰 접근:** 쿠폰 처리는 쿠폰 담당이 만든 `CouponUsage`의 `reserve`, `use`, `releaseReservation`, `restoreAfterRefund`로만 한다. 결제 코드는 `user_coupon`을 직접 조회·수정하지 않는다. `CouponUsage`는 호출한 쪽 트랜잭션에 합류하므로(`REQUIRED`) 결제 상태와 쿠폰 상태가 한 트랜잭션에 커밋된다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
 - **결과 이벤트 (Kafka 전환 후):** 결제·환불의 모든 확정 전이(DONE, FAILED, CANCELED, refund DONE·FAILED·SKIPPED)는 같은 트랜잭션에서 Outbox에 쓴다. 요청 경로든 복구 잡이든 같다.
+- **승인 명령 (Kafka 전환 후):** `confirm_requested_at` 기록과 승인 명령(Outbox) 저장을 한 트랜잭션으로 묶는다. 그래야 커밋 후 발행이 실패해도 payment 안에서 다시 발행된다(예매의 재전송에 기대지 않는다). 명령에 실린 인증값은 발행이 끝나면 Outbox에서 지우고, 토픽 보관 기간은 짧게(예: 1시간) 둔다.
 - **삭제:** payment·refund는 금융 기록이라 삭제 API를 두지 않는다. 팀 규칙대로 `@SQLRestriction`은 붙인다.
 - **테스트 두 층:** application 테스트는 `PgClient` 포트를 메모리 픽스처로 바꿔 응답 유실·지연·늦은 승인을 주입한다(Orders `OrderClientFixture` 방식). 실제 HTTP는 어댑터 계약 테스트와 E2E에서만 fake-pg 컨테이너로 확인한다.
 
 ## 7. ERD
 
+컬럼·제약·인덱스는 [tables.md](tables.md)에 있다. 여기에는 설계 메모만 둔다.
+
 PostgreSQL, `BaseEntity` 감사 컬럼 6개, 시각 `TIMESTAMP`, 금액 원 단위 `INT`. 다른 서비스 ID는 FK 없이 값만 둔다.
 
-### payment
-
-| 컬럼 | 타입 | 제약 | 설명 |
-|---|---|---|---|
-| id | BIGINT | PK | |
-| order_id | VARCHAR(64) | NOT NULL, UK | 멱등 키. reservation이 준비 시도마다 만든다 |
-| reservation_id | BIGINT | NOT NULL | |
-| user_id | UUID | NOT NULL | |
-| seller_id | UUID | NOT NULL | 정산용 |
-| performance_id, schedule_id | BIGINT | NOT NULL | 정산·조회용 |
-| pg_provider | VARCHAR(20) | NOT NULL | TOSS / KAKAO |
-| pg_transaction_id | VARCHAR(200) | NULL | 카카오 tid(준비 때), 토스 paymentKey(markInProgress 때) |
-| checkout_url | VARCHAR(500) | NULL | 카카오 결제창 URL. 같은 orderId 준비 재요청에 재현한다 |
-| expires_at | TIMESTAMP | NOT NULL | 결제 허용 시각. reservation이 준비 요청에 넣는다 |
-| total_price | INT | NOT NULL | 정가 |
-| discount_amount | INT | NOT NULL, 기본 0 | `CouponUsage.reserve`가 준 할인액을 자른 값 |
-| amount | INT | NOT NULL | 결제 금액 |
-| user_coupon_id | BIGINT | NULL | |
-| status | VARCHAR(20) | NOT NULL | 3절 |
-| failure_code, failure_message | VARCHAR(80), VARCHAR(255) | NULL | FAILED 사유. 응답에 실린다 |
-| confirm_requested_at | TIMESTAMP | NULL | 승인 요청 접수 시각 |
-| approve_requested_at | TIMESTAMP | NULL | PG 승인 호출 시각 (markInProgress). 복구 유예·중단 기준 |
-| approved_at | TIMESTAMP | NULL | PG 승인 시각. 정산 기준 |
-| next_attempt_at | TIMESTAMP | NULL | 복구 다음 시도 시각. 점유에도 쓴다 |
-| reconciled_at | TIMESTAMP | NULL | 최소 대사가 확인한 시각 (5절 8번) |
-| recovery_started_at | TIMESTAMP | NULL | 자동 처리 중단(`give-up-minutes`) 기준 시각. 관리자 `unblock`이 다시 센다 |
-| recovery_attempts | INT | NOT NULL, 기본 0 | 메트릭·백오프용 |
-| recovery_blocked | BOOLEAN | NOT NULL, 기본 false | |
-| last_error | VARCHAR(80) | NULL | 마지막 결과 불명 사유. 운영용 |
-
-- UK `order_id`, UK `(pg_provider, pg_transaction_id)`
-- 부분 UK `(reservation_id) WHERE status IN ('READY','IN_PROGRESS','DONE')`: 한 예매에 살아 있는 결제는 하나
-- CHECK `discount_amount >= 0 AND amount = total_price - discount_amount AND amount > 0`
+- 시각은 팀 공통 규칙대로 `TIMESTAMP`(KST)다. 모든 컨테이너가 `TZ=Asia/Seoul`이고, PG가 준 `+09:00` 시각은 KST로 바꿔 저장한다. `TIMESTAMPTZ`로 바꾸는 것은 팀 전체 결정이다(10절).
+- 금액은 원화만 다루므로 `INT`(약 21억 원까지)로 충분하다.
+- 환불은 결제 하나에 행 하나다(1차 전액 환불). 부분 환불을 지원하면 refund를 환불 시도(거래) 단위로 바꾸고 `payment_id` 유니크를 푼다.
 - 할인액 = `min(쿠폰 할인액, max(0, total_price - min-amount))`. `total_price`가 `min-amount` 이하면 쿠폰을 쓸 수 없다(`COUPON_NOT_AVAILABLE`)
-- 부분 INDEX `(expires_at) WHERE status = 'READY'`
-- 부분 INDEX `(next_attempt_at) WHERE status = 'IN_PROGRESS' AND recovery_blocked = false`
-- 부분 INDEX `(updated_at) WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND reconciled_at IS NULL`: 최소 대사
-
-### refund
-
-| 컬럼 | 타입 | 제약 | 설명 |
-|---|---|---|---|
-| id | BIGINT | PK | |
-| payment_id | BIGINT | FK → payment, NOT NULL, UK | 결제 하나에 환불 행 하나 (1차는 전액) |
-| reservation_id | BIGINT | NOT NULL | 조회용 |
-| refund_amount | INT | NOT NULL | 사용자 환불은 결제 금액, AUTO_VOID는 PG 승인 금액 |
-| reason | VARCHAR(30) | NOT NULL | USER_CANCEL / SCHEDULE_CANCELED / CONFIRM_FAILED / AUTO_VOID |
-| status | VARCHAR(20) | NOT NULL | 3절 |
-| cancel_attempt | INT | NOT NULL, 기본 0 | PG 취소 키 세대. 관리자 재시도 때만 올린다 |
-| pg_cancel_id | VARCHAR(200) | NULL | |
-| failure_code, failure_message | VARCHAR(80), VARCHAR(255) | NULL | |
-| requested_at | TIMESTAMP | NULL | 처음 REQUESTED가 된 시각. 중단 기준 |
-| refunded_at | TIMESTAMP | NULL | 정산 기준 |
-| next_attempt_at, recovery_started_at, recovery_attempts, recovery_blocked, last_error | | | payment와 같음 |
-
-- 부분 INDEX `(next_attempt_at) WHERE status = 'REQUESTED' AND recovery_blocked = false`
-
-### user_coupon (쿠폰 담당 6번 소유)
-
-테이블·엔티티·`schema.sql`은 쿠폰 담당이 만든다. 결제가 필요로 하는 것은 아래 두 가지와 `CouponUsage`(6절, 9절)다.
-
-| 요청 사항 | 이유 |
-|---|---|
-| status에 `RESERVED` | PG 호출 전에 쿠폰을 잡아 동시 사용을 막는다 |
-| `payment_id BIGINT NULL` | 잡은 결제. `use`·`release`가 결제 ID로 쿠폰을 찾는다 |
-
-`payment.user_coupon_id`와 `user_coupon.payment_id`는 같은 스키마지만 소유자가 달라 FK를 두지 않고 값만 저장한다.
-
-### fake-pg `pg_transaction` (`pg_schema`)
-
-`id`, `provider`, `transaction_id`(UK), `order_id`, `amount`, `status`(APPROVED / CANCELED), `approved_at`, `canceled_at`. 토스 흉내의 멱등 키 응답 저장은 별도 테이블(`idempotency_key`, 응답, 만료 시각)에 둔다. 대사의 상대편 기록이다. 장애 설정은 메모리에 두고 관리 API로 바꾼다.
+- user_coupon은 쿠폰 담당 소유다. 결제가 필요로 하는 컬럼(`RESERVED`, `payment_id`)은 [CouponUsage 계약](../shared/modules/coupon-usage.md)에 있다.
 
 Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlement`를 추가한다.
 
 ## 8. API
 
-### 내부 (payment 소유. 모두 멱등. `ApiResponse`로 감싸지 않음)
-
-| Method | URI | 요청 | 응답 |
-|---|---|---|---|
-| POST | `/internal/payments` (준비) | orderId, reservationId, userId, sellerId, performanceId, scheduleId, totalPrice, couponId, pgProvider, expiresAt | 200 paymentId, orderId, amount, `status` = READY / FAILED, failureCode, checkoutUrl(카카오). 409 `PAYMENT_ORDER_CONFLICT`, `PAYMENT_ALREADY_IN_PROGRESS`, `PAYMENT_ALREADY_DONE`, `PAYMENT_CHECKOUT_CONFLICT`, 400 `COUPON_NOT_AVAILABLE` |
-| POST | `/internal/payments/{orderId}/confirm` (승인) | pgAuthToken(토스 paymentKey, 카카오 pg_token), amount | 200 paymentId, `status` = DONE / FAILED / IN_PROGRESS (Kafka는 ACCEPTED), failureCode. 400 `PAYMENT_AMOUNT_MISMATCH`, 404 기록 없음 |
-| GET | `/internal/payments/{orderId}` | | 200 결제 상태, `confirmRequestedAt`, 환불 상태와 사유 / 404 기록 없음 |
-| POST | `/internal/payments/{orderId}/refund` | reason | 200 refundStatus = WAITING / REQUESTED / DONE / FAILED / SKIPPED / NOT_REQUIRED |
-
-관리자용 (사람이 PG 상태를 확인한 뒤 호출한다. Gateway에 노출하지 않는다):
-
-| Method | URI | 하는 일 |
-|---|---|---|
-| POST | `/internal/admin/payments/{orderId}/unblock` | 차단된 IN_PROGRESS 결제나 REQUESTED 환불의 `recovery_blocked = false`, `recovery_started_at = now`, `next_attempt_at = now`. 다른 상태면 409 |
-| POST | `/internal/admin/payments/{orderId}/refund/retry` | FAILED 환불을 REQUESTED로 되돌리고 `cancel_attempt + 1`, `recovery_blocked = false`, `recovery_started_at = now`, `next_attempt_at = now` |
-| POST | `/internal/admin/payments/{orderId}/resolve` | 차단된 IN_PROGRESS 결제를 PG 콘솔 확인 결과(`DONE` 또는 `FAILED`, 근거)로 확정한다. 4절 10) complete와 같은 규칙으로 쿠폰·환불을 처리하고 `last_error`에 근거를 남긴다 |
-
-업무 결과(승인·거절·불명)는 본문 `status`로 돌려준다. 4xx는 잘못된 요청과 위에 적은 충돌에만 쓴다.
-
-### 외부 (reservation 소유. 참고용)
-
-| Method | URI | 요청 |
-|---|---|---|
-| POST | `/api/v1/reservations/{id}/payments/checkout` | pgProvider, couponId |
-| POST | `/api/v1/reservations/{id}/payments/confirm` | orderId, pgAuthToken |
-| POST | `/api/v1/reservations/{id}/cancel` | reason |
-
-응답 형식(HTTP 상태 또는 본문의 예매 상태)은 reservation 담당이 정한다(#9).
+- 내부 API(준비·승인·조회·환불, 관리자 3개): [shared/internal-api/payment.md](../shared/internal-api/payment.md)
+- 외부 API: 결제 서비스에는 없다. 예매가 받는 경로는 [api.md](api.md) 1절에 참고용으로 적었다.
+- fake PG API: 구현된 토스 호환 API는 [api.md](api.md) 3절에 있다. 아래는 카카오까지 포함한 계획이다.
 
 ### fake-pg
 
@@ -411,7 +328,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 
 | 상대 | 맞출 것 | 시점 |
 |---|---|---|
-| 예매 (2번) | #9 orchestration.md와 대조해 확정한다. 4절에서 reservation이 하는 일, 8절 API, 아래 "예매가 결제 결과를 모를 때" 표, 6절 타임아웃 예산, `expiresAt` 값 | 1주차 초 |
+| 예매 (2번) | #9 orchestration.md와 대조해 확정한다. 4절에서 reservation이 하는 일, 8절 API, 아래 "예매가 결제 결과를 모를 때"·"예매 쪽에 제안하는 보완", 6절 타임아웃 예산, `expiresAt` 값 | 1주차 초 |
 | 쿠폰 (6번) | user_coupon은 쿠폰 담당 소유이고 payment 스키마에 둔다, `RESERVED`·`payment_id` 추가, `CouponUsage` 계약(아래), 트랜잭션 전파 `REQUIRED`, 환불 시 쿠폰 반납 정책 | 1주차 |
 | 공연 (5번) | 결제 요청에 들어갈 `seller_id`, `performance_id`, `schedule_id` | 1주차 |
 | 대기열 (4번) | 결제 처리 용량 기반 입장 속도 | 트러블슈팅 |
@@ -420,25 +337,24 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 
 ### CouponUsage 계약
 
-| 메서드 | 동작 | 실패 |
-|---|---|---|
-| `reserve(couponId, userId, paymentId, totalPrice)` | AVAILABLE이고 본인 쿠폰이면 RESERVED + payment_id, 할인액 반환 | 사용 불가면 `COUPON_NOT_AVAILABLE` (결제는 PG를 부르지 않는다) |
-| `use(paymentId)` | RESERVED → USED | RESERVED이고 payment_id가 같으면 실패하지 않는다. 그사이 유효 기간이 지났어도 USED로 바꾼다. 잡힌 쿠폰이 없으면 아무것도 하지 않는다 |
-| `release(paymentId)` | RESERVED·USED → AVAILABLE (유효 기간이 지났으면 EXPIRED) | 잡힌 쿠폰이 없으면 아무것도 하지 않는다 |
-
-쿠폰 쪽 만료 배치·관리 작업은 RESERVED 쿠폰을 바꾸지 않는다. RESERVED는 결제가 끝날 때(`use`·`release`)만 풀린다. 이 약속이 깨지면 승인된 결제의 complete가 롤백된다.
+[shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)에 있다. 메서드 4개(`reserve`, `use`, `releaseReservation`, `restoreAfterRefund`)의 동작·실패 규칙과 쿠폰 쪽에 필요한 것을 적었다.
 
 ### 예매가 결제 결과를 모를 때
 
-승인 요청이나 그 응답이 중간에 끊기면 예매는 PAYMENT_IN_PROGRESS로 남는다. 예매는 `GET /internal/payments/{orderId}`로 조회하고 결과에 따라 마무리한다. 예매 복구 잡도 오래된 PAYMENT_IN_PROGRESS를 같은 표로 처리한다.
+[shared/internal-api/payment.md](../shared/internal-api/payment.md)의 "예매가 결제 결과를 모를 때"에 있다.
 
-| payment 결과 | 뜻 | 예매가 할 일 |
+### 예매 쪽에 제안하는 보완
+
+결제 정합성 목표(이중 결제 0, 돈만 빠짐 0)는 예매 쪽 처리까지 맞아야 지켜진다. Task 1 계약에서 예매 담당과 정한다.
+
+| # | 문제 | 제안 |
 |---|---|---|
-| DONE | 승인 확정 | CONFIRMED, 좌석 SOLD. 확정할 수 없으면 CONFIRM_FAILED 환불 요청 |
-| FAILED | 돈이 오가지 않음으로 확정 | HOLD로 복귀 (선점 만료 후면 만료) |
-| IN_PROGRESS | PG 결과를 모름. payment 복구가 확정한다 | 기다린다 |
-| READY | 승인 요청이 payment에 도착하지 못했거나 아직 처리 전이다 | `confirmRequestedAt`이 없거나 1분 넘게 지났으면 저장한 pgAuthToken으로 같은 승인 요청을 다시 보낸다(Kafka에서 기다리는 건을 중복 발행하지 않기 위해). READY만 보고 HOLD로 되돌리지 않는다(늦게 도착한 승인과 경쟁한다) |
-| 404 | 준비조차 기록되지 않았다 | 예매 담당과 결정(#9는 알림만, 이 문서는 HOLD 복귀 제안) |
+| 1 | 준비 후 예매가 orderId 저장에 실패하면 payment에 READY와 쿠폰 점유가 남는다. payment는 다음 준비에서 이전 READY를 대체하고 만료 때 정리하지만, 사용자가 돌아오지 않으면 만료까지 쿠폰이 묶인다 | 예매가 orderId를 **먼저** 기록(트랜잭션)한 뒤 payment 준비를 부른다. 같은 요청의 재시도는 같은 orderId를 쓰고, payment 조회가 404면 "준비 안 됨"으로 보고 다시 준비한다 |
+| 2 | **환불은 끝났는데 예매 DB 갱신이 실패하면 예매가 CONFIRMED로 남아 환불받고도 티켓을 쓸 수 있다** | `CANCEL_PENDING`을 둔다: CONFIRMED → CANCEL_PENDING(티켓 사용 불가) 커밋 → payment 환불 요청 → CANCELLED·좌석 해제. 예매 복구 잡이 오래된 CANCEL_PENDING을 다시 처리하고, payment는 같은 orderId 키에 처음 결과를 돌려준다 |
+| 3 | PAYMENT_IN_PROGRESS는 선점 만료 대상이 아니라, PG 결과가 오래 불명이면 좌석이 묶인다 | 결과를 모르는 동안 좌석을 해제하지 않는다. 일정 시간(예: 10분) 넘게 머물면 경보를 남기고, 거절 확정이나 취소 보장 뒤에만 해제한다. payment 쪽 운영 경로는 차단(60분)과 관리자 `resolve`다 |
+| 4 | payment 최악 응답 약 14초에 예매 read timeout 15초는 여유가 부족하다 | 20초로 늘린다 |
+| 5 | 준비 요청에 `pgProvider`가 없다 | 외부 checkout 본문과 내부 준비 요청에 추가한다 |
+| 6 | 예매가 재전송용으로 `pg_auth_token`을 저장한다 | CONFIRMED·EXPIRED가 되면 지우고, 로그·응답·이벤트에 싣지 않는다(마스킹). 인증값은 일회용이고 약 10분이면 만료되므로 암호화는 1차 범위 밖으로 둔다 |
 
 ## 10. 열린 질문
 
@@ -448,3 +364,6 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 4. 환불 시 쿠폰 반납 정책 (팀 결정 전. 이 문서는 "유효 기간이 남았으면 AVAILABLE"을 기본안으로 둔다)
 5. 실제 토스가 `Idempotency-Key`에 어떤 응답(5xx·429 포함)을 저장하는지. fake-pg는 업무 응답만 저장한다고 가정한다. Task 21 샌드박스에서 확인한다
 6. fake-pg 처리 한도·지연 기본값, 복구 설정값 (2절 설정의 기본값은 임시다)
+7. 실제 토스의 429가 "처리하지 않았음"을 보장하는지. 확인 전까지 실제 PG 어댑터는 429를 Unknown으로 둔다
+8. PG가 승인을 늦게 기록할 수 있는 최대 시간. 최소 대사 두 번째 시점(24시간)의 근거다
+9. 시각 컬럼을 `TIMESTAMPTZ`로 바꿀지 (팀 전체 결정)
