@@ -8,7 +8,7 @@
 |---|---|---|
 | [shared/](shared/README.md) | 서비스·모듈 간 계약(내부 API, 모듈 인터페이스)과 공통 규약 | 계약 변경 흐름을 따른다 |
 | `{도메인}/` | 도메인 안의 외부 API, 테이블, 구현 계획 | 담당자가 구현 PR과 함께 고친다 |
-| [project/](project/decisions.md) | 팀 결정사항, 용어집·상태 | 팀 합의 후 고친다 |
+| [project/](project/decisions.md) | 팀 결정사항, 용어집·상태, [시스템 구성도](project/architecture.md), [인프라 구성도](project/infra.md) | 팀 합의 후 고친다 |
 | [perf/](perf/README.md) | 부하 테스트 기록 | 측정할 때마다 추가한다 |
 | [_template/](_template/) | 계약·API·테이블·계획 문서 양식 | 팀 합의 후 고친다 |
 
