@@ -31,11 +31,11 @@ Kafka 메시지 스키마는 Phase 2에서 `events/`에 추가한다.
 | 계약 | 제공 | 소비 | 상태 |
 |---|---|---|---|
 | [결제 내부 API](internal-api/payment.md) | 결제 | 예매 | 합의 |
-| [CouponUsage](modules/coupon-usage.md) | 쿠폰 | 결제 | 초안 |
+| [CouponUsage](modules/coupon-usage.md) | 쿠폰 | 결제 | 합의 |
 | [공연 내부 API](internal-api/event.md) (판매 검증) | 공연 | 예매 | 합의 |
 | [좌석 내부 API](internal-api/seat.md) (회차 좌석 준비) | 좌석 | 공연 | 합의 |
 | [회원 내부 API](internal-api/user.md) | 회원 | 미정 | 합의 |
 
-내부 API 계약은 Notion에서 합의한 내용(2026-10-26 기준)이다. CouponUsage는 결제 계획에서 옮긴 초안이고 Notion 쿠폰 명세(reserve·use·release)와 메서드 구성이 달라 쿠폰 담당과 맞춰야 한다.
+계약은 Notion에서 합의한 내용(2026-10-26 기준)이다.
 
 계약을 추가하면 이 표에 한 줄을 더한다.

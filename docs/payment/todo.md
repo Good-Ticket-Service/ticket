@@ -17,7 +17,7 @@
 - [ ] contract.md에 내부 API의 요청·응답·오류 코드와 `expiresAt` 결정이 있고, #9와 다른 항목이 모두 정리됐다
 - [ ] contract.md에 조회 결과(DONE / FAILED / IN_PROGRESS / READY / 404)별 예매 동작, 예매의 인증값 저장·재전송, orderId 단위 환불과 B안(예매는 기다리지 않음)이 있다
 - [ ] contract.md에 "예매 쪽에 제안하는 보완"의 결론이 있다. 특히 `CANCEL_PENDING`(환불 후 예매 DB 실패 대비), orderId를 먼저 기록하는 순서, read timeout 20초
-- [ ] contract.md에 `CouponUsage`의 네 메서드(`reserve`·`use`·`releaseReservation`·`restoreAfterRefund`) 동작과 실패 규칙, 트랜잭션 전파, 환불 시 쿠폰 복원 정책과 할인액의 정산 반영이 있다
+- [ ] contract.md에 `CouponUsage`의 세 메서드(`reserve`·`use`·`release`) 동작과 실패 규칙, 트랜잭션 전파, 환불 시 쿠폰 복원 정책과 할인액의 정산 반영이 있다
 - [ ] 2번·6번 담당자가 승인했다
 **의존:** 없음 · **규모:** S
 
@@ -71,7 +71,7 @@
 
 ### Task 7: 결제 준비
 **참조:** plan.md 4절 결제 ①, 6절 멱등 재현·쿠폰 접근, 7절 payment
-**할 일:** `POST /internal/payments`, `GET /internal/payments/{orderId}`, `PaymentService.checkout`, `PaymentTransactions.prepare`를 만들고 `CouponUsage.reserve`·`releaseReservation`을 부른다. 쿠폰 담당 구현이 오기 전에는 Task 1 계약대로 만든 테스트용 `CouponUsage` 대역으로 개발한다.
+**할 일:** `POST /internal/payments`, `GET /internal/payments/{orderId}`, `PaymentService.checkout`, `PaymentTransactions.prepare`를 만들고 `CouponUsage.reserve`·`release`를 부른다. 쿠폰 담당 구현이 오기 전에는 Task 1 계약대로 만든 테스트용 `CouponUsage` 대역으로 개발한다.
 **완료 조건:**
 - [ ] 같은 orderId 재요청은 PG 준비를 다시 부르지 않고 같은 응답(카카오 결제창 URL 포함)을, 다른 내용은 409를 돌려준다
 - [ ] 새 준비가 이전 READY를 FAILED(`SUPERSEDED`)로 바꾸고 같은 쿠폰을 다시 잡는다. 같은 예매에 IN_PROGRESS·DONE 결제가 있으면 409 `PAYMENT_ALREADY_IN_PROGRESS`·`PAYMENT_ALREADY_DONE`이다
@@ -117,7 +117,7 @@
 **완료 조건:**
 - [ ] READY·FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
 - [ ] 일시 장애·응답 유실은 REQUESTED로 남아 복구가 같은 키로 다시 보내고, fake-pg 거래는 한 번만 취소된다
-- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 환불 DONE은 `restoreAfterRefund`를 부르고 AUTO_VOID는 쿠폰을 건드리지 않는다
+- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 환불 DONE은 `release`를 부르고 AUTO_VOID는 쿠폰을 건드리지 않는다
 **의존:** 9 · **규모:** M
 
 ### Task 11: 메트릭과 대시보드
@@ -155,7 +155,7 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 ### Task 14: 장애 격리 (시나리오 1a, 단독)
 **완료 조건:**
 - [ ] 타임아웃 → 벌크헤드 → 서킷 브레이커 단계별 결과가 같은 조건으로 기록됐다
-- [ ] 서킷이 열리면 markInProgress 안에서(잠금과 READY 확인 뒤) FAILED(`PG_UNAVAILABLE`) + 쿠폰 releaseReservation으로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
+- [ ] 서킷이 열리면 markInProgress 안에서(잠금과 READY 확인 뒤) FAILED(`PG_UNAVAILABLE`) + 쿠폰 release로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
 **의존:** 13 · **규모:** M
 
 ### Task 15: Kafka 부하 평탄화 (시나리오 2, 단독)

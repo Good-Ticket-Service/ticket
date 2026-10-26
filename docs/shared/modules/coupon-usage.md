@@ -1,11 +1,11 @@
 # CouponUsage (결제 → 쿠폰)
 
-- 상태: 초안
-- 제공: 쿠폰 (`payment-service` coupon 모듈)
-- 소비: 결제 (`payment-service` payment 모듈)
-- 설계 근거: [payment/plan.md](../../payment/plan.md) 9절, [payment/decisions.md](../../payment/decisions.md)
+- 상태: 합의 (Notion 쿠폰 테이블 명세, 2026-10-26)
+- 제공: 쿠폰 (`payment-service` coupon 모듈, 성윤범)
+- 소비: 결제 (`payment-service` payment 모듈, 강현민)
+- 쿠폰 테이블과 상태 전이: [coupon/tables.md](../../coupon/tables.md)
 
-같은 서비스 안의 모듈 간 계약이다. 결제 코드는 `user_coupon`을 직접 조회·수정하지 않고 이 인터페이스로만 쿠폰을 다룬다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
+같은 서비스 안의 모듈 간 계약이다. 결제 코드는 `p_user_coupons`를 직접 조회·수정하지 않고 이 인터페이스로만 쿠폰을 다룬다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
 
 ## 트랜잭션
 
@@ -13,33 +13,36 @@
 
 ## 메서드
 
-| 메서드 | 동작 | 실패 |
+| 메서드 | 결제가 부르는 때 | 쿠폰 상태 변화 |
 |---|---|---|
-| `reserve(couponId, userId, paymentId, totalPrice)` | AVAILABLE이고 본인 쿠폰이면 RESERVED + payment_id, 할인액 반환 | 사용 불가면 `COUPON_NOT_AVAILABLE` (결제는 PG를 부르지 않는다) |
-| `use(paymentId)` | RESERVED → USED | RESERVED이고 payment_id가 같으면 실패하지 않는다. 그사이 유효 기간이 지났어도 USED로 바꾼다. 잡힌 쿠폰이 없으면 아무것도 하지 않는다 |
-| `releaseReservation(paymentId)` | RESERVED → AVAILABLE. 승인 전에 끝난 결제(FAILED 전부)의 점유 해제 | RESERVED만 받는다. USED가 들어오면 예외(승인된 결제의 쿠폰을 되살리는 버그를 드러낸다). 잡힌 쿠폰이 없으면 아무것도 하지 않는다 |
-| `restoreAfterRefund(paymentId, reason)` | USED → 환불 정책대로 (AVAILABLE / EXPIRED / USED 유지) | USED만 받는다. 정책은 이 메서드 한 곳에만 둔다. 잡힌 쿠폰이 없으면 아무것도 하지 않는다 |
+| `reserve(userCouponId, userId, paymentId)` | 결제 준비 | AVAILABLE → RESERVED, `payment_id` 기록. 발급 시점 할인액을 돌려준다 |
+| `use(paymentId)` | PG 승인 성공 | RESERVED → USED, `used_at` 기록 |
+| `release(paymentId)` | 결제 FAILED 전이(승인 전 종료), 환불 DONE | RESERVED 또는 USED → 유효 기간이 남으면 AVAILABLE, 지났으면 EXPIRED. `payment_id`·`used_at`을 비운다 |
 
-- 승인 전 점유 해제와 결제 후 환불 복원은 다른 업무다. 앞의 것은 항상 되돌리고, 뒤의 것은 팀 정책과 정산(할인 부담 주체)에 따른다. 그래서 메서드를 나눠 각자 받는 상태를 하나로 좁힌다.
-- AUTO_VOID 환불은 `restoreAfterRefund`를 부르지 않는다. 그 결제는 DONE이 된 적이 없고, FAILED가 될 때 이미 `releaseReservation`으로 쿠폰을 돌려줬다.
+- `reserve`: 본인 쿠폰이 아니거나 AVAILABLE이 아니면 `COUPON_NOT_AVAILABLE`. 결제는 PG를 부르지 않는다.
+- `use`: 실패하지 않는다. PG 승인이 끝난 뒤에 부르므로, RESERVED이고 `payment_id`가 같으면 그사이 유효 기간이 지났어도 USED로 바꾼다.
+- `release`: 잡힌 쿠폰이 없으면 아무것도 하지 않는다. 여러 번 불려도 안전하다.
 
-## 쿠폰 쪽에 필요한 것
+## 결제 쪽이 지킬 것
 
-| 요청 사항 | 이유 |
+`release` 하나가 승인 전 해제와 환불 복원을 모두 처리하므로, 잘못된 때에 부르는 실수는 쿠폰이 막지 않는다. 결제 코드가 아래만 부른다.
+
+| 결제 전이 | 쿠폰 호출 |
 |---|---|
-| `user_coupon.status`에 `RESERVED` | PG 호출 전에 쿠폰을 잡아 동시 사용을 막는다 |
-| `user_coupon.payment_id BIGINT NULL` | 잡은 결제. `use`·`releaseReservation`·`restoreAfterRefund`가 결제 ID로 쿠폰을 찾는다 |
-| 만료 배치·관리 작업이 RESERVED 쿠폰을 바꾸지 않는다 | RESERVED는 결제가 끝날 때(`use`·`releaseReservation`)만 풀린다. 이 약속이 깨지면 승인된 결제의 확정이 롤백된다 |
+| READY·IN_PROGRESS → FAILED | `release` (RESERVED 해제) |
+| IN_PROGRESS → DONE | `use` |
+| 환불 DONE (사유가 AUTO_VOID가 아닐 때) | `release` (USED 복원) |
+| 환불 DONE (AUTO_VOID) | 부르지 않는다. 그 결제는 FAILED가 될 때 이미 `release`했다 |
+| DONE 결제의 그 밖의 전이 | 부르지 않는다 |
 
-`payments.user_coupon_id`와 `user_coupon.payment_id`는 같은 스키마지만 소유자가 달라 FK를 두지 않고 값만 저장한다.
+## 쿠폰 쪽이 지킬 것
 
-## 합의할 항목
-
-1. 환불 시 쿠폰 복원 정책 (`restoreAfterRefund`의 결과: AVAILABLE / EXPIRED / USED 유지)
-2. 할인액의 정산 반영 (할인 부담 주체)
+- RESERVED 쿠폰은 만료 배치·관리 작업이 바꾸지 않는다. RESERVED는 결제가 끝날 때(`use`·`release`)만 풀린다. 이 약속이 깨지면 승인된 결제의 확정이 롤백된다.
+- 할인액은 발급 시점 복사본(`p_user_coupons.discount_amount`)을 쓴다.
 
 ## 변경 이력
 
 | 날짜 | 이슈·PR | 내용 |
 |---|---|---|
-| 2026-10-26 | #3 | 초안. payment/plan.md 9절에서 옮김 |
+| 2026-10-26 | #3 | 초안. payment/plan.md 9절에서 옮김 (메서드 4개) |
+| 2026-10-26 | #3 | 쿠폰 명세에 맞춰 메서드 3개(`reserve`·`use`·`release`)로 합의 |
