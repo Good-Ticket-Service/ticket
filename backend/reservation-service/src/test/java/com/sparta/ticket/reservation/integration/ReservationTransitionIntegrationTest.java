@@ -212,7 +212,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("테이블은 backend/sql/reservation-service/schema.sql로 만들어진다(이름 붙인 제약이 있다)")
+    @DisplayName("테이블은 backend/sql/reservation-service/booking.sql로 만들어진다(이름 붙인 제약이 있다)")
     void schemaFromSqlFile() {
         assertThat(jdbcTemplate.queryForList(
                         "SELECT conname FROM pg_constraint WHERE conrelid = 'p_reservations'::regclass", String.class))
