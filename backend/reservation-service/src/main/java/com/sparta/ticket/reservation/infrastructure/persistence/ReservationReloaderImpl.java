@@ -4,7 +4,6 @@ import com.sparta.ticket.reservation.domain.Reservation;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * 조건부 UPDATE 뒤에 예약 하나만 DB에서 다시 읽는다.
@@ -18,7 +17,7 @@ public class ReservationReloaderImpl implements ReservationReloader {
     private EntityManager entityManager;
 
     @Override
-    public Optional<Reservation> reload(UUID id) {
+    public Optional<Reservation> reload(Long id) {
         Reservation reservation = entityManager.find(Reservation.class, id);
         if (reservation == null) {
             return Optional.empty();

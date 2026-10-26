@@ -2,7 +2,6 @@ package com.sparta.ticket.reservation.application;
 
 import com.sparta.ticket.reservation.domain.ReservationRepository;
 import java.time.Duration;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,7 +23,7 @@ public class HoldExpiryService {
     public int expireDue(int batchSize, Duration timeBudget) {
         long deadline = System.nanoTime() + timeBudget.toNanos();
         int expired = 0;
-        for (UUID reservationId : reservationRepository.findExpiredHoldIds(changeStamps.now(), batchSize)) {
+        for (Long reservationId : reservationRepository.findExpiredHoldIds(changeStamps.now(), batchSize)) {
             if (System.nanoTime() > deadline) {
                 break;
             }

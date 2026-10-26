@@ -3,22 +3,19 @@ package com.sparta.ticket.reservation.domain;
 import com.sparta.ticket.common.entity.BaseEntity;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import jakarta.persistence.CollectionTable;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
-import java.util.Collection;
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,15 +34,15 @@ import org.hibernate.annotations.SQLRestriction;
 public class Reservation extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "reservation_id")
-    private UUID id;
+    private Long id;
 
     @Column(nullable = false)
     private UUID userId;
 
     @Column(nullable = false)
-    private UUID scheduleId;
+    private Long scheduleId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -64,31 +61,46 @@ public class Reservation extends BaseEntity {
 
     private LocalDateTime paymentCheckedAt;
 
-    @ElementCollection
-    @CollectionTable(name = "p_reservation_seats", joinColumns = @JoinColumn(name = "reservation_id"))
-    @Column(name = "seat_id", nullable = false)
-    private Set<UUID> seatIds = new HashSet<>();
+    @Getter(AccessLevel.NONE)
+    @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
+    private List<Ticket> tickets = new ArrayList<>();
 
-    private Reservation(UUID userId, UUID scheduleId, Set<UUID> seatIds, LocalDateTime holdExpiresAt) {
+    private Reservation(UUID userId, Long scheduleId, LocalDateTime holdExpiresAt) {
         this.userId = userId;
         this.scheduleId = scheduleId;
-        this.seatIds = seatIds;
         this.holdExpiresAt = holdExpiresAt;
         this.status = ReservationStatus.HOLD;
     }
 
-    /** 좌석 선점과 같은 트랜잭션에서 HOLD 예약을 만든다. */
-    public static Reservation hold(
-            UUID userId, UUID scheduleId, Collection<UUID> seatIds, LocalDateTime holdExpiresAt) {
-        if (seatIds == null || seatIds.isEmpty()) {
+    /** 좌석 선점과 같은 트랜잭션에서 HOLD 예약과 좌석마다 티켓을 만든다. */
+    public static Reservation hold(UUID userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+        if (seats == null || seats.isEmpty()) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "선점할 좌석이 없습니다.");
         }
-        return new Reservation(userId, scheduleId, new HashSet<>(seatIds), holdExpiresAt);
+        if (seats.stream().map(SeatPrice::scheduleSeatId).distinct().count() != seats.size()) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "같은 좌석을 두 번 선점할 수 없습니다.");
+        }
+        if (seats.stream().anyMatch(seat -> seat.price() < 0)) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "좌석 가격은 0원 이상이어야 합니다.");
+        }
+        Reservation reservation = new Reservation(userId, scheduleId, holdExpiresAt);
+        seats.forEach(seat -> reservation.tickets.add(new Ticket(reservation, seat)));
+        return reservation;
     }
 
     /** 좌석 id를 오름차순으로 돌려준다. 좌석은 이 순서로 잠근다. */
-    public List<UUID> getSeatIds() {
-        return seatIds.stream().sorted().toList();
+    public List<Long> getSeatIds() {
+        return tickets.stream().map(Ticket::getScheduleSeatId).sorted().toList();
+    }
+
+    /** 티켓 가격의 합계. 할인 전 결제 기본 금액이다. */
+    public long baseAmount() {
+        return tickets.stream().mapToLong(Ticket::getPrice).sum();
+    }
+
+    /** 확정 전이가 성공한 트랜잭션에서만 부른다. 티켓마다 코드를 발급한다. */
+    public void issueTicketCodes() {
+        tickets.forEach(Ticket::issueCode);
     }
 
     public boolean isOwnedBy(UUID userId) {

@@ -3,35 +3,36 @@ package com.sparta.ticket.reservation.support;
 import com.sparta.ticket.reservation.application.port.SeatPort;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 
-/** 좌석 연산을 기록만 한다. 좌석 한 개 가격은 10,000원이다. events에는 호출 순서가 남는다. */
+/** 좌석 연산을 기록만 한다. events에는 호출 순서가, soldFor·releasedFor에는 좌석을 바꾼 예약이 남는다. */
 public class FakeSeatPort implements SeatPort {
 
-    public static final long SEAT_PRICE = 10_000L;
-
-    public final List<List<UUID>> locked = new CopyOnWriteArrayList<>();
-    public final List<List<UUID>> sold = new CopyOnWriteArrayList<>();
-    public final List<List<UUID>> released = new CopyOnWriteArrayList<>();
+    public final List<List<Long>> locked = new CopyOnWriteArrayList<>();
+    public final List<List<Long>> sold = new CopyOnWriteArrayList<>();
+    public final List<List<Long>> released = new CopyOnWriteArrayList<>();
+    public final List<Long> soldFor = new CopyOnWriteArrayList<>();
+    public final List<Long> releasedFor = new CopyOnWriteArrayList<>();
     public final List<String> events = new CopyOnWriteArrayList<>();
-    private final Set<UUID> failingSeats = ConcurrentHashMap.newKeySet();
+    private final Set<Long> failingSeats = ConcurrentHashMap.newKeySet();
     private volatile CyclicBarrier lockBarrier;
 
     public void reset() {
         locked.clear();
         sold.clear();
         released.clear();
+        soldFor.clear();
+        releasedFor.clear();
         events.clear();
         failingSeats.clear();
         lockBarrier = null;
     }
 
     /** 이 좌석을 잠그려 하면 실패한다. */
-    public void failOnLock(UUID seatId) {
+    public void failOnLock(Long seatId) {
         failingSeats.add(seatId);
     }
 
@@ -41,7 +42,7 @@ public class FakeSeatPort implements SeatPort {
     }
 
     @Override
-    public void lockSeats(List<UUID> seatIds) {
+    public void lockSeats(List<Long> seatIds) {
         awaitBarrier();
         if (seatIds.stream().anyMatch(failingSeats::contains)) {
             throw new IllegalStateException("lock failed");
@@ -51,20 +52,17 @@ public class FakeSeatPort implements SeatPort {
     }
 
     @Override
-    public void sell(List<UUID> seatIds) {
+    public void sell(Long reservationId, List<Long> seatIds) {
         events.add("sell");
         sold.add(seatIds);
+        soldFor.add(reservationId);
     }
 
     @Override
-    public void release(List<UUID> seatIds) {
+    public void release(Long reservationId, List<Long> seatIds) {
         events.add("release");
         released.add(seatIds);
-    }
-
-    @Override
-    public long priceSnapshot(List<UUID> seatIds) {
-        return SEAT_PRICE * seatIds.size();
+        releasedFor.add(reservationId);
     }
 
     private void awaitBarrier() {

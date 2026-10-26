@@ -4,7 +4,6 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.application.dto.ReservationResult;
-import com.sparta.ticket.reservation.application.port.SeatPort;
 import com.sparta.ticket.reservation.domain.ChangeStamp;
 import com.sparta.ticket.reservation.domain.Reservation;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
@@ -30,22 +29,21 @@ public class ReservationTransactions {
 
     private final ReservationRepository reservationRepository;
     private final ReservationTransitionExecutor transitionExecutor;
-    private final SeatPort seatPort;
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
 
     /** 결제 준비 대상. currentOrderId는 기록할 때 조건으로 쓴다. */
     public record CheckoutTarget(
-            UUID reservationId, UUID userId, String currentOrderId, LocalDateTime holdExpiresAt, long baseAmount) {}
+            Long reservationId, UUID userId, String currentOrderId, LocalDateTime holdExpiresAt, long baseAmount) {}
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
 
     /** 결과를 확인할 결제 중 예약과 다시 보낼 승인 요청 값. */
-    public record PendingPayment(UUID reservationId, String orderId, String pgAuthToken, long amount) {}
+    public record PendingPayment(Long reservationId, String orderId, String pgAuthToken, long amount) {}
 
     @Transactional(readOnly = true)
-    public CheckoutTarget loadCheckoutTarget(UUID userId, UUID reservationId) {
+    public CheckoutTarget loadCheckoutTarget(UUID userId, Long reservationId) {
         Reservation reservation = find(reservationId);
         validateOwner(reservation, userId);
         if (reservation.getStatus() != ReservationStatus.HOLD) {
@@ -59,7 +57,7 @@ public class ReservationTransactions {
                 reservation.getUserId(),
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
-                seatPort.priceSnapshot(reservation.getSeatIds()));
+                reservation.baseAmount());
     }
 
     /** 준비 결과를 기록한다. 그사이 다른 준비나 승인이 먼저 반영됐으면 0행이라 실패한다. */
@@ -83,10 +81,11 @@ public class ReservationTransactions {
      * 만료는 만료 스케줄러가 돌았는지와 관계없이 HOLD_EXPIRED로 답한다.
      */
     @Transactional
-    public PaymentStart startPayment(UUID userId, UUID reservationId, ConfirmCommand command) {
+    public PaymentStart startPayment(UUID userId, Long reservationId, ConfirmCommand command) {
         ChangeStamp stamp = changeStamps.stamp();
         boolean started = transitionExecutor.execute(
                 ReservationTransition.START_PAYMENT,
+                reservationId,
                 List.of(),
                 () -> reservationRepository.startPayment(
                         reservationId, userId, command.orderId(), command.pgAuthToken(), stamp));
@@ -106,13 +105,13 @@ public class ReservationTransactions {
                         reservation.isHoldExpiredAt(stamp.at())
                                 ? ReservationErrorCode.HOLD_EXPIRED
                                 : CommonErrorCode.INVALID_STATUS_TRANSITION);
-            case CANCELLED -> throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
+            case CANCELED -> throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
         };
     }
 
     /** HOLD → EXPIRED와 좌석 반환. 이미 다른 경로로 바뀌었으면 좌석을 잠그지 않고 false. */
     @Transactional
-    public boolean expireHold(UUID reservationId) {
+    public boolean expireHold(Long reservationId) {
         ChangeStamp stamp = changeStamps.stamp();
         Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
         if (reservation == null
@@ -122,6 +121,7 @@ public class ReservationTransactions {
         }
         boolean expired = transitionExecutor.execute(
                 ReservationTransition.EXPIRE_HOLD,
+                reservationId,
                 reservation.getSeatIds(),
                 () -> reservationRepository.expireHold(reservationId, stamp));
         if (expired) {
@@ -132,13 +132,13 @@ public class ReservationTransactions {
 
     /** 결과 확인 스케줄러가 이 예약을 확인했다고 남긴다. 다음 차례에서 뒤로 간다. */
     @Transactional
-    public void markPaymentChecked(UUID reservationId) {
+    public void markPaymentChecked(Long reservationId) {
         reservationRepository.markPaymentChecked(reservationId, changeStamps.now());
     }
 
     /** 아직 결제 중이면 다시 보낼 값을 돌려준다. 그사이 다른 경로로 끝났으면 비어 있다. */
     @Transactional(readOnly = true)
-    public Optional<PendingPayment> readPendingPayment(UUID reservationId) {
+    public Optional<PendingPayment> readPendingPayment(Long reservationId) {
         return reservationRepository
                 .findById(reservationId)
                 .filter(reservation -> reservation.getStatus() == ReservationStatus.PAYMENT_IN_PROGRESS)
@@ -150,17 +150,17 @@ public class ReservationTransactions {
     }
 
     @Transactional(readOnly = true)
-    public ReservationResult read(UUID reservationId) {
+    public ReservationResult read(Long reservationId) {
         return ReservationResult.from(find(reservationId));
     }
 
-    private Reservation find(UUID reservationId) {
+    private Reservation find(Long reservationId) {
         return reservationRepository
                 .findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
     }
 
-    private Reservation reload(UUID reservationId) {
+    private Reservation reload(Long reservationId) {
         return reservationRepository
                 .reload(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));

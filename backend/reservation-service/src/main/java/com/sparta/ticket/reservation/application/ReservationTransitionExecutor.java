@@ -4,7 +4,6 @@ import com.sparta.ticket.reservation.application.port.SeatPort;
 import com.sparta.ticket.reservation.domain.ReservationTransition;
 import com.sparta.ticket.reservation.domain.ReservationTransition.SeatEffect;
 import java.util.List;
-import java.util.UUID;
 import java.util.function.IntSupplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -23,7 +22,8 @@ public class ReservationTransitionExecutor {
 
     /** 전이가 반영됐으면 true. 조건부 UPDATE가 0행이면 좌석을 건드리지 않고 false. */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean execute(ReservationTransition transition, List<UUID> seatIds, IntSupplier conditionalUpdate) {
+    public boolean execute(
+            ReservationTransition transition, Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
         if (transition.seatEffect() != SeatEffect.NONE) {
             seatPort.lockSeats(seatIds);
         }
@@ -32,8 +32,8 @@ public class ReservationTransitionExecutor {
         }
         Runnable seatChange = switch (transition.seatEffect()) {
             case NONE -> () -> {};
-            case SELL -> () -> seatPort.sell(seatIds);
-            case RELEASE -> () -> seatPort.release(seatIds);
+            case SELL -> () -> seatPort.sell(reservationId, seatIds);
+            case RELEASE -> () -> seatPort.release(reservationId, seatIds);
         };
         seatChange.run();
         return true;

@@ -7,7 +7,6 @@ import com.sparta.ticket.reservation.application.port.PaymentPort;
 import com.sparta.ticket.reservation.domain.ReservationRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,7 +36,7 @@ public class PaymentReconcileService {
         long deadline = System.nanoTime() + timeBudget.toNanos();
         LocalDateTime now = changeStamps.now();
         int changed = 0;
-        for (UUID reservationId : reservationRepository.findStalePaymentIds(now.minus(threshold), batchSize)) {
+        for (Long reservationId : reservationRepository.findStalePaymentIds(now.minus(threshold), batchSize)) {
             if (System.nanoTime() > deadline) {
                 break;
             }
@@ -53,7 +52,7 @@ public class PaymentReconcileService {
         return changed;
     }
 
-    private boolean reconcileOne(UUID reservationId, long deadline) {
+    private boolean reconcileOne(Long reservationId, long deadline) {
         PendingPayment pending = transactions.readPendingPayment(reservationId).orElse(null);
         if (pending == null) {
             return false;

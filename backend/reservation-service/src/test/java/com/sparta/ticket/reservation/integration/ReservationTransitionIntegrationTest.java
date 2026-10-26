@@ -3,12 +3,15 @@ package com.sparta.ticket.reservation.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.application.BookingFacade;
 import com.sparta.ticket.reservation.application.ChangeStamps;
 import com.sparta.ticket.reservation.domain.ReservationRepository;
 import com.sparta.ticket.reservation.domain.ReservationStatus;
 import com.sparta.ticket.reservation.support.MutableClock;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.sparta.ticket.reservation.support.TestIds;
+import com.sparta.ticket.reservation.support.TestSeats;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -54,14 +57,14 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM p_reservation_seats");
+        jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
     }
 
-    private UUID hold(Duration holdFor, UUID... seatIds) {
+    private Long hold(Duration holdFor, Long... seatIds) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                userId, UUID.randomUUID(), List.of(seatIds), clock.now().plus(holdFor)));
+                userId, TestIds.next(), TestSeats.priced(seatIds), clock.now().plus(holdFor)));
     }
 
     private int inTransaction(Callable<Integer> action) {
@@ -74,32 +77,47 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         });
     }
 
-    private String statusOf(UUID reservationId) {
+    private String statusOf(Long reservationId) {
         return jdbcTemplate.queryForObject(
                 "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
     }
 
     @Test
-    @DisplayName("선점 트랜잭션 안에서 HOLD 예약과 좌석이 저장되고, 트랜잭션 없이 부르면 막는다")
+    @DisplayName("선점 트랜잭션 안에서 HOLD 예약과 좌석마다 티켓이 저장되고, 트랜잭션 없이 부르거나 같은 좌석을 두 번 넣으면 막는다")
     void hold() {
-        UUID seatA = UUID.randomUUID();
-        UUID seatB = UUID.randomUUID();
+        Long seatA = TestIds.next();
+        Long seatB = TestIds.next();
 
-        UUID reservationId = hold(Duration.ofMinutes(10), seatA, seatB);
+        Long reservationId = hold(Duration.ofMinutes(10), seatA, seatB);
 
         assertThat(statusOf(reservationId)).isEqualTo("HOLD");
         assertThat(jdbcTemplate.queryForList(
-                        "SELECT seat_id FROM p_reservation_seats WHERE reservation_id = ?", UUID.class, reservationId))
-                .containsExactlyInAnyOrder(seatA, seatB);
+                        "SELECT schedule_seat_id, price FROM p_tickets WHERE reservation_id = ? ORDER BY schedule_seat_id",
+                        reservationId))
+                .containsExactly(
+                        Map.of("schedule_seat_id", seatA, "price", TestSeats.PRICE),
+                        Map.of("schedule_seat_id", seatB, "price", TestSeats.PRICE));
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM p_tickets WHERE reservation_id = ? AND ticket_code IS NULL",
+                        Integer.class,
+                        reservationId))
+                .as("티켓 코드는 확정 때 발급한다")
+                .isEqualTo(2);
         assertThatThrownBy(() -> bookingFacade.hold(
-                        userId, UUID.randomUUID(), List.of(seatA), clock.now().plusMinutes(10)))
+                        userId,
+                        TestIds.next(),
+                        TestSeats.priced(seatA),
+                        clock.now().plusMinutes(10)))
                 .isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> hold(Duration.ofMinutes(10), seatA, seatA))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("같은 좌석");
     }
 
     @Test
     @DisplayName("여러 트랜잭션이 모두 열린 뒤 같은 전이를 동시에 시도해도 한쪽만 1행이다")
     void concurrentTransition() throws Exception {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         inTransaction(() -> reservationRepository.recordCheckout(
                 reservationId, userId, null, "order-1", 10_000L, changeStamps.stamp()));
 
@@ -127,7 +145,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("조건부 UPDATE가 updated_at을 주입한 시각으로, 요청 밖에서는 updated_by를 SYSTEM으로 남긴다")
     void auditColumns() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         clock.advance(Duration.ofMinutes(11));
 
         int updated = inTransaction(() -> reservationRepository.expireHold(reservationId, changeStamps.stamp()));
@@ -143,7 +161,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("전이 조건이 맞지 않으면 0행이다: 만료 전 만료, 다른 주문의 결과, 처음 읽은 주문과 다른 준비")
     void conditionsGuardTransitions() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
 
         assertThat(inTransaction(() -> reservationRepository.expireHold(reservationId, changeStamps.stamp())))
                 .isZero();
@@ -176,7 +194,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결제 실패는 선점 시간이 남았으면 HOLD, 지났으면 EXPIRED로만 바뀐다")
     void paymentFailureDependsOnHoldTime() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         inTransaction(() -> reservationRepository.recordCheckout(
                 reservationId, userId, null, "order-1", 10_000L, changeStamps.stamp()));
         inTransaction(() ->
@@ -196,9 +214,9 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("만료 후보는 시간이 지난 HOLD만 고르고, 결제 중 예약은 고르지 않는다")
     void expiredHoldCandidates() {
-        UUID expired = hold(Duration.ofMinutes(1), UUID.randomUUID());
-        UUID alive = hold(Duration.ofMinutes(30), UUID.randomUUID());
-        UUID paying = hold(Duration.ofMinutes(1), UUID.randomUUID());
+        Long expired = hold(Duration.ofMinutes(1), TestIds.next());
+        Long alive = hold(Duration.ofMinutes(30), TestIds.next());
+        Long paying = hold(Duration.ofMinutes(1), TestIds.next());
         inTransaction(() ->
                 reservationRepository.recordCheckout(paying, userId, null, "order-p", 10_000L, changeStamps.stamp()));
         inTransaction(

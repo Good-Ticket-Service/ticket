@@ -17,6 +17,8 @@ import com.sparta.ticket.reservation.support.FakePaymentPort;
 import com.sparta.ticket.reservation.support.FakeSeatPort;
 import com.sparta.ticket.reservation.support.MutableClock;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.sparta.ticket.reservation.support.TestIds;
+import com.sparta.ticket.reservation.support.TestSeats;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -74,20 +76,23 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM p_reservation_seats");
+        jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
         payment.reset();
         seats.reset();
     }
 
-    private UUID hold(Duration holdFor, UUID seatId) {
+    private Long hold(Duration holdFor, Long seatId) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                user.userId(), UUID.randomUUID(), List.of(seatId), clock.now().plus(holdFor)));
+                user.userId(),
+                TestIds.next(),
+                TestSeats.priced(seatId),
+                clock.now().plus(holdFor)));
     }
 
     /** 승인 결과를 모르는 채로 결제 중이 된 예약. 결제 중이 된 시각은 지금 clock이다. */
-    private String paymentInProgress(UUID reservationId) {
+    private String paymentInProgress(Long reservationId) {
         String orderId = paymentService
                 .checkout(user, reservationId, new CheckoutCommand(null, "TOSS"))
                 .orderId();
@@ -99,7 +104,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         return orderId;
     }
 
-    private String statusOf(UUID reservationId) {
+    private String statusOf(Long reservationId) {
         return jdbcTemplate.queryForObject(
                 "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
     }
@@ -115,10 +120,10 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("만료 스케줄러는 시간이 지난 HOLD만 EXPIRED로 바꾸고 좌석을 잠근 뒤 돌려준다")
     void expiresDueHolds() {
-        UUID seat = UUID.randomUUID();
-        UUID expired = hold(Duration.ofMinutes(1), seat);
-        UUID alive = hold(Duration.ofMinutes(30), UUID.randomUUID());
-        UUID paying = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long seat = TestIds.next();
+        Long expired = hold(Duration.ofMinutes(1), seat);
+        Long alive = hold(Duration.ofMinutes(30), TestIds.next());
+        Long paying = hold(Duration.ofMinutes(10), TestIds.next());
         paymentInProgress(paying);
         clock.advance(Duration.ofMinutes(15));
         double before = count("reservation.expired");
@@ -131,15 +136,20 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         assertThat(statusOf(paying)).as("결제 중 예약은 만료하지 않는다").isEqualTo("PAYMENT_IN_PROGRESS");
         assertThat(seats.locked).containsExactly(List.of(seat));
         assertThat(seats.released).containsExactly(List.of(seat));
+        assertThat(seats.releasedFor).as("이 예약이 잡은 좌석만 돌려준다").containsExactly(expired);
+        assertThat(jdbcTemplate.queryForList(
+                        "SELECT ticket_code FROM p_tickets WHERE reservation_id = ?", String.class, expired))
+                .as("만료돼도 티켓 행은 남고, 코드는 발급되지 않는다")
+                .containsExactly((String) null);
         assertThat(count("reservation.expired")).isEqualTo(before + 1);
     }
 
     @Test
     @DisplayName("한 건이 실패해도 나머지는 만료되고, 실패한 건은 다음 실행의 후보로 남는다")
     void oneFailureDoesNotStopOthers() {
-        UUID failingSeat = UUID.randomUUID();
-        UUID failing = hold(Duration.ofMinutes(1), failingSeat);
-        UUID other = hold(Duration.ofMinutes(2), UUID.randomUUID());
+        Long failingSeat = TestIds.next();
+        Long failing = hold(Duration.ofMinutes(1), failingSeat);
+        Long other = hold(Duration.ofMinutes(2), TestIds.next());
         seats.failOnLock(failingSeat);
         clock.advance(Duration.ofMinutes(5));
 
@@ -153,7 +163,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("만료 스케줄러 두 개가 같은 예약을 동시에 잠그고 바꿔도 한 번만 만료하고 좌석도 한 번만 돌려준다")
     void concurrentExpiry() throws Exception {
         for (int i = 0; i < 5; i++) {
-            hold(Duration.ofMinutes(1), UUID.randomUUID());
+            hold(Duration.ofMinutes(1), TestIds.next());
         }
         clock.advance(Duration.ofMinutes(5));
 
@@ -176,7 +186,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결과 확인은 기준 시간 전의 결제 중 예약을 고르지 않는다")
     void respectsThreshold() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         paymentInProgress(reservationId);
         clock.advance(Duration.ofSeconds(30));
 
@@ -189,7 +199,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("payment가 승인 요청을 받지 못했으면 같은 orderId와 인증값으로 다시 보내고 결과를 반영한다")
     void resendsWhenNotReceived() {
-        UUID reservationId = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         String orderId = paymentInProgress(reservationId);
         payment.lookupReturns(orderId, PaymentLookup.of(Status.NOT_RECEIVED));
         clock.advance(Duration.ofMinutes(2));
@@ -207,10 +217,10 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("조회 결과가 끝났으면 그대로 반영하고, 진행 중이거나 모르는 주문이면 그대로 둔다")
     void appliesFinishedLookups() {
-        UUID succeeded = hold(Duration.ofMinutes(10), UUID.randomUUID());
-        UUID failed = hold(Duration.ofMinutes(10), UUID.randomUUID());
-        UUID inProgress = hold(Duration.ofMinutes(10), UUID.randomUUID());
-        UUID unknown = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long succeeded = hold(Duration.ofMinutes(10), TestIds.next());
+        Long failed = hold(Duration.ofMinutes(10), TestIds.next());
+        Long inProgress = hold(Duration.ofMinutes(10), TestIds.next());
+        Long unknown = hold(Duration.ofMinutes(10), TestIds.next());
         payment.lookupReturns(paymentInProgress(succeeded), PaymentLookup.of(Status.SUCCEEDED));
         payment.lookupReturns(paymentInProgress(failed), PaymentLookup.failed("DECLINED"));
         payment.lookupReturns(paymentInProgress(inProgress), PaymentLookup.of(Status.IN_PROGRESS));
@@ -230,10 +240,10 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("결제 중 예약 수와 상한을 넘긴 예약 수를 게이지로 남기고, 상태는 바꾸지 않는다")
     void reportsPaymentBacklog() {
-        UUID stuck = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long stuck = hold(Duration.ofMinutes(10), TestIds.next());
         paymentInProgress(stuck);
         clock.advance(Duration.ofMinutes(20));
-        paymentInProgress(hold(Duration.ofMinutes(10), UUID.randomUUID()));
+        paymentInProgress(hold(Duration.ofMinutes(10), TestIds.next()));
         clock.advance(Duration.ofMinutes(11));
 
         reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
@@ -248,10 +258,10 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("결과가 안 바뀌는 예약이 한 묶음보다 많아도 새로 결과를 모르게 된 예약까지 차례가 온다")
     void doesNotStarveOnUnchangedPayments() {
         for (int i = 0; i < 3; i++) {
-            paymentInProgress(hold(Duration.ofMinutes(10), UUID.randomUUID()));
+            paymentInProgress(hold(Duration.ofMinutes(10), TestIds.next()));
             clock.advance(Duration.ofSeconds(1));
         }
-        UUID newest = hold(Duration.ofMinutes(10), UUID.randomUUID());
+        Long newest = hold(Duration.ofMinutes(10), TestIds.next());
         payment.lookupReturns(paymentInProgress(newest), PaymentLookup.of(Status.SUCCEEDED));
         clock.advance(Duration.ofMinutes(2));
 
@@ -265,7 +275,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("한 번 실행은 시간 예산을 넘기면 멈추고 남은 건을 다음 실행에 넘긴다")
     void stopsAtTimeBudget() {
         for (int i = 0; i < 3; i++) {
-            paymentInProgress(hold(Duration.ofMinutes(10), UUID.randomUUID()));
+            paymentInProgress(hold(Duration.ofMinutes(10), TestIds.next()));
         }
         clock.advance(Duration.ofMinutes(2));
         payment.lookupDelay(Duration.ofMillis(300));

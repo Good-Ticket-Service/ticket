@@ -7,8 +7,8 @@ import com.sparta.ticket.reservation.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.domain.ReservationTransition;
 import com.sparta.ticket.reservation.support.FakeSeatPort;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.sparta.ticket.reservation.support.TestIds;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,8 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    private final List<UUID> seatIds = List.of(UUID.randomUUID());
+    private final Long reservationId = TestIds.next();
+    private final List<Long> seatIds = List.of(TestIds.next());
 
     @BeforeEach
     void setUp() {
@@ -35,7 +36,7 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
     }
 
     private boolean execute(ReservationTransition transition, int updatedRows) {
-        return transactionTemplate.execute(status -> executor.execute(transition, seatIds, () -> {
+        return transactionTemplate.execute(status -> executor.execute(transition, reservationId, seatIds, () -> {
             seats.events.add("update");
             return updatedRows;
         }));
@@ -72,7 +73,7 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
     @Test
     @DisplayName("트랜잭션 밖에서 부르면 막는다. 좌석과 예약은 한 트랜잭션에서 바뀌어야 한다")
     void requiresTransaction() {
-        assertThatThrownBy(() -> executor.execute(ReservationTransition.CONFIRM, seatIds, () -> 1))
+        assertThatThrownBy(() -> executor.execute(ReservationTransition.CONFIRM, reservationId, seatIds, () -> 1))
                 .isInstanceOf(IllegalTransactionStateException.class);
         assertThat(seats.events).isEmpty();
     }
