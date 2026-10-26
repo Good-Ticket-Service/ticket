@@ -15,6 +15,7 @@ booking 담당(한얼)이 혼자 정할 수 있는 결정과 그 이유를 모�
 | 0.3 | 2026-10-26 | 예약 테이블 DDL을 `schema.sql`에서 `booking.sql`로 나눴다(B27) |
 | 0.4 | 2026-10-26 | 예약이 담은 좌석을 티켓으로 키우고, 좌석 판매·반환에 예약 ID를 넘긴다(B28) |
 | 0.5 | 2026-10-26 | 취소에 중간 상태 `CANCELING`을 두고, 취소 상태 철자를 `CANCELED`로 맞췄다(B29) |
+| 0.6 | 2026-10-26 | 사용자 선점 해제 상태 `RELEASED`와 `BookingFacade.release`를 더했다(B30) |
 
 ---
 
@@ -38,6 +39,7 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | B6 | 시간 판정은 reservation 서버 시계로 한다. 현재 시각은 `Clock` 빈으로 주입하고, 조건부 UPDATE의 `updated_at`도 이 `Clock`으로 채운다 | payment 시계와 몇 초 달라도 만료 스케줄러가 결국 맞춘다. `Clock`을 주입하면 만료 경계를 테스트에서 고정할 수 있다. JPA 감사가 채우는 시각은 `Clock`을 따르지 않으므로, 시간에 민감한 테스트는 `updated_at`을 직접 넣는다 | `ReservationTransitionIntegrationTest.paymentFailureDependsOnHoldTime`, `ReservationPaymentIntegrationTest.failureAfterExpiry` |
 | B27 | booking이 소유한 테이블의 DDL은 `backend/sql/reservation-service/booking.sql`에 두고, seat와 함께 쓰는 `schema.sql`은 고치지 않는다. 통합 테스트는 `schema.sql` 다음에 `booking.sql`을 실행한다 | reservation-service는 booking과 seat가 함께 쓴다. 한 파일을 둘이 고치면 충돌이 나고 고칠 때마다 서로 알려야 한다. 테이블 소유(설계서 D12)대로 파일을 나누면 각자 자기 파일만 고친다. 팀 규칙은 아직 서비스마다 `schema.sql` 하나라서, 그 전까지는 이 서비스 테스트만 두 파일을 실행하게 설정한다. 도메인별 파일을 팀 규칙으로 바꾸는 일은 플랫폼 이슈로 따로 낸다 | `ReservationTransitionIntegrationTest.schemaFromSqlFile`. 모든 통합 테스트가 `ddl-auto=validate`로 예약 Entity와 `booking.sql`을 대조한다 |
 | B28 | 예약이 담은 좌석은 booking이 소유한 티켓(`p_tickets`)에 둔다. 선점 때 좌석 id와 선점 시점 가격으로 만들고, 확정 때 티켓 코드를 발급하며, 만료·취소돼도 지우지 않는다. 티켓이 유효한지는 예약 상태로 판단하고, 1차에는 티켓 상태를 두지 않는다. 좌석 판매·반환은 예약 ID를 함께 넘긴다 | 설계서 3장은 다른 모듈의 Entity를 쓰지 않고 Facade로만 부르게 한다. booking이 자기 예약의 좌석과 가격을 스스로 알아야 seat에 묻지 않고 전이를 실행하고 금액을 계산한다. `schedule_seat.reservation_id`는 "지금 이 좌석을 잡은 예약"이고 티켓은 "이 예약이 담은 좌석"이라 서로 다른 사실이다. 만료된 선점은 정리 전에 다른 예약이 다시 잡을 수 있어서, 좌석 id만으로 반환하면 남의 좌석을 푼다. 1차는 예약 하나에 티켓 한 장이라 티켓 상태는 예약 상태의 복사본이 된다 | `ReservationTransitionIntegrationTest.hold`(티켓·가격, 같은 좌석 거절), `ReservationPaymentIntegrationTest.checkoutAndConfirm`(코드 발급, 판매 대상 예약), `BookingSchedulerIntegrationTest.expiresDueHolds`(티켓 유지, 반환 대상 예약) |
+| B30 | 사용자가 선점을 직접 해제하면 예약을 `RELEASED`로 바꾼다. seat가 해제 API를 받아 좌석을 먼저 잠근 뒤 `BookingFacade.release`를 부르고, 좌석 반환은 seat가 한다. 선점 시간이 이미 지났으면 오류 대신 `EXPIRED`로 정리한다. 이미 `RELEASED`나 `EXPIRED`면 아무것도 하지 않고 정상으로 끝낸다. 결제 중이거나 끝난 예약은 `INVALID_STATUS_TRANSITION`이다 | 1인 매수 제한이 회차당 1건이면 좌석을 바꾸려고 해제한 예약이 유효한 예약에서 빠져야 한다. `EXPIRED`로 대신하면 시간 초과와 사용자 포기를 나눠 셀 수 없고, `CANCELED`로 대신하면 환불 흐름과 섞인다. 시간이 지난 선점은 사용자에게 어느 쪽이든 좌석이 풀린 것이라 오류로 답하지 않고, 사실대로 `EXPIRED`로 남긴다. 결제 시작과 해제가 동시에 와도 둘 다 `status = HOLD` 조건부 UPDATE라 한쪽만 성공한다 | `ReservationTransitionIntegrationTest.releaseHold`, `ReservationTransitionIntegrationTest.releaseRejected` |
 
 ### 2.2 결제 흐름
 
@@ -125,7 +127,7 @@ orchestration.md 10장의 이슈 후보마다 완료 조건으로 넣는다.
 
 | 이슈 후보 | 만들 검사 |
 | --- | --- |
-| 예약 상태 모델 | B1, B2, B5, B6, B24, B27, B28 |
+| 예약 상태 모델 | B1, B2, B5, B6, B24, B27, B28, B30 |
 | 선점 만료 스케줄러 | B14, B15, B18 |
 | 결제 준비·승인과 결과 반영 Phase 1 | B3, B4, B7, B8, B9, B10, B11, B12, B13, B21, B22, B23 |
 | 결과 확인 스케줄러 | B16, B17, B19, B20, B25, B26 |

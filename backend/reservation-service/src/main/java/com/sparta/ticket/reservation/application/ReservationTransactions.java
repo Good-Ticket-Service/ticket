@@ -105,7 +105,7 @@ public class ReservationTransactions {
                         reservation.isHoldExpiredAt(stamp.at())
                                 ? ReservationErrorCode.HOLD_EXPIRED
                                 : CommonErrorCode.INVALID_STATUS_TRANSITION);
-            case CANCELED -> throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
+            case RELEASED, CANCELED -> throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
         };
     }
 

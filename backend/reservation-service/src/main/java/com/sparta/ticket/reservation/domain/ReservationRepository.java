@@ -40,6 +40,9 @@ public interface ReservationRepository {
     /** HOLD → EXPIRED. 선점 시간이 지났을 때만 바꾼다. */
     int expireHold(Long id, ChangeStamp stamp);
 
+    /** HOLD → RELEASED. 본인 예약이고 선점 시간이 남았을 때만 바꾼다. */
+    int releaseHold(Long id, UUID userId, ChangeStamp stamp);
+
     /** 결과 확인 스케줄러가 확인한 시각을 남긴다. 상태와 감사 컬럼은 바꾸지 않는다. */
     int markPaymentChecked(Long id, LocalDateTime checkedAt);
 

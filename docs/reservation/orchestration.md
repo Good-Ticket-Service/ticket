@@ -11,7 +11,8 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | --- | --- | --- |
 | 0.1 | 2026-10-24 | 초안 |
 | 0.2 | 2026-10-24 | 설계서 v4에 맞춰 정리. 합의할 항목에 설계서 결정 번호(D10~D17) 연결, `BookingFacade.expire` 추가 |
-| 0.6 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (#27) |
+| 0.7 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (#27) |
+| 0.6 | 2026-10-26 | 사용자가 선점을 직접 해제하는 `RELEASED` 상태와 `BookingFacade.release` 추가(B30). 상태 이름 대조(T3)를 마침 |
 | 0.5 | 2026-10-26 | 팀원 제안 반영: 취소에 중간 상태 `CANCELING`을 두고, 취소 상태 철자를 ERD와 같은 `CANCELED`로 맞춤(B29). 5.3, 5.4 취소 흐름을 이 기준으로 고침 |
 | 0.4 | 2026-10-26 | Facade 계약 변경: `hold`에 좌석별 가격, `sell`·`release`에 예약 ID, `priceSnapshot` 삭제. 예약 좌석을 티켓(`p_tickets`)으로 키움. 합의할 항목 S9 추가 |
 | 0.3 | 2026-10-24 | payment 담당 리뷰(PR #9) 반영: 결제 준비·승인 두 번 호출, 시도마다 `orderId`, 승인 요청이 사라지면 같은 `orderId`로 다시 요청, 결제 호출 read 15초, 취소는 두 Phase 모두 환불 결과와 상관없이 처리. 남은 질문은 11장에 모았고 10/26 회의에서 정한다 |
@@ -83,6 +84,7 @@ com.sparta.ticket.reservation
 | `BookingFacade` (booking이 구현) | `hold(userId, scheduleId, seats, holdExpiresAt)` → reservationId. `seats`는 좌석 id와 선점 시점 가격 | seat | 선점 트랜잭션 안에서 예약을 `HOLD`로 만들고 좌석마다 티켓을 만든다 |
 | | `countActiveSeats(userId, scheduleId)` | seat | 1인 매수 제한. `HOLD + PAYMENT_IN_PROGRESS + CONFIRMED` 좌석 수 |
 | | `expire(reservationId)` | seat | 시간이 지난 좌석을 다시 선점할 때 남아 있는 예전 예약을 `EXPIRED`로 바꾼다 (5.1). 예약이 `HOLD`가 아니면(결제 진행 중 등) false를 돌려주고, seat는 새 선점을 중단한다 |
+| | `release(userId, reservationId)` | seat | 사용자가 선점을 직접 해제할 때(`DELETE /api/reservations/{id}/hold`, seat가 받음) 좌석을 먼저 잠근 뒤 부른다. 예약을 `RELEASED`로 바꾸고, 선점 시간이 지났으면 `EXPIRED`로 정리한다. 이미 끝났으면 아무것도 하지 않는다. 결제 중이거나 끝난 예약은 거절한다. 좌석 반환은 seat가 한다 |
 | `SeatFacade` (seat가 구현) | `lockSeats(seatIds)` | booking | 좌석 행을 id 오름차순으로 잠근다(4.3 잠금 순서) |
 | | `sell(reservationId, seatIds)` | booking | 확정할 때 `HOLD → SOLD`. 좌석을 이 예약이 잡고 있지 않으면 예외 |
 | | `release(reservationId, seatIds)` | booking | 만료·취소할 때 `HOLD/SOLD → AVAILABLE`. 좌석을 지금 이 예약이 잡고 있을 때만 돌려준다. 만료된 선점은 정리 전에 다른 예약이 다시 잡을 수 있기 때문이다. 취소표 재판매를 넣으면 여기서 다음 대기자에게 넘긴다 |
@@ -114,6 +116,7 @@ stateDiagram-v2
     [*] --> HOLD: 좌석 선점 (seat → BookingFacade.hold)
     HOLD --> PAYMENT_IN_PROGRESS: 결제 승인 요청
     HOLD --> EXPIRED: 선점 시간 초과 (스케줄러)
+    HOLD --> RELEASED: 사용자가 선점 해제 (seat → BookingFacade.release)
     PAYMENT_IN_PROGRESS --> CONFIRMED: 결제 성공
     PAYMENT_IN_PROGRESS --> HOLD: 결제 실패, 선점 시간 남음
     PAYMENT_IN_PROGRESS --> EXPIRED: 결제 실패, 선점 시간 지남
@@ -121,6 +124,7 @@ stateDiagram-v2
     CANCELING --> CANCELED: payment가 환불 요청을 받음 + 좌석 반환
     CANCELING --> CONFIRMED: payment가 환불을 거절
     EXPIRED --> [*]
+    RELEASED --> [*]
     CANCELED --> [*]
 ```
 
@@ -133,6 +137,7 @@ stateDiagram-v2
 | → `HOLD` | 좌석 선점 | (생성) | `AVAILABLE → HOLD` (seat) |
 | `HOLD → PAYMENT_IN_PROGRESS` | 결제 승인 요청 | 본인, `hold_expires_at > now`, `order_id = 요청의 orderId` | 그대로 |
 | `HOLD → EXPIRED` | 만료 스케줄러 | `hold_expires_at <= now` | `HOLD → AVAILABLE` |
+| `HOLD → RELEASED` | 사용자 선점 해제 (seat가 `BookingFacade.release`를 부름) | 본인, `hold_expires_at > now`. 시간이 지났으면 대신 `HOLD → EXPIRED`로 정리한다 | `HOLD → AVAILABLE` (seat) |
 | `PAYMENT_IN_PROGRESS → CONFIRMED` | 결제 성공 | `order_id = 결과의 orderId` | `HOLD → SOLD` |
 | `PAYMENT_IN_PROGRESS → HOLD` | 결제 실패 | `order_id = 결과의 orderId`, `hold_expires_at > now` | 그대로 |
 | `PAYMENT_IN_PROGRESS → EXPIRED` | 결제 실패 | `order_id = 결과의 orderId`, `hold_expires_at <= now` | `HOLD → AVAILABLE` |
@@ -140,7 +145,7 @@ stateDiagram-v2
 | `CANCELING → CANCELED` | payment가 환불 요청을 받음 | — | `SOLD → AVAILABLE` |
 | `CANCELING → CONFIRMED` | payment가 환불을 거절 | — | 그대로 |
 
-`CANCELING`은 예약 취소를 구현할 때 코드에 넣는다(P3, D6). 지금 코드의 상태는 `HOLD`, `PAYMENT_IN_PROGRESS`, `CONFIRMED`, `EXPIRED`, `CANCELED`다.
+`CANCELING`은 예약 취소를 구현할 때 코드에 넣는다(P3, D6). 지금 코드의 상태는 `HOLD`, `PAYMENT_IN_PROGRESS`, `CONFIRMED`, `EXPIRED`, `RELEASED`, `CANCELED`다.
 
 결제 준비는 상태를 바꾸지 않는다. `status = HOLD`인 예약에 `order_id`와 결제 금액만 기록한다(4.4).
 
@@ -445,6 +450,6 @@ PR #9 리뷰로 받은 답변(10/24)을 반영했다. 남은 질문은 10/26(월
 | --- | --- | --- |
 | T1 | booking에 걸린 기존 결정: 11/6까지 Phase 2 전환, 선점 유지 시간 10분/5분, 취소 가능 기간·수수료와 취소 시 쿠폰 복구(제안: 취소 확정 때 `release`, 3.3), 취소표 결제 권한 유효 시간 | D1, D4, D6, D7 |
 | T2 | 이벤트 DTO를 `common-core`에 둘지, 서비스마다 복사본을 둘지 | D17 |
-| T3 | 예약 상태 이름을 ERD·기능 명세서와 대조. 취소는 `CANCELING`, `CANCELED`로 맞췄다(2026-10-26). 남은 것은 직접 선점 해제의 `RELEASED` | 9장 |
+| T3 | 예약 상태 이름을 ERD·기능 명세서와 대조. 취소는 `CANCELING`, `CANCELED`로 맞추고 사용자 선점 해제의 `RELEASED`를 넣어 대조를 마쳤다(2026-10-26) | 9장 |
 | T4 | 서비스 이름: 설계서 `performance`와 저장소 `event-service` 중 무엇으로 통일할지 | D10 |
 | T5 | 결제 승인 응답 형식: Phase 1 200 / Phase 2 202, 본문은 예약 상태. 외부 API가 준비·승인 두 개로 나뉜 것과 함께 프런트 폴링 방식에 맞춘다 (5.2, 7장) | D16 |
