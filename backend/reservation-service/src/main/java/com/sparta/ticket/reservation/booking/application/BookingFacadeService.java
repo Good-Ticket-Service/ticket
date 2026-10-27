@@ -83,25 +83,37 @@ public class BookingFacadeService implements BookingFacade {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public int countActiveSeats(Long userId, Long scheduleId) {
-        throw new UnsupportedOperationException("구현 전 (#59)");
+        return Math.toIntExact(reservationRepository.countActiveTickets(userId, scheduleId));
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<ReservationView> findActiveHold(Long userId, Long scheduleId) {
-        throw new UnsupportedOperationException("구현 전 (#59)");
+        return reservationRepository.findHold(userId, scheduleId).map(BookingFacadeService::toView);
     }
 
+    /**
+     * Note: 결제 시작과 만료는 둘 다 status = HOLD 조건부 UPDATE다. 동시에 오면 뒤에 온 쪽이 행 잠금을 기다린 뒤 조건을 다시 보고
+     * 0행이 되므로 한쪽만 성공한다. 시각 조건(결제 시작은 hold_expires_at > :now, 만료는 <= :now)은 경계 시각에 어느 쪽이 될 수
+     * 있는지만 정하고, :now를 같은 Clock으로 구해 둘이 겹치지 않는다. 그래서 seat가 먼저 읽은 상태가 낡았어도 이 결과로 판단하면 된다.
+     */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean expireIfDue(Long reservationId) {
-        throw new UnsupportedOperationException("구현 전 (#59)");
+        if (reservationRepository.expireHold(reservationId, changeStamps.stamp()) == 1) {
+            metrics.expiredHold();
+            return true;
+        }
+        return false;
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Set<Long> findPaymentInProgress(Collection<Long> reservationIds) {
-        throw new UnsupportedOperationException("구현 전 (#59)");
+        if (reservationIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(reservationRepository.findPaymentInProgressIds(reservationIds));
     }
 
     private static ReservationView toView(Reservation reservation) {

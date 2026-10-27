@@ -46,7 +46,7 @@ public interface BookingFacade {
 
     /**
      * HOLD이고 선점 시간이 지났을 때만 EXPIRED로 바꾸고 true를 돌려준다. 그 밖에는 아무것도 바꾸지 않고 false다.
-     * 결제 시작과 같은 Clock으로 판정하므로 둘 중 한쪽만 성공한다. 좌석 반환은 seat가 한다.
+     * 결제 시작과 둘 다 HOLD 조건부 UPDATE라 한쪽만 성공한다. 좌석 반환은 seat가 한다.
      */
     boolean expireIfDue(Long reservationId);
 
