@@ -14,8 +14,10 @@ import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -76,6 +78,30 @@ public class BookingFacadeService implements BookingFacade {
         }
         // Note: 결제 중·확정·취소는 예외 대신 결과로 알린다. seat가 204와 409를 고르는 근거다(#34).
         return ReleaseResult.NOT_RELEASABLE;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int countActiveSeats(Long userId, Long scheduleId) {
+        throw new UnsupportedOperationException("구현 전 (#59)");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<ReservationView> findActiveHold(Long userId, Long scheduleId) {
+        throw new UnsupportedOperationException("구현 전 (#59)");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean expireIfDue(Long reservationId) {
+        throw new UnsupportedOperationException("구현 전 (#59)");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Set<Long> findPaymentInProgress(Collection<Long> reservationIds) {
+        throw new UnsupportedOperationException("구현 전 (#59)");
     }
 
     private static ReservationView toView(Reservation reservation) {
