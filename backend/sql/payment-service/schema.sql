@@ -19,7 +19,6 @@ CREATE TABLE p_payments
     total_price          INT          NOT NULL,
     discount_amount      INT          NOT NULL DEFAULT 0,
     amount               INT          NOT NULL,
-    user_coupon_id       BIGINT,
     status               VARCHAR(20)  NOT NULL,
     failure_code         VARCHAR(80),
     failure_message      VARCHAR(255),
@@ -44,7 +43,7 @@ CREATE TABLE p_payments
     CONSTRAINT ck_p_payments_status CHECK (status IN ('READY', 'IN_PROGRESS', 'DONE', 'FAILED', 'CANCELED')),
     CONSTRAINT ck_p_payments_pg_provider CHECK (pg_provider IN ('TOSS', 'KAKAO')),
     CONSTRAINT ck_p_payments_amount CHECK (
-        discount_amount >= 0 AND amount = total_price - discount_amount AND amount > 0)
+        discount_amount >= 0 AND amount::BIGINT = total_price::BIGINT - discount_amount::BIGINT AND amount >= 100)
 );
 
 -- 한 예매에 살아 있는(READY·IN_PROGRESS·DONE) 결제는 하나다. 끝난 결제(FAILED·CANCELED)는 여러 개 남을 수 있다

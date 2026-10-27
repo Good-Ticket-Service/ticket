@@ -19,7 +19,7 @@ class PaymentTest {
     private static final Duration RESULT_DEADLINE = Duration.ofMinutes(1);
 
     private static Payment ready() {
-        return Payment.ready(order("order-1", 1L), 5_000);
+        return Payment.ready(order("order-1", 1L));
     }
 
     private static Payment inProgress() {
@@ -62,11 +62,26 @@ class PaymentTest {
         }
 
         @Test
-        @DisplayName("할인 후 금액이 0 이하이거나 할인액이 음수면 만들 수 없다")
+        @DisplayName("할인 후 금액이 100원 미만이거나 할인액이 음수면 만들 수 없다")
         void rejectsNonPositiveAmount() {
-            assertThatThrownBy(() -> Payment.ready(order("order-1", 1L), 50_000))
+            assertThatThrownBy(() -> Payment.ready(order("order-1", 1L, 50_000, 50_000)))
                     .isInstanceOf(BusinessException.class);
-            assertThatThrownBy(() -> Payment.ready(order("order-1", 1L), -1)).isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> Payment.ready(order("order-1", 1L, 50_000, -1)))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("최소 금액 100원은 허용하고 99원과 초과 할인은 거절한다")
+        void minimumAmountBoundary() {
+            assertThat(Payment.ready(order("min", 1L, 1_000, 900)).getAmount()).isEqualTo(100);
+            assertThat(Payment.ready(order("no-discount", 1L, 100, 0)).getAmount())
+                    .isEqualTo(100);
+            assertThatThrownBy(() -> Payment.ready(order("below-min", 1L, 1_000, 901)))
+                    .isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> Payment.ready(order("excess", 1L, 1_000, 1_001)))
+                    .isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> Payment.ready(order("overflow", 1L, Integer.MIN_VALUE, 1)))
+                    .isInstanceOf(BusinessException.class);
         }
 
         @Test
@@ -76,13 +91,14 @@ class PaymentTest {
 
             assertThat(payment.matches(order("order-1", 1L))).isTrue();
             assertThat(payment.matches(order("order-1", 2L))).isFalse();
+            assertThat(payment.matches(order("order-1", 1L, 50_000, 4_999))).isFalse();
         }
 
         @Test
         @DisplayName("만료 시각은 DB 정밀도(마이크로초)로 저장하고 같은 정밀도로 비교한다")
         void comparesExpiryAtDbPrecision() {
             LocalDateTime expiresAt = NOW.plusMinutes(10).plusNanos(123_456_789);
-            Payment payment = Payment.ready(order("order-1", 1L, expiresAt), 0);
+            Payment payment = Payment.ready(order("order-1", 1L, expiresAt));
 
             assertThat(payment.getExpiresAt()).isEqualTo(NOW.plusMinutes(10).plusNanos(123_456_000));
             assertThat(payment.matches(order("order-1", 1L, expiresAt))).isTrue();

@@ -28,14 +28,11 @@ class ArchitectureTest {
      * Note: 흐름 클래스(PaymentService, PaymentProcessor 등)에 @Transactional이 붙으면 안쪽 트랜잭션이 바깥에 합류해
      * PG 호출이 트랜잭션 안으로 들어가고, PG를 부르기 전에 커밋해야 하는 IN_PROGRESS가 커밋되지 않는다.
      * 그래서 트랜잭션 경계는 이름이 Transactions로 끝나는 전용 bean에만 둔다(docs/payment/plan.md 6절).
-     * 쿠폰 패키지는 쿠폰 담당 코드라 제외한다. 그쪽은 호출한 쪽 트랜잭션에 합류(REQUIRED)한다.
      */
     @ArchTest
     static final ArchRule TRANSACTIONAL_ONLY_IN_TRANSACTIONS_CLASSES = classes()
             .that()
             .resideInAPackage("..application..")
-            .and()
-            .resideOutsideOfPackage("..application..coupon..")
             .and()
             .haveSimpleNameNotEndingWith("Transactions")
             .should(notUseTransactional())

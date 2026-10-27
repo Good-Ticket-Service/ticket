@@ -16,7 +16,7 @@ paths:
 | `reservation-service` booking 모듈 | `docs/reservation/` |
 | `reservation-service` queue 모듈 | `docs/queue/` |
 | `payment-service` payment 모듈, `fake-pg` | `docs/payment/` |
-| `payment-service` coupon 모듈 | `docs/coupon/` |
+| `reservation-service` coupon 모듈 | `docs/coupon/` |
 
 - `api.md`의 경로·요청·응답·오류 코드와 다르게 구현하지 않는다. 문서가 틀렸다고 판단되면 구현 전에 알린다.
 - 엔티티·`schema.sql`을 바꾸면 `tables.md`도 같은 PR에서 고친다.

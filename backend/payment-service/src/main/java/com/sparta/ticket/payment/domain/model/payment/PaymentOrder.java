@@ -16,5 +16,5 @@ public record PaymentOrder(
         Long scheduleId,
         PgProvider pgProvider,
         int totalPrice,
-        Long userCouponId,
+        int discountAmount,
         LocalDateTime expiresAt) {}

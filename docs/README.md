@@ -24,7 +24,7 @@
 | 예매 | `reservation-service` booking 모듈 | 지한얼 | [api](reservation/api.md) · [tables](reservation/tables.md) · [설계](reservation/orchestration.md) |
 | 대기열 | `reservation-service` queue 모듈 | 김태현 | [api](queue/api.md) |
 | 결제 | `payment-service`, `fake-pg` | 강현민 | [plan](payment/plan.md) · [api](payment/api.md) · [tables](payment/tables.md) |
-| 쿠폰 | `payment-service` coupon 모듈 | 성윤범 | [api](coupon/api.md) · [tables](coupon/tables.md) |
+| 쿠폰 | `reservation-service` coupon 모듈 | 성윤범 | [api](coupon/api.md) · [tables](coupon/tables.md) |
 | 티켓 | 미정 | | |
 
 결제 외 도메인 문서는 Notion(2026-10-26 기준)에서 옮긴 것이다.

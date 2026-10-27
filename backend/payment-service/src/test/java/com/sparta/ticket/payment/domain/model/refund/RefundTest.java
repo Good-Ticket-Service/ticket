@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class RefundTest {
 
-    private static final Payment PAYMENT = Payment.ready(order("order-1", 1L), 5_000);
+    private static final Payment PAYMENT = Payment.ready(order("order-1", 1L));
 
     private static Refund requested() {
         return Refund.requested(PAYMENT, RefundReason.USER_CANCEL, PAYMENT.getAmount(), NOW, NOW);

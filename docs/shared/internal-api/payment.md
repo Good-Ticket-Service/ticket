@@ -6,6 +6,10 @@
 
 ## 공통
 
+- 변경 상태: #22 할인액 전달·쿠폰 책임 이전은 담당자 검토 대기다. 기존 합의 이력과 구분한다.
+
+- #22: 쿠폰은 reservation-service가 처리한다. 결제는 쿠폰 ID를 받거나 CouponUsage를 호출하지 않고 예매가 확정한 정가·할인액·최종 금액만 검증·저장한다. 쿠폰 오류는 예매 책임이다.
+
 - Gateway에 노출하지 않는다. 응답 본문을 `ApiResponse`로 감싸지 않고, 오류는 `ErrorResponse`다([conventions.md](../conventions.md)).
 - 모두 `orderId` 기준으로 멱등하다. 같은 `orderId`의 같은 요청을 다시 보내면 처음 결과를 돌려준다.
 - 업무 결과(승인·거절·결과 불명)는 HTTP 상태가 아니라 본문 `status`로 알린다. 4xx는 잘못된 요청과 아래에 적은 충돌에만 쓴다.
@@ -47,7 +51,7 @@
 | performanceId | Long | Y | |
 | scheduleId | Long | Y | |
 | totalPrice | Integer | Y | 할인 전 금액. 0보다 크다 |
-| userCouponId | Long | N | 사용할 쿠폰(회원이 발급받은 쿠폰 ID) |
+| discountAmount | Integer | Y | 예매가 쿠폰 처리 후 확정한 할인액. 쿠폰 미사용은 0. 음수 불가 |
 | pgProvider | String | Y | `TOSS`, `KAKAO` |
 | expiresAt | DateTime | Y | 결제 허용 시각(좌석 선점 만료). 이 뒤에는 PG 승인을 부르지 않는다 |
 
@@ -57,7 +61,7 @@
 |---|---|---|
 | paymentId | Long | |
 | orderId | String | |
-| amount | Integer | 할인 후 결제 금액. 결제창에 넘긴다. 쿠폰 할인은 결제 금액이 최소 결제 금액(100원) 아래로 내려가지 않게 자른다 |
+| amount | Integer | `totalPrice - discountAmount`. 최소 100원이며 결제창에 넘긴다. 결제는 할인액을 보정하지 않는다 |
 | status | String | `READY` / `FAILED` |
 | failureType, failureCode | String | FAILED일 때 |
 | checkoutUrl | String | 카카오 결제창 URL. 토스는 null |
@@ -66,11 +70,11 @@
 
 | 상태 | 코드 | 때 |
 |---|---|---|
-| 409 | `PAYMENT_ORDER_CONFLICT` | 같은 orderId에 다른 내용 |
+| 409 | `PAYMENT_ORDER_CONFLICT` | 같은 orderId에 다른 내용. 할인액 변경도 포함한다 |
 | 409 | `PAYMENT_ALREADY_IN_PROGRESS` | 같은 예매에 승인 진행 중(IN_PROGRESS, 또는 승인 요청을 받은 READY) |
 | 409 | `PAYMENT_ALREADY_DONE` | 같은 예매가 이미 결제됨 |
 | 409 | `PAYMENT_CHECKOUT_CONFLICT` | 같은 예매의 준비가 동시에 옴 |
-| 400 | `COUPON_NOT_AVAILABLE` | 쿠폰을 쓸 수 없음(본인 쿠폰이 아님, 사용 가능 상태가 아님, 유효 기간 지남, 할인 전 금액이 최소 결제 금액 이하) |
+| 400 | `INVALID_PAYMENT_AMOUNT` | 할인액이 음수이거나 최종 금액이 100원 미만 |
 | 400 | `VALIDATION_ERROR` | 입력값 오류 (공통 코드) |
 
 ## POST /internal/payments/{orderId}/confirm — 결제 승인
@@ -78,7 +82,7 @@
 - 상태: 합의 (Notion, 2026-10-26)
 - 멱등성: `orderId` 기준. 이미 READY가 아니면 PG를 다시 부르지 않고 현재 상태를 돌려준다.
 - 타임아웃: 최악 응답 약 14초. 예매 read timeout은 20초를 제안한다.
-- 결과 확정 시한: PG 승인을 부른 뒤 1분 안에 결과를 모르면 결제가 FAILED(`PG_UNRESOLVED`)로 확정하고 쿠폰을 반납한다. 그래서 `IN_PROGRESS`는 약 1분(결제 복구 주기 포함) 안에 끝난다.
+- 결과 확정 시한: PG 승인을 부른 뒤 1분 안에 결과를 모르면 결제가 FAILED(`PG_UNRESOLVED`)로 확정한다. 예매가 결과를 확인해 쿠폰을 반납한다. 그래서 `IN_PROGRESS`는 약 1분(결제 복구 주기 포함) 안에 끝난다.
 - 재시도: 응답을 받지 못하면 바로 재전송하지 말고 결제 조회로 확인한다(아래 "결과를 모를 때").
 
 요청
@@ -144,7 +148,7 @@
 결제 상태별 처리: READY는 결제 포기(`NOT_REQUIRED`), FAILED는 `NOT_REQUIRED`, IN_PROGRESS는 `WAITING`, DONE은 `REQUESTED` 후 PG 취소, CANCELED는 기존 환불을 돌려준다.
 
 - 환불은 언제나 결제 금액 전액이다. 취소 가능 기간·수수료는 예매가 요청 전에 검사하고, 결제는 사유와 관계없이 검사하지 않는다. 회차 취소(`SCHEDULE_CANCELED`)는 예매가 취소 기간 검사 없이 예약마다 부른다.
-- `NOT_REQUIRED`: 돌려줄 돈이 없다. READY면 결제를 FAILED(`ABANDONED`)로 끝내고 쿠폰을 반납한다. 환불 행은 만들지 않는다. 예매는 환불이 끝난 것으로 보고 다음 상태로 넘어가며 다시 요청하지 않는다.
+- `NOT_REQUIRED`: 돌려줄 돈이 없다. READY면 결제를 FAILED(`ABANDONED`)로 끝낸다. 쿠폰 반납은 예매가 처리한다. 환불 행은 만들지 않는다. 예매는 환불이 끝난 것으로 보고 다음 상태로 넘어가며 다시 요청하지 않는다.
 - 예매는 외부 환불 호출 전에 예매를 `CANCELING`으로 커밋하고, 요청이 접수되면 `CANCELED`로 바꾼다. 응답을 받지 못하면 예매 스케줄러가 같은 `orderId`로 다시 요청한다(멱등).
 
 오류: 404 `PAYMENT_NOT_FOUND`.
@@ -195,3 +199,4 @@
 |---|---|---|
 | 2026-10-26 | #3 | 합의 내용 반영. payment/spec.md에서 옮김 |
 | 2026-10-26 | Notion 검토 | 팀 결정 반영: 회원·판매자 ID Long, `couponId` → `userCouponId`, 결과 확정 시한 1분과 `PG_UNRESOLVED`, 결제 차단·`resolve`·`MANUAL` 제거, 관리자 차단 해제를 환불 전용(`refund/unblock`)으로, 시각 `+09:00`, 환불 사유·`NOT_REQUIRED` 처리, 취소 상태 `CANCELING`·`CANCELED` |
+| 2026-10-27 | #22 (검토 대기) | 준비 요청 userCouponId를 discountAmount로 변경하고 최소 100원 검증, 할인액 멱등 비교, 쿠폰 처리의 예매 책임을 반영했다 |
