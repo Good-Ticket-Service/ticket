@@ -5,6 +5,7 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
+import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.domain.model.recovery.Recovery;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
@@ -170,6 +171,43 @@ public class Payment extends BaseEntity {
         this.checkoutUrl = checkoutUrl;
     }
 
+    /** PG 준비를 불러야 하는지. 카카오 READY인데 tid가 없으면(준비 직후 중단, 첫 준비) 불러야 한다. 토스는 PG 준비가 없다. */
+    public boolean needsPgReady() {
+        return status == PaymentStatus.READY && pgProvider == PgProvider.KAKAO && pgTransactionId == null;
+    }
+
+    /**
+     * PG 준비 결과를 반영한다. 잠근 뒤 다시 판단하므로, 그사이 다른 재개가 tid를 먼저 저장했거나 결제가 대체·만료돼
+     * 더는 준비를 기다리지 않으면 아무것도 하지 않는다. 늦게 온 결과가 끝난 결제를 되살리거나 저장된 tid를 덮지 않게 한다.
+     *
+     * @return 반영했으면 true
+     */
+    public boolean applyPgReady(PgReadyResult result) {
+        if (!needsPgReady()) {
+            return false;
+        }
+        if (result instanceof PgReadyResult.Ready ready) {
+            recordCheckout(ready.transactionId(), ready.checkoutUrl());
+        } else if (result instanceof PgReadyResult.Failed failed) {
+            fail(PaymentFailureCode.READY_FAILED, failed.reason());
+        }
+        return true;
+    }
+
+    /** 승인 요청을 이미 받았는지. 받은 READY는 승인이 진행 중일 수 있어 새 준비가 대체하지 않는다. */
+    public boolean isConfirmRequested() {
+        return confirmRequestedAt != null;
+    }
+
+    /** 같은 예매의 새 준비가 이 READY를 대체한다. 승인 요청을 받은 READY는 대체할 수 없다. */
+    public void supersede() {
+        require(PaymentStatus.READY);
+        if (isConfirmRequested()) {
+            throw invalidTransition();
+        }
+        fail(PaymentFailureCode.SUPERSEDED, "같은 예매의 새 결제 준비로 대체");
+    }
+
     /** 승인 요청 접수. 처음 받은 시각만 남긴다. */
     public void requestConfirm(LocalDateTime now) {
         require(PaymentStatus.READY);
@@ -219,7 +257,7 @@ public class Payment extends BaseEntity {
         }
         this.status = PaymentStatus.FAILED;
         this.failureCode = code;
-        this.failureMessage = message;
+        this.failureMessage = truncate(message);
         this.recovery.finish();
     }
 
@@ -264,6 +302,11 @@ public class Payment extends BaseEntity {
             throw invalidTransition();
         }
         this.reconciledAt = now;
+    }
+
+    /** failure_message는 VARCHAR(255)다. PG 오류 설명이 길어도 실패 확정이 저장 오류로 롤백되지 않게 자른다. */
+    private static String truncate(String message) {
+        return message == null || message.length() <= 255 ? message : message.substring(0, 255);
     }
 
     private void require(PaymentStatus expected) {
