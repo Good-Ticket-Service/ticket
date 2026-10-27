@@ -1,0 +1,65 @@
+package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+
+import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
+import java.time.Duration;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+/** 통합 테스트는 스케줄러를 끄므로, 스케줄러 설정과 등록은 DB 없는 작은 컨텍스트로 확인한다. */
+class BookingSchedulingConfigTest {
+
+    private final HoldExpiryService holdExpiryService = mock(HoldExpiryService.class);
+    private final PaymentReconcileService reconcileService = mock(PaymentReconcileService.class);
+
+    private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
+            .withUserConfiguration(BookingSchedulingConfig.class)
+            .withBean(HoldExpiryService.class, () -> holdExpiryService)
+            .withBean(PaymentReconcileService.class, () -> reconcileService)
+            .withPropertyValues(
+                    "reservation.booking.scheduler.hold-expiry.interval=50ms",
+                    "reservation.booking.scheduler.hold-expiry.batch-size=100",
+                    "reservation.booking.scheduler.hold-expiry.time-budget=40ms",
+                    "reservation.booking.scheduler.payment-reconcile.interval=50ms",
+                    "reservation.booking.scheduler.payment-reconcile.threshold=1m",
+                    "reservation.booking.scheduler.payment-reconcile.stuck-after=30m",
+                    "reservation.booking.scheduler.payment-reconcile.batch-size=20",
+                    "reservation.booking.scheduler.payment-reconcile.time-budget=40ms");
+
+    @Test
+    @DisplayName("컨텍스트가 뜨면 만료와 결과 확인을 설정값으로 돌린다")
+    void runsBothTasks() {
+        runner.run(context -> {
+            assertThat(context).hasSingleBean(BookingScheduleRunner.class);
+            verify(holdExpiryService, timeout(2_000).atLeastOnce()).expireDue(100, Duration.ofMillis(40));
+            verify(reconcileService, timeout(2_000).atLeastOnce())
+                    .reconcile(
+                            eq(Duration.ofMinutes(1)), eq(Duration.ofMinutes(30)), anyInt(), eq(Duration.ofMillis(40)));
+        });
+    }
+
+    @Test
+    @DisplayName("설정값이 틀리면 기동에 실패한다")
+    void rejectsInvalidValues() {
+        runner.withPropertyValues("reservation.booking.scheduler.hold-expiry.batch-size=0")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    @DisplayName("enabled=false면 스케줄러를 띄우지 않는다")
+    void canBeDisabled() {
+        runner.withPropertyValues("reservation.booking.scheduler.enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean(BookingScheduleRunner.class));
+    }
+}

@@ -11,7 +11,8 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | --- | --- | --- |
 | 0.1 | 2026-10-24 | 초안 |
 | 0.2 | 2026-10-24 | 설계서 v4에 맞춰 정리. 합의할 항목에 설계서 결정 번호(D10~D17) 연결, `BookingFacade.expire` 추가 |
-| 0.7 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (#27) |
+| 0.8 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (#27) |
+| 0.7 | 2026-10-26 | 패키지 구조(S1)를 seat 담당과 구두로 합의. booking 코드를 `com.sparta.ticket.reservation.booking` 아래로 옮김 |
 | 0.6 | 2026-10-26 | 사용자가 선점을 직접 해제하는 `RELEASED` 상태와 `BookingFacade.release` 추가(B30). 상태 이름 대조(T3)를 마침 |
 | 0.5 | 2026-10-26 | 팀원 제안 반영: 취소에 중간 상태 `CANCELING`을 두고, 취소 상태 철자를 ERD와 같은 `CANCELED`로 맞춤(B29). 5.3, 5.4 취소 흐름을 이 기준으로 고침 |
 | 0.4 | 2026-10-26 | Facade 계약 변경: `hold`에 좌석별 가격, `sell`·`release`에 예약 ID, `priceSnapshot` 삭제. 예약 좌석을 티켓(`p_tickets`)으로 키움. 합의할 항목 S9 추가 |
@@ -51,17 +52,17 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 
 ## 3. 모듈 경계와 코드 배치
 
-### 3.1 패키지 (제안)
+### 3.1 패키지 (합의, 2026-10-26 seat 담당과 구두)
 
 설계서 3장의 모듈 경계와 저장소의 계층 규칙을 함께 지키려면 **모듈을 먼저 나누고, 그 안을 계층으로 나눈다.**
 
 ```
 com.sparta.ticket.reservation
-├── booking/                   # 한얼
-│   ├── presentation/          # 예약 API (Controller, HTTP DTO)
-│   ├── application/           # 유스케이스, PaymentPort, BookingFacade 구현
-│   ├── domain/                # Reservation, ReservationStatus, 상태 전이 규칙
-│   └── infrastructure/        # client(Feign), messaging(Kafka), persistence, scheduler
+├── booking/                   # 한얼. 예약, 상태 머신, Saga, 만료 스케줄러
+│   ├── presentation/
+│   ├── application/           # BookingFacade, PaymentPort
+│   ├── domain/
+│   └── infrastructure/        # Feign·Kafka·스케줄러
 ├── seat/                      # 정민
 ├── queue/                     # 태현
 ├── coupon/                    # 윤범 (제안, #27)
@@ -71,7 +72,8 @@ com.sparta.ticket.reservation
 - `LayeredArchitectureRules`는 `..domain..`, `..application..` 같은 패턴으로 검사하므로 `booking.domain`에도 그대로 적용된다. 규칙을 바꿀 필요가 없다.
 - 디렉터리마다 담당이 나뉘어서 `CODEOWNERS`로 리뷰어를 지정하기 쉽고, 같은 파일을 둘이 고칠 일이 줄어든다.
 - 설계서의 "다른 모듈의 Repository·Entity 직접 사용 금지"는 ArchUnit 규칙으로 추가할 수 있다. 예: `booking..`은 `seat..domain..`, `seat..infrastructure..`에 의존하지 않는다.
-- CLAUDE.md의 "패키지는 `com.sparta.ticket.{서비스}`, 내부는 `presentation / application / domain / infrastructure`" 문장과 어긋나므로, 합의되면 그 문장도 같이 고친다.
+- 서비스 전체가 쓰는 `ReservationErrorCode`(공유, CLAUDE.md의 서비스별 에러 코드 enum)와 `FeignConfig`는 모듈 밖 원래 위치에 둔다.
+- CLAUDE.md의 "패키지는 `com.sparta.ticket.{서비스}`, 내부는 `presentation / application / domain / infrastructure`" 문장과 어긋난다. 팀 규칙이라 알린 뒤 따로 고친다.
 
 ### 3.2 seat와 booking 사이의 경계 (제안)
 
@@ -421,7 +423,7 @@ Phase 1 요청 필드를 Phase 2 이벤트 payload와 같게 맞춰 둔다. 그�
 
 | # | 항목 | 이 문서의 제안 | 설계서 v4 |
 | --- | --- | --- | --- |
-| S1 | 패키지 구조 | 모듈 먼저, 그 안에 계층 (3.1). 합의되면 CLAUDE.md 문장도 고친다 | D11 |
+| S1 | 패키지 구조 | 합의(2026-10-26, 구두). 모듈 먼저, 그 안에 계층 (3.1). CLAUDE.md 문장은 따로 고친다 | D11 |
 | S2 | 예약 Entity 소유 | booking 소유. 선점 때 seat가 `BookingFacade.hold`를 부른다 (3.2) | D12 |
 | S3 | Facade 메서드, 외부 API 경로 분담 | 3.2 표, 7장 | D12 |
 | S4 | `hold_expires_at`을 예약과 좌석 중 어디에 둘지, "정리 전 선택 가능"으로 다시 선점할 때 예전 예약을 누가 `EXPIRED`로 바꿀지 | 선점 트랜잭션 안에서 seat가 `BookingFacade.expire`를 부른다. 예약이 `HOLD`가 아니라 false를 받으면 seat는 선점을 중단한다 (3.2) | D13 |

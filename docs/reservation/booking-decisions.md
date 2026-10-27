@@ -5,7 +5,7 @@ booking 담당(한얼)이 혼자 정할 수 있는 결정과 그 이유를 모�
 - 결정마다 그 결정을 지키는 검사를 적는다. 구현하면서 검사를 테스트로 만들고, "지키는 검사" 칸을 테스트 이름으로 바꾼다.
 - 필드, 설정값, 상수 이름, 처리 순서는 쓰지 않는다. 그것은 코드와 설정이 정본이다. 여기에는 코드만 봐서는 알 수 없는 이유를 남긴다.
 - 결정을 바꾸면 이 문서와 검사를 같은 PR에서 고친다.
-- 상태 이름은 orchestration.md 4.1을 따른다(확인 필요, T3). 클래스 이름은 가안이고, 패키지 위치는 S1이 정해진 뒤에 정한다.
+- 상태 이름은 orchestration.md 4.1을 따른다(확인 필요, T3). 클래스 이름은 가안이다. 패키지는 S1 합의대로 `com.sparta.ticket.reservation.booking` 아래를 계층으로 나눈다.
 - **공유**는 seat 담당과 같이 쓰는 파일이나 모델이다. 바꾸기 전에 seat 담당에게 알린다.
 
 | 버전 | 날짜 | 변경 |
@@ -16,6 +16,7 @@ booking 담당(한얼)이 혼자 정할 수 있는 결정과 그 이유를 모�
 | 0.4 | 2026-10-26 | 예약이 담은 좌석을 티켓으로 키우고, 좌석 판매·반환에 예약 ID를 넘긴다(B28) |
 | 0.5 | 2026-10-26 | 취소에 중간 상태 `CANCELING`을 두고, 취소 상태 철자를 `CANCELED`로 맞췄다(B29) |
 | 0.6 | 2026-10-26 | 사용자 선점 해제 상태 `RELEASED`와 `BookingFacade.release`를 더했다(B30) |
+| 0.7 | 2026-10-26 | S1 합의에 따라 booking 코드를 `reservation.booking` 아래로 옮겼다. 4장의 패키지 구조 항목을 지웠다 |
 
 ---
 
@@ -97,7 +98,7 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | Phase 2 발행 | 커밋 뒤에 발행한다 | P4 (토픽, payload) |
 | F5, F6 환불 요청 | 결제가 성공한 시도의 `orderId`로 요청한다 | P3 (환불 키) |
 | 외부 API 경로 | `/api/reservations/{reservationId}` 아래에 `payments/checkout`, `payments/confirm`, `cancel`, 조회를 둔다 | S3 (seat 경로와 겹침) |
-| application의 Feign·Kafka 의존 | booking의 application 계층은 `feign..`, `org.springframework.cloud.openfeign..`, `org.springframework.kafka..`, `org.apache.kafka..`에 의존하지 않는다. 서비스 전체에 걸면 seat의 코드까지 묶이므로 booking 경로에만 건다. 공통 규칙으로 올릴지는 플랫폼 변경이라 별도 이슈로 제안한다 | S1 (패키지 경로) |
+| application의 Feign·Kafka 의존 | booking의 application 계층은 `feign..`, `org.springframework.cloud.openfeign..`, `org.springframework.kafka..`, `org.apache.kafka..`에 의존하지 않는다. 서비스 전체에 걸면 seat의 코드까지 묶이므로 booking 경로에만 건다. 공통 규칙으로 올릴지는 플랫폼 변경이라 별도 이슈로 제안한다 | 없음. S1이 합의돼 경로(`reservation.booking.application..`)가 정해졌으므로 다음 작업에서 ArchUnit 규칙으로 넣는다 |
 
 ---
 
@@ -117,7 +118,6 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | 트러블슈팅 기간의 Outbox, 멱등 소비, DLT | 담당 확인, T2 | 설계서 1.1은 booking에 Outbox만, payment에 멱등 소비, 결과 불명 복구, DLT를 둔다. orchestration.md 1장은 멱등 소비와 결과 불명 복구도 booking에 두어 서로 다르다. reservation 쪽 consumer의 중복 제거와 DLT를 누가 맡을지 정한다 |
 | 회복 장치의 범위와 기준선 측정 조건 | 팀 (설계서 6.2, 6.3) | 제안: Timeout은 Feign 설정으로, 조회 재시도는 `IdempotentRetryConfig`로 채우고 Resilience4j는 Circuit Breaker에만 쓴다. Phase 1 기준선은 Circuit Breaker를 끈 상태로 잰다. 일찍 끊으면 측정하려는 장애 전파가 가려지기 때문이다. 설계서 6.2는 Resilience4j로 Timeout, Retry, Circuit Breaker를 모두 하도록 적었으므로 팀이 정해야 한다. **공유**: `build.gradle` |
 | 취소표 즉시 재판매 | T1 (D7), queue, seat | 트러블슈팅 이슈에서 정한다 |
-| 패키지 구조 | S1 (D11) | 클래스 위치와 3장 ArchUnit 규칙의 경로를 정한다 |
 
 ---
 
