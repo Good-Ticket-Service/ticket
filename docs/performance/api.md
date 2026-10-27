@@ -2,7 +2,7 @@
 
 - 상태: 작성 중
 - 담당: 박의연
-- 출처: Notion [API 명세](https://app.notion.com/p/404b3ff41d398040a969f8eaa2e007a8)의 공연 도메인 (2026-10-27 기준). 이후 원본은 이 문서이며, Notion은 담당자가 이 문서를 기준으로 갱신한다.
+- 출처: Notion [API 명세](https://app.notion.com/p/404b3ff41d398040a969f8eaa2e007a8)의 공연 도메인 (2026-10-27 기준). 이후 외부 API의 원본은 이 문서이며, Notion은 담당자가 이 문서를 기준으로 갱신한다. 내부 판매 검증 계약(3장)의 원본은 [shared/internal-api/event.md](../shared/internal-api/event.md)다.
 - 테이블과 ERD: [tables.md](tables.md)
 
 ## 작업 우선순위
@@ -4867,6 +4867,8 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 취소·삭제·준비·기능 제안 등 정책 상태는 원본 공통 계약을 유지한다.
 
 ## 3. 내부 API
+
+> 계약 원본은 [shared/internal-api/event.md](../shared/internal-api/event.md)다. 아래는 공연 쪽 제안이며, 원본과 다른 부분은 계약 변경 흐름(이슈 → 예매 담당 합의 → 계약 PR)으로 맞춘다.
 
 ### POST /internal/schedules/{scheduleId}/sale-validations — 회차 판매 정책·기본 가격 검증
 
