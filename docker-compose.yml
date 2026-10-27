@@ -192,7 +192,7 @@ services:
       <<: *service-env
       JWT_SECRET: ${JWT_SECRET}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD}
-      MASTER_USERNAME: ${MASTER_USERNAME:-}
+      MASTER_EMAIL: ${MASTER_EMAIL:-}
       MASTER_PASSWORD: ${MASTER_PASSWORD:-}
 
   event-service:

@@ -66,7 +66,7 @@ event·reservation·payment는 뼈대만 있다. 도메인은 각 담당자가 �
 
 ## 인증 흐름
 
-1. `POST /api/v1/auth/login` → user-service가 JWT 발급(`sub`=userId, `username`, `role`)
+1. `POST /api/auth/login` → user-service가 JWT 발급(`sub`=userId, `role`)
 2. Gateway가 서명·만료·필수 claim 검증
 3. Gateway가 user-service 내부 API(`/internal/users/{id}`, 60초 캐시)로 저장된 role·탈퇴 여부를 다시 확인
 4. 클라이언트가 보낸 `X-User-*` 헤더를 지우고 검증된 값(`X-User-Id`, `X-Username`, `X-User-Role`)을 넣어 전달
@@ -87,7 +87,7 @@ script/run.sh --reset         # DB 볼륨까지 지우고 새로 시작
 - Prometheus: http://localhost:9090/targets (수집 대상은 Eureka 등록 목록에서 자동으로 찾는다)
 - Grafana: http://localhost:3000 (`admin` / `.env`의 `GRAFANA_ADMIN_PASSWORD`, Prometheus 데이터 소스 자동 등록)
 - Kafka: 컨테이너 안의 앱은 `kafka:29092`, IDE로 띄운 앱은 `localhost:9092` (`spring.kafka.bootstrap-servers`는 `config-repo/application.yml`에 있다)
-- 초기 MASTER 계정: `.env`의 `MASTER_USERNAME` / `MASTER_PASSWORD`
+- 초기 MASTER 계정: `.env`의 `MASTER_EMAIL` / `MASTER_PASSWORD`
 - logistics-management와 함께 띄우면 호스트 포트가 겹친다. `.env`에서 포트와 `COMPOSE_PROJECT_NAME`을 바꾼다. Docker 네트워크 대역(10.220.10.0/24)은 logistics(10.210.10.0/24)와 겹치지 않게 잡았다.
 
 - fake PG: http://localhost:8090/fake/admin/faults (장애 설정), http://localhost:8090/fake/admin/transactions (PG 쪽 거래 기록)
