@@ -6,7 +6,7 @@ body:
     id: scope
     attributes:
       label: scope
-      description: user, event, reservation, payment, gateway, config, eureka, common, infra, project 중 하나 (CONTRIBUTING.md 참고)
+      description: user, performance, reservation, payment, gateway, config, eureka, common, infra, project 중 하나 (CONTRIBUTING.md 참고)
       placeholder: reservation
     validations:
       required: true

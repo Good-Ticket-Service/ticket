@@ -1,0 +1,12 @@
+server:
+  port: 8082
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/ticket?currentSchema=performance_schema
+    username: performance_app
+    password: ${PERFORMANCE_DB_PASSWORD:performance_local_pw}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: performance_schema

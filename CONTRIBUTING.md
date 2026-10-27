@@ -9,7 +9,7 @@
 - `develop`과 `main`에는 직접 push·force push하지 않는다.
 - 작업 브랜치 이름: `<type>/<scope>/<이슈 번호>-<짧은 설명>`
   - 예: `feat/reservation/12-seat-hold`, `fix/gateway/23-jwt-expiry`
-- scope: `user`, `event`, `reservation`, `payment`, `gateway`, `config`, `eureka`, `common`, `infra`, `project`
+- scope: `user`, `performance`, `reservation`, `payment`, `gateway`, `config`, `eureka`, `common`, `infra`, `project`
 - 한 브랜치와 PR에는 한 가지 목적만 담는다. 머지된 작업 브랜치는 지운다.
 - 선행 PR에 의존하는 작업만 그 작업 브랜치를 임시 base로 쓴다. 선행 PR이 머지되면 최신 `develop` 위로 rebase하고 PR의 base를 `develop`으로 바꾼 뒤 CI와 승인을 다시 확인한다.
 

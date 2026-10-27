@@ -49,7 +49,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD가 필요하다}
-      EVENT_DB_PASSWORD: ${EVENT_DB_PASSWORD:?EVENT_DB_PASSWORD가 필요하다}
+      PERFORMANCE_DB_PASSWORD: ${PERFORMANCE_DB_PASSWORD:?PERFORMANCE_DB_PASSWORD가 필요하다}
       RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}
       FAKE_PG_DB_PASSWORD: ${FAKE_PG_DB_PASSWORD:-fake_pg_local_pw}
@@ -195,14 +195,14 @@ services:
       MASTER_EMAIL: ${MASTER_EMAIL:-}
       MASTER_PASSWORD: ${MASTER_PASSWORD:-}
 
-  event-service:
+  performance-service:
     <<: *db-service
     build:
       context: ./backend
-      args: { MODULE: event-service }
+      args: { MODULE: performance-service }
     environment:
       <<: *service-env
-      EVENT_DB_PASSWORD: ${EVENT_DB_PASSWORD}
+      PERFORMANCE_DB_PASSWORD: ${PERFORMANCE_DB_PASSWORD}
 
   reservation-service:
     <<: *db-service

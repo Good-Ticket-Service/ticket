@@ -16,8 +16,8 @@ spring:
               uri: lb://user-service
               predicates:
                 - Path=/api/auth/**, /api/users/**
-            - id: event-service
-              uri: lb://event-service
+            - id: performance-service
+              uri: lb://performance-service
               predicates:
                 - Path=/api/v1/events/**
             - id: reservation-service
@@ -35,12 +35,12 @@ spring:
                 - Path=/user-service/v3/api-docs
               filters:
                 - RewritePath=/user-service/v3/api-docs, /v3/api-docs
-            - id: event-service-docs
-              uri: lb://event-service
+            - id: performance-service-docs
+              uri: lb://performance-service
               predicates:
-                - Path=/event-service/v3/api-docs
+                - Path=/performance-service/v3/api-docs
               filters:
-                - RewritePath=/event-service/v3/api-docs, /v3/api-docs
+                - RewritePath=/performance-service/v3/api-docs, /v3/api-docs
             - id: reservation-service-docs
               uri: lb://reservation-service
               predicates:
@@ -80,8 +80,8 @@ springdoc:
     urls:
       - name: user-service
         url: /user-service/v3/api-docs
-      - name: event-service
-        url: /event-service/v3/api-docs
+      - name: performance-service
+        url: /performance-service/v3/api-docs
       - name: reservation-service
         url: /reservation-service/v3/api-docs
       - name: payment-service

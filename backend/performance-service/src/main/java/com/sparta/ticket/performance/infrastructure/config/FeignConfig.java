@@ -1,4 +1,4 @@
-package com.sparta.ticket.event.infrastructure.config;
+package com.sparta.ticket.performance.infrastructure.config;
 
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.Configuration;
@@ -8,5 +8,5 @@ import org.springframework.context.annotation.Configuration;
  * FeignClient 등록이 따라 들어와, Feign 자동 설정이 없는 슬라이스 컨텍스트가 뜨지 못한다. 별도 @Configuration은 슬라이스에서 빠진다.
  */
 @Configuration
-@EnableFeignClients(basePackages = "com.sparta.ticket.event")
+@EnableFeignClients(basePackages = "com.sparta.ticket.performance")
 public class FeignConfig {}

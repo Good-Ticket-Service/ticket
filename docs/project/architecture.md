@@ -5,7 +5,7 @@
 - 상태: 작성 중
 - 출처: Notion [시스템 구성도](https://app.notion.com/p/404b3ff41d3980e89bb9e17ce9f7106f) (2026-10-26 기준)
 - **(제안)**, **(가안)** 표시는 담당자끼리 아직 합의하지 않은 내용이다.
-- 서비스 이름은 설계서를 따라 performance로 쓴다. 저장소 이름은 `event-service`다 (D10).
+- 서비스 이름은 설계서를 따라 performance로 쓴다. 저장소 이름도 `performance-service`다 (D10).
 
 > 이 문서는 전체 그림이다. 경로·필드·상태 값이 계약이나 도메인 문서와 다르면 [shared/](../shared/README.md) 계약과 도메인 폴더 문서가 기준이다. 지금 알려진 차이는 [9장](#9-아직-정하지-않은-것)에 모았다.
 
@@ -72,7 +72,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | gateway (`gateway-service`) | 8080 | — | 라우팅, JWT 검증, 외부 `X-User-*` 제거 후 검증된 값 주입, `/internal/**` 차단, 입장 토큰 검증(좌석 조회·선점 API만), 요청 수 제한 | 없음 (Redis 조회) | 김태현, 성윤범(매크로 차단) |
 | user (`user-service`) | 8081 | — | 회원가입, 로그인, JWT 발급, 역할 | 회원 (`user_schema`) | 김태현 |
-| performance (`event-service`) | 8082 | — | 공연장·좌석 배치, 공연·등급·회차·가격, 공연 조회, 잔여석 미리보기 | 공연·회차·좌석 배치, 잔여석 카운터 (`event_schema`) | 박의연 |
+| performance (`performance-service`) | 8082 | — | 공연장·좌석 배치, 공연·등급·회차·가격, 공연 조회, 잔여석 미리보기 | 공연·회차·좌석 배치, 잔여석 카운터 (`performance_schema`) | 박의연 |
 | reservation (`reservation-service`) | 8083 | `queue` | 대기열 순번, 입장 토큰 | Redis | 김태현 |
 | | | `seat` | 좌석 선점(비관적 락), 좌석 상태, 1인 매수 제한 | 회차 좌석 상태 (`reservation_schema`) | 변정민 |
 | | | `booking` | 선점 만료, 쿠폰 적용·할인 금액 계산, 결제 준비·승인 요청, 예매 확정·취소, Saga 조정·보상 | 예매·티켓 (`reservation_schema`) | 지한얼 |
@@ -253,7 +253,6 @@ stateDiagram-v2
 
 | 항목 | 관련 |
 |---|---|
-| 서비스 이름 통일: performance / `event-service` | D10 |
 | 응답 형식 통일: 예매(`/api`, `data` 래퍼, 숫자 ID, 오프셋 없는 시각)와 공연 공통 계약(`/api`, 래퍼 없음, 문자열 ID, `+09:00`)이 다름 | 팀 전체 |
 | 승인·환불 토픽 이름(`payment.confirm.requested`로 바꿀지), `pgAuthToken` 보관 기간. Feign 경로와 필드는 합의됐다 | P3·P4 |
 | 공유 계약 반영: [결제 내부 API](../shared/internal-api/payment.md)에 아직 UUID 회원 ID, 관리자 `resolve`가 남아 있다. Long ID, `PG_UNRESOLVED` 추가, `resolve`·`MANUAL` 제거로 고친다. 쿠폰 필드는 `discountAmount`로 바꾸는 변경이 검토 대기다 | 결제 계약 PR, #22 |

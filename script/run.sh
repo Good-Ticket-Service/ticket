@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 로컬 실행 진입점. .env 준비 → 이미지 빌드·기동 → 상태와 접속 주소 출력.
-# 사용: script/run.sh                                전체 기동
-#      script/run.sh user-service event-service     지정한 서비스와 그 의존 서비스만 기동
-#      script/run.sh --scale event-service=2        인스턴스 수 지정 (docker compose에 그대로 전달)
-#      script/run.sh --reset                        DB 볼륨까지 지우고 새로 시작 (DB 데이터 삭제)
-#      script/run.sh --no-build                     이미지를 다시 빌드하지 않고 기동
+# 사용: script/run.sh                                   전체 기동
+#      script/run.sh user-service performance-service  지정한 서비스와 그 의존 서비스만 기동
+#      script/run.sh --scale performance-service=2     인스턴스 수 지정 (docker compose에 그대로 전달)
+#      script/run.sh --reset                           DB 볼륨까지 지우고 새로 시작 (DB 데이터 삭제)
+#      script/run.sh --no-build                        이미지를 다시 빌드하지 않고 기동
 # 옵션은 함께 쓸 수 있다. 예: script/run.sh --reset user-service
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
     --reset) reset=true ;;
     --no-build) build=false ;;
     --scale)
-      [[ $# -ge 2 ]] || { echo "--scale 다음에 서비스=개수를 적는다. 예: --scale event-service=2" >&2; exit 2; }
+      [[ $# -ge 2 ]] || { echo "--scale 다음에 서비스=개수를 적는다. 예: --scale performance-service=2" >&2; exit 2; }
       scale_args+=("$1" "$2")
       shift ;;
     --scale=*) scale_args+=("$1") ;;

@@ -19,7 +19,7 @@
 | 도메인 | 서비스·모듈 | 담당 | 문서 |
 |---|---|---|---|
 | 회원 | `user-service` | 김태현 | [api](user/api.md) · [tables](user/tables.md) |
-| 공연 | `event-service` | 박의연 | [api](event/api.md) · [tables](event/tables.md) |
+| 공연 | `performance-service` | 박의연 | [api](performance/api.md) · [tables](performance/tables.md) |
 | 좌석 | `reservation-service` seat 모듈 | 변정민 | [plan](seat/plan.md) · [api](seat/api.md) · [tables](seat/tables.md) |
 | 예매 | `reservation-service` booking 모듈 | 지한얼 | [api](reservation/api.md) · [tables](reservation/tables.md) · [설계](reservation/orchestration.md) |
 | 대기열 | `reservation-service` queue 모듈 | 김태현 | [api](queue/api.md) |

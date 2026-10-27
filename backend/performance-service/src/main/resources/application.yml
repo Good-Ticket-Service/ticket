@@ -1,6 +1,6 @@
 spring:
   application:
-    name: event-service
+    name: performance-service
   profiles:
     # 프로필을 지정하지 않으면 local로 뜬다. 다른 환경은 SPRING_PROFILES_ACTIVE(예: dev)로 바꾼다.
     default: local
