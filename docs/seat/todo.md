@@ -28,7 +28,7 @@
 **할 일:** 구현 전에 정해야 할 것을 담당자와 맞추고 결론을 plan.md 7장에 적는다.
 **완료 조건:**
 - [ ] Gateway 라우트: `/api/schedules/*/seats`, `/api/schedules/*/remaining`, `/api/schedules/*/holds/**`를 reservation-service로 보내는 방식과 담당·시점이 정해졌다. 공연 서비스의 `GET /api/schedules/{id}`와 겹치지 않는다 (#34 합의 항목, @nuyheat)
-- [ ] 좌석 DDL 파일 위치가 정해졌다. booking처럼 `backend/sql/reservation-service/seat.sql`로 나눌지(B27), `schema.sql`에 둘지 (예매 담당)
+- [x] 좌석 DDL 파일 위치가 정해졌다. booking처럼 `backend/sql/reservation-service/seat.sql`로 나눈다(B27, plan.md 7장 9번, 예매 담당 합의)
 - [ ] 감사 작성자(`created_by`·`updated_by`)를 채우는 방식이 booking과 같다. 조건부 UPDATE·요청 밖 작업의 값 포함
 - [ ] 외부 API 시각을 `+09:00`으로 내보내는 방식이 정해졌다(Jackson 설정 또는 DTO 타입)
 **의존:** 없음 · **규모:** S
@@ -72,7 +72,7 @@
 
 ## Phase 2. MVP 외부 API
 
-booking의 `countActiveSeats`·`findActiveHold`·`expireIfDue`·`findPaymentInProgress`는 아직 구현 전이다(booking-facade.md). 이 메서드가 필요한 Task는 테스트용 가짜 `BookingFacade`로 먼저 만들고, booking 구현이 머지되면 실제 구현으로 통합 테스트를 다시 돌린다.
+booking의 `countActiveSeats`·`findActiveHold`·`expireIfDue`·`findPaymentInProgress`는 계약(booking-facade.md)에만 있고 `BookingFacade` 인터페이스에는 선언도 아직 없다. 예매 담당이 시그니처를 먼저 머지하고 구현은 따로 올린다(예매 담당 이슈, 번호가 나오면 적는다). 이 메서드가 필요한 Task는 머지된 시그니처를 구현한 테스트용 가짜 `BookingFacade`로 먼저 만들고, booking 구현이 머지되면 실제 구현으로 통합 테스트를 다시 돌린다.
 
 ### Task 4: 선택 가능 좌석 조회
 **참조:** api.md "선택 가능 좌석 판정", `GET /api/schedules/{scheduleId}/seats`, plan.md 4.3

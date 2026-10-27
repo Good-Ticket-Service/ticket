@@ -133,4 +133,4 @@ Notion에 남은 미확정 항목(2026-10-27 기준):
 Task 0에서 더한 항목:
 
 9. **좌석 DDL 파일 위치**: booking은 자기 테이블 DDL을 `booking.sql`로 나눴고 `schema.sql`은 고치지 않는다(booking-decisions.md B27).
-   - **제안** (2026-10-27, 확인 대기: @jihaneol): 좌석도 `backend/sql/reservation-service/seat.sql`에 둔다. `schema.sql`은 고치지 않는다. 좌석 통합 테스트는 `schema.sql`, `booking.sql`, `seat.sql` 순서로 실행한다. booking 테스트 설정에 `seat.sql`을 더할지는 Task 1에서 예매 담당과 정한다.
+   - **합의** (2026-10-27, @jihaneol, PR #57 리뷰): 좌석도 `backend/sql/reservation-service/seat.sql`에 둔다. `schema.sql`은 고치지 않는다. 쿠폰도 곧 테이블이 생기므로 모듈별 파일로 나눠야 충돌이 적다. 좌석 통합 테스트는 `schema.sql`, `booking.sql`, `seat.sql` 순서로 실행한다. booking 테스트 설정에 `seat.sql`을 더할지는 Task 1에서 예매 담당과 정한다.
