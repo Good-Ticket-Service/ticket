@@ -107,7 +107,7 @@ stateDiagram-v2
 | 공연 | 회차 좌석 준비 이벤트 (요청·완료·실패, 토픽 이름, reasonCode) | [shared/internal-api/seat.md](../shared/internal-api/seat.md) | 협의 중 (이벤트 형식 미확정) |
 | 예매 (booking) | `BookingFacade`: `hold(userId, scheduleId, List<SeatLine>, holdExpiresAt)`, `getReservation`, `release(userId, reservationId) → ReleaseResult`, `countActiveSeats`, `findActiveHold`, `expireIfDue`, `findPaymentInProgress` / `SeatFacade`: `lockSeats → List<SeatLock>`, `sell(ids, reservationId)`, `release(ids, reservationId)` / 공용 `Clock` | [booking-facade.md](../shared/modules/booking-facade.md), [seat-facade.md](../shared/modules/seat-facade.md) | 합의 (#34). SeatFacade는 좌석 담당 구현 전 |
 | 대기열·Gateway | `X-Queue-Token` 검증(공연 단위, TTL 10분), 경로의 scheduleId로 공연 범위 확인 | Notion 전체 API 공통 계약 | 확정 (검증 방식은 대기열 담당과 협의) |
-| Gateway | `/api/schedules/{id}/seats·remaining·holds/**` → reservation-service 라우트 | `backend/config-repo/gateway-service.yml` | 미반영 (#34 합의 항목, @nuyheat 확인 대기) |
+| Gateway | `/api/schedules/{id}/seats·remaining·holds/**` → reservation-service 라우트 | `backend/config-repo/gateway-service.yml` | 미반영. 방식은 7장 1번 제안 (Task 0, @nuyheat 확인 대기) |
 
 ## 6. 작업 목록
 
@@ -116,8 +116,11 @@ stateDiagram-v2
 ## 7. 열린 질문
 
 1. **경로·Gateway 라우팅**: 외부 경로 접두사는 `/api/**`(v1 없음)로 정해졌다(2026-10-27). 남은 것은 라우팅이다. 공연 서비스의 `GET /api/schedules/{id}`(회차 상세)와 좌석의 `/api/schedules/{id}/seats·remaining·holds/**`가 같은 접두사를 쓰므로, Gateway에서 하위 경로 단위로 reservation-service에 보내야 한다. 누가 언제 라우트를 고칠지 정한다.
+   - **제안** (2026-10-27, 확인 대기: @nuyheat): reservation-service 라우트에 `Path=/api/schedules/*/seats, /api/schedules/*/remaining, /api/schedules/*/holds/**`를 더한다. 공연의 `/api/schedules/**` 라우트가 생기면 그보다 앞에 둔다. Gateway는 라우트를 정의 순서대로 검사하기 때문이다. 좌석 담당이 첫 외부 API PR(Task 4)에서 고치고 Gateway 담당이 리뷰한다. 공연 라우트가 아직 `/api/v1/events/**`인 것은 공연 담당이 정리한다.
 2. **감사 작성자 채우는 방식**: `created_by`·`updated_by`를 요청 사용자 ID로 채우는 `AuditorAware` 구현 위치, 요청 밖 작업(좌석 준비 소비)의 `SYSTEM` 기록, 조건부 UPDATE·잠금 후 변경에서 쿼리가 값을 넣는 방법을 booking과 같은 방식으로 맞춘다.
+   - **제안** (2026-10-27, 확인 대기: @jihaneol): JPA 감사는 공통 `HeaderAuditorAware`(`X-Username`, 요청 밖은 `SYSTEM`)를 그대로 쓴다. 조건부 UPDATE에는 booking의 `ChangeStamps`와 같은 규칙(공용 `Clock` 시각, `AuditorAware` 사용자, 없으면 `SYSTEM`)으로 seat에 같은 모양의 클래스를 둔다. seat는 `booking.application.facade` 밖의 booking 타입을 쓰지 않으므로(`ArchitectureTest`, B32) `ChangeStamps`를 직접 쓰지 않는다. 좌석 준비 소비처럼 요청 밖 작업에는 `SYSTEM`이 들어간다.
 3. **`+09:00` 직렬화**: 좌석 API는 `+09:00` 오프셋을 포함하기로 했다. 예매 API는 오프셋 없는 KST를 쓰고, conventions.md는 아직 "합의가 필요한 차이"로 둔다. Jackson 설정을 서비스 전체로 할지 DTO 타입(`OffsetDateTime`)으로 할지 정한다.
+   - **제안** (2026-10-27, 확인 대기: @jihaneol): 서비스 전체 Jackson 설정은 바꾸지 않는다. 좌석 응답 DTO만 `OffsetDateTime`으로 만들어 공용 `Clock`의 `Asia/Seoul` 오프셋으로 내보낸다. 예매 API 형식은 바뀌지 않고, conventions.md의 차이 표는 그대로 둔다.
 4. **좌석 준비 이벤트 도입 시기**: 이벤트 형식·토픽 이름은 공연 담당과 협의 중이다. reservation-service에 `spring-kafka`가 들어오는 시점(booking Phase 2와 같이 할지)과, 그 전까지 좌석 데이터를 테스트용으로 넣는 방법을 정한다.
 
 Notion에 남은 미확정 항목(2026-10-27 기준):
@@ -126,3 +129,8 @@ Notion에 남은 미확정 항목(2026-10-27 기준):
 6. 선점 API의 Idempotency-Key 적용 범위
 7. 잔여석 캐시 TTL 값
 8. 조회 API 구현 담당: Notion 기능 분담표는 좌석 배치도·잔여석 미리보기를 4번 담당으로 적었다. 좌석 데이터가 `p_schedule_seats`에 있으므로 좌석 담당이 구현하는 것으로 확정할지 정한다.
+
+Task 0에서 더한 항목:
+
+9. **좌석 DDL 파일 위치**: booking은 자기 테이블 DDL을 `booking.sql`로 나눴고 `schema.sql`은 고치지 않는다(booking-decisions.md B27).
+   - **제안** (2026-10-27, 확인 대기: @jihaneol): 좌석도 `backend/sql/reservation-service/seat.sql`에 둔다. `schema.sql`은 고치지 않는다. 좌석 통합 테스트는 `schema.sql`, `booking.sql`, `seat.sql` 순서로 실행한다. booking 테스트 설정에 `seat.sql`을 더할지는 Task 1에서 예매 담당과 정한다.

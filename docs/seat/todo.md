@@ -19,11 +19,12 @@
 - 브랜치는 `<type>/reservation/<이슈 번호>-<설명>`이다(예: `feat/reservation/51-schedule-seat-entity`).
 - Task를 끝내면 이 문서의 체크박스와 Task 제목 옆 이슈·PR 번호를 같은 PR에서 고친다.
 - 동시성·트랜잭션이 들어간 PR(Task 3, 7, 8)은 올리기 전에 `concurrency-reviewer` 에이전트로 검토한다.
+- Task 0은 협의 정리라 이 문서를 올린 PR(#57)에 함께 올린다.
 
 ## Phase 0. 선행 확인
 
-### Task 0: 남은 협의 정리
-**참조:** plan.md 5장, 7장 열린 질문 1~4
+### Task 0: 남은 협의 정리 (#55, PR #57)
+**참조:** plan.md 5장, 7장 열린 질문 1~3·9
 **할 일:** 구현 전에 정해야 할 것을 담당자와 맞추고 결론을 plan.md 7장에 적는다.
 **완료 조건:**
 - [ ] Gateway 라우트: `/api/schedules/*/seats`, `/api/schedules/*/remaining`, `/api/schedules/*/holds/**`를 reservation-service로 보내는 방식과 담당·시점이 정해졌다. 공연 서비스의 `GET /api/schedules/{id}`와 겹치지 않는다 (#34 합의 항목, @nuyheat)
