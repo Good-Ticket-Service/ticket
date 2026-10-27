@@ -64,7 +64,7 @@ for service in "${SERVICES[@]}"; do
   echo "ok: $service 등록"
 done
 
-status=$(request "$gateway/api/v1/users/me")
+status=$(request "$gateway/api/users/me")
 [[ $status == 401 ]] && grep -q '"code":"UNAUTHORIZED"' "$body_file" \
   || fail "무인증 요청이 공통 401 응답이 아니다: $status $(cat "$body_file")"
 echo "ok: 무인증 요청 401"
@@ -124,26 +124,26 @@ if fake_pg=$(host_url fake-pg 8090); then
   echo "ok: fake PG 결제 인증·승인"
 fi
 
-username=$(env_value MASTER_USERNAME)
+email=$(env_value MASTER_EMAIL)
 password=$(env_value MASTER_PASSWORD)
-if [[ -z "$username" || -z "$password" ]]; then
-  echo "건너뜀: MASTER_USERNAME·MASTER_PASSWORD가 없어 로그인 점검을 하지 않는다"
+if [[ -z "$email" || -z "$password" ]]; then
+  echo "건너뜀: MASTER_EMAIL·MASTER_PASSWORD가 없어 로그인 점검을 하지 않는다"
   exit 0
 fi
 
 # user-service가 MASTER 계정을 만든 뒤에 로그인할 수 있다. 등록 직후에는 잠깐 실패할 수 있어 기다린다.
 login() {
   [[ $(request -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$username\",\"password\":\"$password\"}" \
-    "$gateway/api/v1/auth/login") == 200 ]]
+    -d "{\"email\":\"$email\",\"password\":\"$password\"}" \
+    "$gateway/api/auth/login") == 200 ]]
 }
 wait_until "MASTER 로그인이 200이 아니다" login
 token=$(sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' "$body_file")
 [[ -n "$token" ]] || fail "로그인 응답에 accessToken이 없다: $(cat "$body_file")"
 echo "ok: MASTER 로그인"
 
-status=$(request -H "Authorization: Bearer $token" "$gateway/api/v1/users/me")
-[[ $status == 200 ]] && grep -q "\"username\":\"$username\"" "$body_file" \
+status=$(request -H "Authorization: Bearer $token" "$gateway/api/users/me")
+[[ $status == 200 ]] && grep -q "\"email\":\"$email\"" "$body_file" \
   || fail "토큰으로 내 정보 조회에 실패했다: $status $(cat "$body_file")"
 echo "ok: 토큰으로 내 정보 조회"
 
