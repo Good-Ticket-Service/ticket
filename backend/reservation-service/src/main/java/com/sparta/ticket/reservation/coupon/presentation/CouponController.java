@@ -43,4 +43,11 @@ public class CouponController {
             @PathVariable Long couponId, @Valid @RequestBody UpdateCouponRequest request) {
         return ApiResponse.ok(couponService.update(couponId, request.toCommand()));
     }
+
+    @Operation(summary = "쿠폰 발급 중단")
+    @RequireRole(Role.MASTER)
+    @PostMapping("/{couponId}/close")
+    public ApiResponse<CouponResult> close(@PathVariable Long couponId) {
+        return ApiResponse.ok(couponService.close(couponId));
+    }
 }
