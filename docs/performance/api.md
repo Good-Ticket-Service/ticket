@@ -1,7 +1,7 @@
 # 공연 API 명세
 
 - 상태: 작성 중
-- 담당: 공연 담당
+- 담당: 박의연
 - 출처: Notion [API 명세](https://app.notion.com/p/404b3ff41d398040a969f8eaa2e007a8)의 공연 도메인 (2026-10-27 기준). 이후 원본은 이 문서이며, Notion은 담당자가 이 문서를 기준으로 갱신한다.
 - 테이블과 ERD: [tables.md](tables.md)
 
@@ -248,7 +248,7 @@ venueSeatGradeId는 필수이며 같은 공연장 등급만 허용한다.
 ```json
 {
   "venueId": 10,
-  "title": "공연 A",
+  "title": "공연 A 서울",
   "genre": "MUSICAL",
   "ageRating": "12",
   "runningTime": 120,
@@ -477,8 +477,8 @@ reservation-summary의 상태별 예약 건수만으로 환불 완료를 판단�
   "allowed": true,
   "scheduleId": 201,
   "configVersion": 1,
-  "policyVersion": 5,
-  "performanceTitle": "공연 A",
+  "policyVersion": 3,
+  "performanceTitle": "공연 A 서울",
   "scheduleStartAt": "2026-12-01T19:00:00+09:00",
   "validatedAt": "2026-11-01T14:01:00+09:00",
   "seats": [
@@ -670,8 +670,7 @@ POST /api/admin/venues
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -793,8 +792,7 @@ GET /api/seller/venues
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -1029,7 +1027,7 @@ POST /api/admin/venues/{venueId}/seat-grades
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -1146,8 +1144,7 @@ GET /api/seller/venues/{venueId}/seat-grades
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -1252,7 +1249,7 @@ PATCH /api/admin/venues/{venueId}/seat-grades/{gradeId}
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -1439,7 +1436,7 @@ POST /api/admin/venues/{venueId}/seats
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -1559,8 +1556,7 @@ GET /api/seller/venues/{venueId}/seats
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -1674,7 +1670,7 @@ PATCH /api/admin/venues/{venueId}/seats/{seatId}
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -1874,8 +1870,7 @@ POST /api/seller/performances
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -2039,8 +2034,7 @@ GET /api/seller/performances
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -2184,8 +2178,7 @@ GET /api/seller/performances/{performanceId}
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -2407,7 +2400,7 @@ PATCH /api/seller/performances/{performanceId}
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -2576,7 +2569,7 @@ PUT /api/seller/performances/{performanceId}/grade-prices
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -2700,7 +2693,7 @@ PUT /api/seller/performances/{performanceId}/seat-exclusions
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -2822,7 +2815,7 @@ POST /api/seller/performances/{performanceId}/publication
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -2968,7 +2961,7 @@ DELETE /api/seller/performances/{performanceId}
 Authorization
 If-Match
 If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -3051,7 +3044,7 @@ POST /api/seller/performances/{performanceId}/schedules
 
 Authorization
 회차 등록은 If-Match를 받지 않는다. 서버가 같은 트랜잭션에서 부모 공연 행을 잠그고(SELECT ... FOR UPDATE) 공연 상태를 확인한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -3103,7 +3096,7 @@ HTTP 201
 | bookingOpenAt | datetime | 필수 | 예매 오픈 시각. |
 | bookingCloseAt | datetime | 필수 | 예매 마감 시각. |
 | operationStatus | string | 필수 | ACTIVE / CANCELED. |
-| seatSetupStatus | string | 필수 | PENDING / READY / FAILED. 사용자에게 내부 오류는 노출하지 않음. |
+| seatSetupStatus | string | 필수 | PENDING / READY / FAILED. PENDING이면 서버가 좌석 준비를 자동으로 재시도한다. FAILED이면 seatSetupError로 원인을 확인하고 기존 구성 변경 API로 복구한다. 판매자용 재시도 API는 없다. 사용자에게 내부 오류는 노출하지 않음. |
 | salesSuspended | boolean | 필수 | 판매 일시 중지 여부. |
 | salesStatus | string | 필수 | CANCELED / CLOSED / BEFORE_OPEN / UNAVAILABLE / ON_SALE. 매진 여부는 예매 서비스 별도 조회. |
 | canceledAt | datetime\|null | 필수 | 취소 시각. 정상 회차이면 null. |
@@ -3143,7 +3136,7 @@ HTTP 201
 
 공연이 DRAFT 또는 PUBLISHED이고 취소되지 않았다면 회차 추가가 가능하다.
 오픈 < 마감 <= 시작.
-등급·가격·좌석배정은 서버가 공연장 원본과 공연 공통 설정에서 가져온다.
+등급·가격·좌석 배정은 서버가 공연장 원본과 공연 공통 설정에서 가져온다.
 알 수 없는 필드, 타입 불일치, 필수값 누락은 400이다.
 인증·역할·본인 소유권, 공개 후 수정 제한, 시간 순서와 FK 소속을 서버가 검증한다.
 회차 등록은 If-Match를 받지 않는다. 서버가 같은 트랜잭션에서 부모 공연 행을 잠그고(SELECT ... FOR UPDATE) 공연 상태를 확인한다. 공개 검증과 회차 변경의 경쟁은 이 행 잠금으로 막는다.
@@ -3373,7 +3366,7 @@ PATCH /api/seller/schedules/{scheduleId}
 Authorization
 If-Match
 If-Match는 회차의 현재 version(schedule.version)을 큰따옴표로 감싸 전달한다. 예: If-Match: "0"
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -3413,7 +3406,7 @@ HTTP 200
 | bookingOpenAt | datetime | 필수 | 예매 오픈 시각. |
 | bookingCloseAt | datetime | 필수 | 예매 마감 시각. |
 | operationStatus | string | 필수 | ACTIVE / CANCELED. |
-| seatSetupStatus | string | 필수 | PENDING / READY / FAILED. 사용자에게 내부 오류는 노출하지 않음. |
+| seatSetupStatus | string | 필수 | PENDING / READY / FAILED. PENDING이면 서버가 좌석 준비를 자동으로 재시도한다. FAILED이면 seatSetupError로 원인을 확인하고 기존 구성 변경 API로 복구한다. 판매자용 재시도 API는 없다. 사용자에게 내부 오류는 노출하지 않음. |
 | salesSuspended | boolean | 필수 | 판매 일시 중지 여부. |
 | salesStatus | string | 필수 | CANCELED / CLOSED / BEFORE_OPEN / UNAVAILABLE / ON_SALE. 매진 여부는 예매 서비스 별도 조회. |
 | canceledAt | datetime\|null | 필수 | 취소 시각. 정상 회차이면 null. |
@@ -3535,7 +3528,7 @@ DELETE /api/seller/schedules/{scheduleId}
 Authorization
 If-Match
 If-Match는 회차의 현재 version(schedule.version)을 큰따옴표로 감싸 전달한다. 예: If-Match: "0"
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -3619,8 +3612,7 @@ GET /api/admin/performances
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -3765,8 +3757,7 @@ GET /api/admin/performances/{performanceId}
 ##### 헤더
 
 Authorization
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+요청 본문이 없으므로 Content-Type을 보내지 않는다.
 
 ##### Request DTO
 
@@ -3988,7 +3979,7 @@ POST /api/admin/schedules/{scheduleId}/cancellation
 Authorization
 If-Match
 If-Match는 회차의 현재 version(schedule.version)을 큰따옴표로 감싸 전달한다. 예: If-Match: "0"
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -4120,7 +4111,7 @@ PUT /api/admin/schedules/{scheduleId}/sales-suspension
 Authorization
 If-Match
 If-Match는 회차의 현재 version(schedule.version)을 큰따옴표로 감싸 전달한다. 예: If-Match: "0"
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 ##### Request DTO
 
@@ -4243,8 +4234,6 @@ GET /api/performances
 ##### 헤더
 
 없음
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
 
 ##### Request DTO
 
@@ -4387,8 +4376,6 @@ GET /api/performances/{performanceId}
 ##### 헤더
 
 없음
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
 
 ##### Request DTO
 
@@ -4533,8 +4520,6 @@ GET /api/performances/{performanceId}/schedules
 ##### 헤더
 
 없음
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
 
 ##### Request DTO
 
@@ -4633,7 +4618,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 4. 판매 기간 중 salesSuspended=true 또는 seatSetupStatus!=READY: UNAVAILABLE
 5. 나머지 판매 가능 조건 충족: ON_SALE
 
-매진·여유·임박은 이 상태에 포함하지 않는다. 관리 화면의 상세 원인은 seatSetupStatus·salesSuspended로 확인한다.
+매진·여유·임박은 이 상태에 포함하지 않는다. UNAVAILABLE의 상세 원인은 응답의 seatSetupStatus·salesSuspended로 확인한다.
 
 #### GET /api/schedules/{scheduleId} — 공연 회차 상세 조회
 
@@ -4664,8 +4649,6 @@ GET /api/schedules/{scheduleId}
 ##### 헤더
 
 없음
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
 
 ##### Request DTO
 
@@ -4757,7 +4740,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 4. 판매 기간 중 salesSuspended=true 또는 seatSetupStatus!=READY: UNAVAILABLE
 5. 나머지 판매 가능 조건 충족: ON_SALE
 
-매진·여유·임박은 이 상태에 포함하지 않는다. 관리 화면의 상세 원인은 seatSetupStatus·salesSuspended로 확인한다.
+매진·여유·임박은 이 상태에 포함하지 않는다. UNAVAILABLE의 상세 원인은 응답의 seatSetupStatus·salesSuspended로 확인한다.
 
 #### GET /api/performances/{performanceId}/seat-layout — 공연 좌석 배치 조회
 
@@ -4788,8 +4771,6 @@ GET /api/performances/{performanceId}/seat-layout
 ##### 헤더
 
 없음
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
 
 ##### Request DTO
 
@@ -4916,8 +4897,7 @@ POST /internal/schedules/{scheduleId}/sale-validations
 #### 헤더
 
 서비스 인증
-If-Match가 있으면 요청 대상 리소스의 version(venue API는 venue.version, 공연 API는 performance.version, 회차 API는 schedule.version)을 큰따옴표로 감싸 전달한다.
-Content-Type: application/json은 JSON 요청 본문이 있을 때 사용한다.
+Content-Type: application/json
 
 #### Request DTO
 
