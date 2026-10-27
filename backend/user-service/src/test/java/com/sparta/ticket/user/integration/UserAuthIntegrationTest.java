@@ -3,10 +3,13 @@ package com.sparta.ticket.user.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.user.application.AuthService;
@@ -17,6 +20,11 @@ import com.sparta.ticket.user.application.dto.SignupResult;
 import com.sparta.ticket.user.domain.UserErrorCode;
 import com.sparta.ticket.user.domain.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -174,6 +182,47 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.email").value("itapi01@ticket.com"))
                 .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("내 정보 수정은 보낸 필드만 DB에 반영하고, updated_by에 본인 email, 응답 updatedAt에 수정 시각을 남긴다")
+    void updateMyInfoPersists() throws Exception {
+        SignupResult result = authService.signup(signup("itupdate01@ticket.com"));
+        // 가입과 수정이 같은 초에 일어나도 updatedAt이 바뀐 것을 구분하도록 수정 전 시각을 과거로 돌려 둔다.
+        jdbcTemplate.update(
+                "UPDATE p_users SET updated_at = ? WHERE user_id = ?",
+                Timestamp.valueOf(LocalDateTime.of(2026, 1, 1, 0, 0)),
+                result.userId());
+
+        String body = mockMvc.perform(patch("/api/users/me")
+                        .header(UserHeaders.USER_ID, result.userId().toString())
+                        .header(UserHeaders.USERNAME, "itupdate01@ticket.com")
+                        .header(UserHeaders.ROLE, "USER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"010-9876-5432\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("홍길동"))
+                .andExpect(jsonPath("$.data.phone").value("010-9876-5432"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT name, phone, created_by, updated_by, updated_at FROM p_users WHERE user_id = ?",
+                result.userId());
+        assertThat(row.get("name")).isEqualTo("홍길동");
+        assertThat(row.get("phone")).isEqualTo("010-9876-5432");
+        assertThat(row.get("created_by")).isEqualTo("SYSTEM");
+        assertThat(row.get("updated_by")).isEqualTo("itupdate01@ticket.com");
+        LocalDateTime updatedAt = ((Timestamp) row.get("updated_at")).toLocalDateTime();
+        assertThat(updatedAt).isAfter(LocalDateTime.of(2026, 1, 1, 0, 0));
+
+        // 응답이 수정 전 시각이 아니라 UPDATE 후 DB 값을 담았는지(saveAndFlush) 확인한다.
+        String expected = updatedAt
+                .truncatedTo(ChronoUnit.SECONDS)
+                .atZone(ZoneId.of("Asia/Seoul"))
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+        assertThat((String) JsonPath.read(body, "$.data.updatedAt")).isEqualTo(expected);
     }
 
     @Test
