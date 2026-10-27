@@ -4,20 +4,20 @@
 - 담당:
 - 출처: Notion "도메인별 API 명세"의 쿠폰 항목 (2026-10-26 기준). 담당자가 검토하며 고친다.
 
-외부 API(`/api/v1/**`)만 둔다. 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다. 쿠폰 모듈은 reservation-service에 있고(제안), gateway가 `/api/v1/coupons/**`를 reservation-service로 보낸다. 예매와의 모듈 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다.
+외부 API(`/api/**`)만 둔다. 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다. 쿠폰 모듈은 reservation-service에 있고(제안), gateway가 `/api/coupons/**`를 reservation-service로 보낸다. 예매와의 모듈 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다.
 
 ## 1. 외부 API
 
 | Method | URI | 권한·허용 호출자 | 성공 HTTP | 기능 |
 |---|---|---|---|---|
-| POST | `/api/v1/coupons` | MASTER | 201 | 쿠폰 생성 |
-| PATCH | `/api/v1/coupons/{couponId}` | MASTER | 200 | 쿠폰 수정 |
-| POST | `/api/v1/coupons/{couponId}/close` | MASTER | 200 | 쿠폰 발급 중단 |
-| DELETE | `/api/v1/coupons/{couponId}` | MASTER | 204 | 쿠폰 삭제 (아무도 받지 않은 쿠폰만) |
-| GET | `/api/v1/coupons` | 로그인 | 200 | 쿠폰 목록 조회 |
-| GET | `/api/v1/coupons/{couponId}` | 로그인 | 200 | 쿠폰 상세 조회 |
-| POST | `/api/v1/coupons/{couponId}/issue` | USER | 201 | 쿠폰 선착순 발급 |
-| GET | `/api/v1/coupons/me` | 로그인 | 200 | 내 쿠폰 목록 조회 |
+| POST | `/api/coupons` | MASTER | 201 | 쿠폰 생성 |
+| PATCH | `/api/coupons/{couponId}` | MASTER | 200 | 쿠폰 수정 |
+| POST | `/api/coupons/{couponId}/close` | MASTER | 200 | 쿠폰 발급 중단 |
+| DELETE | `/api/coupons/{couponId}` | MASTER | 204 | 쿠폰 삭제 (아무도 받지 않은 쿠폰만) |
+| GET | `/api/coupons` | 로그인 | 200 | 쿠폰 목록 조회 |
+| GET | `/api/coupons/{couponId}` | 로그인 | 200 | 쿠폰 상세 조회 |
+| POST | `/api/coupons/{couponId}/issue` | USER | 201 | 쿠폰 선착순 발급 |
+| GET | `/api/coupons/me` | 로그인 | 200 | 내 쿠폰 목록 조회 |
 
 - 관리자 역할은 MASTER로 통일한다(팀 결정). ADMIN이라는 역할 이름은 쓰지 않는다.
 - 「로그인」은 역할과 상관없이 로그인한 회원(USER, SELLER, MASTER)을 뜻한다. `@RequireRole`을 붙이지 않는다.
@@ -31,7 +31,7 @@
   "status": 400,
   "code": "VALIDATION_ERROR",
   "message": "...",
-  "path": "/api/v1/coupons",
+  "path": "/api/coupons",
   "timestamp": "2026-11-01T10:00:00",
   "errors": [ { "field": "name", "reason": "..." } ]
 }
@@ -39,7 +39,7 @@
 
 `errors`는 `VALIDATION_ERROR`일 때만 있다. 시각은 `yyyy-MM-ddTHH:mm:ss`다.
 
-### POST /api/v1/coupons — 쿠폰 생성
+### POST /api/coupons — 쿠폰 생성
 
 - 권한·허용 호출자: MASTER
 - 필수 헤더: `Authorization: Bearer {accessToken}`, `Content-Type: application/json`
@@ -90,7 +90,7 @@
 | 401 | UNAUTHORIZED | 토큰이 없거나 유효하지 않음 |
 | 403 | FORBIDDEN | MASTER 역할이 아님 |
 
-### PATCH /api/v1/coupons/{couponId} — 쿠폰 수정
+### PATCH /api/coupons/{couponId} — 쿠폰 수정
 
 - 권한·허용 호출자: MASTER
 - 필수 헤더: `Authorization: Bearer {accessToken}`, `Content-Type: application/json`
@@ -128,7 +128,7 @@
 | 409 | COUPON_NOT_MODIFIABLE | 발급 시작 후 바꿀 수 없는 필드를 보냄 |
 | 409 | COUPON_QUANTITY_BELOW_ISSUED | totalQuantity가 이미 발급한 수량보다 적음 |
 
-### POST /api/v1/coupons/{couponId}/close — 쿠폰 발급 중단
+### POST /api/coupons/{couponId}/close — 쿠폰 발급 중단
 
 - 권한·허용 호출자: MASTER
 - 필수 헤더: `Authorization: Bearer {accessToken}`
@@ -147,7 +147,7 @@
 | 404 | COUPON_NOT_FOUND | 쿠폰이 없음 |
 | 409 | COUPON_ALREADY_CLOSED | 이미 발급이 끝난 쿠폰 |
 
-### DELETE /api/v1/coupons/{couponId} — 쿠폰 삭제
+### DELETE /api/coupons/{couponId} — 쿠폰 삭제
 
 - 권한·허용 호출자: MASTER
 - 필수 헤더: `Authorization: Bearer {accessToken}`
@@ -180,7 +180,7 @@ WHERE coupon_id = ? AND issued_quantity = 0 AND deleted_at IS NULL
 | 404 | COUPON_NOT_FOUND | 쿠폰이 없거나 이미 삭제됨 |
 | 409 | COUPON_NOT_DELETABLE | 이미 한 장 이상 발급된 쿠폰 |
 
-### GET /api/v1/coupons — 쿠폰 목록 조회
+### GET /api/coupons — 쿠폰 목록 조회
 
 - 권한·허용 호출자: 로그인
 - 필수 헤더: `Authorization: Bearer {accessToken}`
@@ -201,7 +201,7 @@ WHERE coupon_id = ? AND issued_quantity = 0 AND deleted_at IS NULL
 
 오류: 400 `VALIDATION_ERROR`(issueStatus가 허용 값이 아님, sort 필드가 허용 목록에 없음), 401 `UNAUTHORIZED`
 
-### GET /api/v1/coupons/{couponId} — 쿠폰 상세 조회
+### GET /api/coupons/{couponId} — 쿠폰 상세 조회
 
 - 권한·허용 호출자: 로그인
 - 필수 헤더: `Authorization: Bearer {accessToken}`
@@ -219,7 +219,7 @@ WHERE coupon_id = ? AND issued_quantity = 0 AND deleted_at IS NULL
 | 401 | UNAUTHORIZED | 토큰이 없거나 유효하지 않음 |
 | 404 | COUPON_NOT_FOUND | 쿠폰이 없음 |
 
-### POST /api/v1/coupons/{couponId}/issue — 쿠폰 선착순 발급
+### POST /api/coupons/{couponId}/issue — 쿠폰 선착순 발급
 
 - 권한·허용 호출자: USER
 - 필수 헤더: `Authorization: Bearer {accessToken}`
@@ -249,13 +249,13 @@ WHERE coupon_id = ? AND issued_quantity = 0 AND deleted_at IS NULL
 | 409 | COUPON_SOLD_OUT | 수량이 다 떨어짐 |
 | 409 | COUPON_ALREADY_ISSUED | 이미 받은 쿠폰 |
 
-### GET /api/v1/coupons/me — 내 쿠폰 목록 조회
+### GET /api/coupons/me — 내 쿠폰 목록 조회
 
 - 권한·허용 호출자: 로그인
 - 필수 헤더: `Authorization: Bearer {accessToken}`
 - 성공 HTTP: 200
 
-내가 발급받은 쿠폰을 상태별로 조회한다. 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰은 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. 예매 결제 준비(`POST /api/v1/reservations/{reservationId}/payments/checkout`)에 넣는 값은 이 응답의 userCouponId다.
+내가 발급받은 쿠폰을 상태별로 조회한다. 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰은 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. 예매 결제 준비(`POST /api/reservations/{reservationId}/payments/checkout`)에 넣는 값은 이 응답의 userCouponId다.
 
 요청: `?status=AVAILABLE&page=0&size=10&sort=createdAt,DESC`
 
