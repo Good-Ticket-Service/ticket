@@ -7,7 +7,7 @@
 |---|---|
 | [api.md](api.md) | 외부 API 4개 |
 | [tables.md](tables.md) | ERD와 `p_schedule_seats` 명세 |
-| shared 계약 | 제공: [회차 좌석 준비](../shared/internal-api/seat.md) / 사용: [공연 판매 검증](../shared/internal-api/event.md) / booking과의 Facade: 계약 이슈 #41 (초안) |
+| shared 계약 | 제공: [회차 좌석 준비](../shared/internal-api/seat.md) / 사용: [공연 판매 검증](../shared/internal-api/event.md) / booking과의 Facade: 계약 이슈 [#34](https://github.com/Good-Ticket-Service/ticket/issues/34) (합의, 계약 PR 전) |
 
 ## 1. 목표와 범위
 
@@ -65,25 +65,28 @@ stateDiagram-v2
 5.   같은 좌석의 본인 유효 HOLD → 기존 예약 200
 6.   본인 만료 HOLD → BookingFacade로 EXPIRED, 그 좌석 AVAILABLE
 7.   판매 대상·config_version·base_price 확인
-8.   선택 가능 판정. 만료 HOLD면 findPaymentInProgress → 아니면 예전 예약 조건부 EXPIRED (0행이면 409)
+8.   선택 가능 판정. 만료 HOLD면 findPaymentInProgress → 아니면 expireIfDue로 예전 예약 EXPIRED (0행이면 409)
 9.   countActiveSeats ≥ 1 → 409 PURCHASE_LIMIT_EXCEEDED
-10.  BookingFacade.hold → 예약 HOLD + 티켓 (부분 UNIQUE 위반 → 롤백, 409)
-11.  좌석 HOLD, reservation_id, hold_expires_at = DB now() + 10분
+10.  BookingFacade.hold → 예약 HOLD + 티켓 (부분 UNIQUE 위반 예외 → 롤백, 409)
+11.  좌석 HOLD, reservation_id, hold_expires_at = Clock now + 10분
 12. 커밋, 201
 ```
 
-원격 호출(판매 검증)은 잠금 전에 트랜잭션 밖에서 한다. 공연 서비스가 늦어도 좌석 행과 DB 커넥션을 잡고 있지 않게 하려는 것이다.
+원격 호출(판매 검증)은 잠금 전에 트랜잭션 밖에서 한다. 공연 서비스가 늦어도 좌석 행과 DB 커넥션을 잡고 있지 않게 하려는 것이다. 만료 판단과 `hold_expires_at` 계산의 now는 booking과 함께 쓰는 `Clock` 빈에서 읽는다(#34 쟁점 1).
 
 ### 4.2 선점 해제
 
 ```
-1. BookingFacade로 예약 조회 (잠금 없음). 404 / 403
-2. 이미 RELEASED·EXPIRED → 204
-3. [트랜잭션] 좌석 FOR UPDATE → 만료 전이면 BookingFacade.release (RELEASED), 만료 후면 EXPIRED
-4.   0행 → 다시 읽어 RELEASED·EXPIRED면 204, 그 밖이면 409 INVALID_STATUS_TRANSITION
-5.   좌석 AVAILABLE (reservation_id 일치할 때만)
-6. 커밋, 204
+[트랜잭션]
+1. 이 예약이 잡은 좌석을 id 오름차순 FOR UPDATE (schedule_id가 경로와 다르면 404)
+2. BookingFacade.release(userId, reservationId)
+     → RELEASED / EXPIRED / ALREADY_ENDED
+     → 404 RESERVATION_NOT_FOUND · 403 FORBIDDEN · 409 INVALID_STATUS_TRANSITION은 예외
+3. 좌석 AVAILABLE (reservation_id 일치할 때만)
+커밋, 204
 ```
+
+예약 상태 판단은 booking 한 곳에서 한다(#34 쟁점 5). seat는 결과와 관계없이 이 예약이 잡은 좌석만 반환한다.
 
 ### 4.3 조회·잔여석
 
@@ -99,9 +102,9 @@ stateDiagram-v2
 |---|---|---|---|
 | 공연 | 판매 검증 (`POST /internal/schedules/{id}/sale-validations`) | [shared/internal-api/event.md](../shared/internal-api/event.md) | 합의 |
 | 공연 | 회차 좌석 준비 이벤트 (요청·완료·실패, 토픽 이름, reasonCode) | [shared/internal-api/seat.md](../shared/internal-api/seat.md) | 협의 중 (이벤트 형식 미확정) |
-| 예매 (booking) | `BookingFacade`(hold, countActiveSeats, expire, findPaymentInProgress, release, 예약 조회), `SeatFacade`(lockSeats, sell, release) | 계약 이슈 #41 | 초안 |
+| 예매 (booking) | `BookingFacade`(hold(SeatLine), countActiveSeats, findPaymentInProgress, findActiveHold, expireIfDue, release(userId, reservationId)), `SeatFacade`(lockSeats, sell, release), 공용 `Clock` | 계약 이슈 [#34](https://github.com/Good-Ticket-Service/ticket/issues/34), 계약 PR(`docs/shared/modules/booking-facade.md`, `seat-facade.md`) 예정 | 합의 (계약 PR 전) |
 | 대기열·Gateway | `X-Queue-Token` 검증(공연 단위, TTL 10분), 경로의 scheduleId로 공연 범위 확인 | Notion 전체 API 공통 계약 | 확정 (검증 방식은 대기열 담당과 협의) |
-| Gateway | `/api/schedules/{id}/seats·remaining·holds/**` → reservation-service 라우트 | `backend/config-repo/gateway-service.yml` | 미반영 |
+| Gateway | `/api/schedules/{id}/seats·remaining·holds/**` → reservation-service 라우트 | `backend/config-repo/gateway-service.yml` | 미반영 (#34 합의 항목, @nuyheat 확인 대기) |
 
 ## 6. 작업 목록
 

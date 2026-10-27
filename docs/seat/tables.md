@@ -64,7 +64,7 @@ erDiagram
 | is_sellable | 판매 대상 여부 | BOOLEAN | NOT NULL | 공연 공통 제외 정책을 반영해 서버가 만든다. false 좌석은 AVAILABLE이어도 선점할 수 없다. 클라이언트가 바꿀 수 없다. |
 | status | 좌석 판매 상태 | VARCHAR(20) | NOT NULL, DEFAULT 'AVAILABLE' | AVAILABLE / HOLD / SOLD. 좌석 준비 때 AVAILABLE로 만든다. |
 | reservation_id | 현재 점유·구매 예약 식별자 | BIGINT | NULL 허용, FK 없음 | HOLD·SOLD에서는 현재 소유 예약 ID, AVAILABLE에서는 NULL. |
-| hold_expires_at | 선점 만료 시각 | TIMESTAMP | NULL 허용 | HOLD에서는 필수(선점 시각 + 10분, DB now() 기준). AVAILABLE·SOLD에서는 NULL. 예약의 `p_reservations.hold_expires_at`과 같은 값이며 결제 중에도 바꾸지 않는다. |
+| hold_expires_at | 선점 만료 시각 | TIMESTAMP | NULL 허용 | HOLD에서는 필수(선점 시각 + 10분, 공용 `Clock` 기준). AVAILABLE·SOLD에서는 NULL. 예약의 `p_reservations.hold_expires_at`과 같은 값이며 결제 중에도 바꾸지 않는다. |
 | config_version | 좌석 생성 구성 버전 | BIGINT | NOT NULL, 1 이상 | 공연 서비스 `schedule.seat_config_version`과 대응한다. 오래된 생성 요청이 최신 데이터를 덮어쓰지 못하게 한다. |
 | created_at ~ deleted_by | 감사 컬럼 6개 | | | 2장 공통 사항. |
 
@@ -88,8 +88,9 @@ INDEX(reservation_id): 예약별 소유 좌석 확인.
 
 - MVP는 좌석 행을 비관적 락(`SELECT ... FOR UPDATE`)으로 잠근 뒤 상태·판매 대상 여부·만료 시각을 확인해 선점한다. 트러블슈팅 기간에 조건부 UPDATE·NOWAIT·Redis 방식과 비교한다.
 - 잠금 순서는 좌석 ID 오름차순 → 예약이다. booking의 확정·만료도 같은 순서를 쓴다.
-- 재선점은 `hold_expires_at <= DB now()`이고 그 좌석의 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD를 대상으로 한다. 예전 예약은 같은 트랜잭션에서 EXPIRED로 정리한다.
-- 결제 시작과 재선점의 경합은 조건부 UPDATE로 한쪽만 성공시킨다. booking의 결제 시작은 `status = HOLD AND hold_expires_at > DB now()`, seat의 예전 예약 정리는 `status = HOLD AND hold_expires_at <= DB now()`일 때만 바꾼다. 경계가 겹치지 않게 두 쪽 모두 DB now()를 기준으로 한다.
+- 재선점은 `hold_expires_at <= now`이고 그 좌석의 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD를 대상으로 한다. 예전 예약은 같은 트랜잭션에서 EXPIRED로 정리한다.
+- 결제 시작과 재선점의 경합은 조건부 UPDATE로 한쪽만 성공시킨다. booking의 결제 시작은 `status = HOLD AND hold_expires_at > :now`, seat의 예전 예약 정리는 `status = HOLD AND hold_expires_at <= :now`일 때만 바꾼다.
+- `now`는 DB `now()`가 아니라 seat·booking이 함께 쓰는 `Clock` 빈(`ClockConfig`)에서 읽어 쿼리 인자로 넘긴다. 두 모듈이 같은 시계를 써야 경계가 겹치지 않고, 테스트에서 `MutableClock`으로 만료 경계를 만들 수 있다. 서버 여러 대의 시계는 NTP로 맞춘다([#34](https://github.com/Good-Ticket-Service/ticket/issues/34) 쟁점 1).
 - 만료·해제는 `reservation_id`가 해당 예약과 일치할 때만 좌석을 푼다. 이전 예약의 정리 작업이 새 사용자의 선점을 지우면 안 된다.
 - 결제 확정도 현재 소유 예약 ID를 확인한 뒤 SOLD로 바꾸고 `hold_expires_at`을 비운다.
 - 만료 정리 스케줄러는 booking이 10초 주기로 돌린다.
@@ -122,7 +123,7 @@ INDEX(reservation_id): 예약별 소유 좌석 확인.
 - 1인 1장 제한의 DB 최종 방어는 예약 테이블의 부분 UNIQUE다. 위반하면 seat는 제약 이름을 확인해 선점 트랜잭션 전체를 롤백하고 409 `PURCHASE_LIMIT_EXCEEDED`로 응답한다. JPA `ddl-auto`로는 부분 인덱스가 만들어지지 않으므로 `schema.sql`에 DDL이 필요하다.
 
 ```sql
-CREATE UNIQUE INDEX uq_reservations_active_user_schedule
+CREATE UNIQUE INDEX uk_p_reservations_active_user_schedule
 ON p_reservations(user_id, schedule_id)
 WHERE status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING');
 ```
