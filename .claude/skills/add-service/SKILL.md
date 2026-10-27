@@ -42,9 +42,9 @@ disable-model-invocation: true
 
 ## 5. 문서
 
-- `README.md` "모듈과 포트" 표, `CLAUDE.md` "구조"의 모듈 목록에 추가한다.
+- `README.md`의 실행 안내와 `docs/infra.md`의 서비스 배치를 갱신한다. AI 진입점에 모듈 목록을 복제하지 않는다.
 - `docs/architecture.md` 책임 표와 `docs/api.md`, `docs/tables.md`, `docs/infra.md`의 해당 절을 갱신한다. docs 파일/폴더를 추가하지 않는다.
-- `.claude/rules/docs-first.md`의 서비스·문서 표에 추가한다.
+- 기존 작업 유형으로 안내할 수 없는 경우에만 `docs/conventions.md`의 문서 선택 표를 보완한다.
 - `.github/CODEOWNERS`에 담당이 정해졌으면 추가한다.
 
 ## 6. 확인
