@@ -2,7 +2,6 @@ package com.sparta.ticket.gateway.security;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -19,7 +18,7 @@ public class UserServiceClient {
     private final WebClient webClient;
     private final Duration timeout;
 
-    public Mono<Optional<UserSnapshot>> fetch(UUID userId) {
+    public Mono<Optional<UserSnapshot>> fetch(Long userId) {
         return webClient
                 .get()
                 .uri("/internal/users/{userId}", userId)

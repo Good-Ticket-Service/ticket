@@ -2,7 +2,6 @@ package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import java.util.List;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -23,9 +22,9 @@ public class UserVerifyingJwtConverter implements Converter<Jwt, Mono<AbstractAu
 
     @Override
     public Mono<AbstractAuthenticationToken> convert(Jwt jwt) {
-        UUID userId;
+        Long userId;
         try {
-            userId = UUID.fromString(jwt.getSubject());
+            userId = Long.valueOf(jwt.getSubject());
         } catch (IllegalArgumentException | NullPointerException e) {
             return Mono.error(new GatewayAuthenticationException(CommonErrorCode.UNAUTHORIZED));
         }
