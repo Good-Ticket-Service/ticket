@@ -12,6 +12,9 @@ public interface ReservationRepository {
 
     Reservation save(Reservation reservation);
 
+    /** 저장하고 바로 DB에 쓴다. 제약 위반을 호출 안에서 알아야 할 때 쓴다. */
+    Reservation saveAndFlush(Reservation reservation);
+
     Optional<Reservation> findById(Long id);
 
     /** 같은 트랜잭션에서 조건부 UPDATE를 한 뒤 DB의 지금 값을 다시 읽는다. */

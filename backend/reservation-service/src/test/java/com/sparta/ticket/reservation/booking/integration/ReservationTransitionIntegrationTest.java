@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -116,6 +117,38 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         assertThatThrownBy(() -> hold(Duration.ofMinutes(10), seatA, seatA))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("같은 좌석");
+    }
+
+    @Test
+    @DisplayName("같은 회원이 같은 회차에 진행 중인 예약을 또 만들면 부분 UNIQUE 위반이 hold 호출 안에서 난다. 끝난 예약은 막지 않는다")
+    void holdRejectsSecondActiveReservationInsideCall() {
+        Long scheduleId = TestIds.next();
+        Long first = transactionTemplate.execute(status -> bookingFacade.hold(
+                userId,
+                scheduleId,
+                TestSeats.priced(TestIds.next()),
+                clock.now().plusMinutes(10)));
+
+        // seat는 선점 트랜잭션 안에서 이 예외를 잡아 409로 바꾼다. 커밋 때가 아니라 호출 안에서 나야 잡을 수 있다
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThatThrownBy(() -> bookingFacade.hold(
+                            userId,
+                            scheduleId,
+                            TestSeats.priced(TestIds.next()),
+                            clock.now().plusMinutes(10)))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("uk_p_reservations_active_user_schedule");
+            status.setRollbackOnly();
+        });
+
+        release(userId, first);
+        assertThat(transactionTemplate.execute(status -> bookingFacade.hold(
+                        userId,
+                        scheduleId,
+                        TestSeats.priced(TestIds.next()),
+                        clock.now().plusMinutes(10))))
+                .as("RELEASED는 진행 중인 예약이 아니다")
+                .isNotNull();
     }
 
     @Test
@@ -287,5 +320,8 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         assertThat(jdbcTemplate.queryForList(
                         "SELECT conname FROM pg_constraint WHERE conrelid = 'p_reservations'::regclass", String.class))
                 .contains("uk_p_reservations_order_id", "ck_p_reservations_status");
+        assertThat(jdbcTemplate.queryForList(
+                        "SELECT indexname FROM pg_indexes WHERE tablename = 'p_reservations'", String.class))
+                .contains("uk_p_reservations_active_user_schedule");
     }
 }

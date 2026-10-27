@@ -96,6 +96,7 @@ UK(order_id): 같은 주문 번호가 두 예매에 기록되지 않게 한다.
 CHECK(status IN (HOLD, PAYMENT_IN_PROGRESS, CONFIRMED, EXPIRED, RELEASED, CANCELED)). `CANCELING`은 취소를 구현할 때 더한다.
 INDEX(hold_expires_at) WHERE status = HOLD: 선점 만료 대상.
 INDEX(updated_at) WHERE status = PAYMENT_IN_PROGRESS: 결제 결과 확인 대상.
+부분 UNIQUE `uk_p_reservations_active_user_schedule`(user_id, schedule_id) WHERE status IN (HOLD, PAYMENT_IN_PROGRESS, CONFIRMED, CANCELING): 한 회원은 한 회차에 진행 중인 예약을 하나만 가진다. 1인 매수 제한의 마지막 방어선이고, seat가 이 이름의 위반을 409 `PURCHASE_LIMIT_EXCEEDED`로 바꾼다(B31).
 
 **상태와 의미**
 
