@@ -34,5 +34,12 @@ fake-pg:
   toss:
     # 토스 시크릿 키 흉내. payment-service는 Basic 인증(base64("시크릿 키:"))으로 보낸다. 로컬 전용 값이다.
     secret-key: ${FAKE_PG_TOSS_SECRET_KEY:test_sk_fake_toss}
-  # 결제 인증 후 승인까지 허용하는 시간(토스는 약 10분)
+  kakao:
+    # 카카오 시크릿 키 흉내. payment-service는 "SECRET_KEY {키}"로 보낸다. 로컬 전용 값이다.
+    secret-key: ${FAKE_PG_KAKAO_SECRET_KEY:DEV_fake_kakao}
+    # 카카오 테스트 가맹점 코드. 다른 cid는 400이다.
+    cid: TC0ONETIME
+    # 준비 응답의 결제창 URL 앞부분. 실제로 열 수 있는 페이지는 아니다(사용자 승인은 POST /fake/kakao/approve)
+    checkout-url-base: ${FAKE_PG_BASE_URL:http://localhost:8090}
+  # 결제 인증(카카오는 준비) 후 승인까지 허용하는 시간(토스는 약 10분)
   auth-valid-minutes: 10
