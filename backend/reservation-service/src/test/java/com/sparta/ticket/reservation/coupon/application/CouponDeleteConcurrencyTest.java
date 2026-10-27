@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.coupon.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
@@ -41,6 +42,9 @@ class CouponDeleteConcurrencyTest extends ReservationIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MutableClock clock;
 
     @Test
     @DisplayName("삭제와 첫 발급이 동시에 오면 삭제만 되거나 발급만 된다 (삭제된 쿠폰에 발급되는 일이 없다)")
@@ -87,7 +91,7 @@ class CouponDeleteConcurrencyTest extends ReservationIntegrationTest {
     }
 
     private Long saveIssuingCoupon() {
-        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+        LocalDateTime now = clock.now().truncatedTo(ChronoUnit.SECONDS);
         return couponRepository
                 .save(Coupon.create("동시성 쿠폰", 1_000, 10, now.minusHours(1), now.plusDays(1), 7, now))
                 .getId();

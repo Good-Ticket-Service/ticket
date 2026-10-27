@@ -7,6 +7,7 @@ import com.sparta.ticket.reservation.coupon.application.dto.UpdateCouponCommand;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CouponService {
 
     private final CouponRepository couponRepository;
+    private final Clock clock;
 
     /** 쿠폰을 만들어 저장하고, 계산 값(남은 수량, 발급 상태)을 붙여 돌려준다. 발급 수량은 0으로 시작한다. */
     @Transactional
@@ -87,10 +89,11 @@ public class CouponService {
     }
 
     /**
+     * 현재 시각은 reservation-service 공용 Clock(ClockConfig, Asia/Seoul)으로 구한다. 서버 시간대와 상관없이 KST 기준이고, 테스트는 Clock을 바꿔 시각을 정한다.
      * Note: 초 단위로 자른다. 응답 시각 형식이 yyyy-MM-ddTHH:mm:ss이고, 발급 중단은 이 값을 종료 시각으로 저장한다.
      * 자르지 않으면 나노초가 응답에 붙고, PostgreSQL TIMESTAMP(마이크로초)에 저장한 값과 메모리의 값이 달라진다.
      */
-    private static LocalDateTime now() {
-        return LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
     }
 }
