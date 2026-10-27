@@ -17,7 +17,7 @@
 
 ## 2. 내부 API
 
-서비스 간 계약이라 [shared/internal-api/payment.md](../shared/internal-api/payment.md)에 둔다. 결제 준비·승인·조회·환불 요청 4개와 관리자 API 3개가 있다.
+서비스 간 계약이라 [shared/internal-api/payment.md](../shared/internal-api/payment.md)에 둔다. 결제 준비·승인·조회·환불 요청 4개와 환불 관리자 API 2개(차단 해제, 재시도)가 있다.
 
 ## 3. fake PG API (테스트용, 포트 8090)
 

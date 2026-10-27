@@ -10,7 +10,8 @@ public enum PaymentFailureCode {
     PG_BUSY,
     INVALID_AUTH_TOKEN,
     NOT_APPROVED,
+    /** PG 승인 호출 후 결과 확정 시한(1분) 안에 결과를 알지 못했다. 늦은 승인은 최소 대사가 찾아 자동 취소한다. */
+    PG_UNRESOLVED,
     AMOUNT_MISMATCH,
-    CANCELED_AT_PG,
-    MANUAL
+    CANCELED_AT_PG
 }

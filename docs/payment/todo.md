@@ -16,7 +16,7 @@
 **완료 조건:**
 - [ ] contract.md에 내부 API의 요청·응답·오류 코드와 `expiresAt` 결정이 있고, #9와 다른 항목이 모두 정리됐다
 - [ ] contract.md에 조회 결과(DONE / FAILED / IN_PROGRESS / READY / 404)별 예매 동작, 예매의 인증값 저장·재전송, orderId 단위 환불과 B안(예매는 기다리지 않음)이 있다
-- [ ] contract.md에 "예매 쪽에 제안하는 보완"의 결론이 있다. 특히 `CANCEL_PENDING`(환불 후 예매 DB 실패 대비), orderId를 먼저 기록하는 순서, read timeout 20초
+- [ ] contract.md에 "예매 쪽에 제안하는 보완"의 결론이 있다. 특히 `CANCELING`(환불 후 예매 DB 실패 대비, 결정됨), orderId를 먼저 기록하는 순서, read timeout 20초
 - [ ] contract.md에 `CouponUsage`의 세 메서드(`reserve`·`use`·`release`) 동작과 실패 규칙, 트랜잭션 전파, 환불 시 쿠폰 복원 정책과 할인액의 정산 반영이 있다
 - [ ] 2번·6번 담당자가 승인했다
 **의존:** 없음 · **규모:** S
@@ -91,19 +91,21 @@
 
 ### Task 9: 결제 복구 잡
 **참조:** plan.md 5절
-**할 일:** `PaymentRecoveryJob`, 점유(점유 기간 30초 이상)·백오프, 조회 기반 확정(Approved·Canceled·NotFound·Unknown), NotFound 유예, `recovery_started_at` 기준 차단, 관리자 `unblock`·`resolve` API를 만든다.
+**할 일:** `PaymentRecoveryJob`, 점유(결제는 10초 간격, 백오프 없음), 조회 기반 확정(Approved·Canceled·NotFound·Unknown), NotFound 유예(1분), 결과 확정 시한(1분) 뒤 FAILED(`PG_UNRESOLVED`)를 만든다. 결제 차단과 관리자 확정 API는 두지 않는다.
 **완료 조건:**
 - [ ] 승인 후 응답이 유실된 결제는 DONE이 되고, 만료된 READY는 PG 호출 없이 FAILED(`EXPIRED`)가 된다. NotFound는 유예 시간 안에는 확정하지 않고 지나면 FAILED(`NOT_APPROVED`)다
-- [ ] 두 인스턴스에서 동시에 돌려도 같은 결제를 두 번 조회하지 않고, 점유하는 동안 DB 트랜잭션을 열어 두지 않는다
-- [ ] 후보 하나의 예외가 다음 후보를 막지 않고, `give-up-minutes` 뒤 IN_PROGRESS + 차단으로 남으며 `unblock`으로 다시 처리되거나 `resolve`로 확정된다
+- [ ] 조회가 계속 Unknown이면 승인 호출 후 1분 직전에는 확정하지 않고, 1분부터 FAILED(`PG_UNRESOLVED`) + 쿠폰 AVAILABLE이 되며 WAITING 환불은 SKIPPED다
+- [ ] 두 인스턴스에서 동시에 돌려도 같은 결제를 같은 주기에 두 번 처리하지 않고, 점유하는 동안 DB 트랜잭션을 열어 두지 않는다
+- [ ] 후보 하나의 예외가 다음 후보를 막지 않는다
 **검증:** `payment.recovery.enabled=false`로 두고 잡을 직접 호출하는 통합 테스트
 **의존:** 6, 8 · **규모:** M
 
 ### Task 9-1: 최소 대사
 **참조:** plan.md 5절 8번
-**할 일:** `PaymentReconcileJob`과 `reconcile_count`·`next_reconcile_at` 컬럼을 만든다(#12의 `reconciled_at`을 바꾼다). 복구 잡과 같은 방식으로 점유하고, PG 승인을 호출했던 FAILED 결제를 확정 1시간·24시간 뒤에 조회해 승인돼 있으면 `ensureRefund`를 부른다.
+**할 일:** `PaymentReconcileJob`과 `reconcile_count`·`next_reconcile_at` 컬럼을 만든다(#12의 `reconciled_at`을 바꾼다). 복구 잡과 같은 방식으로 점유하고, PG 승인을 호출했던 FAILED 결제(`PG_UNRESOLVED` 포함)를 확정 11분·24시간 뒤에 조회해 승인돼 있으면 `ensureRefund`를 부른다.
 **완료 조건:**
-- [ ] fake-pg "승인 처리 지연"으로 유예 뒤 승인된 결제가 대사 실행 후 AUTO_VOID로 취소되고, 각 결제는 시점마다 한 번만 조회된다
+- [ ] fake-pg "승인 처리 지연"으로 유예나 결과 확정 시한 뒤 승인된 결제가 대사 실행 후 AUTO_VOID로 취소되고, 쿠폰은 다시 바뀌지 않으며, 각 결제는 시점마다 한 번만 조회된다
+- [ ] 늦은 승인을 요청 경로·복구 조회·대사가 겹쳐 발견해도 환불은 한 건이다
 - [ ] PG 승인을 호출하지 않은 FAILED는 조회하지 않고, 조회가 Unknown이면 시점을 넘기지 않아 다음 주기에 다시 본다
 **의존:** 9 · **규모:** S
 
@@ -113,11 +115,11 @@
 
 ### Task 10: 환불과 환불 복구
 **참조:** plan.md 4절 환불, 5절
-**할 일:** `POST /internal/payments/{orderId}/refund`(payment 잠금 후 상태별 처리), `RefundService`, `RefundTransactions`, `RefundRecoveryJob`, 관리자 `refund/retry` API를 만든다. 잠금 순서는 항상 payment → refund다.
+**할 일:** `POST /internal/payments/{orderId}/refund`(payment 잠금 후 상태별 처리), `RefundService`, `RefundTransactions`, `RefundRecoveryJob`(`give-up-minutes` 뒤 차단), 관리자 `refund/retry`·`refund/unblock` API를 만든다. 잠금 순서는 항상 payment → refund다.
 **완료 조건:**
-- [ ] READY·FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
+- [ ] READY는 FAILED(`ABANDONED`) + 쿠폰 AVAILABLE + 환불 행 없이 NOT_REQUIRED, FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 세 사유(USER_CANCEL·SCHEDULE_CANCELED·CONFIRM_FAILED) 모두 결제 금액 전액이다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
 - [ ] 일시 장애·응답 유실은 REQUESTED로 남아 복구가 같은 키로 다시 보내고, fake-pg 거래는 한 번만 취소된다
-- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 환불 DONE은 `release`를 부르고 AUTO_VOID는 쿠폰을 건드리지 않는다
+- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 시간 초과는 REQUESTED + 차단이고 `refund/unblock`으로 다시 처리된다. 환불 DONE은 `release`를 부르고 AUTO_VOID는 쿠폰을 건드리지 않는다
 **의존:** 9 · **규모:** M
 
 ### Task 11: 메트릭과 대시보드
@@ -179,7 +181,7 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 
 ### Task 18: 대량 환불 (시나리오 5, 단독)
 **완료 조건:**
-- [ ] 회차 취소 5,000건 환불이 PG 한도 안에서 끝까지 처리되고, 계속 실패한 건은 차단으로 남는다
+- [ ] 회차 취소(`SCHEDULE_CANCELED`) 5,000건 환불이 PG 한도 안에서 끝까지 처리되고, 계속 실패한 건은 환불 차단으로 남는다
 - [ ] 순차·병렬·Kafka 결과가 기록됐다
 **의존:** 10, 15 · **규모:** M
 

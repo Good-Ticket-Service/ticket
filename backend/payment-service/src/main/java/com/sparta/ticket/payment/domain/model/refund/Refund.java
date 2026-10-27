@@ -73,6 +73,10 @@ public class Refund extends BaseEntity {
 
     private LocalDateTime refundedAt;
 
+    /** 자동 처리 중단 여부. 업무 거절이나 시간 초과면 켜고 관리자가 확인한다. 결제는 차단하지 않으므로 환불에만 있다. */
+    @Column(nullable = false)
+    private boolean recoveryBlocked;
+
     /** 바깥에 그대로 내주지 않는다. 바꾸는 일은 상태를 함께 검사하는 이 클래스의 메서드로만 한다. */
     @Getter(AccessLevel.NONE)
     @Embedded
@@ -88,10 +92,6 @@ public class Refund extends BaseEntity {
 
     public int getRecoveryAttempts() {
         return recovery.getAttempts();
-    }
-
-    public boolean isRecoveryBlocked() {
-        return recovery.isBlocked();
     }
 
     public String getLastError() {
@@ -153,6 +153,7 @@ public class Refund extends BaseEntity {
         this.status = RefundStatus.DONE;
         this.pgCancelId = pgCancelId;
         this.refundedAt = refundedAt;
+        this.recoveryBlocked = false;
         this.recovery.finish();
     }
 
@@ -162,7 +163,7 @@ public class Refund extends BaseEntity {
         this.status = RefundStatus.FAILED;
         this.failureCode = code;
         this.failureMessage = message;
-        this.recovery.block(code);
+        block(code);
     }
 
     /** 관리자 재시도. 토스는 같은 멱등 키의 거절을 그대로 재현하므로 키 세대를 올려 새 요청으로 보낸다. */
@@ -172,6 +173,7 @@ public class Refund extends BaseEntity {
         this.status = RefundStatus.REQUESTED;
         this.failureCode = null;
         this.failureMessage = null;
+        this.recoveryBlocked = false;
         this.recovery.start(now, now);
     }
 
@@ -189,17 +191,20 @@ public class Refund extends BaseEntity {
         recovery.defer(error, nextAttemptAt);
     }
 
+    /** 시간 초과(give-up). REQUESTED 그대로 자동 처리만 멈춘다. */
     public void blockRecovery(String reason) {
         require(RefundStatus.REQUESTED);
-        recovery.block(reason);
+        block(reason);
     }
 
+    /** 관리자가 PG 상태를 확인한 뒤 다시 자동 처리에 넣는다. 중단 기준 시각을 다시 센다. */
     public void unblockRecovery(LocalDateTime now) {
         require(RefundStatus.REQUESTED);
-        if (!recovery.isBlocked()) {
+        if (!recoveryBlocked) {
             throw invalidTransition();
         }
-        recovery.unblock(now);
+        this.recoveryBlocked = false;
+        recovery.restart(now);
     }
 
     public boolean isRecoveryGivenUp(LocalDateTime now, Duration giveUpAfter) {
@@ -210,7 +215,13 @@ public class Refund extends BaseEntity {
         if (requestedAt == null) {
             this.requestedAt = now;
         }
+        this.recoveryBlocked = false;
         this.recovery.start(now, nextAttemptAt);
+    }
+
+    private void block(String reason) {
+        this.recoveryBlocked = true;
+        recovery.recordError(reason);
     }
 
     private void require(RefundStatus expected) {
