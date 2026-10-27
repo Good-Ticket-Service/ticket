@@ -45,7 +45,7 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | `schedule_seat`, 예약 테이블 | `schema.sql`이 비어 있다(`SELECT 1;`) | 첫 테이블을 넣는 PR에서 `SELECT 1;`을 지운다. 순서는 11장 S7 |
 | Feign 기본 타임아웃 | `config-repo/application.yml`에서 connect 5초, read 20초 | 결제 호출만 read 15초로 따로 정한다(5.2) |
 
-게이트웨이 라우트 `/api/v1/reservations/** → reservation-service`는 이미 있어서 7장의 외부 API는 게이트웨이를 고치지 않아도 된다.
+외부 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). 지금 게이트웨이 라우트는 `/api/v1/reservations/** → reservation-service`라서, 라우트를 `/api/reservations/**`로 바꾸는 gateway 후속 작업(#32)이 필요하다.
 
 ---
 
@@ -192,7 +192,7 @@ stateDiagram-v2
 토스·카카오 모두 사용자가 결제창에서 인증해야 승인에 필요한 값(토스 `paymentKey`, 카카오 `pg_token`. 아래에서는 `pgAuthToken`)이 생긴다. 그래서 결제는 준비 → 인증 → 승인으로 나뉜다(payment 답변, P1).
 
 ```
-① 준비  POST /api/v1/reservations/{reservationId}/payments/checkout   { "userCouponId": 1, "pgProvider": "TOSS" }
+① 준비  POST /api/reservations/{reservationId}/payments/checkout   { "userCouponId": 1, "pgProvider": "TOSS" }
 
 1. 본인, HOLD, 만료 전인지 확인하고 지금 order_id, user_coupon_id를 읽는다
 2. 할인 전 금액 = 티켓 가격(선점 시점 스냅샷) 합계. 클라이언트가 보낸 금액은 받지 않는다
@@ -209,7 +209,7 @@ stateDiagram-v2
 
 ② 인증  사용자가 결제창에서 인증한다. 예약은 관여하지 않는다 (fake-pg는 대체 API를 준다)
 
-③ 승인  POST /api/v1/reservations/{reservationId}/payments/confirm   { "orderId": "...", "pgAuthToken": "..." }
+③ 승인  POST /api/reservations/{reservationId}/payments/confirm   { "orderId": "...", "pgAuthToken": "..." }
 
 1. [트랜잭션 1] HOLD → PAYMENT_IN_PROGRESS (본인, 만료 전, order_id 일치), pg_auth_token 기록
                0행 → 다시 읽는다. order_id가 같고 이미 HOLD가 아니면 같은 승인이 다시 온 것이므로 지금 예약 상태를 응답
@@ -242,7 +242,7 @@ stateDiagram-v2
 - `PAYMENT_IN_PROGRESS`에 머무는 시간에는 상한이 없다. 다시 보낸 승인은 `expiresAt` 확인에 걸려 끝나지만, payment가 PG를 부른 뒤 결과를 모르면 `IN_PROGRESS`가 계속된다(F4). 그동안 좌석도 묶인다. 그래서 일정 시간(예: 30분) 넘게 머문 예약은 알림을 남기고 관리자가 확인한다. 이 대기와 알림은 MVP부터 필요하다.
 - 사용자 요청 경로에서는 승인을 바로 다시 보내지 않는다. `IdempotentRetryConfig`(최대 3회)는 FeignClient 단위로 붙으므로 결제 클라이언트를 둘로 나눈다. 명령 클라이언트(준비, 승인, 환불)는 재시도하지 않고, 조회 클라이언트만 재시도한다. 명령 클라이언트에 붙이면 승인 한 번이 15초 × 3 = 45초까지 늘어나 Phase 1의 스레드 점유가 커진다. payment 장애 때는 조회 한 건도 45초까지 걸리므로, 스케줄러는 한 번에 처리할 건수를 제한한다.
 
-**응답 형식 (제안, 설계서 D16).** 승인 응답 본문에는 Phase와 관계없이 예약 상태를 담는다. 클라이언트는 `PAYMENT_IN_PROGRESS`를 받으면 `GET /api/v1/reservations/{id}`로 폴링한다. 그러면 Phase 2로 바꿔도 클라이언트 코드는 그대로다.
+**응답 형식 (제안, 설계서 D16).** 승인 응답 본문에는 Phase와 관계없이 예약 상태를 담는다. 클라이언트는 `PAYMENT_IN_PROGRESS`를 받으면 `GET /api/reservations/{id}`로 폴링한다. 그러면 Phase 2로 바꿔도 클라이언트 코드는 그대로다.
 
 | | Phase 1 | Phase 2 |
 | --- | --- | --- |
@@ -255,7 +255,7 @@ stateDiagram-v2
 ### 5.3 예약 취소와 환불 (Phase 1, Feign)
 
 ```
-POST /api/v1/reservations/{reservationId}/cancel
+POST /api/reservations/{reservationId}/cancel
 
 1. [트랜잭션] 본인, CONFIRMED, 취소 가능 기간 확인 (설계서 D6) → CONFIRMED → CANCELING. 좌석은 SOLD 그대로
 2. [트랜잭션 밖] PaymentPort.requestRefund(orderId)
@@ -339,12 +339,12 @@ public interface PaymentPort {
 
 | 메서드 | 경로 | 설명 | 응답 |
 | --- | --- | --- | --- |
-| POST | `/api/v1/reservations/{reservationId}/payments/checkout` | 결제 준비. 본문은 `userCouponId`(선택), `pgProvider` | `orderId`, 결제 금액, (카카오) 결제창 URL |
-| POST | `/api/v1/reservations/{reservationId}/payments/confirm` | 결제 승인. 본문은 `orderId`, `pgAuthToken`. 금액은 받지 않는다 | 5.2 |
-| GET | `/api/v1/reservations/{reservationId}` | 예약 상태 조회 (결제 후 폴링) | 예약 상태, 좌석, 금액, `holdExpiresAt` |
-| POST | `/api/v1/reservations/{reservationId}/cancel` | 예약 취소 | 예약 상태 |
+| POST | `/api/reservations/{reservationId}/payments/checkout` | 결제 준비. 본문은 `userCouponId`(선택), `pgProvider` | `orderId`, 결제 금액, (카카오) 결제창 URL |
+| POST | `/api/reservations/{reservationId}/payments/confirm` | 결제 승인. 본문은 `orderId`, `pgAuthToken`. 금액은 받지 않는다 | 5.2 |
+| GET | `/api/reservations/{reservationId}` | 예약 상태 조회 (결제 후 폴링) | 예약 상태, 좌석, 금액, `holdExpiresAt` |
+| POST | `/api/reservations/{reservationId}/cancel` | 예약 취소 | 예약 상태 |
 
-- 좌석 선점 경로는 seat 담당이 정한다. 같은 `/api/v1/reservations/**` 아래이므로 경로가 겹치지 않게 맞춘다(11장 S3).
+- 좌석 선점 경로는 seat 담당이 정한다. 같은 `/api/reservations/**` 아래이므로 경로가 겹치지 않게 맞춘다(11장 S3).
 - 현재 사용자는 `@CurrentUser UserContext`로 받고, 본인 확인은 application 계층에서 한다.
 - 오류 코드: 상태가 맞지 않으면 `CommonErrorCode.INVALID_STATUS_TRANSITION`, 본인이 아니면 `FORBIDDEN`을 쓴다. `ReservationErrorCode`에는 공통에 없는 것만 둔다. 예: `RESERVATION_NOT_FOUND`, `HOLD_EXPIRED`, `NOT_CANCELLABLE`, `ORDER_ID_MISMATCH`(마지막 준비의 `orderId`가 아님). 이 enum은 seat와 함께 쓰므로 추가할 때 알린다.
 

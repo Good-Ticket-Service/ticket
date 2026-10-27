@@ -96,7 +96,7 @@ booking이 혼자 정하고, 다른 담당의 답이 바뀌어도 booking의 상
 | 결제 호출 read 대기 | 15초다. payment의 PG 대기(10초)보다 길고 Gateway 응답 대기(60초)보다 짧다. 명령과 조회 두 클라이언트 모두 설정한다. 한쪽만 두면 다른 쪽은 기본값 20초를 쓴다 | P6 (payment가 PG를 재시도하는지) |
 | Phase 2 발행 | 커밋 뒤에 발행한다 | P4 (토픽, payload) |
 | F5, F6 환불 요청 | 결제가 성공한 시도의 `orderId`로 요청한다 | P3 (환불 키) |
-| 외부 API 경로 | `/api/v1/reservations/{reservationId}` 아래에 `payments/checkout`, `payments/confirm`, `cancel`, 조회를 둔다 | S3 (seat 경로와 겹침) |
+| 외부 API 경로 | `/api/reservations/{reservationId}` 아래에 `payments/checkout`, `payments/confirm`, `cancel`, 조회를 둔다 | S3 (seat 경로와 겹침) |
 | application의 Feign·Kafka 의존 | booking의 application 계층은 `feign..`, `org.springframework.cloud.openfeign..`, `org.springframework.kafka..`, `org.apache.kafka..`에 의존하지 않는다. 서비스 전체에 걸면 seat의 코드까지 묶이므로 booking 경로에만 건다. 공통 규칙으로 올릴지는 플랫폼 변경이라 별도 이슈로 제안한다 | S1 (패키지 경로) |
 
 ---
