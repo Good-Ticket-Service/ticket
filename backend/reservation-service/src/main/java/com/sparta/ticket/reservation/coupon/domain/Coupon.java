@@ -95,6 +95,8 @@ public class Coupon extends BaseEntity {
      * 부분 수정. null인 값은 바꾸지 않는다.
      * 발급이 시작된 뒤에는 이름, 발급 종료 시각, 총 수량만 바꿀 수 있다. 먼저 받은 사람과 나중에 받은 사람의 조건이 달라지지 않게 하기 위해서다.
      * 바꿀 수 없는 항목도 지금과 같은 값이면 바꾸지 않은 것으로 본다.
+     * 발급이 끝난(ENDED) 쿠폰은 발급 종료 시각을 바꿀 수 없다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리기 때문이다.
+     * 다시 발급하려면 새 쿠폰을 만든다.
      */
     public void update(
             String name,
@@ -104,6 +106,9 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             Integer validDays,
             LocalDateTime now) {
+        if (issueStatus(now) == CouponIssueStatus.ENDED && changes(issueEndAt, this.issueEndAt)) {
+            throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
+        }
         if (isIssueStarted(now)
                 && (changes(discountAmount, this.discountAmount)
                         || changes(issueStartAt, this.issueStartAt)
