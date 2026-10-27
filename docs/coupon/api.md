@@ -4,7 +4,7 @@
 - 담당:
 - 출처: Notion "도메인별 API 명세"의 쿠폰 항목 (2026-10-26 기준). 담당자가 검토하며 고친다.
 
-외부 API(`/api/v1/**`)만 둔다. 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다. 결제와의 모듈 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다.
+외부 API(`/api/v1/**`)만 둔다. 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다. 쿠폰 모듈은 reservation-service에 있고(제안), gateway가 `/api/v1/coupons/**`를 reservation-service로 보낸다. 예매와의 모듈 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다.
 
 ## 1. 외부 API
 
@@ -218,7 +218,7 @@ Notion 기능 설명에는 이미 끝난 쿠폰에 409 `COUPON_ISSUE_PERIOD_CLOS
 - 필수 헤더: `Authorization: Bearer {accessToken}`
 - 성공 HTTP: 200
 
-내가 발급받은 쿠폰을 상태별로 조회한다. 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰은 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. 결제 준비에 넣는 값은 이 응답의 userCouponId다.
+내가 발급받은 쿠폰을 상태별로 조회한다. 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰은 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. 예매 결제 준비(`POST /api/v1/reservations/{reservationId}/payments/checkout`)에 넣는 값은 이 응답의 userCouponId다.
 
 요청: `?status=AVAILABLE&page=0&size=10&sort=createdAt,DESC`
 
