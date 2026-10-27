@@ -33,7 +33,7 @@ erDiagram
 
 - `user_id`, `schedule_id`는 다른 서비스의 ID라 FK 없이 값만 둔다.
 - `reservation_seats.seat_id`가 가리키는 [schedule_seat](../seat/tables.md)은 좌석 담당 테이블이다.
-- `user_coupon_id`가 가리키는 [p_user_coupons](../coupon/tables.md)는 같은 서비스의 쿠폰 담당 테이블이다. booking은 `CouponUsage`로만 쿠폰을 다룬다 (제안, 쿠폰 모듈 이동 이슈).
+- `user_coupon_id`가 가리키는 [p_user_coupons](../coupon/tables.md)는 같은 서비스의 쿠폰 담당 테이블이다. booking은 `CouponUsage`로만 쿠폰을 다룬다 (제안, #27).
 
 ## 2. 공통 사항
 

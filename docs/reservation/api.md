@@ -189,6 +189,6 @@
 | 상태 이름 | `CANCELLED`, `RELEASED` 없음. ERD 명세서는 `CANCELED`, `RELEASED`, 공연 공통 계약 5.12 선점 응답은 `HELD` | T3 |
 | 선점 만료 에러 | 409 HOLD_EXPIRED. 공연 공통 계약 5.12는 410 | 팀 전체 |
 | 결제 승인 응답 | 실패·지연도 200과 예매 상태로 답한다 | T5 |
-| 결제 준비·승인 요청 필드 | `userCouponId`(제안), `pgProvider`, `orderId`, `pgAuthToken` | P1, 쿠폰 모듈 이동 이슈 |
+| 결제 준비·승인 요청 필드 | `userCouponId`(제안), `pgProvider`, `orderId`, `pgAuthToken` | P1, #27 |
 | 응답 형식 | `/api/v1`, `data` 래퍼, 숫자로 보내는 BIGINT ID, 오프셋 없는 시각. 공연 공통 계약은 `/api`, 래퍼 없음, 문자열 BIGINT, `+09:00`, `traceId` 오류 형식 | 팀 전체 |
 | 공연 정보 표시 | 목록에 공연 제목·회차 시각·좌석 위치를 넣으려면 공연 서비스 조회나 선점 때 스냅샷이 필요하다 | 공연 담당 |

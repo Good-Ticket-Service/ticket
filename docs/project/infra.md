@@ -130,7 +130,7 @@ flowchart LR
 | vm-k6 | k6 (실행할 때만) | c8i.large | gp3 20GB | — |
 
 - m7i.large = 2 vCPU, 8GB. vm-edge는 JVM 5개 × 약 600MB ≈ 3GB, vm-core는 실험용으로 서비스당 힙 1GB
-- 쿠폰 모듈은 reservation-service 안에 있다(제안, 쿠폰 모듈 이동 이슈). 쿠폰 테이블은 `reservation_app` 계정의 `reservation_schema`에 두고, 쿠폰 선착순 발급(`coupon.issue.requested` 소비)도 reservation 컨테이너에서 돈다. 쿠폰 오픈과 좌석 오픈이 겹치는 실험에서는 reservation의 CPU·힙·HikariCP를 함께 기록한다 (I8)
+- 쿠폰 모듈은 reservation-service 안에 있다(제안, #27). 쿠폰 테이블은 `reservation_app` 계정의 `reservation_schema`에 두고, 쿠폰 선착순 발급(`coupon.issue.requested` 소비)도 reservation 컨테이너에서 돈다. 쿠폰 오픈과 좌석 오픈이 겹치는 실험에서는 reservation의 CPU·힙·HikariCP를 함께 기록한다 (I8)
 - OS는 Ubuntu 24.04 x86_64. 이미지는 amd64로만 만든다 (Mac에서 빌드할 때는 `--platform linux/amd64`)
 - 프라이빗 IP·인스턴스 ID 같은 계정별 값은 Notion의 「인프라 값 기록표」에 적는다. 저장소에는 두지 않는다.
 
@@ -211,4 +211,4 @@ flowchart LR
 | 날짜 | 내용 |
 |---|---|
 | 2026-10-26 | Notion 인프라 구성도에서 옮겼다. 값 기록표와 단계별 가이드는 Notion 링크로 남겼다 |
-| 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안에 맞춰 vm-core 배치 설명과 I8을 더했다 (쿠폰 모듈 이동 이슈) |
+| 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안에 맞춰 vm-core 배치 설명과 I8을 더했다 (#27) |

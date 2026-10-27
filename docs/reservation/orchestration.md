@@ -10,7 +10,7 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | --- | --- | --- |
 | 0.1 | 2026-10-24 | 초안 |
 | 0.2 | 2026-10-24 | 설계서 v4에 맞춰 정리. 합의할 항목에 설계서 결정 번호(D10~D17) 연결, `BookingFacade.expire` 추가 |
-| 0.4 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (쿠폰 모듈 이동 이슈) |
+| 0.4 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (#27) |
 | 0.3 | 2026-10-24 | payment 담당 리뷰(PR #9) 반영: 결제 준비·승인 두 번 호출, 시도마다 `orderId`, 승인 요청이 사라지면 같은 `orderId`로 다시 요청, 결제 호출 read 15초, 취소는 두 Phase 모두 환불 결과와 상관없이 처리. 남은 질문은 11장에 모았고 10/26 회의에서 정한다 |
 
 ---
@@ -60,7 +60,7 @@ com.sparta.ticket.reservation
 │   └── infrastructure/        # client(Feign), messaging(Kafka), persistence, scheduler
 ├── seat/                      # 정민
 ├── queue/                     # 태현
-├── coupon/                    # 윤범 (제안, 쿠폰 모듈 이동 이슈)
+├── coupon/                    # 윤범 (제안, #27)
 └── common/                    # 모듈이 함께 쓰는 설정
 ```
 
