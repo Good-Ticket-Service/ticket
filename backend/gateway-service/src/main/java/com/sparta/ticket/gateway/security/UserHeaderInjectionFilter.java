@@ -32,7 +32,7 @@ public class UserHeaderInjectionFilter implements WebFilter {
         ServerHttpRequest request = exchange.getRequest()
                 .mutate()
                 .header(UserHeaders.USER_ID, user.userId().toString())
-                .header(UserHeaders.USERNAME, user.username())
+                .header(UserHeaders.USERNAME, user.email())
                 .header(UserHeaders.ROLE, user.role())
                 .build();
         return exchange.mutate().request(request).build();

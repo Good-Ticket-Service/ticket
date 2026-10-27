@@ -3,7 +3,6 @@ package com.sparta.ticket.gateway.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
-import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,7 +16,7 @@ import reactor.test.StepVerifier;
 
 class UserServiceClientTest {
 
-    private final UUID userId = UUID.randomUUID();
+    private final Long userId = 1L;
 
     @Test
     @DisplayName("user-service가 응답하지 않으면 무한 대기하지 않고 제한 시간 뒤 실패한다")
@@ -35,7 +34,7 @@ class UserServiceClientTest {
     @DisplayName("내부 사용자 조회 응답 본문(감싸지 않은 DTO)을 그대로 읽고, 쓰지 않는 필드는 무시한다")
     void readsUnwrappedBody() {
         String body = """
-                {"userId":"%s","username":"hong01","role":"MASTER","name":"홍길동"}
+                {"userId":%d,"email":"hong@ticket.com","role":"MASTER","name":"홍길동"}
                 """.formatted(userId);
         WebClient ok = WebClient.builder()
                 .exchangeFunction(request -> Mono.just(ClientResponse.create(HttpStatus.OK)
@@ -47,7 +46,7 @@ class UserServiceClientTest {
         assertThat(new UserServiceClient(ok, Duration.ofSeconds(1))
                         .fetch(userId)
                         .block())
-                .contains(new UserSnapshot(userId, "hong01", "MASTER"));
+                .contains(new UserSnapshot(userId, "hong@ticket.com", "MASTER"));
     }
 
     @Test
