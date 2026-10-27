@@ -27,7 +27,7 @@
 | 쿠폰 | `reservation-service` coupon 모듈 | 성윤범 | [api](coupon/api.md) · [tables](coupon/tables.md) |
 | 티켓 | 미정 | | |
 
-결제 외 도메인 문서는 Notion(2026-10-26 기준)에서 옮긴 것이다.
+결제 외 도메인 문서는 Notion(2026-10-26 기준)에서 옮긴 것이다. 공연 문서는 2026-10-27 기준으로 다시 옮겼다.
 
 도메인 폴더에는 아래 파일을 둔다. 없는 파일은 [_template/](_template/)을 복사해 만든다. 예시는 [payment/](payment/)다.
 
