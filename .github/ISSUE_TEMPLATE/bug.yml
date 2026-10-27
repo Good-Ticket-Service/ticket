@@ -6,7 +6,7 @@ body:
     id: scope
     attributes:
       label: scope
-      description: 문제가 난 모듈 (user, event, reservation, payment, gateway, config, eureka, common, infra)
+      description: 문제가 난 모듈 (user, performance, reservation, payment, gateway, config, eureka, common, infra)
     validations:
       required: true
   - type: textarea

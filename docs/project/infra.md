@@ -110,17 +110,17 @@ flowchart LR
 
 ## 3. 서버별 배치
 
-문서에서는 설계서를 따라 **performance**라고 부르지만, 저장소에서는 아직 `event-service`다. 명령·설정 파일은 저장소 값을 그대로 쓴다.
+공연 서비스는 설계서 이름을 따라 저장소에서도 `performance-service`다 (설계서 D10).
 
 | 구분 | 값 |
 |---|---|
-| 모듈·Compose 서비스·ECR 저장소 | `event-service`, `ticket/event-service` |
-| Eureka 이름 | `EVENT-SERVICE` |
+| 모듈·Compose 서비스·ECR 저장소 | `performance-service`, `ticket/performance-service` |
+| Eureka 이름 | `PERFORMANCE-SERVICE` |
 | 포트 / gateway 라우트 | 8082 / `/api/v1/events/**` |
-| DB 계정·스키마·비밀번호 변수 | `event_app`, `event_schema`, `EVENT_DB_PASSWORD` |
-| 스키마 SQL | `backend/sql/event-service/schema.sql` |
+| DB 계정·스키마·비밀번호 변수 | `performance_app`, `performance_schema`, `PERFORMANCE_DB_PASSWORD` |
+| 스키마 SQL | `backend/sql/performance-service/schema.sql` |
 
-저장소 이름을 바꾸면 이 표와 가이드의 명령을 함께 고친다 (설계서 D10).
+이름을 바꾸면 이 표와 가이드의 명령을 함께 고친다.
 
 | 서버 | 컨테이너 (포트) | 인스턴스 | 디스크 | Compose 파일 |
 |---|---|---|---|---|

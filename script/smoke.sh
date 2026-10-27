@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SERVICES=(user-service event-service reservation-service payment-service)
+SERVICES=(user-service performance-service reservation-service payment-service)
 WAIT_SECONDS=${SMOKE_WAIT_SECONDS:-300}
 
 fail() { echo "실패: $*" >&2; exit 1; }

@@ -1,4 +1,4 @@
-package com.sparta.ticket.event;
+package com.sparta.ticket.performance;
 
 import com.sparta.ticket.common.support.LayeredArchitectureRules;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -6,7 +6,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.junit.ArchTests;
 
-@AnalyzeClasses(packages = "com.sparta.ticket.event", importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = "com.sparta.ticket.performance", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
 
     @ArchTest

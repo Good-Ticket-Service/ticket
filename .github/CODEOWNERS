@@ -23,9 +23,9 @@
 # /backend/user-service/              @<담당>
 # /backend/config-repo/user-service.yml @<담당>
 # /backend/sql/user-service/          @<담당>
-# /backend/event-service/             @<담당>
-# /backend/config-repo/event-service.yml @<담당>
-# /backend/sql/event-service/         @<담당>
+# /backend/performance-service/       @<담당>
+# /backend/config-repo/performance-service.yml @<담당>
+# /backend/sql/performance-service/   @<담당>
 # /backend/reservation-service/       @<담당>
 # /backend/config-repo/reservation-service.yml @<담당>
 # /backend/sql/reservation-service/   @<담당>
@@ -36,7 +36,7 @@
 # 문서: 도메인별 명세와 서비스 간 계약 (docs/README.md, docs/shared/README.md)
 # 계약 파일은 제공 담당과 소비 담당을 함께 둔다. 계약을 바꾸는 PR에 양쪽 리뷰가 요청된다.
 /docs/user/                           @nuyheat
-/docs/event/                          @kiteof-park
+/docs/performance/                    @kiteof-park
 /docs/seat/                           @wjdals717
 /docs/reservation/                    @jihaneol
 /docs/queue/                          @nuyheat

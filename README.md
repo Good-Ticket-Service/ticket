@@ -32,14 +32,14 @@ ticket/
 | `eureka-server` | 8761 | 서비스 등록·조회 |
 | `gateway-service` | 8080 | 외부 진입점. JWT 검증, 라우팅, Swagger UI 통합 |
 | `user-service` | 8081 | 회원가입·로그인(JWT 발급), 내 정보 |
-| `event-service` | 8082 | 공연·회차·좌석 |
+| `performance-service` | 8082 | 공연·회차·좌석 |
 | `reservation-service` | 8083 | 좌석 선점·예매 (Redis 사용) |
 | `payment-service` | 8084 | 결제 |
 | `fake-pg` | 8090 | 테스트용 PG. 토스 호환 API와 장애 주입 관리 API (아래 "fake PG") |
 | `common-core` | - | 웹 스택 무관 공통 계약: 에러 코드·응답 형식, 사용자 헤더 이름 |
 | `common` | - | MVC 서비스 공통: 예외 처리, `@CurrentUser`, `@RequireRole`, BaseEntity(Audit), Feign 헤더 전달·에러 변환, 페이징 |
 
-event·reservation·payment는 뼈대만 있다. 도메인은 각 담당자가 채운다.
+performance·reservation·payment는 뼈대만 있다. 도메인은 각 담당자가 채운다.
 
 ## 구조 규칙
 

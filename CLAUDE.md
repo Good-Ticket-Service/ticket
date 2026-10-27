@@ -4,7 +4,7 @@
 
 ## 구조
 - `backend/`가 Gradle 루트다. Gradle 명령은 `backend/`에서 실행한다.
-- 모듈: `config-server`(8888), `eureka-server`(8761), `gateway-service`(8080), `user-service`(8081), `event-service`(8082), `reservation-service`(8083), `payment-service`(8084), `fake-pg`(8090, 테스트용 PG. common·Config·Eureka를 쓰지 않는다), `common-core`(웹 무관 공통 계약), `common`(MVC 서비스 공통)
+- 모듈: `config-server`(8888), `eureka-server`(8761), `gateway-service`(8080), `user-service`(8081), `performance-service`(8082), `reservation-service`(8083), `payment-service`(8084), `fake-pg`(8090, 테스트용 PG. common·Config·Eureka를 쓰지 않는다), `common-core`(웹 무관 공통 계약), `common`(MVC 서비스 공통)
 - 서비스 설정은 `backend/config-repo/{서비스}.yml`, `local` 프로필 전용 값은 `backend/config-repo/application-local.yml`에 둔다. 모듈의 `application.yml`에는 이름과 `spring.config.import`만 둔다.
 - `docker-compose.yml`, `infra/`, `script/`는 루트에 있다. Compose의 빌드 컨텍스트는 `backend/`다.
 
@@ -40,7 +40,7 @@
 | 도메인 | 모듈 | 문서 | 담당 |
 |---|---|---|---|
 | 회원 | `user-service` | `docs/user/` | 김태현 |
-| 공연 | `event-service` | `docs/event/` | 박의연 |
+| 공연 | `performance-service` | `docs/performance/` | 박의연 |
 | 좌석 | `reservation-service` seat | `docs/seat/` | 변정민 |
 | 예매 | `reservation-service` booking | `docs/reservation/` | 지한얼 |
 | 대기열 | `reservation-service` queue | `docs/queue/` | 김태현 |

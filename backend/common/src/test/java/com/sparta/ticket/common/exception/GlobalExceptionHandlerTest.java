@@ -138,7 +138,7 @@ class GlobalExceptionHandlerTest {
                     (Long) null,
                     feign.Request.create(
                             feign.Request.HttpMethod.GET,
-                            "http://event-service/internal/events/1",
+                            "http://performance-service/internal/events/1",
                             java.util.Map.of(),
                             null,
                             java.nio.charset.StandardCharsets.UTF_8,

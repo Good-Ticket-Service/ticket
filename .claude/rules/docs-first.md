@@ -11,7 +11,7 @@ paths:
 | 서비스·모듈 | 문서 |
 |---|---|
 | `user-service` | `docs/user/` |
-| `event-service` | `docs/event/` |
+| `performance-service` | `docs/performance/` |
 | `reservation-service` seat 모듈 | `docs/seat/` |
 | `reservation-service` booking 모듈 | `docs/reservation/` |
 | `reservation-service` queue 모듈 | `docs/queue/` |

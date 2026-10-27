@@ -6,7 +6,7 @@ set -euo pipefail
 : "${POSTGRES_USER:?POSTGRES_USER가 필요하다}"
 : "${POSTGRES_DB:?POSTGRES_DB가 필요하다}"
 : "${USER_DB_PASSWORD:?USER_DB_PASSWORD가 필요하다}"
-: "${EVENT_DB_PASSWORD:?EVENT_DB_PASSWORD가 필요하다}"
+: "${PERFORMANCE_DB_PASSWORD:?PERFORMANCE_DB_PASSWORD가 필요하다}"
 : "${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}"
 : "${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}"
 : "${FAKE_PG_DB_PASSWORD:?FAKE_PG_DB_PASSWORD가 필요하다}"
@@ -27,7 +27,7 @@ SQL
 }
 
 create_service_schema user_schema user_app "$USER_DB_PASSWORD"
-create_service_schema event_schema event_app "$EVENT_DB_PASSWORD"
+create_service_schema performance_schema performance_app "$PERFORMANCE_DB_PASSWORD"
 create_service_schema reservation_schema reservation_app "$RESERVATION_DB_PASSWORD"
 create_service_schema payment_schema payment_app "$PAYMENT_DB_PASSWORD"
 # 테스트용 fake PG(backend/fake-pg)의 거래 기록
