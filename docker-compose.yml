@@ -221,6 +221,8 @@ services:
     environment:
       <<: *service-env
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD}
+      # 토스·카카오 PG 대신 fake PG를 부른다
+      PG_BASE_URL: http://fake-pg:8090
 
   # 토스 형식의 API를 흉내 내는 테스트용 PG(backend/fake-pg). 바깥 PG처럼 Eureka·Config Server 없이 주소로만 찾아간다.
   # payment-service와 k6가 부르고, 관리 API(/fake/admin/**)로 장애를 건다. Gateway 라우트에는 없다.
