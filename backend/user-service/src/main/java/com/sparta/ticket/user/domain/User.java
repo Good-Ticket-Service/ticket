@@ -10,7 +10,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.util.UUID;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -23,14 +23,17 @@ import org.hibernate.annotations.SQLRestriction;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "user_id")
-    private UUID id;
+    /** 초기 MASTER는 가입 절차를 거치지 않아 전화번호가 없다. NOT NULL 컬럼을 채우는 자리표시 값이다. */
+    private static final String MASTER_PHONE = "000-0000-0000";
 
-    /** 탈퇴 후에도 재사용할 수 없어서 부분 인덱스가 아닌 일반 유니크 제약을 둔다. */
-    @Column(nullable = false, unique = true, length = 10)
-    private String username;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id")
+    private Long id;
+
+    /** 로그인 ID. 탈퇴 후에도 재사용할 수 없어서 부분 인덱스가 아닌 일반 유니크 제약을 둔다. */
+    @Column(nullable = false, unique = true, length = 100)
+    private String email;
 
     @Column(nullable = false)
     private String password;
@@ -38,24 +41,42 @@ public class User extends BaseEntity {
     @Column(nullable = false, length = 50)
     private String name;
 
+    @Column(nullable = false, length = 20)
+    private String phone;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
 
-    private User(String username, String encodedPassword, String name, Role role) {
-        this.username = username;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserStatus status;
+
+    /** 탈퇴 시각. 1년 뒤 개인정보 파기의 기준이다. */
+    @Column(name = "withdrawn_at")
+    private LocalDateTime withdrawnAt;
+
+    private User(String email, String encodedPassword, String name, String phone, Role role) {
+        this.email = email;
         this.password = encodedPassword;
         this.name = name;
+        this.phone = phone;
         this.role = role;
+        this.status = UserStatus.ACTIVE;
     }
 
-    /** 가입 즉시 활성화되며 권한은 USER로 시작한다. */
-    public static User signup(String username, String encodedPassword, String name) {
-        return new User(username, encodedPassword, name, Role.USER);
+    /** 일반 회원가입. 가입 즉시 활성화되며 권한은 USER로 시작한다. */
+    public static User signup(String email, String encodedPassword, String name, String phone) {
+        return new User(email, encodedPassword, name, phone, Role.USER);
     }
 
     /** 기동 시 환경 변수로 만드는 초기 관리자. 가입 API로는 MASTER를 만들 수 없으므로 이 경로만 MASTER로 시작한다. */
-    public static User master(String username, String encodedPassword) {
-        return new User(username, encodedPassword, "마스터", Role.MASTER);
+    public static User master(String email, String encodedPassword) {
+        return new User(email, encodedPassword, "마스터", MASTER_PHONE, Role.MASTER);
+    }
+
+    /** 탈퇴(WITHDRAWN) 회원은 로그인할 수 없다. */
+    public boolean isActive() {
+        return status == UserStatus.ACTIVE;
     }
 }
