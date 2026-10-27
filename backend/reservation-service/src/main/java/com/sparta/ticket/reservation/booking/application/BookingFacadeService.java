@@ -10,7 +10,6 @@ import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -27,7 +26,7 @@ public class BookingFacadeService implements BookingFacade {
     /** 좌석과 예약이 한 트랜잭션에서 바뀌어야 하므로, 바깥 트랜잭션 없이 부르면 예외로 막는다. */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public Long hold(UUID userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+    public Long hold(Long userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
         return reservationRepository
                 .save(Reservation.hold(userId, scheduleId, seats, holdExpiresAt))
                 .getId();
@@ -35,7 +34,7 @@ public class BookingFacadeService implements BookingFacade {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void release(UUID userId, Long reservationId) {
+    public void release(Long userId, Long reservationId) {
         Reservation reservation = reservationRepository
                 .findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));

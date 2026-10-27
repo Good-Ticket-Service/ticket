@@ -13,7 +13,6 @@ import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +33,7 @@ public class ReservationTransactions {
 
     /** 결제 준비 대상. currentOrderId는 기록할 때 조건으로 쓴다. */
     public record CheckoutTarget(
-            Long reservationId, UUID userId, String currentOrderId, LocalDateTime holdExpiresAt, long baseAmount) {}
+            Long reservationId, Long userId, String currentOrderId, LocalDateTime holdExpiresAt, long baseAmount) {}
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
@@ -43,7 +42,7 @@ public class ReservationTransactions {
     public record PendingPayment(Long reservationId, String orderId, String pgAuthToken, long amount) {}
 
     @Transactional(readOnly = true)
-    public CheckoutTarget loadCheckoutTarget(UUID userId, Long reservationId) {
+    public CheckoutTarget loadCheckoutTarget(Long userId, Long reservationId) {
         Reservation reservation = find(reservationId);
         validateOwner(reservation, userId);
         if (reservation.getStatus() != ReservationStatus.HOLD) {
@@ -81,7 +80,7 @@ public class ReservationTransactions {
      * 만료는 만료 스케줄러가 돌았는지와 관계없이 HOLD_EXPIRED로 답한다.
      */
     @Transactional
-    public PaymentStart startPayment(UUID userId, Long reservationId, ConfirmCommand command) {
+    public PaymentStart startPayment(Long userId, Long reservationId, ConfirmCommand command) {
         ChangeStamp stamp = changeStamps.stamp();
         boolean started = transitionExecutor.execute(
                 ReservationTransition.START_PAYMENT,
@@ -166,7 +165,7 @@ public class ReservationTransactions {
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
     }
 
-    private static void validateOwner(Reservation reservation, UUID userId) {
+    private static void validateOwner(Reservation reservation, Long userId) {
         if (!reservation.isOwnedBy(userId)) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }

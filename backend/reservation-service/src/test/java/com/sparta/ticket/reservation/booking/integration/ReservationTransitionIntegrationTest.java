@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -54,7 +53,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private final UUID userId = UUID.randomUUID();
+    private final Long userId = TestIds.next();
 
     @BeforeEach
     void setUp() {
@@ -78,7 +77,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         });
     }
 
-    private void release(UUID user, Long reservationId) {
+    private void release(Long user, Long reservationId) {
         transactionTemplate.executeWithoutResult(status -> bookingFacade.release(user, reservationId));
     }
 
@@ -160,7 +159,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                         BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_STATUS_TRANSITION));
         assertThat(statusOf(paying)).isEqualTo("PAYMENT_IN_PROGRESS");
-        assertThatThrownBy(() -> release(UUID.randomUUID(), other))
+        assertThatThrownBy(() -> release(TestIds.next(), other))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.FORBIDDEN));
@@ -226,7 +225,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                 .as("처음 읽은 order_id(null)가 이미 바뀌었다")
                 .isZero();
         assertThat(inTransaction(() -> reservationRepository.startPayment(
-                        reservationId, UUID.randomUUID(), "order-1", "pg-token", changeStamps.stamp())))
+                        reservationId, TestIds.next(), "order-1", "pg-token", changeStamps.stamp())))
                 .as("본인이 아니다")
                 .isZero();
         assertThat(inTransaction(() -> reservationRepository.startPayment(

@@ -28,7 +28,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -80,7 +79,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private final UUID userId = UUID.randomUUID();
+    private final Long userId = TestIds.next();
     private final Long seatA = 10L;
     private final Long seatB = 11L;
 
@@ -101,14 +100,14 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 clock.now().plusMinutes(10)));
     }
 
-    private MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, UUID user) {
+    private MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Long user) {
         return request.header(UserHeaders.USER_ID, user.toString())
                 .header(UserHeaders.USERNAME, USERNAME)
                 .header(UserHeaders.ROLE, "USER")
                 .contentType(MediaType.APPLICATION_JSON);
     }
 
-    private ResultActions checkout(Long reservationId, UUID user) throws Exception {
+    private ResultActions checkout(Long reservationId, Long user) throws Exception {
         return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/checkout", reservationId), user)
                 .content("{}"));
     }
@@ -123,7 +122,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         return data.get("orderId").asText();
     }
 
-    private ResultActions confirm(Long reservationId, String orderId, UUID user) throws Exception {
+    private ResultActions confirm(Long reservationId, String orderId, Long user) throws Exception {
         return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/confirm", reservationId), user)
                 .content(objectMapper.writeValueAsString(Map.of("orderId", orderId, "pgAuthToken", "pk-1"))));
     }
@@ -286,7 +285,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     void otherUser() throws Exception {
         Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
-        UUID stranger = UUID.randomUUID();
+        Long stranger = TestIds.next();
 
         mockMvc.perform(as(get("/api/v1/reservations/{id}", reservationId), stranger))
                 .andExpect(status().isForbidden());

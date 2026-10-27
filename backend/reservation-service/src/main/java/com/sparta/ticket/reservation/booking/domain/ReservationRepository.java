@@ -3,7 +3,6 @@ package com.sparta.ticket.reservation.booking.domain;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * domain이 필요로 하는 저장소 기능만 선언한다. 구현은 infrastructure의 Spring Data 인터페이스가 맡는다.
@@ -20,10 +19,10 @@ public interface ReservationRepository {
 
     /** 결제 준비 결과를 기록한다. 상태는 바꾸지 않는다. order_id가 처음 읽은 값 그대로일 때만 쓴다. */
     int recordCheckout(
-            Long id, UUID userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp);
+            Long id, Long userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp);
 
     /** HOLD → PAYMENT_IN_PROGRESS. 본인, 만료 전, 마지막 준비의 orderId일 때만 바꾼다. */
-    int startPayment(Long id, UUID userId, String orderId, String pgAuthToken, ChangeStamp stamp);
+    int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp);
 
     /** PAYMENT_IN_PROGRESS → CONFIRMED. 결과의 orderId가 지금 시도일 때만 바꾼다. */
     int confirm(Long id, String orderId, ChangeStamp stamp);
@@ -41,7 +40,7 @@ public interface ReservationRepository {
     int expireHold(Long id, ChangeStamp stamp);
 
     /** HOLD → RELEASED. 본인 예약이고 선점 시간이 남았을 때만 바꾼다. */
-    int releaseHold(Long id, UUID userId, ChangeStamp stamp);
+    int releaseHold(Long id, Long userId, ChangeStamp stamp);
 
     /** 결과 확인 스케줄러가 확인한 시각을 남긴다. 상태와 감사 컬럼은 바꾸지 않는다. */
     int markPaymentChecked(Long id, LocalDateTime checkedAt);

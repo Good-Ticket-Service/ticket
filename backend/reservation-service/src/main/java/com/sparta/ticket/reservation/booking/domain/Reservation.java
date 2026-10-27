@@ -16,7 +16,6 @@ import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -39,7 +38,7 @@ public class Reservation extends BaseEntity {
     private Long id;
 
     @Column(nullable = false)
-    private UUID userId;
+    private Long userId;
 
     @Column(nullable = false)
     private Long scheduleId;
@@ -65,7 +64,7 @@ public class Reservation extends BaseEntity {
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
     private List<Ticket> tickets = new ArrayList<>();
 
-    private Reservation(UUID userId, Long scheduleId, LocalDateTime holdExpiresAt) {
+    private Reservation(Long userId, Long scheduleId, LocalDateTime holdExpiresAt) {
         this.userId = userId;
         this.scheduleId = scheduleId;
         this.holdExpiresAt = holdExpiresAt;
@@ -73,7 +72,7 @@ public class Reservation extends BaseEntity {
     }
 
     /** 좌석 선점과 같은 트랜잭션에서 HOLD 예약과 좌석마다 티켓을 만든다. */
-    public static Reservation hold(UUID userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+    public static Reservation hold(Long userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
         if (seats == null || seats.isEmpty()) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "선점할 좌석이 없습니다.");
         }
@@ -103,7 +102,7 @@ public class Reservation extends BaseEntity {
         tickets.forEach(Ticket::issueCode);
     }
 
-    public boolean isOwnedBy(UUID userId) {
+    public boolean isOwnedBy(Long userId) {
         return this.userId.equals(userId);
     }
 
