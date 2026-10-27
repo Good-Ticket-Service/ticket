@@ -39,12 +39,3 @@
 /docs/conventions.md  @rkddk7165 @nuyheat @kiteof-park @wjdals717 @jihaneol @sybeom
 /docs/architecture.md @rkddk7165 @nuyheat @kiteof-park @wjdals717 @jihaneol @sybeom
 # 인프라 담당은 확정 후 지정한다.
-
-# 폐기 예정 원본은 기존 도메인 담당자의 대조 검토를 받는다.
-/docs-deprecated/user/        @nuyheat
-/docs-deprecated/queue/       @nuyheat
-/docs-deprecated/performance/ @kiteof-park
-/docs-deprecated/seat/        @wjdals717
-/docs-deprecated/reservation/ @jihaneol
-/docs-deprecated/coupon/      @sybeom
-/docs-deprecated/shared/      @rkddk7165 @nuyheat @kiteof-park @wjdals717 @jihaneol @sybeom
