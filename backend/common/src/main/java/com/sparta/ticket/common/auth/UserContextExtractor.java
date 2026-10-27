@@ -2,7 +2,6 @@ package com.sparta.ticket.common.auth;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import java.util.UUID;
 import java.util.function.UnaryOperator;
 import org.springframework.util.StringUtils;
 
@@ -21,8 +20,9 @@ final class UserContextExtractor {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
         try {
-            return new UserContext(UUID.fromString(userId), username, Role.valueOf(role));
+            return new UserContext(Long.valueOf(userId), username, Role.valueOf(role));
         } catch (IllegalArgumentException e) {
+            // Note: 숫자가 아닌 ID의 NumberFormatException도 IllegalArgumentException의 하위 타입이라 여기서 함께 잡힌다.
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
     }

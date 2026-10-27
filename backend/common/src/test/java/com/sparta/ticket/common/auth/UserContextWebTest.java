@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 class UserContextWebTest {
 
-    private static final String USER_ID = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    private static final String USER_ID = "1";
 
     private MockMvc mockMvc;
 
@@ -40,7 +40,7 @@ class UserContextWebTest {
     void resolvesCurrentUser() throws Exception {
         mockMvc.perform(withUser(get("/me"), "USER"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userId").value(USER_ID))
+                .andExpect(jsonPath("$.userId").value(1))
                 .andExpect(jsonPath("$.username").value("hong01"))
                 .andExpect(jsonPath("$.role").value("USER"));
     }
@@ -62,10 +62,10 @@ class UserContextWebTest {
     }
 
     @Test
-    @DisplayName("사용자 UUID가 잘못된 관리자 요청은 401 UNAUTHORIZED")
+    @DisplayName("사용자 ID가 숫자가 아닌 관리자 요청은 401 UNAUTHORIZED")
     void rejectsAdminWithInvalidUserId() throws Exception {
         mockMvc.perform(get("/admin")
-                        .header(UserHeaders.USER_ID, "invalid-uuid")
+                        .header(UserHeaders.USER_ID, "invalid-id")
                         .header(UserHeaders.USERNAME, "hong01")
                         .header(UserHeaders.ROLE, "MASTER"))
                 .andExpect(status().isUnauthorized())
