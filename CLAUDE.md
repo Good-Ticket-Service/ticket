@@ -1,56 +1,7 @@
-# CLAUDE.md
+# 프로젝트 AI 진입점
 
-공연 티켓 예매 MSA. 상세 설명은 `README.md`에 있다.
+공연 티켓 예매 MSA. 공통 규칙의 원본은 [docs/conventions.md](docs/conventions.md)다.
 
-## 구조
-- `backend/`가 Gradle 루트다. Gradle 명령은 `backend/`에서 실행한다.
-- 모듈: `config-server`(8888), `eureka-server`(8761), `gateway-service`(8080), `user-service`(8081), `performance-service`(8082), `reservation-service`(8083), `payment-service`(8084), `fake-pg`(8090, 테스트용 PG. common·Config·Eureka를 쓰지 않는다), `common-core`(웹 무관 공통 계약), `common`(MVC 서비스 공통)
-- 서비스 설정은 `backend/config-repo/{서비스}.yml`, `local` 프로필 전용 값은 `backend/config-repo/application-local.yml`에 둔다. 모듈의 `application.yml`에는 이름과 `spring.config.import`만 둔다.
-- `docker-compose.yml`, `infra/`, `script/`는 루트에 있다. Compose의 빌드 컨텍스트는 `backend/`다.
-
-## 문서
-- 공통 진입점은 `docs/conventions.md`다. API는 `docs/api.md`, 저장 구조는 `docs/tables.md`, 업무·복구 설계는 `docs/architecture.md`, 배치는 `docs/infra.md`를 읽는다.
-- docs에는 위 5개 파일만 둔다. 해당 도메인 절만 읽고 같은 규칙을 다른 문서에 복제하지 않는다. 세부 작업 계획·진행·시험 결과는 이슈/PR에 기록한다.
-- `backend/payment-service/docs-local/`은 비추적 로컬 기록이며 업로드하지 않는다.
-- 서비스·모듈 계약은 api의 해당 절과 대조하고, 미합의 또는 구현과 다르면 차이를 알린다. 계약 이슈 → 담당 합의 → 계약 PR → 구현 순서를 따른다.
-
-## 명령
-- 빌드·테스트: `cd backend && ./gradlew build` (포맷·Checkstyle·계층 검사 포함, 통합 테스트는 Docker 필요)
-- 포맷: `cd backend && ./gradlew spotlessApply`. 손으로 정렬하지 않는다.
-- 계층 의존 규칙은 `common` 테스트 모듈의 `LayeredArchitectureRules`가 검사한다. 규칙을 어기는 코드는 고치고, 규칙이 틀렸다고 판단되면 규칙 변경을 먼저 제안한다.
-- 모듈 하나: `cd backend && ./gradlew :user-service:test`
-- 로컬 기동: `script/run.sh [서비스...]`, DB 초기화는 `script/run.sh --reset`
-- Gradle toolchain이 JDK 17로 고정한다. JAVA_HOME을 바꾸지 않는다.
-
-## 코드 규칙
-- 패키지는 `com.sparta.ticket.{서비스}`, 내부는 `presentation / application / domain / infrastructure`
-- Entity는 `BaseEntity`를 상속하고, 논리 삭제 조회 제외는 Entity마다 `@SQLRestriction("deleted_at IS NULL")`을 붙인다.
-- 스키마 DDL은 `backend/sql/{서비스}/schema.sql`에 둔다. Entity를 바꾸면 이 파일도 같이 고친다. `local` 프로필(기본)은 `ddl-auto: create`, 그 밖은 `validate`이고, 통합 테스트는 `schema.sql`을 실행한 뒤 Entity와 대조한다.
-- 에러 코드는 서비스별 enum이 `ErrorCode`를 구현한다. `CommonErrorCode`에 있는 이름을 다시 정의하지 않는다.
-- 외부 API는 `/api/**`(버전 `v1`을 붙이지 않는다), 응답은 `ApiResponse`. 새 경로는 `backend/config-repo/gateway-service.yml` 라우트를 확인한다.
-- 서비스 간 API는 `/internal/**`에 두고 응답을 감싸지 않는다. 다른 서비스 스키마는 직접 조회하지 않고 Feign(`infrastructure/client`)으로 부른다. 재시도(`IdempotentRetryConfig`)는 GET·멱등 API에만 붙인다.
-- 현재 사용자는 `@CurrentUser UserContext`, 역할 제한은 `@RequireRole`, 소유자 검사는 application 계층에서 한다.
-- 통합 테스트는 `PostgresIntegrationTest`(Testcontainers PostgreSQL 16)를 상속한다. H2를 쓰지 않는다.
-
-## 작업 원칙
-- 주석·문서·커밋은 한국어 평서체로 쓴다. 주석은 학습 가치가 큰 곳에만 `Note: `로 단다.
-- `.env`, 토큰, 실제 비밀번호는 커밋하지 않는다.
-- 완료 보고는 실행한 빌드·테스트 결과를 근거로 한다. 돌리지 못한 테스트는 그 사실과 이유를 적는다.
-- 개인 지침은 `CLAUDE.local.md`(gitignore 대상)에 둔다.
-
-## 어디를 볼지
-| 도메인 | 모듈 | 문서 | 담당 |
-|---|---|---|---|
-| 회원 | `user-service` | `docs/api.md` | 김태현 |
-| 공연 | `performance-service` | `docs/api.md` | 박의연 |
-| 좌석 | `reservation-service` seat | `docs/api.md` | 변정민 |
-| 예매 | `reservation-service` booking | `docs/api.md` | 지한얼 |
-| 대기열 | `reservation-service` queue | `docs/api.md` | 김태현 |
-| 결제 | `payment-service` payment, `fake-pg` | `docs/api.md` | 강현민 |
-| 쿠폰 | `reservation-service` coupon | `docs/api.md` | 성윤범 |
-
-- 서비스·모듈 계약과 합의 상태: `docs/api.md`, 변경 절차: `docs/conventions.md`.
-- 전체 그림: `docs/architecture.md`, 배치: `docs/infra.md`. 미합의·현행 차이는 architecture의 단일 표에서 관리한다.
-- 경로별 규칙: `.claude/rules/` (도메인 문서 먼저 읽기, 계약, API, 도메인·영속성)
-- 스킬: `/add-service` (서비스 추가 절차). `/add-internal-api`, `/load-test`는 아직 틀이다
-- 동시성·트랜잭션 리뷰: `concurrency-reviewer` 에이전트
+- 세션 시작에는 conventions의 「문서 선택」「안전·에이전트 작업」만 읽고 따른다. 나머지는 그 표에 해당하는 절만 확인한다.
+- 개발 규칙·계약·담당/서비스 구조를 이 파일에 복제하지 않는다. 프로젝트 실행 안내가 필요할 때만 [README.md](README.md)를 본다.
+- .claude/rules/는 경로에 따른 문서 안내다. 스킬·리뷰의 호출 조건과 원본 경로는 conventions에 있다.
