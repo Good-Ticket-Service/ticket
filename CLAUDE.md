@@ -11,7 +11,7 @@
 ## 문서
 - 공통 진입점은 `docs/conventions.md`다. API는 `docs/api.md`, 저장 구조는 `docs/tables.md`, 업무·복구 설계는 `docs/architecture.md`, 배치는 `docs/infra.md`를 읽는다.
 - docs에는 위 5개 파일만 둔다. 해당 도메인 절만 읽고 같은 규칙을 다른 문서에 복제하지 않는다. 세부 작업 계획·진행·시험 결과는 이슈/PR에 기록한다.
-- `docs-deprecated/`은 검토용 구문서이며 기본 읽기/검색에서 제외한다. `backend/payment-service/docs-local/`은 비추적 로컬 기록이며 업로드하지 않는다.
+- `backend/payment-service/docs-local/`은 비추적 로컬 기록이며 업로드하지 않는다.
 - 서비스·모듈 계약은 api의 해당 절과 대조하고, 미합의 또는 구현과 다르면 차이를 알린다. 계약 이슈 → 담당 합의 → 계약 PR → 구현 순서를 따른다.
 
 ## 명령

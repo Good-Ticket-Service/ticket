@@ -10,7 +10,7 @@
 
 문서의 내용을 이 파일에 복제하지 않는다. 공통 규칙을 고칠 때는 원본을 고치고 Codex 연결 경로가 유효한지 확인한다. 개인용 `CLAUDE.local.md`가 있으면 읽되 커밋하지 않는다.
 
-`docs-deprecated/`은 담당자 검토용 보관본이며 기본 읽기·검색 대상에서 제외한다. `backend/payment-service/docs-local/`은 개인 로컬 문서로 커밋·업로드하지 않는다.
+`backend/payment-service/docs-local/`은 개인 로컬 문서로 커밋·업로드하지 않는다.
 
 ## GitHub 작업
 
