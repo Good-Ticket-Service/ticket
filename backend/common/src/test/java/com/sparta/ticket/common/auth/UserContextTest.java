@@ -7,14 +7,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class UserContextTest {
 
-    private static final UUID OWNER_ID = UUID.randomUUID();
-    private static final UUID OTHER_ID = UUID.randomUUID();
+    private static final Long OWNER_ID = 1L;
+    private static final Long OTHER_ID = 2L;
 
     private final UserContext owner = new UserContext(OWNER_ID, "owner01", Role.USER);
     private final UserContext master = new UserContext(OTHER_ID, "master", Role.MASTER);
