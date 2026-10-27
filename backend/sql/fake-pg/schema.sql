@@ -2,7 +2,7 @@
 -- 서비스 계정(fake_pg_app)으로 적용하면 계정 기본 search_path인 fake_pg_schema에 만들어진다.
 -- 설계: docs/payment/plan.md 7·8절 fake-pg
 
--- PG 쪽 거래 기록. 결제 인증 시뮬레이션에서 READY로 만들고, 승인하면 DONE, 취소하면 CANCELED가 된다.
+-- PG 쪽 거래 기록. 토스는 결제 인증 시뮬레이션, 카카오는 결제 준비에서 READY로 만들고, 승인하면 DONE, 취소하면 CANCELED가 된다.
 -- payment-service 기록과 대조(대사)하는 상대편 기록이다.
 CREATE TABLE IF NOT EXISTS pg_transaction
 (
@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS pg_transaction
     cancel_reason          VARCHAR(200),
     cancel_transaction_key VARCHAR(200),
     failure_code           VARCHAR(80),
+    -- 카카오 전용. 토스 거래는 NULL
+    partner_user_id        VARCHAR(100),
+    pg_token               VARCHAR(100),
     updated_at             TIMESTAMP    NOT NULL,
 
     CONSTRAINT uk_pg_transaction_payment_key UNIQUE (payment_key),
@@ -28,6 +31,10 @@ CREATE TABLE IF NOT EXISTS pg_transaction
     CONSTRAINT ck_pg_transaction_status CHECK (status IN ('READY', 'DONE', 'CANCELED', 'ABORTED', 'EXPIRED')),
     CONSTRAINT ck_pg_transaction_amount CHECK (amount > 0)
 );
+
+-- 카카오 호환 API(#30) 전에 만든 테이블에 컬럼을 더한다. CREATE TABLE IF NOT EXISTS는 이미 있는 테이블을 바꾸지 않는다.
+ALTER TABLE pg_transaction ADD COLUMN IF NOT EXISTS partner_user_id VARCHAR(100);
+ALTER TABLE pg_transaction ADD COLUMN IF NOT EXISTS pg_token VARCHAR(100);
 
 -- 멱등 키 응답 저장. 같은 키로 다시 오면 저장한 응답(성공·업무 거절)을 그대로 돌려준다. 5xx·429는 저장하지 않는다.
 CREATE TABLE IF NOT EXISTS pg_idempotency_record

@@ -18,8 +18,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * PG 쪽 거래 한 건. 결제 인증 시뮬레이션에서 READY로 생기고, 승인하면 DONE, 취소하면 CANCELED가 된다.
- * 주문번호 하나에 거래 하나다.
+ * PG 쪽 거래 한 건. 승인하면 DONE, 취소하면 CANCELED가 된다. 주문번호 하나에 거래 하나다.
+ *
+ * <ul>
+ *   <li>토스: 결제 인증 시뮬레이션에서 paymentKey를 발급하며 READY로 생긴다.</li>
+ *   <li>카카오: 준비 요청에서 tid를 발급하며 READY로 생기고, 사용자 승인 시뮬레이션이 pg_token을 발급해야 승인할 수 있다.</li>
+ * </ul>
  */
 @Getter
 @Entity
@@ -35,7 +39,7 @@ public class PgTransaction {
     @Column(nullable = false, length = 20)
     private PgProvider provider;
 
-    /** 토스 paymentKey. 사용자 인증이 끝나면 발급된다. */
+    /** PG 거래 키. 토스 paymentKey(인증 때 발급) 또는 카카오 tid(준비 때 발급). */
     @Column(nullable = false, length = 200)
     private String paymentKey;
 
@@ -70,6 +74,14 @@ public class PgTransaction {
 
     @Column(length = 80)
     private String failureCode;
+
+    /** 카카오 가맹점 회원 ID(partner_user_id). 준비와 승인에 같은 값이 와야 한다. 토스는 NULL. */
+    @Column(length = 100)
+    private String partnerUserId;
+
+    /** 카카오 사용자 승인 결과(pg_token). 사용자 승인 전과 토스는 NULL. */
+    @Column(length = 100)
+    private String pgToken;
 
     @Column(nullable = false)
     private LocalDateTime updatedAt;
@@ -108,6 +120,67 @@ public class PgTransaction {
         this.status = PgTransactionStatus.READY;
         this.authExpiresAt = now.plusMinutes(validMinutes);
         this.updatedAt = now;
+    }
+
+    /** 카카오 결제 준비. 결제창을 띄우기 전에 tid를 발급한다. 사용자 승인 전이라 pg_token은 없다. */
+    public static PgTransaction prepareKakao(
+            String orderId, String itemName, int amount, String partnerUserId, LocalDateTime now, int validMinutes) {
+        PgTransaction transaction = authorize(PgProvider.KAKAO, orderId, itemName, amount, now, validMinutes);
+        transaction.paymentKey = newKey("T");
+        transaction.partnerUserId = partnerUserId;
+        return transaction;
+    }
+
+    /**
+     * 같은 주문으로 카카오 준비를 다시 불렀다. 실제 카카오처럼 부를 때마다 새 tid를 발급하고, 이전 사용자 승인은 버린다.
+     * 승인 전(READY·EXPIRED)인 거래만 다시 준비할 수 있다.
+     */
+    public void reprepareKakao(int amount, String partnerUserId, LocalDateTime now, int validMinutes) {
+        if (status != PgTransactionStatus.READY && status != PgTransactionStatus.EXPIRED) {
+            throw new PgException(PgErrorCode.ALREADY_PROCESSED_PAYMENT);
+        }
+        if (this.amount != amount || !this.partnerUserId.equals(partnerUserId)) {
+            throw new PgException(PgErrorCode.INVALID_REQUEST, "같은 주문번호로 다른 금액이나 회원의 결제를 준비할 수 없습니다.");
+        }
+        this.paymentKey = newKey("T");
+        this.pgToken = null;
+        this.status = PgTransactionStatus.READY;
+        this.authExpiresAt = now.plusMinutes(validMinutes);
+        this.updatedAt = now;
+    }
+
+    /** 카카오 사용자 승인 시뮬레이션. 결제창에서 비밀번호 인증을 마친 것처럼 pg_token을 발급한다. 이미 발급했으면 같은 값이다. */
+    public void issuePgToken(LocalDateTime now) {
+        if (status != PgTransactionStatus.READY) {
+            throw new PgException(PgErrorCode.ALREADY_PROCESSED_PAYMENT);
+        }
+        if (pgToken == null) {
+            this.pgToken = newKey("");
+            this.updatedAt = now;
+        }
+    }
+
+    /** 카카오 승인 요청이 이 거래와 맞는지 확인한다. 상태를 바꾸지 않는다. 금액은 승인 요청에 없고 응답으로 돌려준다. */
+    public void verifyKakaoApprovable(String orderId, String partnerUserId, String pgToken) {
+        if (!this.orderId.equals(orderId) || !this.partnerUserId.equals(partnerUserId)) {
+            throw new PgException(PgErrorCode.INVALID_REQUEST, "tid와 주문번호·회원 ID가 맞지 않습니다.");
+        }
+        if (status == PgTransactionStatus.EXPIRED) {
+            throw new PgException(PgErrorCode.NOT_FOUND_PAYMENT_SESSION);
+        }
+        if (status != PgTransactionStatus.READY) {
+            throw new PgException(PgErrorCode.ALREADY_PROCESSED_PAYMENT);
+        }
+        if (this.pgToken == null) {
+            throw new PgException(PgErrorCode.NOT_AUTHENTICATED_PAYMENT);
+        }
+        if (!this.pgToken.equals(pgToken)) {
+            throw new PgException(PgErrorCode.INVALID_REQUEST, "pg_token이 맞지 않습니다.");
+        }
+    }
+
+    public boolean isProvidedBy(PgProvider provider) {
+        return this.provider == provider;
     }
 
     /** 승인 요청이 이 거래와 맞는지 확인한다. 상태를 바꾸지 않는다. 인증 만료는 호출한 쪽이 따로 본다. */
