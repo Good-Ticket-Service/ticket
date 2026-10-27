@@ -42,8 +42,8 @@ import reactor.core.publisher.Mono;
             "spring.cloud.config.enabled=false",
             "eureka.client.enabled=false",
             "jwt.secret=" + GatewaySecurityTest.SECRET,
-            "auth.whitelist[0]=/api/v1/auth/signup",
-            "auth.whitelist[1]=/api/v1/auth/login",
+            "auth.whitelist[0]=/api/auth/signup",
+            "auth.whitelist[1]=/api/auth/login",
             "auth.user-cache-ttl=60s",
             "spring.cloud.gateway.server.webflux.routes[0].id=echo",
             "spring.cloud.gateway.server.webflux.routes[0].uri=forward:/echo",
@@ -108,7 +108,7 @@ class GatewaySecurityTest {
         given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
 
         client.get()
-                .uri("/api/v1/users/sample/me")
+                .uri("/api/users/sample/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
                 .header(UserHeaders.ROLE, "MASTER")
                 .header(UserHeaders.USERNAME, "evil")
@@ -230,7 +230,7 @@ class GatewaySecurityTest {
     @DisplayName("로그인은 만료 토큰이 붙어 있어도 인증 없이 통과하고, 위조 헤더는 지운다")
     void whitelistBypassesSecurity() throws Exception {
         client.post()
-                .uri("/api/v1/auth/login")
+                .uri("/api/auth/login")
                 .header(
                         HttpHeaders.AUTHORIZATION,
                         "Bearer " + token(SECRET, "USER", Instant.now().minusSeconds(60)))
@@ -294,7 +294,7 @@ class GatewaySecurityTest {
         given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
 
         client.get()
-                .uri("/api/v1/users/sample/me")
+                .uri("/api/users/sample/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
                 .header("x-user-role", "MASTER")
                 .header("x-username", "evil")
@@ -325,9 +325,7 @@ class GatewaySecurityTest {
     @DisplayName("경로 우회 시도는 방화벽이 막고 공통 에러 형식의 400으로 응답한다")
     void rejectsPathTraversal() throws Exception {
         for (String path : new String[] {
-            "/api/v1/auth/login/../../users/sample/me",
-            "/api/v1/users/..%2f..%2finternal/users/x",
-            "/api/v1/auth/login;/x"
+            "/api/auth/login/../../users/sample/me", "/api/users/..%2f..%2finternal/users/x", "/api/auth/login;/x"
         }) {
             client.get()
                     .uri(URI.create("http://localhost:" + port + path))

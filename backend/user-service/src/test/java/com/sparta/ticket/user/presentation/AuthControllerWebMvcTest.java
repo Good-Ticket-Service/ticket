@@ -29,12 +29,12 @@ class AuthControllerWebMvcTest {
     @Test
     @DisplayName("슬라이스 테스트에도 common 예외 처리가 들어와 검증 실패를 공통 에러 형식으로 응답한다")
     void sliceUsesCommonExceptionHandler() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/signup")
+        mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.path").value("/api/v1/auth/signup"))
+                .andExpect(jsonPath("$.path").value("/api/auth/signup"))
                 .andExpect(jsonPath("$.errors").isArray());
     }
 }
