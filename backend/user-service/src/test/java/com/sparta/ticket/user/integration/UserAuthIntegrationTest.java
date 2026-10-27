@@ -56,45 +56,46 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    private static SignupCommand signup(String username) {
-        return new SignupCommand(username, PASSWORD, "홍길동");
+    private static SignupCommand signup(String email) {
+        return new SignupCommand(email, PASSWORD, "홍길동", "010-1234-5678");
     }
 
     @Test
-    @DisplayName("회원가입하면 BCrypt 해시, USER 권한, Audit(SYSTEM)이 실제 DB에 저장된다")
+    @DisplayName("회원가입하면 BCrypt 해시, USER 권한, ACTIVE 상태, Audit(SYSTEM)이 실제 DB에 저장된다")
     void signupPersists() {
-        SignupResult result = authService.signup(signup("itsave01"));
+        SignupResult result = authService.signup(signup("itsave01@ticket.com"));
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT password, role, created_by, updated_by, created_at FROM p_users WHERE user_id = ?",
+                "SELECT password, role, status, created_by, updated_by, created_at FROM p_users WHERE user_id = ?",
                 result.userId());
         assertThat((String) row.get("password")).startsWith("$2a$").isNotEqualTo(PASSWORD);
         assertThat(row.get("role")).isEqualTo("USER");
+        assertThat(row.get("status")).isEqualTo("ACTIVE");
         assertThat(row.get("created_by")).isEqualTo("SYSTEM");
         assertThat(row.get("updated_by")).isEqualTo("SYSTEM");
         assertThat(row.get("created_at")).isNotNull();
     }
 
     @Test
-    @DisplayName("논리 삭제된 사용자는 로그인 실패, 내부 조회 404이고, 같은 username으로 다시 가입할 수 없다")
+    @DisplayName("논리 삭제된 사용자는 로그인 실패, 내부 조회 404이고, 같은 email로 다시 가입할 수 없다")
     void withdrawnUser() {
-        SignupResult result = authService.signup(signup("itdel01"));
+        SignupResult result = authService.signup(signup("itdel01@ticket.com"));
         transactionTemplate.executeWithoutResult(
                 status -> userRepository.findById(result.userId()).orElseThrow().softDelete("master01"));
 
-        assertThatThrownBy(() -> authService.login(new LoginCommand("itdel01", PASSWORD)))
+        assertThatThrownBy(() -> authService.login(new LoginCommand("itdel01@ticket.com", PASSWORD)))
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.LOGIN_FAILED);
         assertThatThrownBy(() -> userQueryService.getInternalUser(result.userId()))
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-        assertThatThrownBy(() -> authService.signup(signup("itdel01")))
+        assertThatThrownBy(() -> authService.signup(signup("itdel01@ticket.com")))
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.DUPLICATE_USERNAME);
+                .isEqualTo(UserErrorCode.DUPLICATE_EMAIL);
     }
 
     @Test
-    @DisplayName("같은 username으로 동시에 가입하면 하나만 성공하고 나머지는 500이 아니라 DUPLICATE_USERNAME")
+    @DisplayName("같은 email로 동시에 가입하면 하나만 성공하고 나머지는 500이 아니라 DUPLICATE_EMAIL")
     void concurrentSignup() throws Exception {
         int threads = 8;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
@@ -104,7 +105,7 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
             futures.add(executor.submit(() -> {
                 start.await();
                 try {
-                    return authService.signup(signup("itrace01"));
+                    return authService.signup(signup("itrace01@ticket.com"));
                 } catch (BusinessException e) {
                     return e.getErrorCode();
                 }
@@ -122,18 +123,18 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
         assertThat(results)
                 .filteredOn(result -> !(result instanceof SignupResult))
                 .hasSize(threads - 1)
-                .containsOnly(UserErrorCode.DUPLICATE_USERNAME);
+                .containsOnly(UserErrorCode.DUPLICATE_EMAIL);
     }
 
     @Test
     @DisplayName("내부 사용자 조회는 DTO를 감싸지 않고 Gateway UserSnapshot과 같은 필드명으로 반환한다")
     void internalUserContract() throws Exception {
-        SignupResult result = authService.signup(signup("itapi01"));
+        SignupResult result = authService.signup(signup("itapi01@ticket.com"));
 
         mockMvc.perform(get("/internal/users/{userId}", result.userId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userId").value(result.userId().toString()))
-                .andExpect(jsonPath("$.username").value("itapi01"))
+                .andExpect(jsonPath("$.userId").value(result.userId()))
+                .andExpect(jsonPath("$.email").value("itapi01@ticket.com"))
                 .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -143,6 +144,6 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
     void schemaFromSqlFile() {
         assertThat(jdbcTemplate.queryForList(
                         "SELECT conname FROM pg_constraint WHERE conrelid = 'p_users'::regclass", String.class))
-                .contains("uk_p_users_username", "ck_p_users_role");
+                .contains("uk_p_users_email", "ck_p_users_role", "ck_p_users_status");
     }
 }

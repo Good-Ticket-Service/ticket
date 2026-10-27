@@ -28,34 +28,34 @@ class MasterAccountInitializerTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
-    private MasterAccountInitializer initializer(String username, String password) {
+    private MasterAccountInitializer initializer(String email, String password) {
         return new MasterAccountInitializer(
-                new MasterAccountProperties(username, password), userRepository, passwordEncoder);
+                new MasterAccountProperties(email, password), userRepository, passwordEncoder);
     }
 
     @Test
-    @DisplayName("username이나 password가 비어 있으면 만들지 않는다")
+    @DisplayName("email이나 password가 비어 있으면 만들지 않는다")
     void skipsWhenBlank() {
         initializer("", "Master!2026").run(null);
-        initializer("master", null).run(null);
+        initializer("master@ticket.com", null).run(null);
 
         verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    @DisplayName("username 규칙(소문자·숫자 4~10자)에 맞지 않으면 만들지 않는다")
-    void skipsWhenUsernameInvalid() {
-        initializer("Master_Admin", "Master!2026").run(null);
+    @DisplayName("이메일 형식이 아니면 만들지 않는다")
+    void skipsWhenEmailInvalid() {
+        initializer("not-an-email", "Master!2026").run(null);
 
         verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    @DisplayName("같은 username이 이미 있으면(탈퇴자 포함) 만들지 않는다")
+    @DisplayName("같은 email이 이미 있으면(탈퇴자 포함) 만들지 않는다")
     void skipsWhenExists() {
-        given(userRepository.existsByUsernameIncludingDeleted("master")).willReturn(true);
+        given(userRepository.existsByEmailIncludingDeleted("master@ticket.com")).willReturn(true);
 
-        initializer("master", "Master!2026").run(null);
+        initializer("master@ticket.com", "Master!2026").run(null);
 
         verify(userRepository, never()).saveAndFlush(any());
     }
@@ -65,11 +65,11 @@ class MasterAccountInitializerTest {
     void createsMaster() {
         given(passwordEncoder.encode("Master!2026")).willReturn("{hash}");
 
-        initializer("master", "Master!2026").run(null);
+        initializer("master@ticket.com", "Master!2026").run(null);
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
-        assertThat(saved.getValue().getUsername()).isEqualTo("master");
+        assertThat(saved.getValue().getEmail()).isEqualTo("master@ticket.com");
         assertThat(saved.getValue().getPassword()).isEqualTo("{hash}");
         assertThat(saved.getValue().getRole()).isEqualTo(Role.MASTER);
     }
@@ -80,6 +80,7 @@ class MasterAccountInitializerTest {
         given(passwordEncoder.encode(any())).willReturn("{hash}");
         given(userRepository.saveAndFlush(any())).willThrow(new DataIntegrityViolationException("duplicate"));
 
-        assertThatCode(() -> initializer("master", "Master!2026").run(null)).doesNotThrowAnyException();
+        assertThatCode(() -> initializer("master@ticket.com", "Master!2026").run(null))
+                .doesNotThrowAnyException();
     }
 }

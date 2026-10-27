@@ -20,12 +20,12 @@ class JwtProviderTest {
     private static final String SECRET = "test-only-jwt-secret-key-0123456789abcdef";
 
     @Test
-    @DisplayName("sub=userId, username, role을 담고 60분 뒤 만료되는 HS256 토큰을 발급한다")
+    @DisplayName("sub=userId, role만 담고 60분 뒤 만료되는 HS256 토큰을 발급한다")
     void issuesToken() {
         Instant now = Instant.now();
         Clock clock = Clock.fixed(now, ZoneId.systemDefault());
         JwtProvider provider = new JwtProvider(new JwtProperties(SECRET, 3600), clock);
-        User user = UserFixture.user("hong01", "encoded");
+        User user = UserFixture.user("hong@ticket.com", "encoded");
 
         String token = provider.issue(user);
 
@@ -36,7 +36,7 @@ class JwtProviderTest {
                 .parseSignedClaims(token)
                 .getPayload();
         assertThat(claims.getSubject()).isEqualTo(user.getId().toString());
-        assertThat(claims.get("username", String.class)).isEqualTo("hong01");
+        assertThat(claims).doesNotContainKeys("email", "username");
         assertThat(claims.get("role", String.class)).isEqualTo("USER");
         assertThat(claims.getExpiration().toInstant().getEpochSecond()
                         - claims.getIssuedAt().toInstant().getEpochSecond())
