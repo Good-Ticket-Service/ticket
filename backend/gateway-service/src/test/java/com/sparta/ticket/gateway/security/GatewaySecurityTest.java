@@ -86,7 +86,6 @@ class GatewaySecurityTest {
                 secret,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("email", "hong@ticket.com")
                         .claim("role", role)
                         .issueTime(Date.from(expiresAt.minusSeconds(3600)))
                         .expirationTime(Date.from(expiresAt))
@@ -251,7 +250,6 @@ class GatewaySecurityTest {
                 SECRET,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("email", "hong@ticket.com")
                         .claim("role", "USER")
                         .issueTime(new Date())
                         .build());
@@ -259,7 +257,6 @@ class GatewaySecurityTest {
                 SECRET,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("email", "hong@ticket.com")
                         .issueTime(new Date())
                         .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                         .build());
