@@ -1,5 +1,8 @@
 package com.sparta.ticket.fakepg.application.service.toss;
 
+import com.sparta.ticket.fakepg.application.service.approval.ConfirmDecision;
+import com.sparta.ticket.fakepg.application.service.approval.ConfirmOutcome;
+import com.sparta.ticket.fakepg.application.service.approval.ConfirmResult;
 import com.sparta.ticket.fakepg.domain.exception.PgErrorCode;
 import com.sparta.ticket.fakepg.domain.exception.PgException;
 import com.sparta.ticket.fakepg.domain.model.pg.PgProvider;
@@ -97,19 +100,4 @@ public class TossPaymentTransactions {
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
     }
-
-    public enum ConfirmDecision {
-        APPROVE,
-        REJECT,
-        DELAY
-    }
-
-    public enum ConfirmOutcome {
-        APPROVED,
-        REJECTED,
-        DELAYED,
-        EXPIRED
-    }
-
-    public record ConfirmResult(PgTransaction transaction, ConfirmOutcome outcome) {}
 }
