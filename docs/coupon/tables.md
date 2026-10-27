@@ -2,7 +2,7 @@
 
 - 상태: 작성 중
 - 담당:
-- DDL: `backend/sql/payment-service/schema.sql`
+- DDL: `backend/sql/reservation-service/schema.sql` (제안. 이전 문서는 payment-service 기준이었다)
 - 출처: Notion 테이블 명세서 "쿠폰" 토글 (2026-10-26 기준). 담당자가 검토하며 고친다.
 
 ## 1. ERD
@@ -29,7 +29,7 @@ erDiagram
         int discount_amount "발급 시점 복사본"
         varchar status "AVAILABLE, RESERVED, USED, EXPIRED"
         timestamp expires_at
-        bigint payment_id "부분 UK, FK 없음"
+        bigint reservation_id "부분 UK, FK 없음"
         timestamp used_at
     }
 ```
@@ -40,13 +40,13 @@ erDiagram
 
 | 항목 | 내용 |
 | --- | --- |
-| 서비스 | payment-service |
-| 스키마 | payment_schema |
-| DDL 위치 | backend/sql/payment-service/schema.sql |
-| 소유 | 쿠폰 담당 (결제는 CouponUsage의 reserve / use / release로만 접근) |
+| 서비스 | reservation-service (coupon 모듈) |
+| 스키마 | reservation_schema |
+| DDL 위치 | backend/sql/reservation-service/schema.sql |
+| 소유 | 쿠폰 담당 (예매는 CouponUsage의 reserve / use / release로만 접근) |
 | 공통 규칙 | Audit 컬럼 6개, BaseEntity 상속, @SQLRestriction("deleted_at IS NULL") |
 
-결제와의 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다. 이 명세대로 메서드 3개(`reserve`, `use`, `release`)로 합의했다.
+예매와의 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다. 메서드 3개(`reserve`, `use`, `release`)는 그대로이고, 쿠폰을 잡는 키가 결제가 아니라 예매다 (제안).
 
 ### 테이블 관계
 
@@ -54,7 +54,7 @@ erDiagram
 | --- | --- | --- | --- | --- |
 | p_coupons | p_user_coupons | 1 : N | coupon_id | 있음 |
 | p_users (user_schema) | p_user_coupons | 1 : N | user_id | 없음 (스키마가 다름) |
-| p_payments (결제 담당) | p_user_coupons | 1 : 0..1 | payment_id | 없음 (소유자가 다름) |
+| p_reservations (예매 담당) | p_user_coupons | 1 : 0..1 | reservation_id | 없음 (모듈 소유자가 다름) |
 
 ## 3. p_coupons — 쿠폰 정의
 
@@ -102,7 +102,7 @@ erDiagram
 | discount_amount | INT |  | N |  | 발급 시점 할인액 복사본 |
 | status | VARCHAR(20) |  | N |  | AVAILABLE / RESERVED / USED / EXPIRED |
 | expires_at | TIMESTAMP |  | N |  | 만료 시각 = 발급 시각 + valid_days |
-| payment_id | BIGINT | UK② | Y |  | 쿠폰을 잡은 결제. 소유자가 달라 FK 없음 |
+| reservation_id | BIGINT | UK② | Y |  | 쿠폰을 잡은 예매. 모듈 소유자가 달라 FK 없음 |
 | used_at | TIMESTAMP |  | Y |  | 사용 확정 시각 |
 | created_at | TIMESTAMP |  | N |  | 발급 시각 (API의 issuedAt) |
 | created_by | VARCHAR(100) |  | N |  | 생성자 |
@@ -116,10 +116,10 @@ erDiagram
 | 이름 | 종류 | 조건 | 목적 |
 | --- | --- | --- | --- |
 | uk_p_user_coupons_user_coupon | UNIQUE ① | (user_id, coupon_id) | 1인 1장. 위반 시 COUPON_ALREADY_ISSUED. 내 쿠폰·issuedByMe 조회에도 사용 |
-| uk_p_user_coupons_payment | 부분 UNIQUE ② | (payment_id) WHERE payment_id IS NOT NULL | 결제 하나에 쿠폰 하나. use·release 조회에 사용 |
+| uk_p_user_coupons_reservation | 부분 UNIQUE ② | (reservation_id) WHERE reservation_id IS NOT NULL | 예매 하나에 쿠폰 하나. use·release 조회에 사용 |
 | ck_p_user_coupons_discount | CHECK | discount_amount > 0 | 할인액은 양수 |
 | ck_p_user_coupons_status | CHECK | status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED') | 상태 값 제한 |
-| ck_p_user_coupons_payment | CHECK | (status IN ('RESERVED', 'USED')) = (payment_id IS NOT NULL) | 잡힌 쿠폰에만 결제가 있음 |
+| ck_p_user_coupons_reservation | CHECK | (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL) | 잡힌 쿠폰에만 예매가 있음 |
 | ck_p_user_coupons_used | CHECK | (status = 'USED') = (used_at IS NOT NULL) | 사용 확정된 쿠폰에만 사용 시각이 있음 |
 | ix_p_user_coupons_expire | 부분 INDEX | (expires_at) WHERE status = 'AVAILABLE' | 만료 배치 조회 |
 
@@ -128,8 +128,8 @@ erDiagram
 | 현재 | 다음 | 계기 | 바뀌는 컬럼 |
 | --- | --- | --- | --- |
 | (없음) | AVAILABLE | 선착순 발급 | 행 생성, expires_at |
-| AVAILABLE | RESERVED | 결제 준비 (reserve) | payment_id |
-| RESERVED | USED | 결제 승인 확정 (use) | used_at |
-| RESERVED | AVAILABLE / EXPIRED | 결제 실패·대체 (release), 유효 기간에 따라 | payment_id = NULL |
-| USED | AVAILABLE / EXPIRED | 환불 (release), 유효 기간에 따라 | payment_id = NULL, used_at = NULL |
+| AVAILABLE | RESERVED | 예매 결제 준비에서 쿠폰 선택 (reserve) | reservation_id |
+| RESERVED | USED | 예매 확정 (use) | used_at |
+| RESERVED | AVAILABLE / EXPIRED | 쿠폰 변경·빼기, 예매 만료·해제 (release), 유효 기간에 따라 | reservation_id = NULL |
+| USED | AVAILABLE / EXPIRED | 예매 취소 확정 (release), 유효 기간에 따라 (제안) | reservation_id = NULL, used_at = NULL |
 | AVAILABLE | EXPIRED | 만료 배치 (RESERVED는 대상 아님) | - |
