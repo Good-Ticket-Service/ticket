@@ -25,13 +25,15 @@ public interface PgClient {
      */
     PgResult cancel(PgCancelRequest request);
 
-    record PgReadyRequest(String orderId, int amount, String itemName) {}
+    /** @param userId 결제한 회원. 카카오는 준비·승인에 같은 partner_user_id를 보내야 한다. 토스는 쓰지 않는다 */
+    record PgReadyRequest(String orderId, Long userId, int amount, String itemName) {}
 
     /**
      * @param transactionId 카카오 tid 또는 토스 paymentKey
      * @param authToken 사용자 인증 결과. 카카오 pg_token, 토스는 paymentKey와 같다
+     * @param userId 결제한 회원. 카카오 partner_user_id로 보낸다
      */
-    record PgApproveRequest(String orderId, String transactionId, String authToken, int amount) {}
+    record PgApproveRequest(String orderId, String transactionId, String authToken, int amount, Long userId) {}
 
     record PgInquireRequest(String orderId, String transactionId) {}
 
