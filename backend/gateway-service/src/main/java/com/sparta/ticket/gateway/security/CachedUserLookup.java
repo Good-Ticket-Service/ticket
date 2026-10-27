@@ -5,7 +5,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.function.Function;
 import reactor.core.publisher.Mono;
 
@@ -16,15 +15,15 @@ import reactor.core.publisher.Mono;
  */
 public class CachedUserLookup implements UserLookup {
 
-    private final AsyncCache<UUID, Optional<UserSnapshot>> cache;
-    private final Function<UUID, Mono<Optional<UserSnapshot>>> loader;
+    private final AsyncCache<Long, Optional<UserSnapshot>> cache;
+    private final Function<Long, Mono<Optional<UserSnapshot>>> loader;
 
-    public CachedUserLookup(Function<UUID, Mono<Optional<UserSnapshot>>> loader, Duration ttl) {
+    public CachedUserLookup(Function<Long, Mono<Optional<UserSnapshot>>> loader, Duration ttl) {
         this(loader, ttl, Ticker.systemTicker());
     }
 
     /** 테스트에서 시간을 직접 흘려 만료를 확인할 수 있게 Ticker를 받는다. */
-    CachedUserLookup(Function<UUID, Mono<Optional<UserSnapshot>>> loader, Duration ttl, Ticker ticker) {
+    CachedUserLookup(Function<Long, Mono<Optional<UserSnapshot>>> loader, Duration ttl, Ticker ticker) {
         this.loader = loader;
         this.cache = Caffeine.newBuilder()
                 .ticker(ticker)
@@ -38,7 +37,7 @@ public class CachedUserLookup implements UserLookup {
      * 클라이언트 하나가 연결을 끊으면 같은 Future를 기다리던 다른 요청까지 실패한다. suppressCancel=true로 취소를 전달하지 않는다.
      */
     @Override
-    public Mono<Optional<UserSnapshot>> find(UUID userId) {
+    public Mono<Optional<UserSnapshot>> find(Long userId) {
         return Mono.fromFuture(
                 () -> cache.get(userId, (key, executor) -> loader.apply(key).toFuture()), true);
     }
