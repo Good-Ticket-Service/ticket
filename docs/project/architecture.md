@@ -134,7 +134,7 @@ sequenceDiagram
 
     U->>B: ① 결제 준비 (userCouponId)
     B->>B: 쿠폰 잡기(reservation/coupon), 할인·결제 금액 계산
-    B->>PAY: POST /internal/payments (Feign, 예매가 만든 orderId, totalPrice, discountAmount, amount, expiresAt)
+    B->>PAY: POST /internal/payments (Feign, 예매가 만든 orderId, totalPrice, discountAmount, expiresAt)
     PAY-->>B: paymentId, 결제 금액, checkoutUrl(카카오만)
     B-->>U: orderId, 결제 금액, 결제창 URL
 
@@ -162,7 +162,7 @@ sequenceDiagram
 ```
 
 - 사용자 요청은 모두 gateway(`/api/v1/**`)를 거친다. 그림에서는 생략했다.
-- 할인 전 금액(`totalPrice`)은 선점 때 복사한 좌석 가격으로, 쿠폰 할인과 결제 금액(`amount`)도 reservation이 계산한다. payment는 금액이 맞는지만 검증한다. 클라이언트가 보낸 금액은 쓰지 않는다 (제안).
+- 할인 전 금액(`totalPrice`)은 선점 때 복사한 좌석 가격으로, 쿠폰 할인액(`discountAmount`)도 reservation이 계산한다. payment는 `totalPrice - discountAmount`로 결제 금액을 정하고 100원 이상인지만 검증한다(#22). 클라이언트가 보낸 금액은 쓰지 않는다.
 - fake-pg는 실제 결제창 대신 인증을 흉내 내는 API를 준다. 부하 테스트에서는 k6가 VPC 안에서 직접 부른다. 서버 환경에서 사용자 브라우저가 fake-pg에 닿는 경로는 아직 정하지 않았다 (9장).
 - Phase 1과 Phase 2는 **전송 방식만** 다르고 상태 전이 코드는 같다. 그래서 측정 차이를 통신 방식 때문이라고 말할 수 있다.
 
@@ -254,8 +254,8 @@ stateDiagram-v2
 | 서비스 이름 통일: performance / `event-service` | D10 |
 | 응답 형식 통일: 예매(`/api`, `data` 래퍼, 숫자 ID, 오프셋 없는 시각)와 공연 공통 계약(`/api`, 래퍼 없음, 문자열 ID, `+09:00`)이 다름 | 팀 전체 |
 | 승인·환불 토픽 이름(`payment.confirm.requested`로 바꿀지), `pgAuthToken` 보관 기간. Feign 경로와 필드는 합의됐다 | P3·P4 |
-| 공유 계약 반영: [결제 내부 API](../shared/internal-api/payment.md)에 아직 UUID 회원 ID, 관리자 `resolve`가 남아 있다. Long ID, `PG_UNRESOLVED` 추가, `resolve`·`MANUAL` 제거로 고친다. 쿠폰 필드는 `discountAmount`·`amount`로 바꾸는 초안이 있다 | 결제 계약 PR, 쿠폰 모듈 이동 이슈 |
-| 쿠폰 모듈 위치: reservation-service로 옮기는 제안. 쿠폰을 예매 단위로 잡을지, 결제 실패 후 쿠폰 유지, 취소 시 복구 시점, 정산 할인 정보 | 쿠폰 모듈 이동 이슈 |
+| 공유 계약 반영: [결제 내부 API](../shared/internal-api/payment.md)에 아직 UUID 회원 ID, 관리자 `resolve`가 남아 있다. Long ID, `PG_UNRESOLVED` 추가, `resolve`·`MANUAL` 제거로 고친다. 쿠폰 필드는 `discountAmount`로 바꾸는 변경이 검토 대기다 | 결제 계약 PR, #22 |
+| 쿠폰 모듈 이동 뒤 CouponUsage: 쿠폰을 예매 단위로 잡을지, 결제 실패 후 쿠폰 유지, 취소 시 복구 시점 | #22, 쿠폰 모듈 이동 이슈 |
 | `PG_UNRESOLVED` 실패 뒤 예매 처리: 계약표는 FAILED면 HOLD 복귀(시간 지났으면 만료), 팀 결정 문구는 "좌석을 푼다"다. 어느 쪽인지 확정 | 예매·결제 |
 | Phase 2 결과 전달: 팀 결정은 "예매가 조회하고 payment는 먼저 알리지 않는다"인데, Phase 2는 `payment.completed`·`payment.failed` 이벤트로 알린다. 이 결정이 Phase 1에만 해당하는지 확정 | P4 |
 | 서버 환경에서 사용자가 fake-pg 결제창에 닿는 경로: fake-pg는 gateway 라우트에 없고 서비스 포트는 외부에 열지 않는다 | [infra.md](infra.md) |
