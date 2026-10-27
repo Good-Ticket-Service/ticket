@@ -127,5 +127,7 @@ Outbox는 발신 측 업무 상태와 발행 의도를 같은 트랜잭션에 �
 
 ## 8. 참고
 
+추가 필수 검증은 [reliability.md](reliability.md) R08·R09·R11·R13·R14와 [todo.md](todo.md)의 해당 Task를 따른다. 예매의 영속 보상·취소 복구는 MVP Task 12-1이며 워커·Kafka 구현 때까지 미루지 않는다. 늦은 취소 결과는 cancel_attempt·실행 세대와 최신 상태를 대조하고, Kafka 발행·결제 DB 접수·PG 취소 완료의 의미를 구분한다. PG 호출을 접수 응답 경로에서 분리하는 비교는 Task 15-1에 두며 MVP의 최초 직접 호출을 이 문서로 자동 변경하지 않는다.
+
 - [Kafka 전달·처리 보장](https://kafka.apache.org/documentation/#semantics): Kafka 내부 처리 보장이 외부 DB·PG의 원자적 실행을 대신하지 않는다.
 - [Outbox 패턴](https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html): 업무 상태와 발행할 기록을 함께 저장한다. 구현 도구는 아직 정하지 않았다.
