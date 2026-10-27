@@ -1,6 +1,6 @@
 package com.sparta.ticket.reservation;
 
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
