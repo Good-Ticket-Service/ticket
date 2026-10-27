@@ -25,7 +25,7 @@
 - Entity는 `BaseEntity`를 상속하고, 논리 삭제 조회 제외는 Entity마다 `@SQLRestriction("deleted_at IS NULL")`을 붙인다.
 - 스키마 DDL은 `backend/sql/{서비스}/schema.sql`에 둔다. Entity를 바꾸면 이 파일도 같이 고친다. `local` 프로필(기본)은 `ddl-auto: create`, 그 밖은 `validate`이고, 통합 테스트는 `schema.sql`을 실행한 뒤 Entity와 대조한다.
 - 에러 코드는 서비스별 enum이 `ErrorCode`를 구현한다. `CommonErrorCode`에 있는 이름을 다시 정의하지 않는다.
-- 외부 API는 `/api/v1/**`, 응답은 `ApiResponse`. 새 경로는 `backend/config-repo/gateway-service.yml` 라우트를 확인한다.
+- 외부 API는 `/api/**`(버전 `v1`을 붙이지 않는다), 응답은 `ApiResponse`. 새 경로는 `backend/config-repo/gateway-service.yml` 라우트를 확인한다.
 - 서비스 간 API는 `/internal/**`에 두고 응답을 감싸지 않는다. 다른 서비스 스키마는 직접 조회하지 않고 Feign(`infrastructure/client`)으로 부른다. 재시도(`IdempotentRetryConfig`)는 GET·멱등 API에만 붙인다.
 - 현재 사용자는 `@CurrentUser UserContext`, 역할 제한은 `@RequireRole`, 소유자 검사는 application 계층에서 한다.
 - 통합 테스트는 `PostgresIntegrationTest`(Testcontainers PostgreSQL 16)를 상속한다. H2를 쓰지 않는다.

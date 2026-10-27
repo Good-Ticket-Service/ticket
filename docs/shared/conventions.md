@@ -6,10 +6,10 @@
 
 | 구분 | 경로 | Gateway | 응답 |
 |---|---|---|---|
-| 외부 API | `/api/v1/**` | 노출. 서비스별 라우트는 `backend/config-repo/gateway-service.yml` | 성공은 `ApiResponse`, 실패는 `ErrorResponse` |
+| 외부 API | `/api/**` (버전 `v1`을 붙이지 않는다, 2026-10-27 팀 결정) | 노출. 서비스별 라우트는 `backend/config-repo/gateway-service.yml` | 성공은 `ApiResponse`, 실패는 `ErrorResponse` |
 | 내부 API | `/internal/**` | 외부 접근을 404로 막는다 | 본문을 감싸지 않는다. 실패는 `ErrorResponse` |
 
-새 외부 경로를 만들면 Gateway 라우트에 들어가는지 확인한다. 현재 라우트는 `/api/v1/auth/**`, `/api/v1/users/**`, `/api/v1/events/**`, `/api/v1/reservations/**`, `/api/v1/payments/**`다.
+새 외부 경로를 만들면 Gateway 라우트에 들어가는지 확인한다. 목표 라우트는 `/api/auth/**`, `/api/users/**`, `/api/events/**`, `/api/reservations/**`, `/api/payments/**`다. 지금 `gateway-service.yml`과 회원 API 구현은 아직 `/api/v1/**`이고, 담당자가 후속 작업에서 바꾼다. 도메인 `api.md`의 `/api/v1` 경로도 각 담당이 구현할 때 `/api`로 맞춘다.
 
 ## 사용자 헤더
 
@@ -62,14 +62,14 @@ Notion에서 옮긴 도메인 명세끼리 공통 규약이 다르다. 합의 �
 
 | 항목 | 이 문서·회원·예매·쿠폰·결제 | 공연·좌석 초안 |
 |---|---|---|
-| 외부 경로 | `/api/v1/**` (Gateway 라우트와 같다) | `/api/**` (예: `/api/seller/performances`, `/api/schedules/{id}/holds`) |
+| 외부 경로 | 해결: 모두 `/api/**`로 통일한다 (2026-10-27). 이 문서의 기준을 공연·좌석 초안 쪽으로 맞췄다 | `/api/**` (예: `/api/seller/performances`, `/api/schedules/{id}/holds`) |
 | 성공 응답 | `ApiResponse`로 감싼다 | 래퍼 없이 DTO를 직접 반환 |
 | 실패 응답 | `ErrorResponse` (`status`, `code`, `message`, `path`, `timestamp`, `errors`) | `{code, message, traceId, fieldErrors}` |
 | BIGINT ID | 숫자 | 문자열 |
 | 시각 | 예매·쿠폰은 오프셋 없는 KST | `+09:00` 포함 |
 | 선점 상태·만료 오류 | 예매: `HOLD`, 409 `HOLD_EXPIRED` | 공연 5.12: `HELD`, 410 `HOLD_EXPIRED` |
 
-`/api/**` 경로는 지금 Gateway 라우트에 없어서 그대로 구현하면 외부에서 호출되지 않는다.
+`/api/**` 경로는 지금 Gateway 라우트에 없어서, 라우트를 바꾸기 전에는 외부에서 호출되지 않는다. 라우트 변경은 gateway 담당 후속 작업이다.
 
 ## 멱등성과 재시도
 
