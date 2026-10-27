@@ -24,10 +24,10 @@
 | `hold(userId, scheduleId, List<SeatLine>, holdExpiresAt)` | 예약 id | 좌석 선점 | 구현 (feat/reservation/15) |
 | `getReservation(reservationId)` | `Optional<ReservationView>` | 선점 해제 전 좌석 id 읽기 | 구현 (feat/reservation/15) |
 | `release(userId, reservationId)` | `ReleaseResult` | 선점 해제 | 구현 (feat/reservation/15) |
-| `countActiveSeats(userId, scheduleId)` | int | 좌석 선점(1인 매수 제한) | 구현 (feat/reservation/59) |
-| `findActiveHold(userId, scheduleId)` | `Optional<ReservationView>` | 좌석 선점(같은 좌석 재요청 200, 본인 만료 HOLD 정리) | 구현 (feat/reservation/59) |
-| `expireIfDue(reservationId)` | boolean | 좌석 선점·해제 중 만료된 HOLD 정리 | 구현 (feat/reservation/59). 쿠폰 해제는 쿠폰 연동 때 |
-| `findPaymentInProgress(Collection<Long> reservationIds)` | `Set<Long>` | 좌석 선점·조회·잔여석 | 구현 (feat/reservation/59) |
+| `countActiveSeats(userId, scheduleId)` | int | 좌석 선점(1인 매수 제한) | 구현됨 (#61) |
+| `findActiveHold(userId, scheduleId)` | `Optional<ReservationView>` | 좌석 선점(같은 좌석 재요청 200, 본인 만료 HOLD 정리) | 구현됨 (#61) |
+| `expireIfDue(reservationId)` | boolean | 좌석 선점·해제 중 만료된 HOLD 정리 | 구현됨 (#61). 쿠폰 해제는 쿠폰 연동 때 |
+| `findPaymentInProgress(Collection<Long> reservationIds)` | `Set<Long>` | 좌석 선점·조회·잔여석 | 구현됨 (#61) |
 
 ### hold
 
@@ -115,4 +115,4 @@ public enum ReleaseResult { RELEASED, EXPIRED, ALREADY_CLOSED, NOT_RELEASABLE }
 | 날짜 | 이슈·PR | 내용 |
 |---|---|---|
 | 2026-10-27 | #34 | 초안. 좌석 담당 제안 v1과 #34 합의(시계 통일, release 결과 4개, facade 패키지, 트랜잭션 밖 409 변환)를 반영 |
-| 2026-10-27 | #59 | `countActiveSeats`·`findActiveHold`·`expireIfDue`·`findPaymentInProgress` 구현. `getReservation` 이름 확인(PR #43) 반영 |
+| 2026-10-27 | #59, #61 | `countActiveSeats`·`findActiveHold`·`expireIfDue`·`findPaymentInProgress` 구현. `getReservation` 이름 확인(PR #43) 반영 |
