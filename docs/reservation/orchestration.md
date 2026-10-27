@@ -10,6 +10,7 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | --- | --- | --- |
 | 0.1 | 2026-10-24 | 초안 |
 | 0.2 | 2026-10-24 | 설계서 v4에 맞춰 정리. 합의할 항목에 설계서 결정 번호(D10~D17) 연결, `BookingFacade.expire` 추가 |
+| 0.4 | 2026-10-27 | 쿠폰 모듈을 reservation-service로 옮기는 제안 반영: 쿠폰을 예매에 잡고, 할인액을 예매가 계산해 결제 준비에 보낸다 (쿠폰 모듈 이동 이슈) |
 | 0.3 | 2026-10-24 | payment 담당 리뷰(PR #9) 반영: 결제 준비·승인 두 번 호출, 시도마다 `orderId`, 승인 요청이 사라지면 같은 `orderId`로 다시 요청, 결제 호출 read 15초, 취소는 두 Phase 모두 환불 결과와 상관없이 처리. 남은 질문은 11장에 모았고 10/26 회의에서 정한다 |
 
 ---
@@ -22,7 +23,8 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | 트러블슈팅 기간 | Transactional Outbox, 멱등 소비, 결과 불명 복구, 취소표 즉시 재판매 | booking (한얼) |
 | 맡지 않는 것 | 좌석 선점(비관적 락), 좌석 상태 조회, 1인 매수 제한 | seat (정민) |
 | | 대기열, 입장 토큰 | queue (태현) |
-| | 결제·환불, 가짜 PG, 쿠폰 사용·복구 | payment (현민, 윤범) |
+| | 쿠폰 정책·발급, 쿠폰 상태 전이 (booking은 `CouponUsage`로 부른다) | coupon (윤범) |
+| | 결제·환불, 가짜 PG | payment (현민) |
 
 ---
 
@@ -58,6 +60,7 @@ com.sparta.ticket.reservation
 │   └── infrastructure/        # client(Feign), messaging(Kafka), persistence, scheduler
 ├── seat/                      # 정민
 ├── queue/                     # 태현
+├── coupon/                    # 윤범 (제안, 쿠폰 모듈 이동 이슈)
 └── common/                    # 모듈이 함께 쓰는 설정
 ```
 
@@ -83,6 +86,18 @@ com.sparta.ticket.reservation
 | | `priceSnapshot(seatIds)` | booking | 결제 금액 계산. 좌석 생성 때 복사해 둔 가격을 쓴다 |
 
 booking 테스트는 `SeatFacade`의 가짜 구현으로 하고, seat 쪽 실제 구현은 seat 담당이 만든다.
+
+### 3.3 coupon과 booking 사이의 경계 (제안)
+
+쿠폰은 결제 시도가 아니라 예약 하나에 잡힌다. booking은 coupon 모듈의 `CouponUsage`만 부르고, 쿠폰 테이블을 직접 읽거나 바꾸지 않는다. 계약은 [shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)다. `CouponUsage`는 호출한 쪽 트랜잭션에 합류하므로 예약 상태·좌석 상태·쿠폰 상태가 한 트랜잭션에 커밋된다.
+
+| 메서드 | booking이 부르는 때 |
+| --- | --- |
+| `reserve(userCouponId, userId, reservationId)` → 할인액 | 결제 준비에서 쿠폰을 고르거나 바꿀 때 (5.2) |
+| `use(reservationId)` | `PAYMENT_IN_PROGRESS → CONFIRMED` |
+| `release(reservationId)` | 쿠폰 변경·빼기, `HOLD·PAYMENT_IN_PROGRESS → EXPIRED`, 선점 해제, 취소 확정 |
+
+결제 실패로 `HOLD`에 돌아가면 쿠폰은 잡은 채로 둔다. 같은 쿠폰으로 바로 다시 결제할 수 있다.
 
 ---
 
@@ -136,7 +151,9 @@ stateDiagram-v2
 | 컬럼 | 기록 시점 | 쓰임 |
 | --- | --- | --- |
 | `order_id` | 준비 | 승인 요청이 마지막 준비의 것인지 확인한다. 결과 반영 조건, 결과 확인·재요청의 키 |
-| `payment_amount` | 준비 응답 | 쿠폰을 적용한 결제 금액. 승인 요청의 `amount`로 보낸다. 클라이언트가 보낸 금액은 쓰지 않는다 |
+| `user_coupon_id` | 준비 | 이 예약에 잡은 쿠폰. 다음 준비에서 쿠폰이 바뀌었는지 비교한다 (제안) |
+| `discount_amount` | 준비 | 쿠폰 할인액. 결제 준비 요청의 `discountAmount`로 보낸다 (제안) |
+| `payment_amount` | 준비 | 결제 금액(할인 전 금액 - 할인액). 준비 응답의 `amount`와 같아야 하고, 승인 요청의 `amount`로 보낸다. 클라이언트가 보낸 금액은 쓰지 않는다 |
 | `pg_auth_token` | 승인 (트랜잭션 1) | payment가 승인 요청을 받지 못했을 때(준비만 됨) 같은 승인 요청을 다시 보낸다 (5.2). `CONFIRMED`·`EXPIRED`가 되면 지운다 |
 
 ---
@@ -149,7 +166,7 @@ stateDiagram-v2
 주기마다 (간격은 설정값, 예: 10초):
   1. 후보 조회: status = HOLD AND hold_expires_at <= now, hold_expires_at 순, 최대 N건 (잠그지 않음)
   2. 예약마다 한 트랜잭션:
-     SeatFacade.lockSeats → 조건부 UPDATE HOLD → EXPIRED → 1건이면 SeatFacade.release
+     SeatFacade.lockSeats → 조건부 UPDATE HOLD → EXPIRED → 1건이면 SeatFacade.release, CouponUsage.release
 ```
 
 - 인스턴스가 여러 개여도 조건부 UPDATE가 한 번만 성공하므로 결과는 맞다. 중복 작업이 문제가 되면 그때 ShedLock이나 `FOR UPDATE SKIP LOCKED`를 검토한다.
@@ -160,17 +177,20 @@ stateDiagram-v2
 토스·카카오 모두 사용자가 결제창에서 인증해야 승인에 필요한 값(토스 `paymentKey`, 카카오 `pg_token`. 아래에서는 `pgAuthToken`)이 생긴다. 그래서 결제는 준비 → 인증 → 승인으로 나뉜다(payment 답변, P1).
 
 ```
-① 준비  POST /api/v1/reservations/{reservationId}/payments/checkout   { "couponId": 1 }
+① 준비  POST /api/v1/reservations/{reservationId}/payments/checkout   { "userCouponId": 1, "pgProvider": "TOSS" }
 
-1. 본인, HOLD, 만료 전인지 확인하고 지금 order_id를 읽는다
-2. 금액 = SeatFacade.priceSnapshot 합계. 클라이언트가 보낸 금액은 받지 않는다
-3. orderId를 새로 만든다 (준비 요청마다)
-4. [트랜잭션 밖] PaymentPort.prepare(orderId, reservationId, userId, amount, couponId, expiresAt = hold_expires_at)
-                 payment가 쿠폰을 확인하고 결제 금액을 정한다
-                 실패·결과 모름 → 오류 응답. 상태와 order_id는 그대로
-5. [트랜잭션] status = HOLD이고 order_id가 1번에서 읽은 값 그대로인 예약에 order_id, payment_amount 기록 (상태는 그대로)
+1. 본인, HOLD, 만료 전인지 확인하고 지금 order_id, user_coupon_id를 읽는다
+2. 할인 전 금액 = SeatFacade.priceSnapshot 합계. 클라이언트가 보낸 금액은 받지 않는다
+3. [트랜잭션] 쿠폰 (제안): 요청 쿠폰이 user_coupon_id와 다르면 이전 쿠폰 CouponUsage.release → 새 쿠폰 CouponUsage.reserve
+             할인액 = min(쿠폰 할인액, max(0, 할인 전 금액 - 최소 결제 금액)). 할인 전 금액이 최소 결제 금액 이하면 COUPON_NOT_AVAILABLE
+             status = HOLD이고 user_coupon_id가 1번에서 읽은 값 그대로인 예약에 user_coupon_id, discount_amount, payment_amount 기록
+             0행 → 오류 응답 (다른 준비가 먼저 반영됐다). 쿠폰을 쓸 수 없으면 COUPON_NOT_AVAILABLE, 상태 그대로
+4. orderId를 새로 만든다 (준비 요청마다)
+5. [트랜잭션 밖] PaymentPort.prepare(orderId, reservationId, userId, totalPrice, discountAmount, expiresAt = hold_expires_at)
+                 실패·결과 모름 → 오류 응답. 상태와 order_id는 그대로. 잡은 쿠폰도 그대로 둔다
+6. [트랜잭션] status = HOLD이고 order_id가 1번에서 읽은 값 그대로인 예약에 order_id 기록 (상태는 그대로)
              0행 → 오류 응답 (다른 준비나 승인이 먼저 반영됐다)
-6. 응답: orderId, 결제 금액, (카카오) 결제창 URL
+7. 응답: orderId, 결제 금액, (카카오) 결제창 URL
 
 ② 인증  사용자가 결제창에서 인증한다. 예약은 관여하지 않는다 (fake-pg는 대체 API를 준다)
 
@@ -181,14 +201,14 @@ stateDiagram-v2
                      HOLD 그대로면 만료된 것이므로 HOLD_EXPIRED
 2. [트랜잭션 밖] PaymentPort.confirm(orderId, pgAuthToken, amount = payment_amount)
 3. [트랜잭션 2] PaymentResultApplier.apply(결과)
-     성공          → CONFIRMED, 좌석 SOLD
-     실패          → 시간 남으면 HOLD, 지났으면 EXPIRED + 좌석 AVAILABLE
+     성공          → CONFIRMED, 좌석 SOLD, CouponUsage.use
+     실패          → 시간 남으면 HOLD(쿠폰 그대로), 지났으면 EXPIRED + 좌석 AVAILABLE + CouponUsage.release
      결과 모름     → PAYMENT_IN_PROGRESS 유지 (F10). 타임아웃, 5xx, payment의 IN_PROGRESS 응답
 4. 응답: 예약 상태 (아래)
 ```
 
-- 준비를 다시 하면(쿠폰 변경, 결제창 다시 열기) 새 `orderId`가 이전 값을 덮는다. 5번은 1번에서 읽은 `order_id`를 조건으로 쓴다. 그래서 두 탭에서 동시에 준비하면 나중에 반영되는 쪽이 결제창을 받기 전에 실패한다. 이전 `orderId`로 온 승인은 `order_id` 조건에 걸려 거절된다(`ORDER_ID_MISMATCH`).
-- 덮인 `orderId`와 인증 중에 만료된 `orderId`는 payment에 준비 상태로 남는다. payment가 그 쿠폰을 잡아 두는지, `expiresAt`이 지나면 스스로 정리하는지 정해야 한다(P1). 잡아 둔다면 같은 쿠폰으로 다시 준비할 때 `COUPON_INVALID`가 난다.
+- 준비를 다시 하면(쿠폰 변경, 결제창 다시 열기) 새 `orderId`가 이전 값을 덮는다. 6번은 1번에서 읽은 `order_id`를 조건으로 쓴다. 그래서 두 탭에서 동시에 준비하면 나중에 반영되는 쪽이 결제창을 받기 전에 실패한다. 이전 `orderId`로 온 승인은 `order_id` 조건에 걸려 거절된다(`ORDER_ID_MISMATCH`).
+- 덮인 `orderId`와 인증 중에 만료된 `orderId`는 payment에 준비 상태로 남고, payment가 다음 준비에서 대체하거나 `expiresAt`이 지나면 정리한다. 쿠폰은 예약에 잡혀 있으므로 이 정리와 상관없이 같은 쿠폰으로 다시 준비할 수 있다.
 - 같은 승인이 다시 오면(더블 클릭, 게이트웨이 오류 뒤 클라이언트 재시도) 1번이 0행이 된다. 이때 오류를 돌려주면 첫 요청은 성공했는데 화면에는 실패가 뜰 수 있다. 그래서 지금 상태를 돌려주고, 클라이언트는 `PAYMENT_IN_PROGRESS`면 폴링한다.
 - 인증하는 동안 예약은 `HOLD`이므로 만료 스케줄러 대상이다. 인증 중에 만료되면 승인 1번에서 거절되고 PG는 불리지 않는다.
 - payment는 PG 승인 직전에 `expiresAt`을 다시 확인하고, 지났으면 PG를 부르지 않고 실패를 돌려준다. 만료 직전에 `PAYMENT_IN_PROGRESS`가 된 요청이 늦게 도착하거나, 결과 확인 스케줄러가 늦게 다시 보낸 경우가 여기에 걸린다. 이 실패는 3번의 "실패, 시간 지남"으로 처리되어 `EXPIRED`가 된다. 두 서버의 시계가 달라 예약 쪽에 시간이 남아 있으면 `HOLD`로 돌아가고, 만료 스케줄러가 곧 정리한다. PG 인증 값의 유효 시간이 지나 PG가 승인을 거절해도 같은 실패로 처리한다.
@@ -224,7 +244,7 @@ POST /api/v1/reservations/{reservationId}/cancel
 
 1. 본인, CONFIRMED, 취소 가능 기간 확인 (설계서 D6)
 2. [트랜잭션 밖] PaymentPort.requestRefund(orderId)
-3. payment가 요청을 받았다 (환불 완료, 재시도 중, 거절 모두) → [트랜잭션] CONFIRMED → CANCELLED, 좌석 release
+3. payment가 요청을 받았다 (환불 완료, 재시도 중, 거절 모두) → [트랜잭션] CONFIRMED → CANCELLED, 좌석 release, CouponUsage.release (제안)
    결과 모름 (타임아웃, 5xx)                                    → CONFIRMED 그대로, 오류 응답. 다시 취소하면 같은 키로 다시 요청
 ```
 
@@ -285,7 +305,7 @@ B의 약점은 발행 유실이다. 결제 요청은 `PAYMENT_IN_PROGRESS`가 �
 | --- | --- | --- | --- |
 | F1 | 결제하지 않음 | 만료 스케줄러 (5.1) | MVP 1주차 |
 | F2 | PG 승인 실패 | 결과 반영: 시간 남으면 `HOLD`, 지났으면 `EXPIRED` | MVP 1주차 |
-| F3 | 쿠폰 사용 불가 | 준비에서 걸린다. 상태는 `HOLD` 그대로이고 준비 API가 `COUPON_INVALID`로 응답한다. 승인 때도 날 수 있으면 F2와 같다 (P1) | MVP 1주차 |
+| F3 | 쿠폰 사용 불가 | 준비 3번에서 걸린다. 상태는 `HOLD` 그대로이고 준비 API가 `COUPON_NOT_AVAILABLE`로 응답한다. 쿠폰은 예약에 잡힌 뒤에는 바뀌지 않으므로 승인 때는 나지 않는다 | MVP 1주차 |
 | F10 | (Phase 1) Feign 타임아웃 | 결과 확인 스케줄러가 조회하고, payment가 승인 요청을 받지 못했으면(준비만 됨) 같은 `orderId`로 다시 요청 (5.2) | MVP 1주차 |
 | F8 | 결과 중복 수신 | 조건부 UPDATE + 지금 상태 확인 (5.4) → 트러블슈팅에 `processed_event` | MVP 2주차 / 트러블슈팅 |
 | F4 | PG 결과 불명 | `PAYMENT_IN_PROGRESS` 유지, 결과 확인 스케줄러가 payment의 `IN_PROGRESS`가 풀릴 때까지 기다리고, 오래 머물면 알림 (5.2) | 대기·알림은 MVP 1주차, payment 쪽 복구는 트러블슈팅 |
@@ -302,7 +322,7 @@ B의 약점은 발행 유실이다. 결제 요청은 `PAYMENT_IN_PROGRESS`가 �
 
 | 메서드 | 경로 | 설명 | 응답 |
 | --- | --- | --- | --- |
-| POST | `/api/v1/reservations/{reservationId}/payments/checkout` | 결제 준비. 본문은 `couponId`(선택) | `orderId`, 결제 금액, (카카오) 결제창 URL |
+| POST | `/api/v1/reservations/{reservationId}/payments/checkout` | 결제 준비. 본문은 `userCouponId`(선택), `pgProvider` | `orderId`, 결제 금액, (카카오) 결제창 URL |
 | POST | `/api/v1/reservations/{reservationId}/payments/confirm` | 결제 승인. 본문은 `orderId`, `pgAuthToken`. 금액은 받지 않는다 | 5.2 |
 | GET | `/api/v1/reservations/{reservationId}` | 예약 상태 조회 (결제 후 폴링) | 예약 상태, 좌석, 금액, `holdExpiresAt` |
 | POST | `/api/v1/reservations/{reservationId}/cancel` | 예약 취소 | 예약 상태 |
@@ -321,7 +341,7 @@ B의 약점은 발행 유실이다. 결제 요청은 `PAYMENT_IN_PROGRESS`가 �
 
 | 메서드 | 경로 | 요청 / 응답 | 재시도 |
 | --- | --- | --- | --- |
-| POST | `/internal/payments` | 준비. `orderId, reservationId, userId, amount, couponId, expiresAt` / 결제 금액(쿠폰 적용), (카카오) 결제창 URL | 다시 보내도 안전 (`orderId` 기준 멱등). 자동 재시도는 하지 않는다 |
+| POST | `/internal/payments` | 준비. `orderId, reservationId, userId, totalPrice, discountAmount, expiresAt` / 결제 금액(`totalPrice - discountAmount`), (카카오) 결제창 URL | 다시 보내도 안전 (`orderId` 기준 멱등). 자동 재시도는 하지 않는다 |
 | POST | `/internal/payments/{orderId}/confirm` | 승인. `pgAuthToken, amount` / `paymentId`, 결과(성공·실패·`IN_PROGRESS`), 실패 사유 | 다시 보내도 안전 (`orderId` 기준 멱등). 결과 확인 스케줄러만 다시 보낸다 (5.2) |
 | POST | `/internal/payments/{orderId}/refund` (가안) | `reason` / 접수 여부와 환불 상태 | 다시 보내도 안전 (멱등 키, P3). 자동 재시도는 하지 않는다 |
 | GET | `/internal/payments/{orderId}` (가안) | — / 결제 상태. 준비만 됨, `IN_PROGRESS`, 성공·실패. 모르는 `orderId`는 404 (P2) | 자동 재시도 (`IdempotentRetryConfig`) |
@@ -399,7 +419,7 @@ PR #9 리뷰로 받은 답변(10/24)을 반영했다. 남은 질문은 10/26(월
 
 | # | 항목 | payment 답변 (10/24) | 반영한 곳과 남은 질문 | 설계서 v4 |
 | --- | --- | --- | --- | --- |
-| P1 | 내부 API 필드·결과 값, 멱등 | payment 호출은 준비와 승인 두 번이고, 그 사이에 사용자가 결제창에서 인증한다. 예약이 준비마다 새 `orderId`를 만들고, payment는 `orderId` 기준 멱등(같은 `orderId`면 처음 결과를 돌려준다). 준비에 `expiresAt`을 넣으면 승인 직전에 만료를 다시 확인한다 | 4.4, 5.2, 8.1. 남은 질문: 같은 `orderId`가 처리 중일 때 다시 오면 무엇을 돌려주는지, 준비가 쿠폰을 잡아 두는지와 덮이거나 만료된 `orderId`를 payment가 `expiresAt`으로 스스로 정리하는지, 쿠폰이 승인 때도 실패할 수 있는지, 승인 `amount`를 준비 응답의 결제 금액으로 보내는 것이 맞는지 | D15 |
+| P1 | 내부 API 필드·결과 값, 멱등 | payment 호출은 준비와 승인 두 번이고, 그 사이에 사용자가 결제창에서 인증한다. 예약이 준비마다 새 `orderId`를 만들고, payment는 `orderId` 기준 멱등(같은 `orderId`면 처음 결과를 돌려준다). 준비에 `expiresAt`을 넣으면 승인 직전에 만료를 다시 확인한다 | 4.4, 5.2, 8.1. 남은 질문: 같은 `orderId`가 처리 중일 때 다시 오면 무엇을 돌려주는지, 덮이거나 만료된 `orderId`를 payment가 `expiresAt`으로 스스로 정리하는지. 쿠폰 관련 질문은 쿠폰을 예매로 옮기는 제안(3.3)으로 없어진다 | D15 |
 | P2 | 결제 상태 조회 | 기록 없음은 404, 결과 불명은 200 + `status: IN_PROGRESS`. 기록이 없으면 실패로 보지 말고 같은 `orderId`로 다시 보낸다 | 5.2. 실패로 끝내지 않고 다시 보낸다는 것은 반영했다. 다만 준비 때 이미 기록이 생기므로, 승인 요청이 사라져도 조회는 404가 아니다. 남은 질문: 준비만 되고 승인 요청을 받지 못한 건을 어떤 상태로 돌려주는지. 이 문서는 그 상태를 다시 보내는 기준으로 쓴다 | D15 |
 | P3 | 환불 거절 | PG가 거절하거나 계속 실패할 수 있다. 같은 멱등 키로 재시도하고, 끝내 안 되면 `recovery_blocked`로 관리자가 확인한다 | 5.3, 5.4. 두 Phase 모두 B안(payment가 환불 요청을 받으면 `CANCELLED`, 환불은 payment 책임)을 제안한다. 남은 질문: 환불 멱등 키를 `orderId`로 할지, 업무상 거절도 `recovery_blocked`처럼 관리자 확인 대상으로 남는지 | D14 |
 | P4 | 이벤트 payload, Envelope, 파티션 키 | — | 8.2. 준비가 Feign으로 남으므로 `payment.requested`는 승인 요청이 되고 `orderId`, `pgAuthToken`이 들어간다. 토픽 이름을 바꿀지, `pgAuthToken`이 남는 토픽과 DLT의 보관 기간 | 13장 |
@@ -410,7 +430,7 @@ PR #9 리뷰로 받은 답변(10/24)을 반영했다. 남은 질문은 10/26(월
 
 | # | 항목 | 설계서 v4 |
 | --- | --- | --- |
-| T1 | booking에 걸린 기존 결정: 11/6까지 Phase 2 전환, 선점 유지 시간 10분/5분, 취소 가능 기간·수수료와 환불 시 쿠폰 복구, 취소표 결제 권한 유효 시간 | D1, D4, D6, D7 |
+| T1 | booking에 걸린 기존 결정: 11/6까지 Phase 2 전환, 선점 유지 시간 10분/5분, 취소 가능 기간·수수료와 취소 시 쿠폰 복구(제안: 취소 확정 때 `release`, 3.3), 취소표 결제 권한 유효 시간 | D1, D4, D6, D7 |
 | T2 | 이벤트 DTO를 `common-core`에 둘지, 서비스마다 복사본을 둘지 | D17 |
 | T3 | 예약 상태 이름을 ERD·기능 명세서와 대조 | 9장 |
 | T4 | 서비스 이름: 설계서 `performance`와 저장소 `event-service` 중 무엇으로 통일할지 | D10 |
