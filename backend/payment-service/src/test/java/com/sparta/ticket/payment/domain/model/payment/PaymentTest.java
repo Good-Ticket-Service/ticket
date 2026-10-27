@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 
 class PaymentTest {
 
-    private static final Duration FIRST_CHECK = Duration.ofSeconds(30);
+    private static final Duration FIRST_CHECK = Duration.ofSeconds(10);
+    private static final Duration RESULT_DEADLINE = Duration.ofMinutes(1);
 
     private static Payment ready() {
         return Payment.ready(order("order-1", 1L), 5_000);
@@ -193,35 +194,46 @@ class PaymentTest {
     class RecoveryAndReconciliation {
 
         @Test
-        @DisplayName("결과를 모르면 시도 횟수와 다음 시각을 남기고, 중단 기준 시간이 지나면 중단 대상이다")
-        void deferAndGiveUp() {
+        @DisplayName("결과를 모르면 시도 횟수와 다음 시각을 남긴다")
+        void deferRecordsAttempt() {
             Payment payment = inProgress();
-            payment.deferRecovery("READ_TIMEOUT", NOW.plusSeconds(40));
+            payment.deferRecovery("READ_TIMEOUT", NOW.plusSeconds(10));
 
             assertThat(payment.getRecoveryAttempts()).isEqualTo(1);
             assertThat(payment.getLastError()).isEqualTo("READ_TIMEOUT");
-            assertThat(payment.isRecoveryGivenUp(NOW.plusMinutes(59), Duration.ofHours(1)))
+            assertThat(payment.getNextAttemptAt()).isEqualTo(NOW.plusSeconds(10));
+        }
+
+        @Test
+        @DisplayName("결과 확정 시한은 승인 호출 후 1분 직전에는 지나지 않았고 정확히 1분부터 지났다")
+        void resultDeadlineBoundary() {
+            Payment payment = inProgress();
+
+            assertThat(payment.isResultDeadlineOver(NOW.plusSeconds(59), RESULT_DEADLINE))
                     .isFalse();
-            assertThat(payment.isRecoveryGivenUp(NOW.plusHours(1), Duration.ofHours(1)))
+            assertThat(payment.isResultDeadlineOver(NOW.plusSeconds(60), RESULT_DEADLINE))
                     .isTrue();
         }
 
         @Test
-        @DisplayName("차단 해제는 중단 기준 시각을 다시 세고 승인 호출 시각은 그대로 둔다")
-        void unblockRestartsClockOnly() {
-            Payment payment = inProgress();
-            payment.blockRecovery("GIVE_UP");
-            payment.unblockRecovery(NOW.plusHours(2));
-
-            assertThat(payment.isRecoveryBlocked()).isFalse();
-            assertThat(payment.getRecoveryStartedAt()).isEqualTo(NOW.plusHours(2));
-            assertThat(payment.getApproveRequestedAt()).isEqualTo(NOW);
+        @DisplayName("결과 확정 시한은 IN_PROGRESS 결제에만 적용한다")
+        void resultDeadlineOnlyInProgress() {
+            assertThat(ready().isResultDeadlineOver(NOW.plusHours(1), RESULT_DEADLINE))
+                    .isFalse();
+            assertThat(done().isResultDeadlineOver(NOW.plusHours(1), RESULT_DEADLINE))
+                    .isFalse();
         }
 
         @Test
-        @DisplayName("차단되지 않은 결제는 차단 해제할 수 없다")
-        void unblockOnlyWhenBlocked() {
-            assertInvalidTransition(() -> inProgress().unblockRecovery(NOW));
+        @DisplayName("시한이 지나 PG_UNRESOLVED로 끝낸 결제는 최소 대사 대상이다")
+        void unresolvedFailureNeedsReconciliation() {
+            Payment payment = inProgress();
+            payment.fail(PaymentFailureCode.PG_UNRESOLVED, "결과 확정 시한 경과");
+
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.getFailureCode()).isEqualTo("PG_UNRESOLVED");
+            assertThat(payment.getNextAttemptAt()).isNull();
+            assertThat(payment.needsReconciliation()).isTrue();
         }
 
         @Test
@@ -229,9 +241,9 @@ class PaymentTest {
         void notFoundGrace() {
             Payment payment = inProgress();
 
-            assertThat(payment.isNotFoundGraceOver(NOW.plusMinutes(9), Duration.ofMinutes(10)))
+            assertThat(payment.isNotFoundGraceOver(NOW.plusSeconds(59), Duration.ofMinutes(1)))
                     .isFalse();
-            assertThat(payment.isNotFoundGraceOver(NOW.plusMinutes(10), Duration.ofMinutes(10)))
+            assertThat(payment.isNotFoundGraceOver(NOW.plusSeconds(60), Duration.ofMinutes(1)))
                     .isTrue();
         }
 

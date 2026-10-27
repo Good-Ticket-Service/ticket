@@ -3,7 +3,7 @@
 - 상태: 작성 완료
 - 담당: 강현민
 - DDL: `backend/sql/payment-service/schema.sql`, `backend/sql/fake-pg/schema.sql`
-- Notion 테이블 명세서 3.10~3.14와 같은 내용이다.
+- Notion 테이블 명세서 3.10~3.14가 원본이었다. 2026-10-26 팀 결정(회원 ID BIGINT, 결제 차단 제거)은 이 문서에 먼저 반영했다.
 - 현재 `schema.sql`의 테이블 이름은 `p_payments`, `p_refunds`다. `p_`를 빼는 변경은 별도 PR로 반영한다.
 
 ## 1. ERD
@@ -18,8 +18,8 @@ erDiagram
         bigint id PK
         varchar order_id UK "멱등 키, 예매가 시도마다 생성"
         bigint reservation_id "예매 (다른 서비스)"
-        uuid user_id
-        uuid seller_id "정산용"
+        bigint user_id
+        bigint seller_id "정산용"
         bigint performance_id
         bigint schedule_id
         varchar pg_provider "TOSS, KAKAO"
@@ -42,7 +42,6 @@ erDiagram
         timestamp next_attempt_at
         timestamp recovery_started_at
         int recovery_attempts
-        boolean recovery_blocked
         varchar last_error
         timestamp created_at
         varchar created_by
@@ -149,7 +148,7 @@ payments, refunds는 결제 서비스가 소유한다.
 | 컬럼(영문) | 컬럼(한글) | 타입 | 제약·기본값 | 설명 |
 | --- | --- | --- | --- | --- |
 | created_at | 생성 시각 | TIMESTAMP | NOT NULL | JPA Auditing이 행 최초 생성 시 기록한다. 이후 변경하지 않는다. |
-| created_by | 생성자 | VARCHAR(100) | NOT NULL | 요청 헤더의 username. 요청 밖 작업은 SYSTEM. |
+| created_by | 생성자 | VARCHAR(100) | NOT NULL | 요청한 사용자(팀 `HeaderAuditorAware`가 요청 헤더로 정한다). 요청 밖 작업은 SYSTEM. |
 | updated_at | 최종 변경 시각 | TIMESTAMP | NOT NULL | 서버가 매 변경 시 갱신한다. |
 | updated_by | 최종 변경자 | VARCHAR(100) | NOT NULL | 마지막으로 바꾼 주체. 요청 밖 작업은 SYSTEM. |
 | deleted_at | 삭제 시각 | TIMESTAMP | NULL | BaseEntity 공통 컬럼. 결제·환불은 삭제하지 않는다. |
@@ -167,8 +166,8 @@ payments, refunds는 결제 서비스가 소유한다.
 | id | 결제 식별자 | BIGINT | PK, NOT NULL, IDENTITY | 결제 행 ID. |
 | order_id | 주문 번호 | VARCHAR(64) | NOT NULL, UNIQUE | 예매가 준비 시도마다 만드는 멱등 키. PG에 주문번호로 보낸다. |
 | reservation_id | 예매 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 예매 서비스의 예매 ID. 서비스 간 물리 FK는 두지 않는다. |
-| user_id | 결제 사용자 식별자 | UUID | NOT NULL, 외부 참조 ID | 결제한 회원. 예매가 요청 헤더에서 받아 넘긴다. |
-| seller_id | 판매자 식별자 | UUID | NOT NULL, 외부 참조 ID | 정산 받을 판매자. |
+| user_id | 결제 사용자 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 결제한 회원. 회원 서비스의 회원 ID. 예매가 요청 헤더에서 받아 넘긴다. |
+| seller_id | 판매자 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 정산 받을 판매자(SELLER 회원 ID). 정산은 범위 밖이지만 1차부터 저장한다. |
 | performance_id | 공연 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 정산·조회용. |
 | schedule_id | 회차 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 정산·조회용. |
 | pg_provider | PG 종류 | VARCHAR(20) | NOT NULL, CHECK IN (TOSS, KAKAO) | 결제에 쓴 PG. 조회·취소할 PG를 고른다. |
@@ -176,7 +175,7 @@ payments, refunds는 결제 서비스가 소유한다.
 | checkout_url | 결제창 주소 | VARCHAR(500) | NULL | 카카오 결제창 URL. 같은 주문 번호의 준비 재요청에 그대로 돌려준다. 토스는 NULL. |
 | expires_at | 결제 허용 시각 | TIMESTAMP | NOT NULL | 예매의 좌석 선점 만료 시각. 이 뒤에는 PG 승인을 부르지 않는다. |
 | total_price | 정가(원) | INT | NOT NULL | 할인 전 금액. |
-| discount_amount | 할인 금액(원) | INT | NOT NULL, DEFAULT 0, 0 이상 | 쿠폰 할인액. 결제 금액이 최소 결제 금액 아래로 내려가지 않게 자른 값. |
+| discount_amount | 할인 금액(원) | INT | NOT NULL, DEFAULT 0, 0 이상 | 쿠폰 할인액. 결제 금액이 최소 결제 금액(100원) 아래로 내려가지 않게 자른 값. |
 | amount | 결제 금액(원) | INT | NOT NULL, 0 초과, total_price - discount_amount와 같음 | PG에 승인 요청하는 금액. 승인 요청 금액과 대조한다. |
 | user_coupon_id | 사용 쿠폰 식별자 | BIGINT | NULL, 외부 참조 ID | 쿠폰 담당 테이블의 쿠폰 ID. 소유가 달라 FK 없음. |
 | status | 결제 상태 | VARCHAR(20) | NOT NULL, DEFAULT READY | READY / IN_PROGRESS / DONE / FAILED / CANCELED. |
@@ -184,15 +183,14 @@ payments, refunds는 결제 서비스가 소유한다.
 | failure_message | 실패 메시지 | VARCHAR(255) | NULL | 실패 설명. |
 | pg_failure_code | PG 원본 실패 코드 | VARCHAR(80) | NULL | PG가 준 거절 코드 그대로. 예: REJECT_CARD_PAYMENT. |
 | confirm_requested_at | 승인 요청 접수 시각 | TIMESTAMP | NULL | 승인 요청을 처음 받은 시각. 예매가 재전송 여부를 판단한다. |
-| approve_requested_at | PG 승인 호출 시각 | TIMESTAMP | NULL | PG 승인을 부른 시각. "승인 기록 없음" 유예와 최소 대사 대상 판단 기준. |
+| approve_requested_at | PG 승인 호출 시각 | TIMESTAMP | NULL | PG 승인을 부른 시각. 결과 확정 시한(1분), "승인 기록 없음" 유예(1분), 최소 대사 대상 판단 기준. |
 | approved_at | 승인 시각 | TIMESTAMP | NULL | PG 승인 시각. 정산 기준. |
 | reconcile_count | 대사 횟수 | INT | NOT NULL, DEFAULT 0 | 최소 대사로 PG를 확인한 횟수. |
-| next_reconcile_at | 다음 대사 시각 | TIMESTAMP | NULL | FAILED 확정 1시간·24시간 뒤. 마지막 대사가 끝나면 NULL. |
-| next_attempt_at | 다음 복구 시각 | TIMESTAMP | NULL | 복구 잡이 다음에 볼 시각. 다른 인스턴스가 잡지 못하게 점유할 때도 쓴다. |
-| recovery_started_at | 복구 시작 시각 | TIMESTAMP | NULL | 자동 처리 중단(60분) 기준. 관리자가 차단을 풀면 다시 센다. |
-| recovery_attempts | 복구 시도 횟수 | INT | NOT NULL, DEFAULT 0 | 결과 불명으로 다시 본 횟수. 백오프 계산용. |
-| recovery_blocked | 자동 처리 중단 여부 | BOOLEAN | NOT NULL, DEFAULT false | true면 복구 잡이 더 보지 않는다. 관리자가 확인한다. |
-| last_error | 마지막 오류 | VARCHAR(80) | NULL | 마지막 결과 불명 사유나 관리자 확정 근거. 운영용. |
+| next_reconcile_at | 다음 대사 시각 | TIMESTAMP | NULL | FAILED 확정 11분·24시간 뒤. 마지막 대사가 끝나면 NULL. |
+| next_attempt_at | 다음 복구 시각 | TIMESTAMP | NULL | 복구 잡이 다음에 볼 시각(10초 간격). 다른 인스턴스가 잡지 못하게 점유할 때도 쓴다. |
+| recovery_started_at | 복구 시작 시각 | TIMESTAMP | NULL | 승인 호출 시각과 같다. 결제는 차단하지 않으므로 시한 판단은 approve_requested_at으로 한다. |
+| recovery_attempts | 복구 시도 횟수 | INT | NOT NULL, DEFAULT 0 | 결과 불명으로 다시 본 횟수. 운영 지표용. |
+| last_error | 마지막 오류 | VARCHAR(80) | NULL | 마지막 결과 불명 사유. 운영용. |
 
 **키·인덱스**
 
@@ -202,7 +200,7 @@ UK(pg_provider, pg_transaction_id): 인증값 재사용·조작 차단.
 새 준비는 같은 트랜잭션에서 이전 READY를 FAILED로 바꾼 뒤 넣는다.
 CHECK(discount_amount >= 0 AND amount = total_price - discount_amount AND amount > 0).
 INDEX(expires_at) WHERE status = READY: 만료된 준비 정리.
-INDEX(next_attempt_at) WHERE status = IN_PROGRESS AND recovery_blocked = false: 결과 불명 복구.
+INDEX(next_attempt_at) WHERE status = IN_PROGRESS: 결과 불명 복구. 결제는 차단하지 않고 승인 호출 1분 뒤 FAILED(PG_UNRESOLVED)로 끝낸다.
 INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL: 최소 대사.
 
 **상태와 의미**
@@ -210,9 +208,9 @@ INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL
 | 상태 | pg_transaction_id | approved_at | 의미 |
 | --- | --- | --- | --- |
 | READY | 카카오만 값 있음 | NULL | 결제 준비 완료. 승인 요청 대기. |
-| IN_PROGRESS | 필수 | NULL | PG 승인을 불렀고 결과를 아직 모름. 복구 잡이 조회로 확정한다. |
+| IN_PROGRESS | 필수 | NULL | PG 승인을 불렀고 결과를 아직 모름. 복구 잡이 조회로 확정하고, 1분 안에 모르면 FAILED(PG_UNRESOLVED). |
 | DONE | 필수 | 필수 | PG 승인 완료. |
-| FAILED | NULL 허용 | NULL | 돈이 오가지 않음. 쿠폰 점유를 해제한다. |
+| FAILED | NULL 허용 | NULL | 이 결제 시도를 끝냄. 쿠폰 점유를 해제한다. PG_UNRESOLVED에 늦은 승인이 발견되면 AUTO_VOID 환불이 붙는다. |
 | CANCELED | 필수 | 필수 | 전액 환불 완료. |
 
 **실패 코드와 응답의 failureType**
@@ -220,9 +218,9 @@ INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL
 | failureType | failure_code | 예매가 할 일 |
 | --- | --- | --- |
 | REJECTED | PG_REJECTED, AMOUNT_MISMATCH, INVALID_AUTH_TOKEN | 다른 수단으로 다시 결제 |
-| UNAVAILABLE | PG_UNAVAILABLE, PG_BUSY | 잠시 후 같은 수단으로 다시 시도 |
+| UNAVAILABLE | PG_UNAVAILABLE, PG_BUSY, PG_UNRESOLVED | 잠시 후 같은 수단으로 다시 시도 |
 | EXPIRED | EXPIRED | 선점이 끝났으면 만료, 아니면 다시 준비 |
-| NOT_APPROVED | NOT_APPROVED, CANCELED_AT_PG, MANUAL | 결제 안 됨으로 확정. 다시 결제 가능 |
+| NOT_APPROVED | NOT_APPROVED, CANCELED_AT_PG | 결제 안 됨으로 확정. 다시 결제 가능 |
 | CLOSED | SUPERSEDED, ABANDONED, READY_FAILED | 이 시도는 끝. 필요하면 새 준비 |
 
 ## 4. refunds — 환불
@@ -237,8 +235,8 @@ INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL
 | id | 환불 식별자 | BIGINT | PK, NOT NULL, IDENTITY | 환불 행 ID. |
 | payment_id | 결제 식별자 | BIGINT | FK → payments.id, NOT NULL, UNIQUE | 환불 대상 결제. 결제당 환불 1건. |
 | reservation_id | 예매 식별자 | BIGINT | NOT NULL, 외부 참조 ID | 예매 기준 조회용. 서비스 간 물리 FK는 두지 않는다. |
-| refund_amount | 환불 금액(원) | INT | NOT NULL, 0 초과 | 사용자 환불은 결제 금액, AUTO_VOID는 PG가 승인한 금액. |
-| reason | 환불 사유 | VARCHAR(30) | NOT NULL | USER_CANCEL / SCHEDULE_CANCELED / CONFIRM_FAILED / AUTO_VOID. 처음 사유를 유지한다. |
+| refund_amount | 환불 금액(원) | INT | NOT NULL, 0 초과 | USER_CANCEL·SCHEDULE_CANCELED·CONFIRM_FAILED는 결제 금액 전액, AUTO_VOID는 PG가 승인한 금액. 취소 수수료는 없다. |
+| reason | 환불 사유 | VARCHAR(30) | NOT NULL | USER_CANCEL(사용자 취소) / SCHEDULE_CANCELED(회차 취소) / CONFIRM_FAILED(결제 후 예매 확정 실패) / AUTO_VOID(늦은 승인·금액 불일치 자동 취소). 처음 사유를 유지한다. |
 | status | 환불 상태 | VARCHAR(20) | NOT NULL | WAITING / REQUESTED / DONE / FAILED / SKIPPED. |
 | cancel_attempt | 취소 키 세대 | INT | NOT NULL, DEFAULT 0 | PG 취소 멱등 키 = {order_id}:cancel:{cancel_attempt}. 관리자가 업무 거절을 다시 시도할 때만 올린다. |
 | pg_cancel_id | PG 취소 식별자 | VARCHAR(200) | NULL | PG가 준 취소 거래 ID. |
@@ -248,9 +246,9 @@ INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL
 | requested_at | 환불 요청 시각 | TIMESTAMP | NULL | 처음 REQUESTED가 된 시각. |
 | refunded_at | 환불 완료 시각 | TIMESTAMP | NULL | 정산 기준. |
 | next_attempt_at | 다음 복구 시각 | TIMESTAMP | NULL | 복구 잡이 PG 취소를 다시 보낼 시각. 점유에도 쓴다. |
-| recovery_started_at | 복구 시작 시각 | TIMESTAMP | NULL | 자동 처리 중단 기준. |
+| recovery_started_at | 복구 시작 시각 | TIMESTAMP | NULL | 자동 처리 중단(60분) 기준. 관리자가 차단을 풀면(refund/unblock) 다시 센다. |
 | recovery_attempts | 복구 시도 횟수 | INT | NOT NULL, DEFAULT 0 | 결과 불명으로 다시 보낸 횟수. |
-| recovery_blocked | 자동 처리 중단 여부 | BOOLEAN | NOT NULL, DEFAULT false | 업무 거절이나 시간 초과로 중단. 관리자가 확인한다. |
+| recovery_blocked | 자동 처리 중단 여부 | BOOLEAN | NOT NULL, DEFAULT false | 업무 거절이나 시간 초과로 중단. 관리자가 확인한다(refund/retry, refund/unblock). 결제에는 이 컬럼이 없다. |
 | last_error | 마지막 오류 | VARCHAR(80) | NULL | 마지막 결과 불명 사유. 운영용. |
 
 **키·인덱스**
@@ -265,7 +263,7 @@ INDEX(next_attempt_at) WHERE status = REQUESTED AND recovery_blocked = false: �
 | 상태 | 의미 |
 | --- | --- |
 | WAITING | 결제가 아직 IN_PROGRESS라 확정을 기다림. 결제가 DONE이면 REQUESTED, FAILED면 SKIPPED. |
-| REQUESTED | PG 취소 호출 전·중이거나 결과를 모름. 복구 잡이 같은 키로 다시 보낸다. |
+| REQUESTED | PG 취소 호출 전·중이거나 결과를 모름. 복구 잡이 같은 키로 다시 보낸다. 60분 넘게 모르면 REQUESTED 그대로 차단한다. |
 | DONE | PG 취소 완료. 결제는 CANCELED가 된다. |
 | FAILED | PG 업무 거절. 자동 처리를 멈추고 관리자가 새 키 세대로 재시도한다. |
 | SKIPPED | 결제가 실패해 환불할 돈 없음. 늦은 승인이 발견되면 REQUESTED로 되살린다. |

@@ -3,13 +3,12 @@ package com.sparta.ticket.payment.support;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 public final class PaymentFixture {
 
     public static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
-    public static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    public static final UUID SELLER_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    public static final Long USER_ID = 1L;
+    public static final Long SELLER_ID = 2L;
 
     private PaymentFixture() {}
 
