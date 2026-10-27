@@ -18,13 +18,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * 팀 공통 테스트 기반(PostgresIntegrationTest)을 쓰지 않는 이유: 그 모듈을 넣으면 팀 공통 예외 처리가 함께 올라와
  * PG 형식의 오류 응답이 바뀐다. 운영과 같은 schema.sql(jar 안의 db/schema.sql)로 테이블을 만들고 Entity와 대조한다.
  */
-@SpringBootTest(properties = "fake-pg.toss.secret-key=" + FakePgIntegrationTest.SECRET_KEY)
+@SpringBootTest(
+        properties = {
+            "fake-pg.toss.secret-key=" + FakePgIntegrationTest.SECRET_KEY,
+            "fake-pg.kakao.secret-key=" + FakePgIntegrationTest.KAKAO_SECRET_KEY
+        })
 @AutoConfigureMockMvc
 public abstract class FakePgIntegrationTest {
 
     public static final String SECRET_KEY = "test_sk_integration";
     public static final String AUTHORIZATION =
             "Basic " + Base64.getEncoder().encodeToString((SECRET_KEY + ":").getBytes(StandardCharsets.UTF_8));
+
+    public static final String KAKAO_SECRET_KEY = "DEV_integration";
+    public static final String KAKAO_AUTHORIZATION = "SECRET_KEY " + KAKAO_SECRET_KEY;
+    public static final String KAKAO_CID = "TC0ONETIME";
 
     @ServiceConnection
     protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
