@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
+import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
@@ -44,6 +45,9 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private MutableClock clock;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     private static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Role role) {
@@ -70,7 +74,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("MASTER가 만들면 201과 쿠폰을 돌려주고, 생성자는 요청한 관리자다")
         void create() throws Exception {
-            LocalDateTime start = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
             LocalDateTime end = start.plusDays(6);
 
             String body = mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
@@ -102,7 +106,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 시작 시각이 지났으면 ISSUING으로 만들어진다")
         void createIssuing() throws Exception {
-            LocalDateTime start = LocalDateTime.now().minusHours(1);
+            LocalDateTime start = clock.now().minusHours(1);
 
             mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -114,7 +118,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("MASTER가 아니면 403 FORBIDDEN")
         void notMaster() throws Exception {
-            LocalDateTime start = LocalDateTime.now().plusDays(1);
+            LocalDateTime start = clock.now().plusDays(1);
 
             for (Role role : new Role[] {Role.USER, Role.SELLER}) {
                 mockMvc.perform(as(post("/api/coupons"), role)
@@ -140,7 +144,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 종료 시각이 시작 시각보다 늦지 않으면 400 VALIDATION_ERROR")
         void invalidPeriod() throws Exception {
-            LocalDateTime start = LocalDateTime.now().plusDays(1);
+            LocalDateTime start = clock.now().plusDays(1);
 
             mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -163,7 +167,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 시작 전에는 보낸 항목만 바뀌고 나머지는 그대로다")
         void beforeStart() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             patch(coupon.getId(), """
                             {"discountAmount": 3000, "validDays": 14}
@@ -179,9 +183,9 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 시작 후 이름·종료 시각·총 수량을 바꿔도 발급 수량은 그대로다")
         void afterStartKeepsIssuedQuantity() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
             setIssuedQuantity(coupon.getId(), 300);
-            LocalDateTime newEnd = LocalDateTime.now().plusDays(14).truncatedTo(ChronoUnit.SECONDS);
+            LocalDateTime newEnd = clock.now().plusDays(14).truncatedTo(ChronoUnit.SECONDS);
 
             patch(coupon.getId(), """
                             {"name": "연장", "totalQuantity": 1500, "issueEndAt": "%s"}
@@ -199,7 +203,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 시작 후 할인액을 바꾸면 409 COUPON_NOT_MODIFIABLE")
         void notModifiable() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
             patch(coupon.getId(), """
                             {"discountAmount": 3000}
@@ -211,7 +215,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("총 수량을 발급 수량보다 적게 바꾸면 409 COUPON_QUANTITY_BELOW_ISSUED")
         void quantityBelowIssued() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
             setIssuedQuantity(coupon.getId(), 300);
 
             patch(coupon.getId(), """
@@ -224,10 +228,10 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급을 중단한 쿠폰의 종료 시각을 미래로 바꾸면 409 COUPON_ALREADY_CLOSED이고 ENDED 그대로다")
         void closedCannotReopen() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
             mockMvc.perform(as(post("/api/coupons/{couponId}/close", coupon.getId()), Role.MASTER))
                     .andExpect(status().isOk());
-            LocalDateTime future = LocalDateTime.now().plusDays(7).truncatedTo(ChronoUnit.SECONDS);
+            LocalDateTime future = clock.now().plusDays(7).truncatedTo(ChronoUnit.SECONDS);
 
             patch(coupon.getId(), """
                             {"issueEndAt": "%s"}
@@ -237,13 +241,13 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
 
             LocalDateTime end = jdbcTemplate.queryForObject(
                     "SELECT issue_end_at FROM p_coupons WHERE coupon_id = ?", LocalDateTime.class, coupon.getId());
-            assertThat(end).isBeforeOrEqualTo(LocalDateTime.now());
+            assertThat(end).isBeforeOrEqualTo(clock.now());
         }
 
         @Test
         @DisplayName("없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND")
         void notFound() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
             jdbcTemplate.update(
                     "UPDATE p_coupons SET deleted_at = now(), deleted_by = 'master' WHERE coupon_id = ?",
                     coupon.getId());
@@ -259,7 +263,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("공백뿐인 이름이나 1보다 작은 수량은 400 VALIDATION_ERROR")
         void invalidValues() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             patch(coupon.getId(), "{\"name\": \"   \"}")
                     .andExpect(status().isBadRequest())
@@ -272,7 +276,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("MASTER가 아니면 403 FORBIDDEN")
         void notMaster() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             mockMvc.perform(as(MockMvcRequestBuilders.patch("/api/coupons/{couponId}", coupon.getId()), Role.USER)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -293,7 +297,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("발급 중인 쿠폰은 종료 시각이 현재로 당겨져 ENDED가 되고, 시작 시각은 그대로다")
         void closeIssuing() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
             close(coupon.getId(), Role.MASTER)
                     .andExpect(status().isOk())
@@ -302,13 +306,13 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
 
             Map<String, Object> row = periodRow(coupon.getId());
             LocalDateTime end = ((Timestamp) row.get("issue_end_at")).toLocalDateTime();
-            assertThat(end).isBefore(coupon.getIssueEndAt()).isBeforeOrEqualTo(LocalDateTime.now());
+            assertThat(end).isBefore(coupon.getIssueEndAt()).isBeforeOrEqualTo(clock.now());
         }
 
         @Test
         @DisplayName("시작 전 쿠폰은 시작·종료 시각이 같아지고 ENDED가 된다 (ck_p_coupons_period 통과)")
         void closeUpcoming() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             close(coupon.getId(), Role.MASTER)
                     .andExpect(status().isOk())
@@ -321,7 +325,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("이미 끝난 쿠폰을 다시 중단하면 409 COUPON_ALREADY_CLOSED")
         void alreadyClosed() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
             close(coupon.getId(), Role.MASTER).andExpect(status().isOk());
 
             close(coupon.getId(), Role.MASTER)
@@ -340,7 +344,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("MASTER가 아니면 403 FORBIDDEN")
         void notMaster() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
             close(coupon.getId(), Role.USER)
                     .andExpect(status().isForbidden())
@@ -364,7 +368,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("아무도 받지 않은 쿠폰은 204로 논리 삭제되고, 삭제자는 요청한 관리자다")
         void deleteNotIssued() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
             delete(coupon.getId(), Role.MASTER)
                     .andExpect(status().isNoContent())
@@ -380,7 +384,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("한 장이라도 발급된 쿠폰은 409 COUPON_NOT_DELETABLE이고 삭제되지 않는다")
         void issuedCannotBeDeleted() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
             setIssuedQuantity(coupon.getId(), 1);
 
             delete(coupon.getId(), Role.MASTER)
@@ -393,7 +397,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("없거나 이미 삭제된 쿠폰이면 404 COUPON_NOT_FOUND")
         void notFound() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
             delete(coupon.getId(), Role.MASTER).andExpect(status().isNoContent());
 
             delete(coupon.getId(), Role.MASTER)
@@ -407,7 +411,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @Test
         @DisplayName("MASTER가 아니면 403 FORBIDDEN이고 삭제되지 않는다")
         void notMaster() throws Exception {
-            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             delete(coupon.getId(), Role.USER)
                     .andExpect(status().isForbidden())
@@ -420,8 +424,8 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
     /** 발급 시작 시각을 정해 쿠폰을 저장한다. 종료 시각은 7일 뒤다. */
     private Coupon saveCoupon(LocalDateTime start) {
         LocalDateTime issueStartAt = start.truncatedTo(ChronoUnit.SECONDS);
-        return couponRepository.save(Coupon.create(
-                "오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, LocalDateTime.now()));
+        return couponRepository.save(
+                Coupon.create("오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, clock.now()));
     }
 
     /** 발급 기능 대신 발급 수량을 직접 올린다. */
