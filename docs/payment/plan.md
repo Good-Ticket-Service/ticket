@@ -12,6 +12,7 @@
 | [todo.md](todo.md) | 작업 순서와 완료 조건 | 작업을 고를 때 |
 | [decisions.md](decisions.md) | 설계 결정의 이유와 대안 | 규칙의 이유가 궁금할 때, 규칙을 바꾸고 싶을 때 |
 | [experiments.md](experiments.md) | 부하·장애 실험 시나리오와 메트릭 | Task 11 이후 |
+| [worker-design.md](worker-design.md) | API·워커 실행 역할, 영속 작업, Inbox·Outbox 인계 설계안 | 복구·대량 환불·Kafka 실행 구조를 구현할 때 |
 
 ## 1. 목표와 범위
 
@@ -19,11 +20,11 @@
 |---|---|
 | 정합성 | 이중 결제 0, 중복 환불 0, "돈은 빠졌는데 티켓·환불 없음" 0. 장애 주입으로 숫자로 증명한다 |
 | 장애 격리 | PG 지연·장애가 결제와 무관한 기능으로 번지지 않는다 |
-| 처리량 | PG 처리 한도를 넘는 오픈 결제 폭주를 Kafka로 평탄화한다 |
+| 처리량 | 승인은 PG 한도에 맞춰 동시성·속도를 제한하고, 대량 환불은 Kafka·워커로 처리량을 제어한다 |
 
 | 1차 MVP | 트러블슈팅 기간 | 확장 (여유 시) |
 |---|---|---|
-| fake-pg, 토스·카카오 어댑터, 멱등 결제·환불, 결과 불명 복구(1분 시한), 늦은 승인 자동 취소와 최소 대사, 예매가 확정한 할인액 검증, 메트릭, 동기 기준선 측정 | 장애 격리, Kafka 부하 평탄화, Kafka 결과 이벤트(Outbox), 대량 환불 | 전체 대사, 정산, 샌드박스 실연동 |
+| fake-pg, 토스·카카오 어댑터, 멱등 결제·환불, 결과 불명 복구(1분 시한), 늦은 승인 자동 취소와 최소 대사, 예매가 확정한 할인액 검증, 메트릭, 동기 기준선 측정 | 장애 격리, 환불 Kafka·워커 처리, 확정 결과 이벤트(Outbox), 대량 환불 | 전체 대사, 정산, 샌드박스 실연동 |
 
 범위 밖: 부분 환불·취소 수수료, PG 자동 전환, 판매자 지급(송금). 취소 가능 기간은 예매가 검사하고, 결제는 요청받은 결제 금액 전액을 환불한다.
 
@@ -31,25 +32,37 @@
 
 application 계층은 포트(인터페이스)만 알고, infrastructure의 어댑터가 Feign·Kafka·PG를 다룬다. `LayeredArchitectureRules`(ArchUnit)가 이 방향을 강제한다.
 
-| 축 | 포트 | 1차 어댑터 | Kafka 전환 후 |
+| 축 | 포트·경로 | 1차 MVP | 고도화 (D16) |
 |---|---|---|---|
-| PG (어느 PG로) | `PgClient` | `TossPgClient`, `KakaoPgClient` | 같음. 샌드박스는 base-url만 교체 |
-| 실행 시점 (언제) | `PaymentDispatcher` | `InlinePaymentDispatcher`: 요청 스레드에서 바로 | `KafkaPaymentDispatcher`: 워커가 처리 한도 안에서 |
-| 결과 알림 (어떻게) | `PaymentResultPublisher` | `NoopResultPublisher`: HTTP 응답이 결과 | `KafkaResultPublisher`: Outbox |
+| PG (어느 PG로) | `PgClient` | `TossPgClient`, `KakaoPgClient`로 HTTP 호출 | 동일. PG 호출은 계속 HTTP |
+| 승인 실행 | `PaymentDispatcher` | `InlinePaymentDispatcher`로 동기 실행 | Inline 유지. 승인 명령을 Kafka에 넣지 않는다 |
+| 환불 접수·실행 | 내부 HTTP → `RefundService` | HTTP 접수 후 최초 취소 시도·DB 복구 | 합의된 환불 명령을 Kafka로 수신해 기존 환불 흐름 실행. 직접 소비와 Inbox·워커 인계 비교 |
+| 확정 결과 전달 | `PaymentResultPublisher` | `NoopResultPublisher`, HTTP 응답과 예매의 상태 조회 | `KafkaResultPublisher`와 Outbox로 확정 결과 전달. 승인 HTTP 응답은 유지 |
 
-결제는 PG 구조를 따라 **준비 → 사용자 인증 → 승인** 두 번의 요청으로 나뉜다(4절). 준비(`PaymentService.checkout`)와 승인 접수(`PaymentService.confirm`)는 요청 스레드에서 끝나고, PG 승인(`PaymentProcessor.process`)은 Dispatcher를 거친다. `dispatch`는 `void`다. Inline이면 접수 후 최신 상태를 다시 읽어 결과를 돌려주고, Kafka면 `ACCEPTED`를 돌려준 뒤 결과를 이벤트로 알린다.
+결제는 **준비 → 사용자 인증 → 승인** 두 요청으로 나뉜다. 예매 → 결제 준비·승인은 동기 Feign이며, 결제 → PG는 HTTP다. 토스 준비는 PG 호출 없이 로컬 READY를 저장하고, 카카오 준비는 HTTP로 tid·결제창 URL을 받는다. 승인 결과가 불명이면 HTTP 응답도 IN_PROGRESS이며 기존 복구·조회로 확인한다. 결과 이벤트를 발행해도 승인 응답을 ACCEPTED로 바꾸지 않는다.
 
+```text
+InternalPaymentController ─┬─▶ PaymentService.checkout ─▶ PgClient.ready
+                           ├─▶ PaymentService.confirm ─▶ InlinePaymentDispatcher ─▶ PaymentProcessor ─▶ PgClient.approve
+                           └─▶ RefundService ─▶ PgClient.cancel
+
+고도화: 환불 명령 Kafka 소비 ─▶ 같은 RefundService (직접 실행 또는 Inbox·DB 인계 후 워커 실행)
+        결제·환불 확정 저장 + 결과 Outbox ─▶ Kafka ─▶ 예매 결과 반영
 ```
-InternalPaymentController ─┬─▶ PaymentService.checkout ─▶ PgClient.ready            (READY 저장)
-                           └─▶ PaymentService.confirm ─▶ dispatcher.dispatch ─▶ PaymentProcessor.process ─▶ PgClient.approve
-PaymentCommandConsumer ─────────────────────────────────▲ (Kafka 전환 후)           (PG 승인, 결과 저장)      └─▶ resultPublisher
-```
 
-구현체는 설정으로 고른다. 동기·Kafka 비교를 같은 코드로 돌리기 위해서다.
+준비·승인 경로는 고정하고 환불 실행 방식과 결과 전달 방식을 각각 비교한다. 이벤트 계약은 예매 담당자 합의 후 확정한다. 메시지 이름·토픽·운영 설정이 이미 구현됐다는 뜻은 아니다.
+
+### API·워커 실행 역할 (설계안, 고도화 Phase 3)
+
+1차 MVP에서는 구현하지 않는다. MVP는 아래 설정의 기존 실행 방식과 5절 복구만 만든다.
+
+API는 접수·조회, 워커는 환불 실행·복구·대사를 담당하는 구성을 비교한다. 처음에는 같은 프로세스에서 실행 풀을 나누고, 병목이 확인되면 같은 코드·DB를 쓰는 별도 실행 역할로 분리한다. 승인·준비의 동기 경로와 내부 API 계약을 자동으로 변경하지 않는다.
+
+기존 Payment·Refund 상태와 복구 컬럼을 영속 작업으로 활용한다. Kafka의 `processed_event`는 Inbox 역할로 업무 인계와 같은 트랜잭션에 저장한다. 별도 작업 테이블의 도입 조건, API 직접 실행과 워커 중복 방지, 점유 만료·offset 처리 및 단계별 검증은 [worker-design.md](worker-design.md)에 둔다. 아래 설정 예시는 기존 실행 방식이며 역할 분리 설정은 아직 구현하지 않았다.
 
 ```yaml
 payment:
-  dispatch: inline          # inline | kafka
+  dispatch: inline          # 승인 실행. 고도화에서도 inline 유지
   result-publish: none      # none | kafka
   min-amount: 100           # PG 최소 결제 금액. 미달한 요청은 보정 없이 거절한다
   recovery:
@@ -89,8 +102,8 @@ com.sparta.ticket.payment
 │   # 쿠폰 엔티티는 reservation-service 소유다
 └── infrastructure
     ├── pg/      toss/, kakao/, PgClientRegistry
-    ├── dispatch/  InlinePaymentDispatcher (Kafka 전환 후 KafkaPaymentDispatcher)
-    └── messaging/ NoopResultPublisher (Kafka 전환 후 KafkaResultPublisher, PaymentCommandConsumer)
+    ├── dispatch/  InlinePaymentDispatcher (승인 동기 실행 유지)
+    └── messaging/ NoopResultPublisher (고도화: KafkaResultPublisher, 환불 명령 소비 어댑터)
 ```
 
 `PgClient`는 `ready`, `approve`, `inquire`, `cancel`을 가진다.
@@ -183,12 +196,12 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
              IN_PROGRESS + Unknown → 상태 유지, recovery_attempts + 1, last_error (결과 확정 시한 1분은 복구 잡이 본다)
              FAILED + Approved → 늦은 승인. FAILED 유지 + ensureRefund(승인 금액) + 경보
              DONE + Approved → 이미 반영됨, 무시
-        confirm 응답: Inline은 최신 상태 status = DONE / FAILED / IN_PROGRESS, Kafka는 ACCEPTED
+        confirm 응답: 최신 상태 status = DONE / FAILED / IN_PROGRESS. 결과 Kafka 발행 여부와 관계없이 동일
 ```
 
 - orderId는 준비 시도마다 새로 만든다. PG를 바꾸거나 거절 후 다시 시도하면 새 준비가 이전 READY를 대체한다.
-- 만료 확인은 reservation과 payment(8)가 둘 다 한다. Kafka 전환 후에는 승인 요청이 줄에서 기다리다 만료될 수 있어, PG를 부르기 직전의 8)이 마지막 관문이다. 서킷 확인도 8) 안에서 잠금과 READY 확인 뒤에 한다. 그래야 같은 결제의 중복 승인 요청이 이미 PG를 부르는 중인 결제를 FAILED로 바꾸지 못한다.
-- payment는 인증값을 DB에 저장하지 않는다. 승인 요청에 실려 올 때만 쓴다. 승인 요청을 다시 보내는 것은 인증값을 가진 reservation의 일이다(9절). Kafka 모드에서는 인증값이 `payment.requested` 메시지에 실리므로 토픽 보관 기간을 짧게 둔다(인증값은 일회용이고 PG에서 약 10분 뒤 만료된다).
+- 만료 확인은 reservation과 payment(8)가 둘 다 한다. HTTP 전달·실행 대기 뒤에도 PG를 부르기 직전의 8)에서 만료를 다시 확인한다. 승인 요청은 Kafka에 적재하지 않는다. 서킷 확인도 8) 안에서 잠금과 READY 확인 뒤에 한다. 그래야 같은 결제의 중복 승인 요청이 이미 PG를 부르는 중인 결제를 FAILED로 바꾸지 못한다.
+- payment는 인증값을 DB에 저장하지 않는다. 승인 요청에 실려 올 때만 쓴다. 승인 요청을 다시 보내는 것은 인증값을 가진 reservation의 일이다(9절). 승인 인증값은 Kafka 명령·Outbox·결과 이벤트에 싣지 않는다. 환불 명령에는 pgAuthToken이 필요 없다.
 
 ### 환불
 
@@ -249,8 +262,8 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 | 카카오 준비 결과 불명 | FAILED(`READY_FAILED`). 돈이 오가지 않았고 tid를 사용자에게 주지 않았으므로 안전하다 |
 | 사용자가 결제창을 닫음 | READY가 `expires_at`까지 남았다가 FAILED(`EXPIRED`) |
 | 승인 요청이 payment에 도착하지 못함 | READY. reservation이 저장한 인증값으로 같은 승인 요청을 다시 보낸다(9절) |
-| 승인 요청이 만료 후 도착 (Kafka 대기 포함) | 4절 8)에서 FAILED(`EXPIRED`). PG를 부르지 않는다 |
-| 같은 결제의 승인 요청이 중복으로 옴 (재전송, Kafka 중복) | 4절 4)·8)의 잠금과 READY 확인에서 걸려 현재 상태만 재현한다 |
+| 승인 요청이 HTTP 전달·실행 대기 뒤 만료 후 도착 | 4절 8)에서 FAILED(`EXPIRED`). PG를 부르지 않는다 |
+| 같은 결제의 승인 요청이 중복으로 옴 (HTTP 재전송) | 4절 4)·8)의 잠금과 READY 확인에서 걸려 현재 상태만 재현한다 |
 | markInProgress 후 PG 호출 전 중단 | IN_PROGRESS. 조회가 NotFound를 돌려주고, 유예 시간이 지나면 FAILED(`NOT_APPROVED`) |
 | PG 승인 응답 유실·타임아웃 | IN_PROGRESS → 복구가 조회로 확정 |
 | 조회가 "없음"인데 승인이 늦게 처리됨 | 유예 시간(1분) 안이면 아직 확정하지 않는다. 유예 뒤 FAILED가 된 다음 승인되면 최소 대사(8번)가 찾아 AUTO_VOID로 돌려준다 |
@@ -290,12 +303,12 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 - **자동 재시도 없음:** PG 승인·취소 클라이언트는 자동 재시도를 끈다(`Retryer.NEVER_RETRY` 또는 같은 설정). 재시도는 복구 잡만 한다. PG 조회는 GET이라 팀 `IdempotentRetryConfig`를 붙여도 된다.
 - **타임아웃 예산:** PG connect 2초 + read 10초, payment DB 커넥션 대기(Hikari `connection-timeout`) 2초로 payment의 승인 응답이 15초 안에 끝나게 한다. payment의 최악 응답이 약 14초이므로 reservation의 payment 호출 read timeout은 20초로 두고(15초는 여유가 부족하다) Gateway(60초)보다 짧게 둔다.
 - **동시 처리:** 같은 결제를 두 곳에서 처리하지 않게 하는 수단은 DB 잠금과 5절 점유다. 여러 인스턴스(`--scale payment-service=2`)에서도 성립해야 한다.
-  - 점유 기간(30초)을 넘겨 한 호출이 멈추면(GC 정지 등) 같은 취소가 두 번 나갈 수 있다. 전액 취소에서는 토스는 멱등 키, 카카오는 "이미 취소됨" 응답 후 조회로 막히고, 결과 저장은 REQUESTED일 때만 하므로 돈 사고는 없다. 부분 환불을 도입하면 이중 취소가 실제 금액 오류가 되므로 그때 실행 소유자(lease owner)나 fencing token을 둔다.
+  - 점유 기간(30초)을 넘긴 호출은 다른 워커가 인수한 뒤에도 계속될 수 있다. 토스 멱등 키·카카오 취소 후 조회·상태 재확인으로 중복 영향을 막는지 장애 시험으로 확인한다. 실행 소유자·버전 검사는 오래된 결과 저장을 제어하지만 PG 호출 자체를 취소하지 않는다. 늦은 승인·환불 결과는 기존 복구·보상 규칙과 함께 처리한다([worker-design.md](worker-design.md) 5절).
 - **감사 컬럼:** 작성자는 팀 `HeaderAuditorAware`가 요청 헤더로 정하고, 요청 밖 작업은 `SYSTEM`으로 남긴다. 결제 주체는 `user_id`로 추적한다.
 - **응답 값 형식:** 내부 API 응답의 ID는 숫자, 시각은 `+09:00`을 붙인 ISO 8601이다(`OffsetDateTime`으로 내보낸다). DB와 엔티티는 KST `TIMESTAMP`·`LocalDateTime`이다.
 - **쿠폰 책임:** reservation-service의 예매·쿠폰 모듈이 처리한다. 결제는 쿠폰 포트·테이블에 접근하지 않는다. 할인액은 준비 요청에 고정해 저장·멱등 비교한다.
 - **결과 이벤트 (Kafka 전환 후):** 결제·환불의 모든 확정 전이(DONE, FAILED, CANCELED, refund DONE·FAILED·SKIPPED)는 같은 트랜잭션에서 Outbox에 쓴다. 요청 경로든 복구 잡이든 같다.
-- **승인 명령 (Kafka 전환 후):** `confirm_requested_at` 기록과 승인 명령(Outbox) 저장을 한 트랜잭션으로 묶는다. 그래야 커밋 후 발행이 실패해도 payment 안에서 다시 발행된다(예매의 재전송에 기대지 않는다). 명령에 실린 인증값은 발행이 끝나면 Outbox에서 지우고, 토픽 보관 기간은 짧게(예: 1시간) 둔다.
+- **환불 명령 (고도화):** 예매가 영속 저장한 환불 의도를 메시지로 전달하고 결제는 기존 orderId·reason·상태별 환불 규칙을 적용한다. 생산자 Outbox와 수신 중복 처리·인계 계약은 예매 담당과 합의한다. 승인 접수 confirm_requested_at은 로컬 기록이며 승인 Outbox는 만들지 않는다.
 - **삭제:** payment·refund는 금융 기록이라 삭제 API를 두지 않는다. 팀 규칙대로 `@SQLRestriction`은 붙인다.
 - **테스트 두 층:** application 테스트는 `PgClient` 포트를 메모리 픽스처로 바꿔 응답 유실·지연·늦은 승인을 주입한다(Orders `OrderClientFixture` 방식). 실제 HTTP는 어댑터 계약 테스트와 E2E에서만 fake-pg 컨테이너로 확인한다.
 
@@ -340,7 +353,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 | 공연 (5번) | 결제 요청에 들어갈 `seller_id`, `performance_id`, `schedule_id` | 1주차 |
 | 대기열 (4번) | 결제 처리 용량 기반 입장 속도 | 트러블슈팅 |
 
-서비스마다 DTO를 따로 두고 계약 문서로 필드를 맞춘다. Feign 본문과 Kafka 메시지 필드는 같다. 환불 결과 이벤트에는 사유(`reason`)와 결제 상태를 싣고, 예매는 `AUTO_VOID` 환불 이벤트를 예매 상태 변경 없이 무시한다.
+서비스마다 DTO를 따로 두고 계약 문서로 필드를 맞춘다. HTTP 준비·승인 DTO를 Kafka 명령으로 복제하지 않는다. 환불 메시지는 합의한 업무 필드와 eventId 등 전달 메타데이터를 정하고, 확정 결과 이벤트는 별도 계약으로 관리한다. 환불 결과 이벤트에는 사유(`reason`)와 결제 상태를 싣고, 예매는 `AUTO_VOID` 환불 이벤트를 예매 상태 변경 없이 무시한다.
 
 ### CouponUsage 계약
 
