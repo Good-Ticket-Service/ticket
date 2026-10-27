@@ -1,6 +1,6 @@
 # BookingFacade (좌석 → 예매)
 
-- 상태: 합의 (#34). `getReservation` 이름만 좌석 담당 확인 대기
+- 상태: 합의 (#34)
 - 제공: 예매 (`reservation-service` booking 모듈, 지한얼)
 - 소비: 좌석 (`reservation-service` seat 모듈, 변정민)
 - 짝 계약: [SeatFacade](seat-facade.md) (예매 → 좌석)
@@ -24,10 +24,10 @@
 | `hold(userId, scheduleId, List<SeatLine>, holdExpiresAt)` | 예약 id | 좌석 선점 | 구현 (feat/reservation/15) |
 | `getReservation(reservationId)` | `Optional<ReservationView>` | 선점 해제 전 좌석 id 읽기 | 구현 (feat/reservation/15) |
 | `release(userId, reservationId)` | `ReleaseResult` | 선점 해제 | 구현 (feat/reservation/15) |
-| `countActiveSeats(userId, scheduleId)` | int | 좌석 선점(1인 매수 제한) | 구현 전 |
-| `findActiveHold(userId, scheduleId)` | `Optional<ReservationView>` | 좌석 선점(같은 좌석 재요청 200, 본인 만료 HOLD 정리) | 구현 전 |
-| `expireIfDue(reservationId)` | boolean | 좌석 선점·해제 중 만료된 HOLD 정리 | 구현 전 |
-| `findPaymentInProgress(Collection<Long> reservationIds)` | `Set<Long>` | 좌석 선점·조회·잔여석 | 구현 전 |
+| `countActiveSeats(userId, scheduleId)` | int | 좌석 선점(1인 매수 제한) | 구현 (feat/reservation/59) |
+| `findActiveHold(userId, scheduleId)` | `Optional<ReservationView>` | 좌석 선점(같은 좌석 재요청 200, 본인 만료 HOLD 정리) | 구현 (feat/reservation/59) |
+| `expireIfDue(reservationId)` | boolean | 좌석 선점·해제 중 만료된 HOLD 정리 | 구현 (feat/reservation/59). 쿠폰 해제는 쿠폰 연동 때 |
+| `findPaymentInProgress(Collection<Long> reservationIds)` | `Set<Long>` | 좌석 선점·조회·잔여석 | 구현 (feat/reservation/59) |
 
 ### hold
 
@@ -60,7 +60,7 @@ public enum ReservationState { HOLD, PAYMENT_IN_PROGRESS, CONFIRMED, EXPIRED, RE
 
 - 상태와 상관없이 예약을 읽는다. 없으면 빈 값이다.
 - seat는 선점 해제 때 이 결과로 없음(404)·회차 다름(404)·본인 아님(403)을 먼저 판단하고, `scheduleSeatIds`로 좌석을 잠근 뒤 `release`를 부른다.
-- 제안 v1의 `getHold`다. HOLD가 아닌 예약도 돌려주므로 이름을 `getReservation`으로 했다(좌석 담당 확인 대기).
+- 제안 v1의 `getHold`다. HOLD가 아닌 예약도 돌려주므로 이름을 `getReservation`으로 했다(PR #43에서 좌석 담당 확인).
 
 ### release
 
@@ -81,7 +81,7 @@ public enum ReleaseResult { RELEASED, EXPIRED, ALREADY_CLOSED, NOT_RELEASABLE }
 - 결제 시작과 해제가 동시에 와도 둘 다 `status = HOLD` 조건부 UPDATE라 한쪽만 성공한다. 진 쪽은 `NOT_RELEASABLE`이다.
 - 쿠폰을 잡아 둔 예약이면 booking이 같은 트랜잭션에서 `CouponUsage.release`를 부른다([CouponUsage](coupon-usage.md)). seat는 쿠폰을 신경 쓰지 않는다.
 
-### countActiveSeats · findActiveHold · expireIfDue · findPaymentInProgress (구현 전)
+### countActiveSeats · findActiveHold · expireIfDue · findPaymentInProgress
 
 | 메서드 | 동작 |
 |---|---|
@@ -91,6 +91,12 @@ public enum ReleaseResult { RELEASED, EXPIRED, ALREADY_CLOSED, NOT_RELEASABLE }
 | `findPaymentInProgress(reservationIds)` | 넘긴 예약 중 PAYMENT_IN_PROGRESS인 것의 id. 다른 모듈 테이블 JOIN 대신 쓴다 |
 
 `findPaymentInProgress`는 조회 최적화다. 판단 근거는 `expireIfDue`와 결제 시작(`hold_expires_at > :now`)의 조건부 UPDATE다. 조회와 만료 사이에 결제가 시작돼도 `expireIfDue`가 false를 돌려준다.
+
+구현에서 정한 것:
+
+- `countActiveSeats`는 예약 수가 아니라 티켓 수를 센다. `CANCELING`은 아직 상태 enum과 `booking.sql` CHECK에 없어 지금은 HOLD·PAYMENT_IN_PROGRESS·CONFIRMED만 센다. 취소를 구현해 상태를 더할 때 집계에도 더한다.
+- `expireIfDue`는 만료 스케줄러와 같은 조건부 UPDATE를 쓰고, `updated_at`·`updated_by`를 쿼리에서 채운다. 결제 중이면 선점 시간이 지났어도 false다. 쿠폰 해제는 `CouponUsage`가 생기면 쿠폰 연동 이슈에서 붙인다.
+- `findPaymentInProgress`에 빈 목록을 넘기면 쿼리 없이 빈 집합을 돌려준다.
 
 ## 오류·예외 책임
 
@@ -109,3 +115,4 @@ public enum ReleaseResult { RELEASED, EXPIRED, ALREADY_CLOSED, NOT_RELEASABLE }
 | 날짜 | 이슈·PR | 내용 |
 |---|---|---|
 | 2026-10-27 | #34 | 초안. 좌석 담당 제안 v1과 #34 합의(시계 통일, release 결과 4개, facade 패키지, 트랜잭션 밖 409 변환)를 반영 |
+| 2026-10-27 | #59 | `countActiveSeats`·`findActiveHold`·`expireIfDue`·`findPaymentInProgress` 구현. `getReservation` 이름 확인(PR #43) 반영 |
