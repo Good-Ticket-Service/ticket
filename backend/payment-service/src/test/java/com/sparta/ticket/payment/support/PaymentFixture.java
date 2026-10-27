@@ -24,6 +24,24 @@ public final class PaymentFixture {
         return order(orderId, reservationId, totalPrice, discountAmount, NOW.plusMinutes(10));
     }
 
+    public static PaymentOrder kakaoOrder(String orderId, long reservationId) {
+        return withProvider(order(orderId, reservationId), PgProvider.KAKAO);
+    }
+
+    public static PaymentOrder withProvider(PaymentOrder order, PgProvider provider) {
+        return new PaymentOrder(
+                order.orderId(),
+                order.reservationId(),
+                order.userId(),
+                order.sellerId(),
+                order.performanceId(),
+                order.scheduleId(),
+                provider,
+                order.totalPrice(),
+                order.discountAmount(),
+                order.expiresAt());
+    }
+
     private static PaymentOrder order(
             String orderId, long reservationId, int totalPrice, int discountAmount, LocalDateTime expiresAt) {
         return new PaymentOrder(

@@ -1,12 +1,14 @@
 package com.sparta.ticket.payment.domain.model.payment;
 
 import static com.sparta.ticket.payment.support.PaymentFixture.NOW;
+import static com.sparta.ticket.payment.support.PaymentFixture.kakaoOrder;
 import static com.sparta.ticket.payment.support.PaymentFixture.order;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -277,6 +279,89 @@ class PaymentTest {
 
             assertThat(failedAfterApproval.needsReconciliation()).isFalse();
             assertInvalidTransition(() -> failedAfterApproval.markReconciled(NOW.plusHours(2)));
+        }
+    }
+
+    @Nested
+    @DisplayName("대체와 PG 준비 결과")
+    class SupersedeAndPgReady {
+
+        @Test
+        @DisplayName("새 준비가 READY를 FAILED(SUPERSEDED)로 대체한다")
+        void supersede() {
+            Payment payment = ready();
+
+            payment.supersede();
+
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.getFailureCode()).isEqualTo("SUPERSEDED");
+        }
+
+        @Test
+        @DisplayName("승인 요청을 받은 READY와 READY가 아닌 결제는 대체할 수 없다")
+        void cannotSupersedeConfirmRequestedOrNotReady() {
+            Payment requested = ready();
+            requested.requestConfirm(NOW);
+
+            assertInvalidTransition(requested::supersede);
+            assertInvalidTransition(() -> inProgress().supersede());
+        }
+
+        @Test
+        @DisplayName("카카오 READY는 tid가 없을 때만 PG 준비가 필요하고, 토스는 필요 없다")
+        void needsPgReady() {
+            Payment kakao = Payment.ready(kakaoOrder("kakao-1", 1L));
+
+            assertThat(kakao.needsPgReady()).isTrue();
+            assertThat(ready().needsPgReady()).isFalse();
+            kakao.applyPgReady(new PgReadyResult.Ready("T1", "https://pay/T1"));
+            assertThat(kakao.needsPgReady()).isFalse();
+        }
+
+        @Test
+        @DisplayName("준비 성공은 tid와 결제창 URL을, 실패는 FAILED(READY_FAILED)를 남긴다")
+        void applyPgReady() {
+            Payment succeeded = Payment.ready(kakaoOrder("kakao-1", 1L));
+            Payment failed = Payment.ready(kakaoOrder("kakao-2", 2L));
+
+            assertThat(succeeded.applyPgReady(new PgReadyResult.Ready("T1", "https://pay/T1")))
+                    .isTrue();
+            assertThat(failed.applyPgReady(new PgReadyResult.Failed("카카오 장애"))).isTrue();
+
+            assertThat(succeeded.getPgTransactionId()).isEqualTo("T1");
+            assertThat(succeeded.getCheckoutUrl()).isEqualTo("https://pay/T1");
+            assertThat(failed.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(failed.getFailureCode()).isEqualTo("READY_FAILED");
+        }
+
+        @Test
+        @DisplayName("늦게 온 준비 결과는 저장된 tid를 덮거나 대체된 결제를 되살리지 않는다")
+        void lateReadyResultIsIgnored() {
+            Payment stored = Payment.ready(kakaoOrder("kakao-1", 1L));
+            stored.applyPgReady(new PgReadyResult.Ready("T1", "https://pay/T1"));
+            Payment superseded = Payment.ready(kakaoOrder("kakao-2", 2L));
+            superseded.supersede();
+
+            assertThat(stored.applyPgReady(new PgReadyResult.Ready("T2", "https://pay/T2")))
+                    .isFalse();
+            assertThat(stored.applyPgReady(new PgReadyResult.Failed("늦은 실패"))).isFalse();
+            assertThat(superseded.applyPgReady(new PgReadyResult.Ready("T3", "https://pay/T3")))
+                    .isFalse();
+
+            assertThat(stored.getPgTransactionId()).isEqualTo("T1");
+            assertThat(stored.getStatus()).isEqualTo(PaymentStatus.READY);
+            assertThat(superseded.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(superseded.getCheckoutUrl()).isNull();
+        }
+
+        @Test
+        @DisplayName("PG 오류 설명이 255자를 넘어도 실패를 확정한다")
+        void longFailureMessageIsTruncated() {
+            Payment payment = Payment.ready(kakaoOrder("kakao-1", 1L));
+
+            payment.applyPgReady(new PgReadyResult.Failed("x".repeat(400)));
+
+            assertThat(payment.getFailureMessage()).hasSize(255);
         }
     }
 }
