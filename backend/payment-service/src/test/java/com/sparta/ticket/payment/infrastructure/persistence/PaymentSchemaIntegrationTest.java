@@ -5,7 +5,6 @@ import static com.sparta.ticket.payment.support.PaymentFixture.order;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
@@ -14,6 +13,7 @@ import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
+import com.sparta.ticket.payment.support.PaymentIntegrationTest;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,7 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** schema.sql의 유니크·부분 유니크·CHECK 제약이 설계(docs/tables.md)대로 동작하는지 실제 PostgreSQL로 확인한다. */
-class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
+class PaymentSchemaIntegrationTest extends PaymentIntegrationTest {
 
     /** 컨테이너를 테스트 클래스끼리 공유하므로 예매 ID가 겹치지 않게 큰 값에서 시작한다. */
     private static final AtomicLong RESERVATION_IDS = new AtomicLong(1_000_000);
