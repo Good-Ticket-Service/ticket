@@ -19,7 +19,6 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,8 +55,8 @@ import reactor.core.publisher.Mono;
 class GatewaySecurityTest {
 
     static final String SECRET = "test-only-jwt-secret-key-0123456789abcdef";
-    private static final UUID USER_ID = UUID.fromString("3fa85f64-5717-4562-b3fc-2c963f66afa6");
-    private static final UserSnapshot STORED_USER = new UserSnapshot(USER_ID, "hong01", "USER");
+    private static final Long USER_ID = 1L;
+    private static final UserSnapshot STORED_USER = new UserSnapshot(USER_ID, "hong@ticket.com", "USER");
 
     @Autowired
     private WebTestClient client;
@@ -87,7 +86,7 @@ class GatewaySecurityTest {
                 secret,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("username", "hong01")
+                        .claim("email", "hong@ticket.com")
                         .claim("role", role)
                         .issueTime(Date.from(expiresAt.minusSeconds(3600)))
                         .expirationTime(Date.from(expiresAt))
@@ -121,7 +120,7 @@ class GatewaySecurityTest {
                 .jsonPath("$['X-User-Id']")
                 .isEqualTo(USER_ID.toString())
                 .jsonPath("$['X-Username']")
-                .isEqualTo("hong01")
+                .isEqualTo("hong@ticket.com")
                 .jsonPath("$['X-User-Role']")
                 .isEqualTo("USER");
     }
@@ -252,7 +251,7 @@ class GatewaySecurityTest {
                 SECRET,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("username", "hong01")
+                        .claim("email", "hong@ticket.com")
                         .claim("role", "USER")
                         .issueTime(new Date())
                         .build());
@@ -260,7 +259,7 @@ class GatewaySecurityTest {
                 SECRET,
                 new JWTClaimsSet.Builder()
                         .subject(USER_ID.toString())
-                        .claim("username", "hong01")
+                        .claim("email", "hong@ticket.com")
                         .issueTime(new Date())
                         .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                         .build());
@@ -309,7 +308,7 @@ class GatewaySecurityTest {
                 .jsonPath("$['X-User-Role']")
                 .isEqualTo("USER")
                 .jsonPath("$['X-Username']")
-                .isEqualTo("hong01");
+                .isEqualTo("hong@ticket.com");
     }
 
     @Test

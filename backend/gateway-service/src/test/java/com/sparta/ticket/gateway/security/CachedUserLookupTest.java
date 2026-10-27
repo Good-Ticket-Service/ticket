@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +13,7 @@ import reactor.core.publisher.Mono;
 
 class CachedUserLookupTest {
 
-    private final UUID userId = UUID.randomUUID();
+    private final Long userId = 1L;
     private final AtomicInteger calls = new AtomicInteger();
     private final AtomicLong nanos = new AtomicLong();
 
@@ -22,7 +21,7 @@ class CachedUserLookupTest {
         return new CachedUserLookup(
                 id -> {
                     String role = roles[Math.min(calls.getAndIncrement(), roles.length - 1)];
-                    return Mono.just(Optional.of(new UserSnapshot(id, "hong01", role)));
+                    return Mono.just(Optional.of(new UserSnapshot(id, "hong@ticket.com", role)));
                 },
                 Duration.ofSeconds(60),
                 nanos::get);
@@ -76,7 +75,7 @@ class CachedUserLookupTest {
                 id -> {
                     calls.incrementAndGet();
                     return Mono.delay(java.time.Duration.ofMillis(200))
-                            .map(ignored -> Optional.of(new UserSnapshot(id, "hong01", "USER")));
+                            .map(ignored -> Optional.of(new UserSnapshot(id, "hong@ticket.com", "USER")));
                 },
                 Duration.ofSeconds(60),
                 nanos::get);

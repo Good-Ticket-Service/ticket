@@ -70,7 +70,7 @@ public class SecurityConfig {
     /**
      * user-service가 같은 secret으로 서명한 HS256 토큰의 서명, 만료, 필수 claim을 검증한다.
      * Note: 기본 검증기는 exp가 "있을 때만" 만료를 검사하고, 만료 후 60초까지 허용한다. exp가 빠진 토큰은 영원히 유효해지므로
-     * 필수 claim(sub, username, role, iat, exp)의 존재를 직접 검사하고, 같은 호스트의 컨테이너끼리라 허용 오차는 0으로 둔다.
+     * 필수 claim(sub, email, role, iat, exp)의 존재를 직접 검사하고, 같은 호스트의 컨테이너끼리라 허용 오차는 0으로 둔다.
      */
     @Bean
     public ReactiveJwtDecoder reactiveJwtDecoder(JwtProperties properties) {
@@ -81,7 +81,7 @@ public class SecurityConfig {
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 new JwtTimestampValidator(Duration.ZERO),
                 required(JwtClaimNames.SUB),
-                required("username"),
+                required("email"),
                 required("role"),
                 required(JwtClaimNames.IAT),
                 required(JwtClaimNames.EXP)));
