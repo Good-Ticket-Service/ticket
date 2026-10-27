@@ -15,4 +15,10 @@ public interface PaymentRepository {
 
     /** 행을 잠그고(SELECT ... FOR UPDATE) 읽는다. 상태를 바꾸기 전에 최신 상태를 다시 판단할 때 쓴다. */
     Optional<Payment> lockById(Long id);
+
+    /**
+     * 예매의 살아 있는 결제(READY·IN_PROGRESS·DONE)를 잠가서 읽는다. 부분 UNIQUE 인덱스로 예매당 하나뿐이다.
+     * 새 준비가 이전 READY를 대체할지, 진행 중이라 거절할지 판단할 때 쓴다.
+     */
+    Optional<Payment> lockLiveByReservationId(Long reservationId);
 }

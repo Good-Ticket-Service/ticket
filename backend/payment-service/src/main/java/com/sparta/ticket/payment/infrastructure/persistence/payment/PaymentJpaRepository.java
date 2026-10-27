@@ -15,4 +15,12 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Payment p WHERE p.id = :id")
     Optional<Payment> lockById(@Param("id") Long id);
+
+    @Override
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Payment p WHERE p.reservationId = :reservationId"
+            + " AND p.status IN (com.sparta.ticket.payment.domain.model.payment.PaymentStatus.READY,"
+            + " com.sparta.ticket.payment.domain.model.payment.PaymentStatus.IN_PROGRESS,"
+            + " com.sparta.ticket.payment.domain.model.payment.PaymentStatus.DONE)")
+    Optional<Payment> lockLiveByReservationId(@Param("reservationId") Long reservationId);
 }
