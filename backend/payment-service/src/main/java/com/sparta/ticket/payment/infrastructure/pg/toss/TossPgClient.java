@@ -1,6 +1,5 @@
 package com.sparta.ticket.payment.infrastructure.pg.toss;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.payment.application.port.pg.PgClient;
@@ -10,6 +9,7 @@ import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.domain.model.pg.PgResult;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp.PgCall;
+import com.sparta.ticket.payment.infrastructure.pg.PgJson;
 import com.sparta.ticket.payment.infrastructure.pg.PgProperties;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -100,9 +99,9 @@ public class TossPgClient implements PgClient {
         if (!(call instanceof PgCall.Responded responded)) {
             return new PgInquiry.Unknown(call.toString());
         }
-        Optional<JsonNode> json = parse(responded.body());
+        Optional<JsonNode> json = PgJson.parse(objectMapper, responded.body());
         if (responded.isSuccessful() && json.isPresent()) {
-            return safely(() -> inquiry(json.get())).orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
+            return PgJson.safely(() -> inquiry(json.get())).orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
         }
         if (responded.status() == 404
                 && json.map(j -> j.path("code").asText()).orElse("").equals("NOT_FOUND_PAYMENT")) {
@@ -159,16 +158,17 @@ public class TossPgClient implements PgClient {
         }
         PgCall.Responded responded = (PgCall.Responded) call;
         if (responded.isSuccessful()) {
-            return parse(responded.body())
-                    .flatMap(json -> safely(() -> success.apply(json)))
+            return PgJson.parse(objectMapper, responded.body())
+                    .flatMap(json -> PgJson.safely(() -> success.apply(json)))
                     .orElseGet(() -> new PgResult.Unknown("해석할 수 없는 성공 응답"));
         }
         Optional<String> code = errorCode(responded);
         if (code.isEmpty() || UNKNOWN_CODES.contains(code.get())) {
             return new PgResult.Unknown("토스 응답 " + responded.status() + " " + code.orElse(""));
         }
-        String message =
-                parse(responded.body()).map(j -> j.path("message").asText()).orElse("");
+        String message = PgJson.parse(objectMapper, responded.body())
+                .map(j -> j.path("message").asText())
+                .orElse("");
         return new PgResult.Rejected(code.get(), message);
     }
 
@@ -193,26 +193,8 @@ public class TossPgClient implements PgClient {
         if (responded.isSuccessful()) {
             return Optional.empty();
         }
-        return parse(responded.body()).map(j -> j.path("code").asText(null));
-    }
-
-    /**
-     * 성공 응답의 필드 해석이 실패하면 Unknown으로 둔다. 어댑터가 예외를 던지면 호출한 흐름이 PG 결과를 잃는다.
-     */
-    private static <T> Optional<T> safely(Supplier<T> mapping) {
-        try {
-            return Optional.of(mapping.get());
-        } catch (RuntimeException e) {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<JsonNode> parse(String body) {
-        try {
-            return Optional.ofNullable(objectMapper.readTree(body)).filter(JsonNode::isObject);
-        } catch (JsonProcessingException e) {
-            return Optional.empty();
-        }
+        return PgJson.parse(objectMapper, responded.body())
+                .map(j -> j.path("code").asText(null));
     }
 
     /** 토스 시각은 +09:00 오프셋이 붙은 ISO 8601이다. DB는 KST LocalDateTime으로 저장한다. */
