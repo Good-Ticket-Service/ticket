@@ -23,12 +23,21 @@ public class BookingFacadeService implements BookingFacade {
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
 
-    /** 좌석과 예약이 한 트랜잭션에서 바뀌어야 하므로, 바깥 트랜잭션 없이 부르면 예외로 막는다. */
+    /**
+     * 좌석과 예약이 한 트랜잭션에서 바뀌어야 하므로, 바깥 트랜잭션 없이 부르면 예외로 막는다.
+     * 같은 회원이 같은 회차에 진행 중인 예약을 또 만들면 부분 UNIQUE(uk_p_reservations_active_user_schedule)
+     * 위반 예외를 잡지 않고 그대로 던진다. seat가 그 제약 이름을 보고 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다.
+     */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public Long hold(Long userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+    public Long hold(Long userId, Long scheduleId, List<SeatLine> seats, LocalDateTime holdExpiresAt) {
+        List<SeatPrice> prices = seats.stream()
+                .map(seat -> new SeatPrice(seat.scheduleSeatId(), seat.price()))
+                .toList();
+        // Note: save만 하면 INSERT가 커밋 때로 미뤄질 수 있다. 그러면 UNIQUE 위반이 seat의 호출 안이 아니라
+        // 커밋 시점에 터져 seat가 예외를 잡아 409로 바꿀 수 없다. 그래서 여기서 바로 flush한다.
         return reservationRepository
-                .save(Reservation.hold(userId, scheduleId, seats, holdExpiresAt))
+                .saveAndFlush(Reservation.hold(userId, scheduleId, prices, holdExpiresAt))
                 .getId();
     }
 

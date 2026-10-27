@@ -1,6 +1,5 @@
 package com.sparta.ticket.reservation.booking.application;
 
-import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -11,7 +10,7 @@ import java.util.List;
 public interface BookingFacade {
 
     /** 좌석 선점 트랜잭션 안에서 HOLD 예약과 좌석마다 티켓을 만들고 예약 id를 돌려준다. 가격은 선점 시점의 좌석 가격이다. */
-    Long hold(Long userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt);
+    Long hold(Long userId, Long scheduleId, List<SeatLine> seats, LocalDateTime holdExpiresAt);
 
     /**
      * 사용자가 선점을 직접 해제할 때 seat가 해제 트랜잭션 안에서 좌석을 먼저 잠근 뒤 부른다. 좌석 반환은 seat가 한다.

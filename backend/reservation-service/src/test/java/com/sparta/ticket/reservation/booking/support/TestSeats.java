@@ -1,6 +1,6 @@
 package com.sparta.ticket.reservation.booking.support;
 
-import com.sparta.ticket.reservation.booking.domain.SeatPrice;
+import com.sparta.ticket.reservation.booking.application.SeatLine;
 import java.util.Arrays;
 import java.util.List;
 
@@ -11,7 +11,7 @@ public final class TestSeats {
 
     private TestSeats() {}
 
-    public static List<SeatPrice> priced(Long... seatIds) {
-        return Arrays.stream(seatIds).map(id -> new SeatPrice(id, PRICE)).toList();
+    public static List<SeatLine> priced(Long... seatIds) {
+        return Arrays.stream(seatIds).map(id -> new SeatLine(id, PRICE)).toList();
     }
 }
