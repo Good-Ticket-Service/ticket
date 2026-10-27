@@ -10,11 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.UserHeaders;
-import com.sparta.ticket.reservation.booking.application.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.PaymentResultApplier;
 import com.sparta.ticket.reservation.booking.application.ReservationTransactions;
 import com.sparta.ticket.reservation.booking.application.ReservationTransactions.CheckoutTarget;
+import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;

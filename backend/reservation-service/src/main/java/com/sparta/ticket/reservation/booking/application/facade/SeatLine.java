@@ -1,4 +1,4 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.facade;
 
 /**
  * seat가 선점할 때 BookingFacade에 넘기는 좌석 한 줄. 회차 좌석 id와 선점 시점의 가격이다.

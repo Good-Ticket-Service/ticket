@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.reservation.booking.application.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
+import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
+import com.sparta.ticket.reservation.booking.application.facade.ReservationState;
+import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
@@ -19,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -78,8 +82,8 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         });
     }
 
-    private void release(Long user, Long reservationId) {
-        transactionTemplate.executeWithoutResult(status -> bookingFacade.release(user, reservationId));
+    private ReleaseResult release(Long user, Long reservationId) {
+        return transactionTemplate.execute(status -> bookingFacade.release(user, reservationId));
     }
 
     private String statusOf(Long reservationId) {
@@ -142,17 +146,16 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         });
 
         release(userId, first);
-        assertThat(transactionTemplate.execute(status -> bookingFacade.hold(
-                        userId,
-                        scheduleId,
-                        TestSeats.priced(TestIds.next()),
-                        clock.now().plusMinutes(10))))
-                .as("RELEASED는 진행 중인 예약이 아니다")
-                .isNotNull();
+        Long again = transactionTemplate.execute(status -> bookingFacade.hold(
+                userId,
+                scheduleId,
+                TestSeats.priced(TestIds.next()),
+                clock.now().plusMinutes(10)));
+        assertThat(again).as("RELEASED는 진행 중인 예약이 아니다").isNotNull();
     }
 
     @Test
-    @DisplayName("선점 해제: HOLD는 RELEASED, 시간이 지난 HOLD는 EXPIRED로 정리한다. 다시 와도 정상으로 끝나고 티켓은 남는다")
+    @DisplayName("선점 해제: HOLD는 RELEASED, 시간이 지난 HOLD는 EXPIRED로 정리하고, 다시 오면 ALREADY_CLOSED다. 티켓은 남는다")
     void releaseHold() {
         Long released = hold(Duration.ofMinutes(10), TestIds.next());
         Long stale = hold(Duration.ofMinutes(1), TestIds.next());
@@ -160,9 +163,10 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                 reservationRepository.recordCheckout(released, userId, null, "order-r", 10_000L, changeStamps.stamp()));
         clock.advance(Duration.ofMinutes(5));
 
-        release(userId, released);
-        release(userId, stale);
-        release(userId, released);
+        assertThat(release(userId, released)).isEqualTo(ReleaseResult.RELEASED);
+        assertThat(release(userId, stale)).isEqualTo(ReleaseResult.EXPIRED);
+        assertThat(release(userId, released)).isEqualTo(ReleaseResult.ALREADY_CLOSED);
+        assertThat(release(userId, stale)).isEqualTo(ReleaseResult.ALREADY_CLOSED);
 
         assertThat(statusOf(released)).isEqualTo("RELEASED");
         assertThat(statusOf(stale)).as("시간 초과와 사용자 해제를 따로 센다").isEqualTo("EXPIRED");
@@ -178,7 +182,26 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("결제 중이거나 끝난 예약, 다른 사용자의 예약은 선점을 해제할 수 없다")
+    @DisplayName("getReservation은 상태와 상관없이 예약을 읽고, 좌석 id를 잠그는 순서(오름차순)로 돌려준다")
+    void getReservationReturnsSeatsInLockOrder() {
+        Long seatA = TestIds.next();
+        Long seatB = TestIds.next();
+        Long reservationId = hold(Duration.ofMinutes(10), seatB, seatA);
+        release(userId, reservationId);
+
+        ReservationView view = transactionTemplate.execute(
+                status -> bookingFacade.getReservation(reservationId).orElseThrow());
+
+        assertThat(view.state()).isEqualTo(ReservationState.RELEASED);
+        assertThat(view.userId()).isEqualTo(userId);
+        assertThat(view.scheduleSeatIds()).containsExactly(seatA, seatB);
+        Optional<ReservationView> missing =
+                transactionTemplate.execute(status -> bookingFacade.getReservation(TestIds.next()));
+        assertThat(missing).isEmpty();
+    }
+
+    @Test
+    @DisplayName("결제 중이거나 끝난 예약은 NOT_RELEASABLE이고 상태를 바꾸지 않는다. 다른 사용자의 예약은 FORBIDDEN이다")
     void releaseRejected() {
         Long paying = hold(Duration.ofMinutes(10), TestIds.next());
         inTransaction(() ->
@@ -187,10 +210,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                 () -> reservationRepository.startPayment(paying, userId, "order-1", "pg-token", changeStamps.stamp()));
         Long other = hold(Duration.ofMinutes(10), TestIds.next());
 
-        assertThatThrownBy(() -> release(userId, paying))
-                .isInstanceOfSatisfying(
-                        BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_STATUS_TRANSITION));
+        assertThat(release(userId, paying)).isEqualTo(ReleaseResult.NOT_RELEASABLE);
         assertThat(statusOf(paying)).isEqualTo("PAYMENT_IN_PROGRESS");
         assertThatThrownBy(() -> release(TestIds.next(), other))
                 .isInstanceOfSatisfying(
