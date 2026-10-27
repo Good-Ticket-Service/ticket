@@ -122,7 +122,7 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
 | `NOT_APPROVED` | `NOT_APPROVED`, `CANCELED_AT_PG` | 결제 안 됨으로 확정. 다시 결제 가능 |
 | `CLOSED` | `SUPERSEDED`, `ABANDONED`, `READY_FAILED` | 이 시도는 끝. 필요하면 새 준비 |
 
-**결제는 쿠폰 상태를 바꾸지 않는다.** 예매가 결제 결과를 확인해 쿠폰 사용·반납을 처리한다. 취소 시 복원 시점은 예매·쿠폰 담당자가 정한다. 결제 상태와 쿠폰 상태는 서로 다른 로컬 트랜잭션이다.
+**결제는 쿠폰 상태를 바꾸지 않는다.** 쿠폰은 reservationId에 연결한다. 예매는 결제 DONE을 확인해 쿠폰을 사용하고, FAILED로 HOLD에 돌아가면 유지한다. EXPIRED·RELEASED 때 해제하고, 환불 접수 후 CANCELED 확정 때 같은 로컬 트랜잭션에서 복원한다 (#27 제안). 결제 상태와 쿠폰 상태는 서로 다른 로컬 트랜잭션이다.
 
 | refund | 의미 | 다음 |
 |---|---|---|
@@ -134,7 +134,7 @@ FAILED의 `failure_code`: `SUPERSEDED`(새 준비로 대체), `READY_FAILED`(카
 
 - **환불 보장(`ensureRefund`)**: PG에 돈이 잡혀 있다고 확인될 때(결제 DONE + 환불 요청, 늦은 승인, 금액 불일치) 부르는 단일 규칙이다. 환불 행이 없으면 REQUESTED로 만들고, WAITING·SKIPPED면 REQUESTED로 바꾸고, REQUESTED·DONE·FAILED면 그대로 둔다. 기존 사유는 유지하고 행이 새로 생길 때만 `AUTO_VOID`를 쓴다. 그래서 AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다.
 - 상태 전이는 엔티티 메서드에서만 일어난다. 메서드는 현재 상태를 검사하고 맞지 않으면 공통 `INVALID_STATUS_TRANSITION`을 던진다.
-- 결과 불명은 상태가 아니라 `recovery_attempts`, `next_attempt_at`, `recovery_started_at`, `last_error`로 표현한다. 결제는 차단하지 않는다. PG 승인 호출 후 1분(`result-deadline-seconds`) 안에 결과를 모르면 FAILED(`PG_UNRESOLVED`)로 확정하고 예매가 좌석과 쿠폰을 풀게 하며, 실제로 승인됐다면 최소 대사가 찾아 자동 취소 환불한다. 환불만 `recovery_blocked`로 자동 처리를 멈추고 사람이 확인한다.
+- 결과 불명은 상태가 아니라 `recovery_attempts`, `next_attempt_at`, `recovery_started_at`, `last_error`로 표현한다. 결제는 차단하지 않는다. PG 승인 호출 후 1분(`result-deadline-seconds`) 안에 결과를 모르면 FAILED(`PG_UNRESOLVED`)로 확정하고 예매가 남은 선점 시간에 따라 HOLD로 복귀하거나 EXPIRED로 종료하게 하며, 실제로 승인됐다면 최소 대사가 찾아 자동 취소 환불한다. 환불만 `recovery_blocked`로 자동 처리를 멈추고 사람이 확인한다.
 - Orders의 `recovery_phase`는 두지 않는다. 외부 호출 단계가 결제는 승인 하나, 환불은 취소 하나라 상태 자체가 재개 지점이다.
 
 ## 4. 처리 흐름
@@ -206,14 +206,14 @@ POST /internal/payments/{orderId}/refund {reason}
      동시 요청이 UK에 걸리면 이긴 행을 재현한다
   3) REQUESTED면 커밋 후 바로 PgClient.cancel(PG 키 = orderId + ":cancel:" + cancel_attempt) (트랜잭션 밖)
   4) tx complete: payment → refund 순서로 잠근 뒤 refund가 REQUESTED일 때만
-     성공 → refund DONE (+ 결제가 DONE이면 CANCELED. 쿠폰 복원은 예매 책임)
+     성공 → refund DONE (+ 결제가 DONE이면 CANCELED. 쿠폰 복원은 이 시점이 아니라 예매의 CANCELED 확정 시 처리)
      업무 거절 → FAILED + recovery_blocked + 경보 (관리자 refund/retry)
      일시 장애·불명 (연결 실패, 429, 타임아웃, 5xx) → REQUESTED 유지, 복구가 같은 키로 다시 보낸다
 ```
 
 - REQUESTED가 되는 모든 전이는 `requested_at`(처음일 때), `recovery_started_at`, `next_attempt_at`을 같이 설정한다. 요청 경로는 커밋 뒤 바로 cancel을 부르므로 `next_attempt_at = now + 점유 기간`, 그 밖의 경로(4절 10)의 ensureRefund, 대사)는 `next_attempt_at = now`로 두어 복구 잡이 부른다.
 - `refund_amount`: 사용자 환불(`USER_CANCEL`)·회차 취소(`SCHEDULE_CANCELED`)·확정 실패(`CONFIRM_FAILED`)는 결제 금액 전액, AUTO_VOID는 PG가 승인한 금액이다. 취소 가능 기간·수수료는 보지 않는다(예매가 요청 전에 검사한다).
-- 자동 취소 환불(`AUTO_VOID`)이 붙은 결제는 FAILED 그대로다. refund DONE이면 "잡혔던 돈을 돌려줌"이다. 쿠폰 반납은 예매가 FAILED를 확인해 처리한다.
+- 자동 취소 환불(`AUTO_VOID`)이 붙은 결제는 FAILED 그대로다. refund DONE이면 "잡혔던 돈을 돌려줌"이다. 예매가 HOLD로 복귀하면 쿠폰을 유지한다. 쿠폰은 예매 종료·취소 정책에 따라 처리하며 AUTO_VOID는 쿠폰을 바꾸지 않는다.
 
 ## 5. 복구
 
@@ -234,7 +234,7 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
      - Canceled → FAILED(`CANCELED_AT_PG`). 돈은 PG에서 이미 돌려줬다
      - NotFound → `approve_requested_at`부터 `not-found-grace-seconds`(60초)가 지났으면 FAILED(`NOT_APPROVED`), 아니면 Unknown과 같이 다음 시도
      - Unknown → `approve_requested_at`부터 `result-deadline-seconds`(60초)가 지났으면 FAILED(`PG_UNRESOLVED`), 아니면 `recovery_attempts + 1`, 다음 시도
-     - FAILED로 확정할 때는 4절 10)의 Rejected처럼 WAITING 환불은 SKIPPED. 쿠폰 반납은 예매가 결과 확인 후 처리
+     - FAILED로 확정할 때는 4절 10)의 Rejected처럼 WAITING 환불은 SKIPPED. 예매는 HOLD 복귀 시 쿠폰을 유지하고 EXPIRED·RELEASED 때 해제
    - refund REQUESTED: 같은 PG 키로 cancel을 다시 보낸다(2절 `cancel` 규칙으로 안전하다). 결과는 4절 환불 4)와 같다
 5. 후보 하나의 예외는 로그만 남기고 다음 후보로 넘어간다.
 6. **결제는 차단하지 않는다.** 결과 확정 시한이 지나면 4번처럼 FAILED(`PG_UNRESOLVED`)로 끝내고 경고 로그와 메트릭(`payment_unresolved_total`)을 남긴다. 그래야 결과를 모르는 결제가 좌석과 1인 예매 한도를 오래 묶지 않는다. 늦은 승인은 8번 최소 대사가 돌려준다.
@@ -336,7 +336,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 | 상대 | 맞출 것 | 시점 |
 |---|---|---|
 | 예매 (2번) | #9 orchestration.md와 대조해 확정한다. 4절에서 reservation이 하는 일, 8절 API, 아래 "예매가 결제 결과를 모를 때"·"예매 쪽에 제안하는 보완", 6절 타임아웃 예산, `expiresAt` 값 | 1주차 초 |
-| 쿠폰·예매 | reservation-service에서 CouponUsage 호출·멱등·복구와 환불 시 쿠폰 복원 시점을 합의한다. 결제에는 할인액만 전달한다 (#22) | 1주차 |
+| 쿠폰·예매 | reservationId 연결, HOLD 복귀 시 유지, EXPIRED·RELEASED 때 해제, CANCELED 때 복원하는 #27 제안을 검토한다. 결제에는 할인액만 전달한다 (#22) | 1주차 |
 | 공연 (5번) | 결제 요청에 들어갈 `seller_id`, `performance_id`, `schedule_id` | 1주차 |
 | 대기열 (4번) | 결제 처리 용량 기반 입장 속도 | 트러블슈팅 |
 
@@ -344,7 +344,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 
 ### CouponUsage 계약
 
-[shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)는 예매 → 쿠폰 계약이다. 결제는 호출하지 않는다. 이전 후 연결 키·세부 인자·복원 시점은 담당자 검토 대기다.
+[shared/modules/coupon-usage.md](../shared/modules/coupon-usage.md)는 예매 → 쿠폰 계약이다. 결제는 호출하지 않는다. reservationId 연결과 예매 상태 기준 해제·복원은 #27 제안에 따른다. 세부 계약 문서는 예매 담당자의 후속 PR에서 반영하며 쿠폰 담당자 검토가 남아 있다.
 
 ### 예매가 결제 결과를 모를 때
 
@@ -368,7 +368,7 @@ Kafka 전환 시 `outbox_event`, `processed_event`, 정산 확장 시 `settlemen
 1. ~~판매자(SELLER) 역할을 1차에 넣는가~~ 결정: SELLER는 판매자 회원가입으로 생기고, 결제는 정산용 `seller_id`를 1차부터 저장한다
 2. 쿠폰 할인 부담 주체 (정산 기준이 정가인가 결제액인가)
 3. 결제 허용 시각(`expiresAt`): 선점 만료 그대로인가, 결제창 진입 시 연장하는가. 연장한다면 payment의 `expires_at`도 갱신하는 API가 필요하다
-4. 환불 시 쿠폰 복원 시점·정책 (예매·쿠폰 담당 합의 대상. 결제에서는 처리하지 않는다)
+4. 환불 시 쿠폰 복원: 환불 접수 후 예매 CANCELED 확정과 같은 로컬 트랜잭션에서 처리하는 #27 제안. 결제·예매 담당 동의, 쿠폰 담당 검토 대기
 5. 실제 토스가 `Idempotency-Key`에 어떤 응답(5xx·429 포함)을 저장하는지. fake-pg는 업무 응답만 저장한다고 가정한다. Task 21 샌드박스에서 확인한다
 6. fake-pg 처리 한도·지연 기본값, 복구 설정값 (2절 설정의 기본값은 임시다)
 7. 실제 토스의 429가 "처리하지 않았음"을 보장하는지. 확인 전까지 실제 PG 어댑터는 429를 Unknown으로 둔다
