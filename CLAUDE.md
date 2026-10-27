@@ -9,8 +9,10 @@
 - `docker-compose.yml`, `infra/`, `script/`는 루트에 있다. Compose의 빌드 컨텍스트는 `backend/`다.
 
 ## 문서
-- 문서 목록과 도메인·담당 표는 `docs/README.md`에 있다. 도메인 기능을 구현하기 전에 `docs/{도메인}/`의 `plan.md`, `api.md`, `tables.md`를 읽는다.
-- 서비스·모듈 간 계약은 `docs/shared/`에 있다. `/internal/**` API나 Feign 클라이언트를 만들 때 계약 문서와 대조하고, 다르면 구현을 바꾸지 말고 알린다. 계약은 `docs/shared/README.md`의 흐름으로만 바꾼다.
+- 공통 진입점은 `docs/conventions.md`다. API는 `docs/api.md`, 저장 구조는 `docs/tables.md`, 업무·복구 설계는 `docs/architecture.md`, 배치는 `docs/infra.md`를 읽는다.
+- docs에는 위 5개 파일만 둔다. 해당 도메인 절만 읽고 같은 규칙을 다른 문서에 복제하지 않는다. 세부 작업 계획·진행·시험 결과는 이슈/PR에 기록한다.
+- `docs-deprecated/`은 검토용 구문서이며 기본 읽기/검색에서 제외한다. `backend/payment-service/docs-local/`은 비추적 로컬 기록이며 업로드하지 않는다.
+- 서비스·모듈 계약은 api의 해당 절과 대조하고, 미합의 또는 구현과 다르면 차이를 알린다. 계약 이슈 → 담당 합의 → 계약 PR → 구현 순서를 따른다.
 
 ## 명령
 - 빌드·테스트: `cd backend && ./gradlew build` (포맷·Checkstyle·계층 검사 포함, 통합 테스트는 Docker 필요)
@@ -39,16 +41,16 @@
 ## 어디를 볼지
 | 도메인 | 모듈 | 문서 | 담당 |
 |---|---|---|---|
-| 회원 | `user-service` | `docs/user/` | 김태현 |
-| 공연 | `performance-service` | `docs/performance/` | 박의연 |
-| 좌석 | `reservation-service` seat | `docs/seat/` | 변정민 |
-| 예매 | `reservation-service` booking | `docs/reservation/` | 지한얼 |
-| 대기열 | `reservation-service` queue | `docs/queue/` | 김태현 |
-| 결제 | `payment-service` payment, `fake-pg` | `docs/payment/` | 강현민 |
-| 쿠폰 | `reservation-service` coupon | `docs/coupon/` | 성윤범 |
+| 회원 | `user-service` | `docs/api.md` | 김태현 |
+| 공연 | `performance-service` | `docs/api.md` | 박의연 |
+| 좌석 | `reservation-service` seat | `docs/api.md` | 변정민 |
+| 예매 | `reservation-service` booking | `docs/api.md` | 지한얼 |
+| 대기열 | `reservation-service` queue | `docs/api.md` | 김태현 |
+| 결제 | `payment-service` payment, `fake-pg` | `docs/api.md` | 강현민 |
+| 쿠폰 | `reservation-service` coupon | `docs/api.md` | 성윤범 |
 
-- 서비스·모듈 간 계약: `docs/shared/` (계약 변경 흐름은 `docs/shared/README.md`)
-- 전체 그림: 서비스 책임·통신·예매 흐름은 `docs/project/architecture.md`, 서버 배치·포트·배포는 `docs/project/infra.md`. 계약·도메인 문서와 다르면 계약·도메인 문서가 기준이다
+- 서비스·모듈 계약과 합의 상태: `docs/api.md`, 변경 절차: `docs/conventions.md`.
+- 전체 그림: `docs/architecture.md`, 배치: `docs/infra.md`. 미합의·현행 차이는 architecture의 단일 표에서 관리한다.
 - 경로별 규칙: `.claude/rules/` (도메인 문서 먼저 읽기, 계약, API, 도메인·영속성)
 - 스킬: `/add-service` (서비스 추가 절차). `/add-internal-api`, `/load-test`는 아직 틀이다
 - 동시성·트랜잭션 리뷰: `concurrency-reviewer` 에이전트

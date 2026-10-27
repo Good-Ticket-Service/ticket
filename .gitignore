@@ -35,3 +35,6 @@ out/
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/worktrees/
+
+### 결제 담당 로컬 설계·진행 기록 ###
+/backend/payment-service/docs-local/

@@ -25,7 +25,7 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 준비 시도 한 번 = 결제 한 건. 상태 전이는 이 클래스의 메서드로만 일어나고, 허용하지 않은 전이는
- * {@link CommonErrorCode#INVALID_STATUS_TRANSITION}으로 막는다. 전이표는 docs/payment/plan.md 3절이다.
+ * {@link CommonErrorCode#INVALID_STATUS_TRANSITION}으로 막는다. 전이표는 docs/architecture.md의 결제 상태 전이이다.
  */
 @Getter
 @Entity

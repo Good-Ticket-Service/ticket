@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 /**
- * 두 PG 어댑터가 같은 계약(docs/payment/plan.md 6절 분류표)을 지키는지 fake PG로 확인한다. 하위 클래스는 PG별 준비·사용자 인증
+ * 두 PG 어댑터가 같은 계약(docs/architecture.md의 PG 결과 분류)을 지키는지 fake PG로 확인한다. 하위 클래스는 PG별 준비·사용자 인증
  * 단계만 정한다. 장애는 fake PG 관리 API로 걸고, 읽기 타임아웃은 짧게(1초) 줄여 응답 유실을 Unknown으로 만든다.
  */
 public abstract class PgClientContractTest {

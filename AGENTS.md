@@ -3,12 +3,14 @@
 ## 먼저 읽을 문서
 
 1. 루트 `CLAUDE.md`를 읽고 프로젝트 공통 지침으로 따른다. 구조·명령·코드 규칙·도메인 담당 표의 원본은 이 파일이다.
-2. `docs/README.md`를 읽고 작업 도메인을 찾는다. 구현·수정 전에 해당 도메인의 `plan.md`(있는 경우), `api.md`, `tables.md`와 연결된 설계 문서를 읽는다.
+2. `docs/conventions.md`를 진입점으로 읽고, `docs/api.md`, `docs/tables.md`, `docs/architecture.md`, `docs/infra.md`에서 작업 도메인의 절을 읽는다. docs에는 이 5개 파일만 유지한다.
 3. `.claude/rules/`의 모든 Markdown 파일을 읽는다. 각 파일의 YAML `paths`에 해당하는 파일을 다룰 때 그 규칙을 적용한다. Codex가 Claude의 경로 규칙을 자동 해석한다고 가정하지 않는다. 새 규칙도 같은 방식으로 읽는다.
-4. 서비스·모듈 간 계약을 다루면 `docs/shared/README.md`, `docs/shared/conventions.md`, 해당 계약을 읽는다. 계약 이슈 → 합의 → 계약 PR → 구현 순서를 따른다. 초안과 합의된 계약을 구분하고, 구현과 계약이 다르면 먼저 차이를 알린다.
+4. 서비스·모듈 간 계약은 `docs/api.md`, 계약 변경 절차는 `docs/conventions.md`를 따른다. 초안과 합의를 구분하고 구현과 계약이 다르면 먼저 차이를 알린다.
 5. `HANDOFF.md`가 있으면 세션 진행 기록으로 읽되 현재 브랜치·diff와 대조한다. 오래된 진행 기록을 최신 계약이나 사용자 지시보다 우선하지 않는다. HANDOFF는 커밋하지 않는다.
 
 문서의 내용을 이 파일에 복제하지 않는다. 공통 규칙을 고칠 때는 원본을 고치고 Codex 연결 경로가 유효한지 확인한다. 개인용 `CLAUDE.local.md`가 있으면 읽되 커밋하지 않는다.
+
+`docs-deprecated/`은 담당자 검토용 보관본이며 기본 읽기·검색 대상에서 제외한다. `backend/payment-service/docs-local/`은 개인 로컬 문서로 커밋·업로드하지 않는다.
 
 ## GitHub 작업
 

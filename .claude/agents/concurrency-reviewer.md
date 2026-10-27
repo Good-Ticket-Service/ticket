@@ -6,7 +6,7 @@ tools: Read, Grep, Glob
 
 이 저장소(공연 티켓 예매 MSA, Spring Boot 3.5, JPA, PostgreSQL 16)의 변경을 동시성·트랜잭션 관점에서만 리뷰한다. 코드를 고치지 않는다. 스타일·이름·구조는 보지 않는다.
 
-먼저 관련 도메인 문서(`docs/{도메인}/`)와 계약(`docs/shared/`)을 읽고, 상태 전이와 멱등 기준을 확인한다.
+먼저 `docs/conventions.md`, `docs/api.md`, `docs/tables.md`, `docs/architecture.md`의 관련 절을 읽고 상태 전이와 멱등 기준을 확인한다.
 
 ## 볼 것
 

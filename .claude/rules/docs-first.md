@@ -4,20 +4,9 @@ paths:
   - "backend/sql/**"
 ---
 
-# 도메인 문서 먼저 읽기
+# 공통 문서 먼저 읽기
 
-도메인 기능을 구현하거나 고치기 전에 그 도메인의 문서를 읽는다. 도메인·서비스·담당 표는 `docs/README.md`에 있다.
-
-| 서비스·모듈 | 문서 |
-|---|---|
-| `user-service` | `docs/user/` |
-| `performance-service` | `docs/performance/` |
-| `reservation-service` seat 모듈 | `docs/seat/` |
-| `reservation-service` booking 모듈 | `docs/reservation/` |
-| `reservation-service` queue 모듈 | `docs/queue/` |
-| `payment-service` payment 모듈, `fake-pg` | `docs/payment/` |
-| `reservation-service` coupon 모듈 | `docs/coupon/` |
-
-- `api.md`의 경로·요청·응답·오류 코드와 다르게 구현하지 않는다. 문서가 틀렸다고 판단되면 구현 전에 알린다.
-- 엔티티·`schema.sql`을 바꾸면 `tables.md`도 같은 PR에서 고친다.
-- 다른 도메인이 제공하는 기능을 쓰면 `docs/shared/`의 해당 계약을 읽는다.
+- `docs/conventions.md`를 진입점으로 읽는다. `docs/api.md`, `docs/tables.md`, `docs/architecture.md`, `docs/infra.md`의 관련 도메인 절만 읽는다.
+- docs에는 이 5개 파일만 둔다. 작업 목록·측정 결과는 이슈/PR에 기록한다.
+- 구현이 계약과 다르면 먼저 차이를 알린다. 초안을 합의된 계약으로 취급하지 않는다.
+- 엔티티·DDL 변경 시 tables를, 외부/내부/모듈 계약 변경 시 api를 같은 PR에서 갱신한다.

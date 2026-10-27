@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        계약 변경 흐름의 1단계다. 이 이슈에서 담당자들이 댓글로 합의한 뒤, 합의한 내용만 `docs/shared/`에 계약 PR로 올린다.
-        흐름과 양식은 `docs/shared/README.md`, `docs/_template/contract.md`를 본다.
+        계약 변경 흐름의 1단계다. 이 이슈에서 담당자들이 댓글로 합의한 뒤, 합의한 내용만 `docs/`에 계약 PR로 올린다.
+        흐름은 `docs/conventions.md`, 계약은 `docs/api.md`의 해당 절을 본다.
   - type: input
     id: scope
     attributes:

@@ -1,6 +1,6 @@
 -- fake-pg 스키마(fake_pg_schema)의 DDL. fake PG가 기동할 때마다 실행하므로(spring.sql.init) 모든 문장은 IF NOT EXISTS로 쓴다.
 -- 서비스 계정(fake_pg_app)으로 적용하면 계정 기본 search_path인 fake_pg_schema에 만들어진다.
--- 설계: docs/payment/plan.md 7·8절 fake-pg
+-- 설계: docs/api.md, docs/tables.md의 fake-pg
 
 -- PG 쪽 거래 기록. 토스는 결제 인증 시뮬레이션, 카카오는 결제 준비에서 READY로 만들고, 승인하면 DONE, 취소하면 CANCELED가 된다.
 -- payment-service 기록과 대조(대사)하는 상대편 기록이다.
