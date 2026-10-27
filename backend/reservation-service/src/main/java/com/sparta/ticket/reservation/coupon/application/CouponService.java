@@ -1,8 +1,11 @@
 package com.sparta.ticket.reservation.coupon.application;
 
+import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponResult;
 import com.sparta.ticket.reservation.coupon.application.dto.CreateCouponCommand;
+import com.sparta.ticket.reservation.coupon.application.dto.UpdateCouponCommand;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -29,6 +32,28 @@ public class CouponService {
                 command.validDays(),
                 now);
         return CouponResult.of(couponRepository.save(coupon), now);
+    }
+
+    /** 발급과 같은 행을 바꾸므로 잠그고 읽는다. 총 수량을 발급 수량과 비교할 때 발급이 끼어들지 않는다. */
+    @Transactional
+    public CouponResult update(Long couponId, UpdateCouponCommand command) {
+        LocalDateTime now = now();
+        Coupon coupon = lockCoupon(couponId);
+        coupon.update(
+                command.name(),
+                command.discountAmount(),
+                command.totalQuantity(),
+                command.issueStartAt(),
+                command.issueEndAt(),
+                command.validDays(),
+                now);
+        return CouponResult.of(coupon, now);
+    }
+
+    private Coupon lockCoupon(Long couponId) {
+        return couponRepository
+                .lockById(couponId)
+                .orElseThrow(() -> new BusinessException(CouponErrorCode.COUPON_NOT_FOUND));
     }
 
     /**
