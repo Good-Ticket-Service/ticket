@@ -80,6 +80,16 @@ public class User extends BaseEntity {
         return new User(email, encodedPassword, "마스터", MASTER_PHONE, Role.MASTER);
     }
 
+    /** 내 정보 부분 수정. null로 받은 값은 바꾸지 않고 기존 값을 유지한다. 형식 검증은 요청 DTO가 맡는다. */
+    public void updateProfile(String name, String phone) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+    }
+
     /** 탈퇴(WITHDRAWN) 회원은 로그인할 수 없다. */
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
