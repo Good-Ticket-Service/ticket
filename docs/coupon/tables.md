@@ -72,7 +72,7 @@ erDiagram
 | created_by | VARCHAR(100) |  | N |  | 생성자 |
 | updated_at | TIMESTAMP |  | N |  | 수정 시각 |
 | updated_by | VARCHAR(100) |  | N |  | 수정자 |
-| deleted_at | TIMESTAMP |  | Y |  | 논리 삭제 시각 (삭제 API 없음) |
+| deleted_at | TIMESTAMP |  | Y |  | 논리 삭제 시각. 아무도 받지 않은 쿠폰을 삭제 API로 지울 때 기록 |
 | deleted_by | VARCHAR(100) |  | Y |  | 논리 삭제자 |
 
 **제약·인덱스**
