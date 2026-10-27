@@ -32,6 +32,8 @@ Kafka 메시지 스키마는 Phase 2에서 `events/`에 추가한다.
 |---|---|---|---|
 | [결제 내부 API](internal-api/payment.md) | 결제 | 예매 | 기존 합의, #22 변경 검토 대기 |
 | [CouponUsage](modules/coupon-usage.md) | 쿠폰 | 예매(booking) | 초안 (#27). 결제·예매 동의, 쿠폰 담당 검토 대기 |
+| [BookingFacade](modules/booking-facade.md) | 예매(booking) | 좌석(seat) | 합의 (#34) |
+| [SeatFacade](modules/seat-facade.md) | 좌석(seat) | 예매(booking) | 합의 (#34) |
 | [공연 내부 API](internal-api/event.md) (판매 검증) | 공연 | 예매 | 합의 |
 | [좌석 내부 API](internal-api/seat.md) (회차 좌석 준비) | 좌석 | 공연 | 합의 |
 | [회원 내부 API](internal-api/user.md) | 회원 | 미정 | 합의 |
