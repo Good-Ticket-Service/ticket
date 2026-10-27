@@ -33,16 +33,17 @@ public class AuthService {
 
     @Transactional
     public SignupResult signup(SignupCommand command) {
-        if (userRepository.existsByUsernameIncludingDeleted(command.username())) {
-            throw new BusinessException(UserErrorCode.DUPLICATE_USERNAME);
+        if (userRepository.existsByEmailIncludingDeleted(command.email())) {
+            throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
         }
-        User user = User.signup(command.username(), passwordEncoder.encode(command.password()), command.name());
+        User user = User.signup(
+                command.email(), passwordEncoder.encode(command.password()), command.name(), command.phone());
         try {
             return SignupResult.from(userRepository.saveAndFlush(user));
         } catch (DataIntegrityViolationException e) {
-            // Note: 존재 확인과 저장 사이에 같은 username 가입이 끼어들 수 있다. 최종 방어선은 DB 유니크 제약이고, 그 위반을 같은 409로 바꾼다.
+            // Note: 존재 확인과 저장 사이에 같은 email 가입이 끼어들 수 있다. 최종 방어선은 DB 유니크 제약이고, 그 위반을 같은 409로 바꾼다.
             // save()만 하면 INSERT가 커밋 시점까지 미뤄져 예외가 이 try 밖(트랜잭션 프록시)에서 터진다. saveAndFlush로 여기서 INSERT를 실행한다.
-            throw new BusinessException(UserErrorCode.DUPLICATE_USERNAME);
+            throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
         }
     }
 
@@ -53,11 +54,11 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public TokenResult login(LoginCommand command) {
-        Optional<User> found = userRepository.findByUsername(command.username());
+        Optional<User> found = userRepository.findByEmail(command.email());
         String hash = found.map(User::getPassword).orElse(dummyPasswordHash);
         boolean matches = passwordEncoder.matches(command.password(), hash);
-        User user =
-                found.filter(ignored -> matches).orElseThrow(() -> new BusinessException(UserErrorCode.LOGIN_FAILED));
+        User user = found.filter(candidate -> matches && candidate.isActive())
+                .orElseThrow(() -> new BusinessException(UserErrorCode.LOGIN_FAILED));
         return TokenResult.bearer(tokenIssuer.issue(user), tokenIssuer.expirationSeconds());
     }
 }
