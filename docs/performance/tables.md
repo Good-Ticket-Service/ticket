@@ -1,7 +1,7 @@
 # 공연 테이블 명세
 
 - 상태: 작성 중
-- 담당: 공연 담당
+- 담당: 박의연
 - DDL: `backend/sql/performance-service/schema.sql`
 - 출처: Notion [테이블 명세서](https://app.notion.com/p/404b3ff41d3980b88ce0cb1df7defd1e)의 공연 섹션 (2026-10-27 기준). 이후 원본은 이 문서이며, Notion은 담당자가 이 문서를 기준으로 갱신한다.
 - 표 제목의 번호(3.2~3.8)는 Notion 원본 번호를 유지한다.
@@ -107,6 +107,7 @@ erDiagram
   통화는 KRW 고정이므로 별도 통화 컬럼을 생략한다.
 - 기존 문서에 맞춰 DB 시각은 KST TIMESTAMP(3), API는 +09:00 오프셋을 포함한 ISO 8601로 표현한다.
   DB·서버·드라이버 시간대도 일치시킨다.
+  업무 시각 컬럼(`published_at`, `start_at` 등)은 TIMESTAMP(3)을 쓴다. BaseEntity 감사 컬럼(`created_at`, `updated_at`, `deleted_at`)은 팀 공통 엔티티와 다른 서비스 DDL에 맞춰 TIMESTAMP를 쓴다.
 - `deleted_at`이 있는 데이터는 기본 조회에서 제외한다.
   **회차 취소와 삭제는 구분한다.**
 - 판매자 수정은 performance 행을 기준으로 직렬화하거나 낙관적 잠금으로 보호한다.
