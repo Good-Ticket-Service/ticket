@@ -19,7 +19,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
-import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -47,10 +46,10 @@ public class Payment extends BaseEntity {
     private Long reservationId;
 
     @Column(nullable = false)
-    private UUID userId;
+    private Long userId;
 
     @Column(nullable = false)
-    private UUID sellerId;
+    private Long sellerId;
 
     @Column(nullable = false)
     private Long performanceId;
@@ -94,7 +93,7 @@ public class Payment extends BaseEntity {
 
     private LocalDateTime confirmRequestedAt;
 
-    /** PG 승인을 부른 시각. "승인 기록 없음" 유예와 최소 대사 대상 판단의 기준이다. */
+    /** PG 승인을 부른 시각. 결과 확정 시한, "승인 기록 없음" 유예, 최소 대사 대상 판단의 기준이다. */
     private LocalDateTime approveRequestedAt;
 
     private LocalDateTime approvedAt;
@@ -162,10 +161,6 @@ public class Payment extends BaseEntity {
 
     public int getRecoveryAttempts() {
         return recovery.getAttempts();
-    }
-
-    public boolean isRecoveryBlocked() {
-        return recovery.isBlocked();
     }
 
     public String getLastError() {
@@ -248,21 +243,14 @@ public class Payment extends BaseEntity {
         recovery.defer(error, nextAttemptAt);
     }
 
-    public void blockRecovery(String reason) {
-        require(PaymentStatus.IN_PROGRESS);
-        recovery.block(reason);
-    }
-
-    public void unblockRecovery(LocalDateTime now) {
-        require(PaymentStatus.IN_PROGRESS);
-        if (!recovery.isBlocked()) {
-            throw invalidTransition();
-        }
-        recovery.unblock(now);
-    }
-
-    public boolean isRecoveryGivenUp(LocalDateTime now, Duration giveUpAfter) {
-        return status == PaymentStatus.IN_PROGRESS && recovery.isGivenUp(now, giveUpAfter);
+    /**
+     * 결과 확정 시한이 지났는지. 승인 호출 후 이 시간이 지나도 결과를 모르면 FAILED(PG_UNRESOLVED)로 확정해 좌석을 풀게 한다.
+     * 그 뒤에 승인이 발견되면 결제는 FAILED 그대로 두고 자동 취소 환불(AUTO_VOID)로 돌려준다.
+     */
+    public boolean isResultDeadlineOver(LocalDateTime now, Duration deadline) {
+        return status == PaymentStatus.IN_PROGRESS
+                && approveRequestedAt != null
+                && !now.isBefore(approveRequestedAt.plus(deadline));
     }
 
     /** "승인 기록 없음" 응답을 거절로 확정해도 되는지. 승인 호출 후 유예 시간이 지나야 한다. */

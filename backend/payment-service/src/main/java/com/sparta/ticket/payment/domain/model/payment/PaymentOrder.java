@@ -2,7 +2,6 @@ package com.sparta.ticket.payment.domain.model.payment;
 
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * 준비 요청이 결제에 고정하는 내용. 같은 orderId로 다시 온 요청이 처음과 같은지 이 값으로 비교한다.
@@ -11,8 +10,8 @@ import java.util.UUID;
 public record PaymentOrder(
         String orderId,
         Long reservationId,
-        UUID userId,
-        UUID sellerId,
+        Long userId,
+        Long sellerId,
         Long performanceId,
         Long scheduleId,
         PgProvider pgProvider,

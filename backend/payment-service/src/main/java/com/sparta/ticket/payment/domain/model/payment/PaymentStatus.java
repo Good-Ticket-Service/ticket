@@ -7,7 +7,10 @@ public enum PaymentStatus {
     IN_PROGRESS,
     /** 승인 확정. */
     DONE,
-    /** 돈이 오가지 않음으로 확정. 늦은 승인이 발견되면 자동 취소 환불이 붙는다. */
+    /**
+     * 이 결제 시도를 끝냈다. 승인 전 종료·거절이면 돈이 오가지 않았다. 결과 불명(PG_UNRESOLVED)으로 끝낸 결제에
+     * 늦은 승인이 발견되면 FAILED 그대로 두고 자동 취소 환불이 붙는다.
+     */
     FAILED,
     /** 전액 환불 완료. */
     CANCELED

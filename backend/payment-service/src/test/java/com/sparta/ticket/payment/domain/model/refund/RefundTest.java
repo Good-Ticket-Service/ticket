@@ -86,6 +86,29 @@ class RefundTest {
     }
 
     @Test
+    @DisplayName("시간 초과 차단은 REQUESTED를 유지하고, 차단 해제는 중단 기준 시각을 다시 센다")
+    void blockAndUnblockRestartsClock() {
+        Refund refund = requested();
+        refund.blockRecovery("GIVE_UP");
+
+        assertThat(refund.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(refund.isRecoveryBlocked()).isTrue();
+        assertThat(refund.getLastError()).isEqualTo("GIVE_UP");
+
+        refund.unblockRecovery(NOW.plusHours(2));
+
+        assertThat(refund.isRecoveryBlocked()).isFalse();
+        assertThat(refund.getRecoveryStartedAt()).isEqualTo(NOW.plusHours(2));
+        assertThat(refund.getNextAttemptAt()).isEqualTo(NOW.plusHours(2));
+    }
+
+    @Test
+    @DisplayName("차단되지 않은 환불은 차단 해제할 수 없다")
+    void unblockOnlyWhenBlocked() {
+        assertInvalidTransition(() -> requested().unblockRecovery(NOW));
+    }
+
+    @Test
     @DisplayName("상태표에 없는 환불 전이는 막는다")
     void rejectsInvalidTransitions() {
         Refund waiting = Refund.waiting(PAYMENT, RefundReason.USER_CANCEL);

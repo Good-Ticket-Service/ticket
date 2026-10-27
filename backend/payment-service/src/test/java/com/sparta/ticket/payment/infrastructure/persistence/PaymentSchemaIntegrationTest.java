@@ -153,7 +153,7 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
                 INSERT INTO p_payments (order_id, reservation_id, user_id, seller_id, performance_id, schedule_id,
                     pg_provider, expires_at, total_price, discount_amount, amount, status,
                     created_at, created_by, updated_at, updated_by)
-                VALUES (?, ?, gen_random_uuid(), gen_random_uuid(), 1, 1, 'TOSS', now(), ?, ?, ?, 'READY',
+                VALUES (?, ?, 1, 2, 1, 1, 'TOSS', now(), ?, ?, ?, 'READY',
                     now(), 'test', now(), 'test')
                 """, newOrderId(), newReservationId(), totalPrice, discountAmount, amount);
     }

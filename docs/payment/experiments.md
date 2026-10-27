@@ -45,7 +45,8 @@
 |---|---|
 | `payment_result_total{result, provider}` | 결과 분포 (done, failed, unknown) |
 | `payment_unknown_current` | 지금 결과를 모르는 결제 수 |
-| `payment_recovery_blocked_total` | 복구 차단 수 |
+| `payment_unresolved_total` | 결과 확정 시한(1분)이 지나 FAILED(`PG_UNRESOLVED`)로 끝낸 결제 수 |
+| `refund_recovery_blocked_total` | 환불 복구 차단 수 |
 | `payment_auto_void_total{cause}` | 늦은 승인·금액 불일치 자동 취소 수 |
 | `pg_call_duration{provider, operation}` 히스토그램 | PG 지연 |
 | `refund_result_total{result, reason}` | 환불 결과 |
@@ -58,9 +59,9 @@
 | 실험 | 성공 기준 |
 |---|---|
 | 중복 결제 승인 (동시 요청, 재전송) | 주문당 중복 과금 0건 |
-| PG 응답 유실·늦은 승인 | 모든 건이 최종 상태(DONE·FAILED)로 확정되거나 차단·경보로 남는다. FAILED인데 PG 승인 상태로 남은 건 0 |
+| PG 응답 유실·늦은 승인 | 모든 결제가 승인 호출 후 1분 안에 최종 상태(DONE·FAILED)로 확정된다. 최소 대사 후 FAILED인데 PG 승인 상태로 남은 건 0 |
 | Kafka 소비자 중복 처리 | 중복 처리로 인한 이중 승인·이중 환불 0건 |
-| payment 강제 종료 | 종료 시점의 미완료 거래가 복구 대상에서 빠지지 않는다 (재시작 후 전부 확정 또는 차단) |
+| payment 강제 종료 | 종료 시점의 미완료 거래가 복구 대상에서 빠지지 않는다 (재시작 후 결제는 전부 확정, 환불은 확정 또는 차단) |
 | 환불 PG 장애 | 환불 요청이 REQUESTED로 남아 장애 해제 후 끝까지 처리된다 |
 | 예매 확정 실패 | 승인된 금액이 환불되거나 조치 대상(차단·경보)으로 남는다 |
 
@@ -68,7 +69,8 @@
 
 - 실험 종료 시점의 미해소 건수
 - 장애 해제 후 복구가 최종 확정한 건수와 걸린 시간
-- 자동 처리를 포기하고 차단(사람 확인)으로 넘어간 건수
+- 결제: 결과 확정 시한으로 FAILED(`PG_UNRESOLVED`)가 된 건수와 그중 늦은 승인으로 AUTO_VOID된 건수
+- 환불: 자동 처리를 포기하고 차단(사람 확인)으로 넘어간 건수
 
 ## 결과 서술 구조
 
