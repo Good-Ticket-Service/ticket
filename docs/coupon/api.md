@@ -13,10 +13,16 @@
 | POST | `/api/v1/coupons` | MASTER | 201 | 쿠폰 생성 |
 | PATCH | `/api/v1/coupons/{couponId}` | MASTER | 200 | 쿠폰 수정 |
 | POST | `/api/v1/coupons/{couponId}/close` | MASTER | 200 | 쿠폰 발급 중단 |
+| DELETE | `/api/v1/coupons/{couponId}` | MASTER | 204 | 쿠폰 삭제 (아무도 받지 않은 쿠폰만) |
 | GET | `/api/v1/coupons` | 로그인 | 200 | 쿠폰 목록 조회 |
 | GET | `/api/v1/coupons/{couponId}` | 로그인 | 200 | 쿠폰 상세 조회 |
 | POST | `/api/v1/coupons/{couponId}/issue` | USER | 201 | 쿠폰 선착순 발급 |
 | GET | `/api/v1/coupons/me` | 로그인 | 200 | 내 쿠폰 목록 조회 |
+
+- 관리자 역할은 MASTER로 통일한다(팀 결정). ADMIN이라는 역할 이름은 쓰지 않는다.
+- 「로그인」은 역할과 상관없이 로그인한 회원(USER, SELLER, MASTER)을 뜻한다. `@RequireRole`을 붙이지 않는다.
+- 쿠폰 목록·상세는 SELLER에게도 공개한다. 할인액·수량·기간은 민감한 정보가 아니고, 판매자도 자기 공연이 어떤 할인으로 팔리는지 알 수 있다. SELLER가 조회하면 `issuedByMe`는 항상 false다.
+- 발급만 USER로 제한한다(`@RequireRole(Role.USER)`). `RequireRole`은 역할이 정확히 같은지만 보므로 MASTER·SELLER는 403 `FORBIDDEN`을 받는다.
 
 ### 공통 실패 응답
 
@@ -141,7 +147,38 @@
 | 404 | COUPON_NOT_FOUND | 쿠폰이 없음 |
 | 409 | COUPON_ALREADY_CLOSED | 이미 발급이 끝난 쿠폰 |
 
-Notion 기능 설명에는 이미 끝난 쿠폰에 409 `COUPON_ISSUE_PERIOD_CLOSED`를 돌려준다고 적혀 있고, 오류 목록에는 `COUPON_ALREADY_CLOSED`로 적혀 있다. 담당자가 하나로 정한다.
+### DELETE /api/v1/coupons/{couponId} — 쿠폰 삭제
+
+- 권한·허용 호출자: MASTER
+- 필수 헤더: `Authorization: Bearer {accessToken}`
+- 성공 HTTP: 204 (응답 본문 없음)
+
+잘못 만든 쿠폰을 지운다. 아직 한 장도 발급되지 않은 쿠폰(`issued_quantity = 0`)만 지울 수 있다. 발급 기간이 시작됐어도 받은 사람이 없으면 지울 수 있다. 행을 지우지 않고 `deleted_at`, `deleted_by`를 기록하는 논리 삭제이며, 삭제된 쿠폰은 모든 조회와 발급에서 빠진다(404 `COUPON_NOT_FOUND`).
+
+한 명이라도 받은 쿠폰은 지울 수 없다. 지우면 `@SQLRestriction` 때문에 회원 쿠폰에서 쿠폰 이름을 찾지 못한다. 이런 쿠폰은 발급 중단으로 처리하고, 할인액 같은 조건이 틀렸다면 올바른 쿠폰을 새로 만든다. 이미 발급된 회원 쿠폰은 발급 시점의 할인액을 복사해 두었으므로 그대로 쓸 수 있다.
+
+| 쿠폰 상태 | 잘못 만들었을 때 |
+|---|---|
+| 아무도 받지 않음 | 값만 틀렸으면 PATCH로 고친다. 필요 없는 쿠폰이면 삭제한다 |
+| 누군가 받음 | 삭제할 수 없다. 발급 중단하고, 필요하면 올바른 쿠폰을 새로 만든다 |
+
+삭제는 조건부 UPDATE 한 번으로 한다. 발급의 수량 UPDATE와 같은 행 잠금을 차례로 잡으므로, 삭제와 첫 발급이 동시에 들어와도 둘 중 하나만 성공한다.
+
+```sql
+UPDATE p_coupons SET deleted_at = now(), deleted_by = ?
+WHERE coupon_id = ? AND issued_quantity = 0 AND deleted_at IS NULL
+```
+
+0행이면 이미 발급된 쿠폰이므로 409를 돌려준다. 쿠폰이 없거나 이미 삭제된 경우는 먼저 조회해 404로 구분한다.
+
+오류
+
+| 상태 | 코드 | 때 |
+|---|---|---|
+| 401 | UNAUTHORIZED | 토큰이 없거나 유효하지 않음 |
+| 403 | FORBIDDEN | MASTER 역할이 아님 |
+| 404 | COUPON_NOT_FOUND | 쿠폰이 없거나 이미 삭제됨 |
+| 409 | COUPON_NOT_DELETABLE | 이미 한 장 이상 발급된 쿠폰 |
 
 ### GET /api/v1/coupons — 쿠폰 목록 조회
 
