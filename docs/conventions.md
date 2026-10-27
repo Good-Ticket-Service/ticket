@@ -4,25 +4,31 @@
 
 ## 문서 선택
 
-세션 시작에는 이 절과 「안전·에이전트 작업」만 한 번 읽는다. **5개 문서 전체를 일괄로 읽지 않는다.** 작업을 분류한 뒤 아래의 관련 절만 찾아 읽고, 같은 세션에서 이미 읽은 내용은 변경되었거나 작업 범위가 달라졌을 때만 다시 읽는다.
+세션 시작에는 이 절과 「안전·에이전트 작업」만 한 번 읽는다. 작업을 분류한 뒤 아래 표의 범위를 읽는다. 같은 세션에서 이미 읽은 내용은 변경되었거나 작업 범위가 달라졌을 때만 다시 읽는다.
+
+- [architecture.md](architecture.md)는 짧고 서비스 사이의 규칙이 모여 있다. 상태 전이·금액·동시성·트랜잭션·서비스 간 연동을 다루는 작업에서는 **처음부터 끝까지 읽는다.** 검색으로 일부만 읽으면 다른 단어로 적힌 경계 조건(타임아웃, 만료 경계, 미합의 항목)을 놓친다.
+- [api.md](api.md)·[tables.md](tables.md)는 전부 읽지 않고, 아래 「구현 전 연관 계약 탐색」으로 찾은 엔드포인트·테이블 절과 그 공통 머리말만 읽는다.
+- 구현 작업이면 **연결 이슈의 범위·완료 조건을 먼저 읽는다**(`gh issue view <번호>`). 작업별 계획·완료 조건은 docs가 아니라 이슈에 있다. 이슈 번호를 모르면 브랜치 이름(`<type>/<scope>/<이슈번호>-<설명>`)이나 사용자에게 확인한다.
+- 문서에 짧은 번호(D16, B19, #34 등)가 나오면 architecture 「결정 번호」에서 뜻을 확인한다. 거기에 없으면 Git 이력·이슈에서 찾거나 담당에게 묻는다. 번호의 뜻을 추측해 구현하지 않는다.
 
 | 작업 | 반드시 확인할 범위 |
 |---|---|
-| 코드 구현·수정 | 이 파일의 코드·영속성. 검증 시 품질 검사 |
-| API·Controller·DTO·Feign·모듈 인터페이스 | 이 파일의 API 공통 + [api.md](api.md)의 해당 엔드포인트·공유 DTO. 연동은 제공/소비 양쪽 계약 |
-| Entity·쿼리·DDL | [tables.md](tables.md)의 해당 테이블·제약·참조 enum |
-| 상태 전이·금액·동시성·트랜잭션·외부 연동 | [architecture.md](architecture.md)의 해당 흐름·불변식·미합의 항목 + 연결된 API/테이블 |
+| 코드 구현·수정 | 연결 이슈 + 이 파일의 코드·영속성. 검증 시 품질 검사 |
+| API·Controller·DTO·Feign·모듈 인터페이스 | 이 파일의 API 공통 + [api.md](api.md)의 해당 엔드포인트·공유 DTO와 그 절의 상태 표기. 연동은 제공·소비 양쪽 계약 |
+| Entity·쿼리·DDL | [tables.md](tables.md)의 해당 테이블·제약·참조 enum과 「추가 제약·차이」 |
+| 상태 전이·금액·동시성·트랜잭션·서비스 간 연동 | [architecture.md](architecture.md) 전체 + 연결된 API·테이블 절 |
 | 배포·라우팅·포트·서비스 설정 | [infra.md](infra.md)의 해당 항목 + 실제 설정 파일 |
 | 이슈·커밋·PR·리뷰 | 이 파일의 협업. 작업 종류의 이슈 템플릿 또는 PR 템플릿·CODEOWNERS·CI |
-| 질문·조회·문서 수정 | 답변/수정에 필요한 절과 실제 코드만. 구현용 문서를 전부 읽지 않음 |
+| 질문·조회·문서 수정 | 답변·수정에 필요한 절과 실제 코드만. 구현용 문서를 전부 읽지 않음 |
 
 **구현 전 연관 계약 탐색**
 
 1. 요청을 도메인 이름이 아닌 업무 흐름으로 분류하고 **호출자 → 구현 대상 → 호출 대상 → 결과 소비자**를 식별한다. 동기 응답뿐 아니라 이벤트·폴링·스케줄러·보상 처리의 소비자도 포함한다.
-2. 대상 도메인 절로 검색을 제한하지 않는다. `docs/api.md`·`docs/architecture.md` 전체 범위에서 제목·URI·메서드/메시지·상태·공유 식별자를 검색해 연결 관계를 찾는다. 검색 결과 주변의 관련 절만 읽으며 문서 전체를 일괄 로드하지 않는다.
+2. 대상 도메인 절로 검색을 제한하지 않는다. `docs/api.md`·`docs/architecture.md` 전체 범위에서 제목·URI·메서드/메시지·상태·공유 식별자를 검색해 연결 관계를 찾는다. api는 검색 결과의 관련 절만 읽고, architecture는 위 표에서 전체 확인이 필요한 작업이면 한 번 전체를 읽는다.
 3. 실제 코드의 Controller·호출 포트·Feign/PG 어댑터·이벤트 발행/소비·복구 작업에서 호출 관계를 대조한다. 확인되지 않은 연결은 필요한 범위만 추가 추적하고, 같은 서비스의 다른 모듈도 빠뜨리지 않는다.
 4. 연결된 제공/소비 계약의 필드·타입·필수값·결과/오류 의미·멱등성·시간 경계를 함께 확인하고, 관련 테이블 제약과 상태 전이·보상 불변식까지 읽는다. 새 연관 관계를 발견하면 그 부분만 추가 확인한다.
-5. 구현 착수 전 확인한 흐름·관련 계약 위치·남은 미확정 사항을 짧게 정리한다. 필요한 계약이 없거나 코드/문서가 충돌하면 기존 미합의 항목과 담당 근거를 확인하고 차이를 알린다. 임의의 API·필드·상태를 만들어 빈칸을 채우지 않으며, 합의가 필요한 부분의 구현은 보류한다.
+5. 구현 착수 전 확인한 흐름·관련 계약 위치·남은 미확정 사항을 짧게 정리한다. 필요한 계약이 없거나 코드/문서가 충돌하면 architecture 「미합의」 표의 해당 항목·담당을 확인하고 차이를 알린다. 임의의 API·필드·상태를 만들어 빈칸을 채우지 않는다.
+6. 미합의 항목에 걸려도 작업 전체를 멈추지 않는다. 미합의에 걸리는 부분만 보류하고 나머지는 진행한 뒤, 보류한 부분과 담당을 보고한다. 어디까지 진행해도 되는지 판단이 서지 않으면 진행 가능한 부분과 막힌 부분을 나눠 사용자에게 확인한다.
 
 예: 결제 승인은 결제 API만으로 판단하지 않고 예매의 승인 요청·결과 해석, PG 호출, 결과 불명 복구·확정 실패 보상까지 연결해 확인한다. 관련 없는 도메인의 본문은 읽지 않는다. 기존 코드와 최신 합의가 다른 항목은 현행/설계 구분을 따른다.
 
@@ -32,7 +38,8 @@
 - 기존 워킹트리 변경을 보존한다. 요청받지 않은 변경을 되돌리거나 함께 커밋하지 않는다. 커밋·푸시·PR 생성은 명시 요청 때만 수행하고 AI 공동 작성자 표시는 임의로 추가하지 않는다.
 - git reset --hard, git clean, 파일/디렉터리 재귀 삭제, docker compose down, 볼륨 삭제, script/run.sh --reset은 대상·영향을 설명하고 해당 작업을 명시 승인받았을 때만 실행한다.
 - JAVA_HOME을 바꾸지 않는다. 도구의 실제 샌드박스·승인 정책을 따르며 .claude/settings*.json은 Codex 실행 권한으로 간주하지 않는다.
-- 개인 CLAUDE.local.md가 있으면 적용하되 커밋하지 않는다. HANDOFF.md는 세션 인계 확인이 필요할 때만 읽고 현재 브랜치/diff·계약과 대조하며 커밋하지 않는다. backend/payment-service/docs-local/은 비추적 개인 기록이며 공용 계약을 대체하지 않는다.
+- 개인 CLAUDE.local.md가 있으면 적용하되 커밋하지 않는다. HANDOFF.md는 세션 인계 확인이 필요할 때만 읽고 현재 브랜치/diff·계약과 대조하며 커밋하지 않는다.
+- backend/payment-service/docs-local/은 결제 담당의 비추적 개인 기록(상세 흐름·결정 근거·작업 계획)이다. 결제 담당의 CLAUDE.local.md가 지시할 때만 읽는다. 공용 계약을 대체하지 않으며, 내용이 docs와 다르면 docs가 기준이다.
 - add-service/add-internal-api/load-test 스킬은 명시 호출 때만 해당 .claude/skills/{이름}/SKILL.md를 읽는다. Codex 진입점은 .agents/skills/다. 뒤 두 스킬은 절차의 틀이며 완성된 자동화가 아니다.
 - 동시성 리뷰 요청 때만 .claude/agents/concurrency-reviewer.md를 읽고 읽기 전용으로 따른다. Codex 역할 연결은 .codex/agents/concurrency-reviewer.toml이다. 별도 에이전트 실행은 사용자 또는 적용 지침의 명시 허용이 필요하다.
 
@@ -40,6 +47,16 @@
 
 docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔다. 각 사실은 한 곳에만 정의하고 다른 파일은 참조한다. 상세 작업 계획·진행·실험 결과·결정 근거는 이슈/PR, 과거 이력은 Git에서 조회한다. 새 도메인도 기존 파일의 해당 절에 추가한다.
 서비스·모듈 계약 변경은 **계약 이슈 → 제공/소비 담당 합의 → 계약 PR → 구현**. 초안은 구현 근거로 확정하지 않는다. 합의·구현 상태와 근거를 구분하고, 미합의 목록은 architecture 한 곳에서 관리한다. API/Entity/DDL 변경과 해당 명세 갱신은 같은 PR에 포함한다.
+
+문서 작성 규칙 (6명이 같은 5개 파일을 고치므로 읽기와 충돌 해결을 쉽게 한다)
+
+- 표의 한 칸에는 한 가지 사실만 짧게 쓴다. 조건·예외가 여럿이면 표 아래에 한 줄에 하나씩 bullet로 푼다. 한 줄이 길면 한 글자만 바뀌어도 줄 전체가 충돌한다.
+- 줄임말을 이어 붙인 전보식 문장(`A/B/C·D`)을 쓰지 않는다. 주어와 동사가 있는 문장으로 쓴다. 두 가지로 읽히는 문장은 AI가 "합의 필요"로 멈추거나 아무 해석이나 고르게 만든다.
+- 번호(D·B·F·R·#)만으로 참조하지 않는다. 새 번호를 쓰면 architecture 「결정 번호」에 뜻·상태를 한 줄씩 추가한다.
+- `(원본 복원: 출처, 담당 확인 필요)`는 Git 원본에서 복구한 기존 계약의 정확성 검토 표시다. 해당 절의 합의 상태에 따라 사용하고 초안/미합의는 확정하지 않는다. 충돌 시 차이를 알리고 그 부분만 보류한다.
+- 계약 절·행에는 상태를 적는다: `초안`(구현 근거 아님), `합의`(구현 가능), `구현됨`(develop에 머지됨). 현행 구현과 합의 목표가 다르면 둘을 다른 줄에 나눠 적는다.
+- 미합의 항목에는 결정할 내용과 관련 담당을 함께 적는다.
+- root docs에는 두 담당 이상이 지켜야 하는 공통 협의 사항만 둔다. 한 도메인 안의 상세 설계·결정 근거·작업 계획·실험은 담당 문서나 이슈·PR에 둔다. 금지 규칙에는 이유를 한 줄 붙인다. 이유가 없는 금지 규칙은 AI가 단순화하면서 깬다.
 
 ## API 공통
 
@@ -55,11 +72,11 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 | 업무 오류 | 서비스 enum이 ErrorCode 구현, code()=enum 이름. CommonErrorCode의 공통 이름 재정의 금지. 계약의 상태·오류를 임의 통합하지 않음 |
 | 인증 | 외부 Authorization: Bearer JWT. 현재 사용자 `@CurrentUser UserContext`, 역할 `@RequireRole`, 소유권은 application에서 검사. 요청 본문 사용자 ID 신뢰 금지 |
 | 사용자 헤더 | 현행 UserHeaders: X-User-Id, X-Username, X-User-Role. Gateway가 외부 입력을 제거하고 인증 결과로 주입, 내부 Feign 전달. 사용자 컨텍스트와 서비스 인증은 별개 |
-| 감사 주체 | 현행 HeaderAuditorAware는 X-Username, 없거나 요청 밖이면 SYSTEM. 공연 명세의 ID 문자열 정책은 구현과 다름; X-Username을 문서만으로 제거하지 않음 |
-| 시간 | 업무 기준 Asia/Seoul. API 목표 ISO 8601 +09:00. 현행 ErrorResponse·회원·예매 LocalDateTime은 오프셋 없음; 일괄 적용 미완료. Fake PG 시각은 해당 호환 계약 |
-| 페이징 | page는0부터. 공연 PageP(items), 예매·쿠폰 PageC(content)는 api의 현행 계약 유지. 공통 Page DTO·size 통일은 미합의 |
+| 감사 주체 | 현행 HeaderAuditorAware는 X-Username, 없거나 요청 밖이면 SYSTEM. 감사 주체는 API의 숫자 ID 표현과 별개다. 변경은 architecture 14절에서 조율 |
+| 시간 | 업무 기준 Asia/Seoul. API 목표 ISO 8601 +09:00. 현행 ErrorResponse·회원·예매 LocalDateTime은 오프셋 없음; 일괄 적용은 미합의(architecture 14절). Fake PG 시각은 해당 호환 계약 |
+| 페이징 | page는0부터. 공연 PageP(items), 예매·쿠폰 PageC(content)는 api의 현행 계약 유지. 공통 Page DTO·size 통일은 미합의(architecture 14절) |
 | 재시도 | Feign IdempotentRetryConfig는 조회/명시된 멱등 API에만 적용. 응답 유실을 성공/실패로 단정하지 않고 같은 업무 키 조회 |
-| 내부 보호 | Gateway는 /internal 접근 차단. 서비스 포트 외부 비노출. 서비스 간/관리자 인증 방식은 미합의이며 내부망만으로 운영 권한 보장으로 간주하지 않음 |
+| 내부 보호 | Gateway는 /internal 접근 차단. 서비스 포트 외부 비노출. 서비스 간/관리자 인증 방식은 미합의(architecture 14절)이며 내부망만으로 운영 권한 보장으로 간주하지 않음 |
 
 ## 코드·영속성
 
@@ -68,7 +85,7 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 - domain은 application/infrastructure/presentation에 의존하지 않는다. 다른 서비스 스키마 직접 조회 금지. Feign은 infrastructure/client, PG는 별도 어댑터. 모듈 간 Entity/Repository 접근 금지, 합의한 facade 패키지만 사용.
 - 모듈 경계 검사는 `SEAT_USES_BOOKING_ONLY_THROUGH_FACADE`, `BOOKING_USES_SEAT_ONLY_THROUGH_FACADE`를 따른다. `booking.application.facade`, `seat.application.facade`의 요청·응답 타입으로만 교차 의존한다.
 - 업무 Entity는 BaseEntity 상속, 소프트 삭제 대상에 `@SQLRestriction("deleted_at IS NULL")`. Fake PG는 독립 모의 시스템으로 공통 Entity 예외. 금융 기록은 임의 삭제/재계산하지 않는다.
-- Entity 변경 시 `backend/sql/{서비스}/schema.sql`(booking은 booking.sql 포함)과 tables를 같은 PR에서 수정. local은 ddl-auto:create, 나머지 validate. 부분 UNIQUE는 ddl-auto만으로 생성되지 않아 SQL 적용 DB에서 검증한다.
+- Entity 변경 시 DDL과 tables를 같은 PR에서 수정한다. reservation-service는 booking.sql을 사용하고 seat.sql 분리는 #57 리뷰 합의다. 현재 seat.sql은 없으며, 좌석 테스트의 schema.sql→booking.sql→seat.sql 실행은 좌석 구현 때 적용한다. 공유 schema.sql에 모듈 테이블을 임의 추가하지 않는다. 다른 서비스는 backend/sql/{서비스}/schema.sql을 따른다. local은 ddl-auto:create, 나머지 validate이며 부분 UNIQUE는 SQL 적용 DB에서 검증한다.
 - 상태 전이는 Entity 메서드, 조건부 UPDATE/잠금으로 동시성 보호. bulk UPDATE는 감사 컬럼을 직접 갱신한다. 네트워크 호출 중 DB 트랜잭션/잠금 유지 금지.
 - 통합 시험은 `PostgresIntegrationTest`(PostgreSQL16 Testcontainers). H2 사용 금지. common의 LayeredArchitectureRules와 모듈 ArchUnit 규칙을 준수한다.
 - 주석·문서·커밋은 한국어 평서체. 필요한 설명 주석은 `Note: `. 포맷은 손으로 맞추지 않고 Spotless를 사용한다.
