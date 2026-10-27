@@ -1,48 +1,38 @@
-# CouponUsage (결제 → 쿠폰)
+# CouponUsage (예매 → 쿠폰)
 
-- 상태: 합의 (Notion 쿠폰 테이블 명세, 2026-10-26)
-- 제공: 쿠폰 (`payment-service` coupon 모듈, 성윤범)
-- 소비: 결제 (`payment-service` payment 모듈, 강현민)
+- 상태: 초안 (#22 책임 이전). 기존 결제 소비 계약을 대체하는 변경안이며 쿠폰·예매 담당자 검토가 필요하다.
+- 제공: 쿠폰 (`reservation-service` coupon 모듈, 성윤범)
+- 소비: 예매 (`reservation-service` booking 모듈, 지한얼)
 - 쿠폰 테이블과 상태 전이: [coupon/tables.md](../../coupon/tables.md)
 
-같은 서비스 안의 모듈 간 계약이다. 결제 코드는 `p_user_coupons`를 직접 조회·수정하지 않고 이 인터페이스로만 쿠폰을 다룬다. 쿠폰을 별도 서비스로 빼게 되면 이 인터페이스의 구현만 Feign 어댑터로 바꾼다.
+## 책임과 트랜잭션
 
-## 트랜잭션
+쿠폰 예약·사용·반납·복원은 예매가 처리한다. CouponUsage는 예매의 로컬 트랜잭션에 합류한다(`REQUIRED`). 결제 DB와 쿠폰 DB를 한 트랜잭션으로 묶지 않는다. 결제는 쿠폰 테이블·인터페이스에 접근하지 않는다.
 
-`CouponUsage`는 호출한 쪽 트랜잭션에 합류한다(`REQUIRED`). 결제 상태와 쿠폰 상태가 한 트랜잭션에 커밋된다.
+예매는 서버에서 쿠폰을 검증하고 할인액을 확정한 뒤 결제에 `totalPrice`, `discountAmount`를 보낸다. 클라이언트가 보낸 최종 금액을 그대로 신뢰하지 않는다. 최소 결제 금액 100원을 만족하는 할인액을 확정하고, 쿠폰 미사용은 0으로 보낸다.
 
-## 메서드
+## 예매가 처리할 시점
 
-| 메서드 | 결제가 부르는 때 | 쿠폰 상태 변화 |
-|---|---|---|
-| `reserve(userCouponId, userId, paymentId)` | 결제 준비 | AVAILABLE → RESERVED, `payment_id` 기록. 발급 시점 할인액을 돌려준다 |
-| `use(paymentId)` | PG 승인 성공 | RESERVED → USED, `used_at` 기록 |
-| `release(paymentId)` | 결제 FAILED 전이(승인 전 종료), 환불 DONE | RESERVED 또는 USED → 유효 기간이 남으면 AVAILABLE, 지났으면 EXPIRED. `payment_id`·`used_at`을 비운다 |
-
-- `reserve`: 본인 쿠폰이 아니거나 AVAILABLE이 아니면 `COUPON_NOT_AVAILABLE`. 결제는 PG를 부르지 않는다.
-- `use`: 실패하지 않는다. PG 승인이 끝난 뒤에 부르므로, RESERVED이고 `payment_id`가 같으면 그사이 유효 기간이 지났어도 USED로 바꾼다.
-- `release`: 잡힌 쿠폰이 없으면 아무것도 하지 않는다. 여러 번 불려도 안전하다.
-
-## 결제 쪽이 지킬 것
-
-`release` 하나가 승인 전 해제와 환불 복원을 모두 처리하므로, 잘못된 때에 부르는 실수는 쿠폰이 막지 않는다. 결제 코드가 아래만 부른다.
-
-| 결제 전이 | 쿠폰 호출 |
+| 시점 | 쿠폰 책임 |
 |---|---|
-| READY·IN_PROGRESS → FAILED | `release` (RESERVED 해제) |
-| IN_PROGRESS → DONE | `use` |
-| 환불 DONE (사유가 AUTO_VOID가 아닐 때) | `release` (USED 복원) |
-| 환불 DONE (AUTO_VOID) | 부르지 않는다. 그 결제는 FAILED가 될 때 이미 `release`했다 |
-| DONE 결제의 그 밖의 전이 | 부르지 않는다 |
+| 결제 준비 전 | `reserve`: 소유자·유효 기간·사용 가능 상태 확인, 중복 사용 방지, 할인액 확정 |
+| 결제 DONE 확인 | `use`: 예매 상태 변경과 같은 로컬 트랜잭션에서 사용 처리 |
+| 결제 FAILED 확인 또는 준비 시도 종료 | `release`: 예매가 상태를 확인한 뒤 예약 해제 |
+| 준비·승인 응답 유실 | 실패로 단정하지 않고 같은 orderId 조회·재요청으로 결과 확인. 결과 불명인 쿠폰을 임의로 해제하지 않는다 |
+| 취소·환불 | 쿠폰 복원 시점은 예매·쿠폰 담당자가 합의한다. 환불 접수와 완료를 구분한다 |
+| 늦은 승인 AUTO_VOID | 결제가 이미 FAILED였으므로 예매가 처리한 쿠폰 상태를 다시 변경하지 않는다 |
 
-## 쿠폰 쪽이 지킬 것
+## 이전 시 확정할 항목
 
-- RESERVED 쿠폰은 만료 배치·관리 작업이 바꾸지 않는다. RESERVED는 결제가 끝날 때(`use`·`release`)만 풀린다. 이 약속이 깨지면 승인된 결제의 확정이 롤백된다.
-- 할인액은 발급 시점 복사본(`p_user_coupons.discount_amount`)을 쓴다.
+- `reserve`, `use`, `release`의 새 인자와 연결 키를 확정한다. 기존 `paymentId` 기반 계약을 그대로 옮기면 PG 준비 전에 쿠폰을 잡기 어렵다. 예매 ID·orderId 중 사용할 키와 준비 재시도 세대 구분이 필요하다.
+- 같은 요청 재실행, 중복 폴링, 서로 다른 시도의 늦은 응답에도 쿠폰 상태 변경은 멱등해야 한다.
+- RESERVED는 만료 배치가 임의로 해제하지 않는다. 해제 판단과 복구 책임은 예매·쿠폰 계약에 명시한다.
+- 결제 결과 반영 실패와 취소 중 응답 유실을 재시도할 복구 경로를 예매가 가진다.
+- 실제 쿠폰 모듈·테이블·소비자 이전과 예매 호출 구현은 각 담당 이슈 범위다.
 
 ## 변경 이력
 
 | 날짜 | 이슈·PR | 내용 |
 |---|---|---|
-| 2026-10-26 | #3 | 초안. payment/plan.md 9절에서 옮김 (메서드 4개) |
-| 2026-10-26 | #3 | 쿠폰 명세에 맞춰 메서드 3개(`reserve`·`use`·`release`)로 합의 |
+| 2026-10-26 | #3 | 결제 소비 계약으로 reserve·use·release 3개를 합의했다 |
+| 2026-10-27 | #22 | 소비자를 booking으로 옮기고 트랜잭션·복구 책임을 정리했다. 새 연결 키·메서드 인자·복원 시점은 담당자 검토 대기다 |

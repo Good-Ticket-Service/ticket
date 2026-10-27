@@ -17,7 +17,25 @@ public final class PaymentFixture {
     }
 
     public static PaymentOrder order(String orderId, long reservationId, LocalDateTime expiresAt) {
+        return order(orderId, reservationId, 50_000, 5_000, expiresAt);
+    }
+
+    public static PaymentOrder order(String orderId, long reservationId, int totalPrice, int discountAmount) {
+        return order(orderId, reservationId, totalPrice, discountAmount, NOW.plusMinutes(10));
+    }
+
+    private static PaymentOrder order(
+            String orderId, long reservationId, int totalPrice, int discountAmount, LocalDateTime expiresAt) {
         return new PaymentOrder(
-                orderId, reservationId, USER_ID, SELLER_ID, 10L, 20L, PgProvider.TOSS, 50_000, 7L, expiresAt);
+                orderId,
+                reservationId,
+                USER_ID,
+                SELLER_ID,
+                10L,
+                20L,
+                PgProvider.TOSS,
+                totalPrice,
+                discountAmount,
+                expiresAt);
     }
 }

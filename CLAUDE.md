@@ -45,7 +45,7 @@
 | 예매 | `reservation-service` booking | `docs/reservation/` | 지한얼 |
 | 대기열 | `reservation-service` queue | `docs/queue/` | 김태현 |
 | 결제 | `payment-service` payment, `fake-pg` | `docs/payment/` | 강현민 |
-| 쿠폰 | `payment-service` coupon | `docs/coupon/` | 성윤범 |
+| 쿠폰 | `reservation-service` coupon | `docs/coupon/` | 성윤범 |
 
 - 서비스·모듈 간 계약: `docs/shared/` (계약 변경 흐름은 `docs/shared/README.md`)
 - 전체 그림: 서비스 책임·통신·예매 흐름은 `docs/project/architecture.md`, 서버 배치·포트·배포는 `docs/project/infra.md`. 계약·도메인 문서와 다르면 계약·도메인 문서가 기준이다

@@ -29,7 +29,6 @@ erDiagram
         int total_price "정가"
         int discount_amount
         int amount "결제 금액"
-        bigint user_coupon_id "논리 참조"
         varchar status "READY, IN_PROGRESS, DONE, FAILED, CANCELED"
         varchar failure_code "내부 표준 코드"
         varchar failure_message
@@ -81,7 +80,6 @@ erDiagram
 
 - 실선은 DB FK가 있는 관계다(`refunds.payment_id`).
 - `reservation_id`, `user_id`, `seller_id`, `performance_id`, `schedule_id`는 다른 서비스의 ID라 FK 없이 값만 둔다.
-- `user_coupon_id`가 가리키는 쿠폰 테이블(`user_coupon`)은 쿠폰 담당(6번)이 설계·구현한다. 결제는 [CouponUsage 계약](../shared/modules/coupon-usage.md)으로만 쿠폰을 다룬다.
 
 ### fake PG (`fake_pg_schema`, 테스트용 PG 서버)
 
@@ -131,7 +129,7 @@ erDiagram
 payments, refunds는 결제 서비스가 소유한다.
 결제 준비·승인·환불 상태는 결제 서비스의 로컬 트랜잭션으로 바꾸고, PG 호출은 트랜잭션 밖에서 한다.
 예매·회원·공연 데이터는 외부 ID로 참조하며 서비스 간 물리 FK를 만들지 않는다.
-쿠폰 테이블은 쿠폰 담당이 소유하며, 결제는 CouponUsage 계약으로만 쿠폰을 다룬다.
+쿠폰은 reservation-service가 소유하며 결제는 쿠폰을 조회·변경하지 않는다.
 
 - 결제 서비스는 PostgreSQL 16 기준으로 구현했다.
 식별자는 BIGINT IDENTITY, 시각은 KST TIMESTAMP다.
@@ -175,9 +173,8 @@ payments, refunds는 결제 서비스가 소유한다.
 | checkout_url | 결제창 주소 | VARCHAR(500) | NULL | 카카오 결제창 URL. 같은 주문 번호의 준비 재요청에 그대로 돌려준다. 토스는 NULL. |
 | expires_at | 결제 허용 시각 | TIMESTAMP | NOT NULL | 예매의 좌석 선점 만료 시각. 이 뒤에는 PG 승인을 부르지 않는다. |
 | total_price | 정가(원) | INT | NOT NULL | 할인 전 금액. |
-| discount_amount | 할인 금액(원) | INT | NOT NULL, DEFAULT 0, 0 이상 | 쿠폰 할인액. 결제 금액이 최소 결제 금액(100원) 아래로 내려가지 않게 자른 값. |
-| amount | 결제 금액(원) | INT | NOT NULL, 0 초과, total_price - discount_amount와 같음 | PG에 승인 요청하는 금액. 승인 요청 금액과 대조한다. |
-| user_coupon_id | 사용 쿠폰 식별자 | BIGINT | NULL, 외부 참조 ID | 쿠폰 담당 테이블의 쿠폰 ID. 소유가 달라 FK 없음. |
+| discount_amount | 할인 금액(원) | INT | NOT NULL, DEFAULT 0, 0 이상 | 예매가 확정해 보낸 할인액. 결제는 값을 보정하지 않는다. |
+| amount | 결제 금액(원) | INT | NOT NULL, 100 이상, total_price - discount_amount와 같음 | PG에 승인 요청하는 금액. 승인 요청 금액과 대조한다. |
 | status | 결제 상태 | VARCHAR(20) | NOT NULL, DEFAULT READY | READY / IN_PROGRESS / DONE / FAILED / CANCELED. |
 | failure_code | 실패 코드 | VARCHAR(80) | NULL | 내부 표준 코드. 예: PG_REJECTED, EXPIRED. 응답의 failureType과 대응한다. |
 | failure_message | 실패 메시지 | VARCHAR(255) | NULL | 실패 설명. |
@@ -198,7 +195,7 @@ UK(order_id): 같은 주문 번호 중복 결제 방지.
 UK(pg_provider, pg_transaction_id): 인증값 재사용·조작 차단.
 부분 UK(reservation_id) WHERE status IN (READY, IN_PROGRESS, DONE): 한 예매에 살아 있는 결제는 하나.
 새 준비는 같은 트랜잭션에서 이전 READY를 FAILED로 바꾼 뒤 넣는다.
-CHECK(discount_amount >= 0 AND amount = total_price - discount_amount AND amount > 0).
+CHECK(discount_amount >= 0 AND amount::BIGINT = total_price::BIGINT - discount_amount::BIGINT AND amount >= 100).
 INDEX(expires_at) WHERE status = READY: 만료된 준비 정리.
 INDEX(next_attempt_at) WHERE status = IN_PROGRESS: 결과 불명 복구. 결제는 차단하지 않고 승인 호출 1분 뒤 FAILED(PG_UNRESOLVED)로 끝낸다.
 INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL: 최소 대사.
@@ -210,7 +207,7 @@ INDEX(next_reconcile_at) WHERE status = FAILED AND next_reconcile_at IS NOT NULL
 | READY | 카카오만 값 있음 | NULL | 결제 준비 완료. 승인 요청 대기. |
 | IN_PROGRESS | 필수 | NULL | PG 승인을 불렀고 결과를 아직 모름. 복구 잡이 조회로 확정하고, 1분 안에 모르면 FAILED(PG_UNRESOLVED). |
 | DONE | 필수 | 필수 | PG 승인 완료. |
-| FAILED | NULL 허용 | NULL | 이 결제 시도를 끝냄. 쿠폰 점유를 해제한다. PG_UNRESOLVED에 늦은 승인이 발견되면 AUTO_VOID 환불이 붙는다. |
+| FAILED | NULL 허용 | NULL | 이 결제 시도를 끝냄. 쿠폰 점유 해제는 예매가 처리한다. PG_UNRESOLVED에 늦은 승인이 발견되면 AUTO_VOID 환불이 붙는다. |
 | CANCELED | 필수 | 필수 | 전액 환불 완료. |
 
 **실패 코드와 응답의 failureType**

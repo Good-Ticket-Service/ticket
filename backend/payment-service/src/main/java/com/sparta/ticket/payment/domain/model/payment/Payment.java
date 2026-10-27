@@ -18,7 +18,6 @@ import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -80,8 +79,6 @@ public class Payment extends BaseEntity {
     @Column(nullable = false)
     private int amount;
 
-    private Long userCouponId;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PaymentStatus status;
@@ -105,7 +102,7 @@ public class Payment extends BaseEntity {
     @Embedded
     private Recovery recovery = Recovery.none();
 
-    private Payment(PaymentOrder order, int discountAmount) {
+    private Payment(PaymentOrder order) {
         this.orderId = order.orderId();
         this.reservationId = order.reservationId();
         this.userId = order.userId();
@@ -114,19 +111,18 @@ public class Payment extends BaseEntity {
         this.scheduleId = order.scheduleId();
         this.pgProvider = order.pgProvider();
         this.totalPrice = order.totalPrice();
-        this.userCouponId = order.userCouponId();
         this.expiresAt = toDbPrecision(order.expiresAt());
-        this.discountAmount = discountAmount;
-        this.amount = order.totalPrice() - discountAmount;
+        this.discountAmount = order.discountAmount();
+        this.amount = order.totalPrice() - order.discountAmount();
         this.status = PaymentStatus.READY;
     }
 
-    /** 준비. 할인액은 쿠폰을 잡은 결과이고, 할인 후 금액은 0보다 커야 한다. */
-    public static Payment ready(PaymentOrder order, int discountAmount) {
-        if (discountAmount < 0 || order.totalPrice() - discountAmount <= 0) {
+    /** 준비. 예매가 확정한 할인액을 저장하고, 할인 후 금액이 최소 결제 금액(100원) 이상인지 검증한다. */
+    public static Payment ready(PaymentOrder order) {
+        if (order.discountAmount() < 0 || (long) order.totalPrice() - order.discountAmount() < 100) {
             throw new BusinessException(PaymentErrorCode.INVALID_PAYMENT_AMOUNT);
         }
-        return new Payment(order, discountAmount);
+        return new Payment(order);
     }
 
     /** 같은 orderId로 다시 온 준비 요청이 처음과 같은 내용인지 본다. 다르면 호출한 쪽이 409로 응답한다. */
@@ -139,7 +135,7 @@ public class Payment extends BaseEntity {
                 && scheduleId.equals(order.scheduleId())
                 && pgProvider == order.pgProvider()
                 && totalPrice == order.totalPrice()
-                && Objects.equals(userCouponId, order.userCouponId())
+                && discountAmount == order.discountAmount()
                 && expiresAt.equals(toDbPrecision(order.expiresAt()));
     }
 
@@ -211,7 +207,7 @@ public class Payment extends BaseEntity {
         this.recovery.finish();
     }
 
-    /** READY·IN_PROGRESS에서만 실패로 확정한다. 쿠폰 반납은 같은 트랜잭션에서 호출한 쪽이 한다. */
+    /** READY·IN_PROGRESS에서만 실패로 확정한다. 쿠폰 상태는 예매가 결제 결과를 확인해 별도 로컬 트랜잭션에서 처리한다. */
     public void fail(PaymentFailureCode code, String message) {
         fail(code.name(), message);
     }

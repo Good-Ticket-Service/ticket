@@ -51,7 +51,7 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
     }
 
     private Payment saveReady(long reservationId) {
-        return paymentRepository.saveAndFlush(Payment.ready(order(newOrderId(), reservationId), 5_000));
+        return paymentRepository.saveAndFlush(Payment.ready(order(newOrderId(), reservationId)));
     }
 
     @Test
@@ -59,11 +59,25 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
     void reloadedPaymentMatchesSameOrder() {
         PaymentOrder order =
                 order(newOrderId(), newReservationId(), NOW.plusMinutes(10).plusNanos(123_456_789));
-        paymentRepository.saveAndFlush(Payment.ready(order, 0));
+        paymentRepository.saveAndFlush(Payment.ready(order));
 
         Payment reloaded = paymentRepository.findByOrderId(order.orderId()).orElseThrow();
 
         assertThat(reloaded.matches(order)).isTrue();
+        assertThat(reloaded.getDiscountAmount()).isEqualTo(order.discountAmount());
+        assertThat(reloaded.getAmount()).isEqualTo(order.totalPrice() - order.discountAmount());
+        PaymentOrder changedDiscount = new PaymentOrder(
+                order.orderId(),
+                order.reservationId(),
+                order.userId(),
+                order.sellerId(),
+                order.performanceId(),
+                order.scheduleId(),
+                order.pgProvider(),
+                order.totalPrice(),
+                order.discountAmount() + 1,
+                order.expiresAt());
+        assertThat(reloaded.matches(changedDiscount)).isFalse();
     }
 
     @Test
@@ -92,9 +106,9 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
     @DisplayName("같은 주문번호로 결제를 두 번 만들 수 없다")
     void uniqueOrderId() {
         String orderId = newOrderId();
-        paymentRepository.saveAndFlush(Payment.ready(order(orderId, newReservationId()), 0));
+        paymentRepository.saveAndFlush(Payment.ready(order(orderId, newReservationId())));
 
-        assertThatThrownBy(() -> paymentRepository.saveAndFlush(Payment.ready(order(orderId, newReservationId()), 0)))
+        assertThatThrownBy(() -> paymentRepository.saveAndFlush(Payment.ready(order(orderId, newReservationId()))))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -124,12 +138,20 @@ class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("금액이 0이거나 정가 - 할인과 다르면 DB가 거절한다")
+    @DisplayName("금액이 100원 미만이거나 정가 - 할인과 다르면 DB가 거절한다")
     void amountCheck() {
+        assertThatThrownBy(() -> insertPaymentRow(1_000, 901, 99)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertPaymentRow(1_000, 1_000, 0)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertPaymentRow(1_000, 100, 800)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertPaymentRow(1_000, -1, 1_001))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("DB도 최소 결제 금액 100원과 쿠폰 미사용을 허용한다")
+    void acceptsMinimumAmount() {
+        insertPaymentRow(1_000, 900, 100);
+        insertPaymentRow(100, 0, 100);
     }
 
     @Test

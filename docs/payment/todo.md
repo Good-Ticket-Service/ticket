@@ -12,12 +12,12 @@
 
 ### Task 1: API 계약 합의
 **참조:** plan.md 4절, 8절, 9절, 10절 질문 3·4, #9 orchestration.md
-**할 일:** #9 예매 설계와 이 문서를 대조해 예매(2번)·쿠폰(6번)·공연(5번)과 계약을 확정하고 `docs/payment/contract.md`에 쓴다. 준비·승인 두 단계 흐름, 내부 API 4개와 관리자 API, `status`·`failureType` 의미, 오류 코드, `expiresAt` 값, 결과를 모를 때 예매의 동작, 환불 책임, plan.md 9절 "예매 쪽에 제안하는 보완" 6개, `CouponUsage` 계약이 대상이다.
+**할 일:** #9 예매 설계와 이 문서를 대조해 예매(2번)·쿠폰(6번)·공연(5번)과 계약을 확정하고 `docs/payment/contract.md`에 쓴다. 준비·승인 두 단계 흐름, 내부 API 4개와 관리자 API, `status`·`failureType` 의미, 오류 코드, `expiresAt` 값, 결과를 모를 때 예매의 동작, 환불 책임, plan.md 9절 "예매 쪽에 제안하는 보완" 6개, 할인액 전달과 예매의 쿠폰 처리 책임이 대상이다.
 **완료 조건:**
 - [ ] contract.md에 내부 API의 요청·응답·오류 코드와 `expiresAt` 결정이 있고, #9와 다른 항목이 모두 정리됐다
 - [ ] contract.md에 조회 결과(DONE / FAILED / IN_PROGRESS / READY / 404)별 예매 동작, 예매의 인증값 저장·재전송, orderId 단위 환불과 B안(예매는 기다리지 않음)이 있다
 - [ ] contract.md에 "예매 쪽에 제안하는 보완"의 결론이 있다. 특히 `CANCELING`(환불 후 예매 DB 실패 대비, 결정됨), orderId를 먼저 기록하는 순서, read timeout 20초
-- [ ] contract.md에 `CouponUsage`의 세 메서드(`reserve`·`use`·`release`) 동작과 실패 규칙, 트랜잭션 전파, 환불 시 쿠폰 복원 정책과 할인액의 정산 반영이 있다
+- [ ] 계약에 totalPrice·discountAmount 전달, 최소 100원 검증, 할인액 멱등 비교와 예매의 쿠폰 책임이 있다
 - [ ] 2번·6번 담당자가 승인했다
 **의존:** 없음 · **규모:** S
 
@@ -70,12 +70,12 @@
 **의존:** 3, 5 · **규모:** M
 
 ### Task 7: 결제 준비
-**참조:** plan.md 4절 결제 ①, 6절 멱등 재현·쿠폰 접근, 7절 payment
-**할 일:** `POST /internal/payments`, `GET /internal/payments/{orderId}`, `PaymentService.checkout`, `PaymentTransactions.prepare`를 만들고 `CouponUsage.reserve`·`release`를 부른다. 쿠폰 담당 구현이 오기 전에는 Task 1 계약대로 만든 테스트용 `CouponUsage` 대역으로 개발한다.
+**참조:** plan.md 4절 결제 ①, 6절 멱등 재현·쿠폰 책임, 7절 payment
+**할 일:** `POST /internal/payments`, `GET /internal/payments/{orderId}`, `PaymentService.checkout`, `PaymentTransactions.prepare`를 만든다. 예매가 확정한 할인액을 검증·저장하고 쿠폰을 직접 호출하지 않는다.
 **완료 조건:**
 - [ ] 같은 orderId 재요청은 PG 준비를 다시 부르지 않고 같은 응답(카카오 결제창 URL 포함)을, 다른 내용은 409를 돌려준다
-- [ ] 새 준비가 이전 READY를 FAILED(`SUPERSEDED`)로 바꾸고 같은 쿠폰을 다시 잡는다. 같은 예매에 IN_PROGRESS·DONE 결제가 있으면 409 `PAYMENT_ALREADY_IN_PROGRESS`·`PAYMENT_ALREADY_DONE`이다
-- [ ] 카카오 준비가 거절·불명이면 FAILED(`READY_FAILED`) + 쿠폰 AVAILABLE이고, tid 없이 남은 READY는 같은 orderId 재준비 때 준비를 다시 부른다. 할인 후 금액은 `min-amount` 이상이다
+- [ ] 새 준비가 이전 READY를 FAILED(`SUPERSEDED`)로 바꾼다. 쿠폰 예약·정리는 예매 책임이다. 같은 예매에 IN_PROGRESS·DONE 결제가 있으면 409 `PAYMENT_ALREADY_IN_PROGRESS`·`PAYMENT_ALREADY_DONE`이다
+- [ ] 카카오 준비가 거절·불명이면 FAILED(`READY_FAILED`)이고, tid 없이 남은 READY는 같은 orderId 재준비 때 준비를 다시 부른다. 할인 후 금액은 `min-amount` 이상이다
 **검증:** `PgClient` 포트 픽스처를 쓰는 통합 테스트
 **의존:** 2, 3 · **규모:** M
 
@@ -85,7 +85,7 @@
 **완료 조건:**
 - [ ] 금액 불일치는 400, 만료는 FAILED(`EXPIRED`), 재사용된 paymentKey는 FAILED(`INVALID_AUTH_TOKEN`)이고 셋 모두 PG 승인을 부르지 않는다
 - [ ] 같은 orderId로 승인 요청 50개를 동시에 보내도 PG 승인은 한 번만 불린다
-- [ ] Approved → DONE + 쿠폰 USED, Rejected·금액 불일치 → FAILED + 쿠폰 AVAILABLE(금액 불일치는 승인 금액으로 AUTO_VOID), Unknown → IN_PROGRESS, FAILED 결제에 Approved → FAILED 유지 + AUTO_VOID. 이미 IN_PROGRESS인 결제는 중복 승인 요청이 FAILED로 바꾸지 못한다
+- [ ] Approved → DONE, Rejected·금액 불일치 → FAILED(금액 불일치는 승인 금액으로 AUTO_VOID), Unknown → IN_PROGRESS, FAILED 결제에 Approved → FAILED 유지 + AUTO_VOID. 이미 IN_PROGRESS인 결제는 중복 승인 요청이 FAILED로 바꾸지 못한다
 **검증:** `PgClient` 포트 픽스처를 쓰는 통합 테스트
 **의존:** 7 · **규모:** M
 
@@ -94,7 +94,7 @@
 **할 일:** `PaymentRecoveryJob`, 점유(결제는 10초 간격, 백오프 없음), 조회 기반 확정(Approved·Canceled·NotFound·Unknown), NotFound 유예(1분), 결과 확정 시한(1분) 뒤 FAILED(`PG_UNRESOLVED`)를 만든다. 결제 차단과 관리자 확정 API는 두지 않는다.
 **완료 조건:**
 - [ ] 승인 후 응답이 유실된 결제는 DONE이 되고, 만료된 READY는 PG 호출 없이 FAILED(`EXPIRED`)가 된다. NotFound는 유예 시간 안에는 확정하지 않고 지나면 FAILED(`NOT_APPROVED`)다
-- [ ] 조회가 계속 Unknown이면 승인 호출 후 1분 직전에는 확정하지 않고, 1분부터 FAILED(`PG_UNRESOLVED`) + 쿠폰 AVAILABLE이 되며 WAITING 환불은 SKIPPED다
+- [ ] 조회가 계속 Unknown이면 승인 호출 후 1분 직전에는 확정하지 않고, 1분부터 FAILED(`PG_UNRESOLVED`)이 되며 WAITING 환불은 SKIPPED다
 - [ ] 두 인스턴스에서 동시에 돌려도 같은 결제를 같은 주기에 두 번 처리하지 않고, 점유하는 동안 DB 트랜잭션을 열어 두지 않는다
 - [ ] 후보 하나의 예외가 다음 후보를 막지 않는다
 **검증:** `payment.recovery.enabled=false`로 두고 잡을 직접 호출하는 통합 테스트
@@ -104,7 +104,7 @@
 **참조:** plan.md 5절 8번
 **할 일:** `PaymentReconcileJob`과 `reconcile_count`·`next_reconcile_at` 컬럼을 만든다(#12의 `reconciled_at`을 바꾼다). 복구 잡과 같은 방식으로 점유하고, PG 승인을 호출했던 FAILED 결제(`PG_UNRESOLVED` 포함)를 확정 11분·24시간 뒤에 조회해 승인돼 있으면 `ensureRefund`를 부른다.
 **완료 조건:**
-- [ ] fake-pg "승인 처리 지연"으로 유예나 결과 확정 시한 뒤 승인된 결제가 대사 실행 후 AUTO_VOID로 취소되고, 쿠폰은 다시 바뀌지 않으며, 각 결제는 시점마다 한 번만 조회된다
+- [ ] fake-pg "승인 처리 지연"으로 유예나 결과 확정 시한 뒤 승인된 결제가 대사 실행 후 AUTO_VOID로 취소되고, 결제는 쿠폰 상태를 변경하지 않으며, 각 결제는 시점마다 한 번만 조회된다
 - [ ] 늦은 승인을 요청 경로·복구 조회·대사가 겹쳐 발견해도 환불은 한 건이다
 - [ ] PG 승인을 호출하지 않은 FAILED는 조회하지 않고, 조회가 Unknown이면 시점을 넘기지 않아 다음 주기에 다시 본다
 **의존:** 9 · **규모:** S
@@ -117,9 +117,9 @@
 **참조:** plan.md 4절 환불, 5절
 **할 일:** `POST /internal/payments/{orderId}/refund`(payment 잠금 후 상태별 처리), `RefundService`, `RefundTransactions`, `RefundRecoveryJob`(`give-up-minutes` 뒤 차단), 관리자 `refund/retry`·`refund/unblock` API를 만든다. 잠금 순서는 항상 payment → refund다.
 **완료 조건:**
-- [ ] READY는 FAILED(`ABANDONED`) + 쿠폰 AVAILABLE + 환불 행 없이 NOT_REQUIRED, FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 세 사유(USER_CANCEL·SCHEDULE_CANCELED·CONFIRM_FAILED) 모두 결제 금액 전액이다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
+- [ ] READY는 FAILED(`ABANDONED`) + 환불 행 없이 NOT_REQUIRED, FAILED는 NOT_REQUIRED, IN_PROGRESS는 WAITING 후 결제 확정에 따라 REQUESTED·SKIPPED, DONE은 REQUESTED다. 세 사유(USER_CANCEL·SCHEDULE_CANCELED·CONFIRM_FAILED) 모두 결제 금액 전액이다. 환불 요청과 결제 complete가 동시에 와도 WAITING이 DONE 결제 위에 남지 않고, AUTO_VOID와 사용자 환불이 겹쳐도 행은 하나다
 - [ ] 일시 장애·응답 유실은 REQUESTED로 남아 복구가 같은 키로 다시 보내고, fake-pg 거래는 한 번만 취소된다
-- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 시간 초과는 REQUESTED + 차단이고 `refund/unblock`으로 다시 처리된다. 환불 DONE은 `release`를 부르고 AUTO_VOID는 쿠폰을 건드리지 않는다
+- [ ] 업무 거절은 FAILED + 차단이고, `refund/retry`는 새 키 세대로 다시 보낸다 (fake-pg가 같은 키의 거절을 재현해도 성공할 수 있다). 시간 초과는 REQUESTED + 차단이고 `refund/unblock`으로 다시 처리된다. 환불 결과에 따른 쿠폰 복원은 예매 책임이며 결제는 CouponUsage를 호출하지 않는다
 **의존:** 9 · **규모:** M
 
 ### Task 11: 메트릭과 대시보드
@@ -157,7 +157,7 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 ### Task 14: 장애 격리 (시나리오 1a, 단독)
 **완료 조건:**
 - [ ] 타임아웃 → 벌크헤드 → 서킷 브레이커 단계별 결과가 같은 조건으로 기록됐다
-- [ ] 서킷이 열리면 markInProgress 안에서(잠금과 READY 확인 뒤) FAILED(`PG_UNAVAILABLE`) + 쿠폰 release로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
+- [ ] 서킷이 열리면 markInProgress 안에서(잠금과 READY 확인 뒤) FAILED(`PG_UNAVAILABLE`)로 빠르게 끝나고 PG를 부르지 않는다 (plan.md 4절 8)
 **의존:** 13 · **규모:** M
 
 ### Task 15: Kafka 부하 평탄화 (시나리오 2, 단독)
@@ -202,3 +202,12 @@ Task 14·15·17·18은 단독 환경에서 하므로 예매 서비스 일정과 
 | 19 전체 대사 | 최소 대사(9-1)를 넘어 payment·refund 전체 기록과 `pg_transaction`의 불일치를 찾아 보고한다 | 12 |
 | 20 정산 | 판매자별 일 정산, 재실행 시 같은 결과, 100만 건 배치 시간 측정 | 19, 열린 질문 1·2 |
 | 21 샌드박스 실연동 | 토스·카카오 샌드박스로 결제·취소 1건씩 성공 | 6 |
+
+## #22 결제의 쿠폰 의존 제거
+
+- [x] PaymentOrder에 할인액을 고정하고 matches에서 비교한다.
+- [x] 음수 할인·100원 미만 금액을 거절하고 100원 경계를 테스트한다.
+- [x] userCouponId·DDL user_coupon_id를 제거하고 정가·할인액·최종 금액만 남긴다.
+- [x] 아키텍처 테스트의 쿠폰 패키지 예외를 제거한다.
+- [ ] 계약 변경과 예매·쿠폰 책임 이전을 담당자가 검토한다.
+- [x] 결제 테스트·스키마 통합 테스트·전체 빌드를 검증한다.
