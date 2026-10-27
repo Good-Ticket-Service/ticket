@@ -133,7 +133,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                 TestSeats.priced(TestIds.next()),
                 clock.now().plusMinutes(10)));
 
-        // seat는 선점 트랜잭션 안에서 이 예외를 잡아 409로 바꾼다. 커밋 때가 아니라 호출 안에서 나야 잡을 수 있다
+        // 커밋 때가 아니라 호출 안에서 나야 seat가 좌석을 바꾸기 전에 실패한다. 409 변환은 seat가 트랜잭션 밖에서 한다
         transactionTemplate.executeWithoutResult(status -> {
             assertThatThrownBy(() -> bookingFacade.hold(
                             userId,

@@ -6,7 +6,9 @@ import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -198,6 +200,36 @@ public interface ReservationJpaRepository
              ORDER BY r.holdExpiresAt
             """)
     List<Long> selectExpiredHoldIds(@Param("now") LocalDateTime now, Pageable pageable);
+
+    /**
+     * 상태 목록은 booking.sql의 부분 UNIQUE uk_p_reservations_active_user_schedule과 같다. 리터럴로 써야 그 부분 인덱스를 탄다.
+     * CANCELING은 취소를 구현해 enum에 더할 때 여기에도 더한다.
+     */
+    @Override
+    @Query("""
+            SELECT COUNT(t) FROM Ticket t JOIN t.reservation r
+             WHERE r.userId = :userId AND r.scheduleId = :scheduleId
+               AND r.status IN (com.sparta.ticket.reservation.booking.domain.ReservationStatus.HOLD,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.CONFIRMED)
+            """)
+    long countActiveTickets(@Param("userId") Long userId, @Param("scheduleId") Long scheduleId);
+
+    @Override
+    @Query("""
+            SELECT r FROM Reservation r
+             WHERE r.userId = :userId AND r.scheduleId = :scheduleId
+               AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.HOLD
+            """)
+    Optional<Reservation> findHold(@Param("userId") Long userId, @Param("scheduleId") Long scheduleId);
+
+    @Override
+    @Query("""
+            SELECT r.id FROM Reservation r
+             WHERE r.id IN :ids
+               AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+            """)
+    List<Long> findPaymentInProgressIds(@Param("ids") Collection<Long> ids);
 
     /** 확인한 적 없는 예약을 먼저, 그다음 오래전에 확인한 예약을 고른다. 결과가 안 바뀌는 예약이 앞자리를 막지 않는다. */
     @Query("""

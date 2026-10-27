@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.booking.domain;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,6 +45,15 @@ public interface ReservationRepository {
 
     /** HOLD → RELEASED. 본인 예약이고 선점 시간이 남았을 때만 바꾼다. */
     int releaseHold(Long id, Long userId, ChangeStamp stamp);
+
+    /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정) 예약이 가진 티켓 수. */
+    long countActiveTickets(Long userId, Long scheduleId);
+
+    /** 이 회원·회차의 HOLD 예약. 진행 중인 예약은 부분 UNIQUE로 하나뿐이므로 많아야 하나다. 만료 여부는 보지 않는다. */
+    Optional<Reservation> findHold(Long userId, Long scheduleId);
+
+    /** 넘긴 id 중 결제 중인 예약의 id. 빈 목록을 넘기지 않는다. */
+    List<Long> findPaymentInProgressIds(Collection<Long> ids);
 
     /** 결과 확인 스케줄러가 확인한 시각을 남긴다. 상태와 감사 컬럼은 바꾸지 않는다. */
     int markPaymentChecked(Long id, LocalDateTime checkedAt);
