@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.coupon.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -343,6 +344,70 @@ class CouponApiIntegrationTest extends PostgresIntegrationTest {
         private Map<String, Object> periodRow(Long couponId) {
             return jdbcTemplate.queryForMap(
                     "SELECT issue_start_at, issue_end_at FROM p_coupons WHERE coupon_id = ?", couponId);
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE /api/coupons/{couponId} 쿠폰 삭제")
+    class Delete {
+
+        private ResultActions delete(Long couponId, Role role) throws Exception {
+            return mockMvc.perform(as(MockMvcRequestBuilders.delete("/api/coupons/{couponId}", couponId), role));
+        }
+
+        @Test
+        @DisplayName("아무도 받지 않은 쿠폰은 204로 논리 삭제되고, 삭제자는 요청한 관리자다")
+        void deleteNotIssued() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+
+            delete(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isNoContent())
+                    .andExpect(content().string(""));
+
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT deleted_at, deleted_by FROM p_coupons WHERE coupon_id = ?", coupon.getId());
+            assertThat(row.get("deleted_at")).isNotNull();
+            assertThat(row.get("deleted_by")).isEqualTo(MASTER_EMAIL);
+            assertThat(couponRepository.findById(coupon.getId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("한 장이라도 발급된 쿠폰은 409 COUPON_NOT_DELETABLE이고 삭제되지 않는다")
+        void issuedCannotBeDeleted() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            setIssuedQuantity(coupon.getId(), 1);
+
+            delete(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_DELETABLE"));
+
+            assertThat(couponRepository.findById(coupon.getId())).isPresent();
+        }
+
+        @Test
+        @DisplayName("없거나 이미 삭제된 쿠폰이면 404 COUPON_NOT_FOUND")
+        void notFound() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            delete(coupon.getId(), Role.MASTER).andExpect(status().isNoContent());
+
+            delete(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+            delete(Long.MAX_VALUE, Role.MASTER)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("MASTER가 아니면 403 FORBIDDEN이고 삭제되지 않는다")
+        void notMaster() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+
+            delete(coupon.getId(), Role.USER)
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+            assertThat(couponRepository.findById(coupon.getId())).isPresent();
         }
     }
 
