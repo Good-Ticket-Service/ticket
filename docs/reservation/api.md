@@ -104,13 +104,13 @@
 - 필수 헤더: Authorization, `Content-Type: application/json`
 - 성공 HTTP: 200
 
-결제 시도마다 새 orderId를 발급하고 payment에 결제 준비를 요청한다. 금액은 서버가 정한다. 예매는 HOLD 그대로다. payment·좌석 연동 전이라 지금은 503이다.
+결제 시도마다 새 orderId를 발급하고 payment에 결제 준비를 요청한다. 금액은 서버가 정한다. 쿠폰을 고르면 예매에 쿠폰을 잡고 할인액을 계산한다. 쿠폰을 쓸 수 없으면 400 `COUPON_NOT_AVAILABLE`이다 (제안). 예매는 HOLD 그대로다. payment·좌석 연동 전이라 지금은 503이다.
 
 요청: Path `reservationId: integer`
 
 | 필드 | 타입 |
 |---|---|
-| couponId | integer 또는 null |
+| userCouponId | integer 또는 null. 내 쿠폰 목록의 userCouponId (제안: couponId에서 이름을 바꾼다) |
 | pgProvider | string 또는 null |
 
 응답 `CheckoutResponse`
@@ -189,6 +189,6 @@
 | 상태 이름 | `CANCELLED`, `RELEASED` 없음. ERD 명세서는 `CANCELED`, `RELEASED`, 공연 공통 계약 5.12 선점 응답은 `HELD` | T3 |
 | 선점 만료 에러 | 409 HOLD_EXPIRED. 공연 공통 계약 5.12는 410 | 팀 전체 |
 | 결제 승인 응답 | 실패·지연도 200과 예매 상태로 답한다 | T5 |
-| 결제 준비·승인 요청 필드 | `couponId`, `pgProvider`, `orderId`, `pgAuthToken` | P1 |
+| 결제 준비·승인 요청 필드 | `userCouponId`(제안), `pgProvider`, `orderId`, `pgAuthToken` | P1, 쿠폰 모듈 이동 이슈 |
 | 응답 형식 | `/api/v1`, `data` 래퍼, 숫자로 보내는 BIGINT ID, 오프셋 없는 시각. 공연 공통 계약은 `/api`, 래퍼 없음, 문자열 BIGINT, `+09:00`, `traceId` 오류 형식 | 팀 전체 |
 | 공연 정보 표시 | 목록에 공연 제목·회차 시각·좌석 위치를 넣으려면 공연 서비스 조회나 선점 때 스냅샷이 필요하다 | 공연 담당 |

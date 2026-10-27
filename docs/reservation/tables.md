@@ -18,6 +18,8 @@ erDiagram
         varchar status "HOLD, PAYMENT_IN_PROGRESS, CONFIRMED, EXPIRED, CANCELLED"
         timestamp hold_expires_at
         varchar order_id UK "마지막 결제 준비"
+        bigint user_coupon_id "잡은 쿠폰 (제안)"
+        bigint discount_amount "(제안)"
         bigint payment_amount
         varchar pg_auth_token
         timestamp payment_checked_at
@@ -31,6 +33,7 @@ erDiagram
 
 - `user_id`, `schedule_id`는 다른 서비스의 ID라 FK 없이 값만 둔다.
 - `reservation_seats.seat_id`가 가리키는 [schedule_seat](../seat/tables.md)은 좌석 담당 테이블이다.
+- `user_coupon_id`가 가리키는 [p_user_coupons](../coupon/tables.md)는 같은 서비스의 쿠폰 담당 테이블이다. booking은 `CouponUsage`로만 쿠폰을 다룬다 (제안, 쿠폰 모듈 이동 이슈).
 
 ## 2. 공통 사항
 
@@ -79,7 +82,9 @@ CANCELLED는 예매 취소를 구현할 때 쓴다(`CONFIRMED → CANCELLED`).
 | status | 예매 상태 | VARCHAR(30) | NOT NULL, CHECK | HOLD / PAYMENT_IN_PROGRESS / CONFIRMED / EXPIRED / CANCELLED. |
 | hold_expires_at | 선점 만료 시각 | TIMESTAMP | NOT NULL | 이 시각 전에 결제 승인을 요청해야 한다. 결제 준비 때 payments.expires_at으로 보낸다. 결제 중에도 바꾸지 않는다. |
 | order_id | 주문 번호 | VARCHAR(64) | NULL, UNIQUE | 마지막 결제 준비의 주문 번호. 준비 시도마다 새로 만든다. payments.order_id와 같은 값. 결제가 실패해 HOLD로 돌아가면 지운다. |
-| payment_amount | 결제 금액(원) | BIGINT | NULL | 마지막 결제 준비에서 payment가 돌려준 쿠폰 적용 금액. 승인 요청에 이 값을 쓴다. order_id와 함께 지운다. |
+| user_coupon_id | 사용 쿠폰 식별자 | BIGINT | NULL | 이 예매에 잡은 회원 쿠폰(p_user_coupons). 결제 준비에서 쿠폰을 고르면 기록하고, 쿠폰을 빼거나 예매가 끝나 쿠폰을 돌려주면 지운다. 확정 뒤에는 남긴다. (제안) |
+| discount_amount | 할인 금액(원) | BIGINT | NULL | 쿠폰 할인액. 최소 결제 금액 아래로 내려가지 않게 자른 값. 결제 준비 요청의 discountAmount로 보낸다. (제안) |
+| payment_amount | 결제 금액(원) | BIGINT | NULL | 예매가 계산한 결제 금액(할인 전 금액 - discount_amount). 준비 응답의 amount와 같아야 하고, 승인 요청에 이 값을 쓴다. (제안) |
 | pg_auth_token | PG 인증값 | VARCHAR(255) | NULL | 결제창 인증 뒤 받은 값(토스 paymentKey, 카카오 pg_token). 결제 중에만 두고 결제 중을 벗어나면 지운다. 승인 요청을 다시 보낼 때 쓴다. |
 | payment_checked_at | 결과 확인 시각 | TIMESTAMP | NULL | 결제 결과 확인 스케줄러가 마지막으로 확인한 시각. 확인한 예매를 다음 차례에서 뒤로 보낸다. |
 
