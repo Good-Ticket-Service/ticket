@@ -3,9 +3,9 @@ package com.sparta.ticket.reservation.coupon.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
-import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
