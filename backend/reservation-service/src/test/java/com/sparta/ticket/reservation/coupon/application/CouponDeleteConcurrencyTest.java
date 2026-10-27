@@ -3,7 +3,7 @@ package com.sparta.ticket.reservation.coupon.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
@@ -23,7 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 쿠폰 삭제와 첫 발급이 동시에 들어와도 둘 중 하나만 성공하는지 실제 PostgreSQL로 확인한다.
  * 발급 API는 아직 없어서, 발급이 쓸 조건부 UPDATE(삭제되지 않았고 수량이 남았을 때만 1 올림)를 JDBC로 대신 실행한다.
  */
-class CouponDeleteConcurrencyTest extends PostgresIntegrationTest {
+class CouponDeleteConcurrencyTest extends ReservationIntegrationTest {
 
     private static final int ROUNDS = 30;
 

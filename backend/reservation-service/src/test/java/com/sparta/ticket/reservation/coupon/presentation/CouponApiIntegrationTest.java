@@ -9,7 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
-import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import java.sql.Timestamp;
@@ -17,7 +17,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -28,36 +27,24 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 
 /**
  * 쿠폰 관리자 API를 Gateway가 넘겨주는 사용자 헤더와 실제 PostgreSQL로 호출한다. 명세는 docs/coupon/api.md다.
- *
- * <p>Note: @AutoConfigureMockMvc를 붙이면 설정이 달라져 Spring이 컨텍스트를 하나 더 띄운다. 새 컨텍스트는 모든 테스트 클래스가
- * 공유하는 PostgreSQL 컨테이너에 schema.sql을 다시 실행해 "p_coupons already exists"로 실패한다. 그래서 다른 통합 테스트와
- * 같은 컨텍스트를 쓰고 MockMvc는 직접 만든다.
+ * reservation-service 통합 테스트의 공통 부모(ReservationIntegrationTest)를 상속해 다른 통합 테스트와 같은 컨텍스트를 쓴다.
  */
-class CouponApiIntegrationTest extends PostgresIntegrationTest {
+class CouponApiIntegrationTest extends ReservationIntegrationTest {
 
     private static final String MASTER_EMAIL = "master@ticket.com";
     private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
     @Autowired
-    private WebApplicationContext context;
+    private MockMvc mockMvc;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private CouponRepository couponRepository;
-
-    private MockMvc mockMvc;
-
-    @BeforeEach
-    void setUpMockMvc() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
-    }
 
     private static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Role role) {
         return request.header(UserHeaders.USER_ID, "1")
