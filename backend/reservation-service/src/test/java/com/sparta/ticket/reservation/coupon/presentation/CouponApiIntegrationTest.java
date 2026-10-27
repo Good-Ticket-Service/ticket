@@ -9,6 +9,8 @@ import com.jayway.jsonpath.JsonPath;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -21,7 +23,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -42,6 +46,9 @@ class CouponApiIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private CouponRepository couponRepository;
 
     private MockMvc mockMvc;
 
@@ -152,5 +159,135 @@ class CouponApiIntegrationTest extends PostgresIntegrationTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         }
+    }
+
+    @Nested
+    @DisplayName("PATCH /api/coupons/{couponId} 쿠폰 수정")
+    class Update {
+
+        private ResultActions patch(Long couponId, String body) throws Exception {
+            return mockMvc.perform(as(MockMvcRequestBuilders.patch("/api/coupons/{couponId}", couponId), Role.MASTER)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body));
+        }
+
+        @Test
+        @DisplayName("발급 시작 전에는 보낸 항목만 바뀌고 나머지는 그대로다")
+        void beforeStart() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+
+            patch(coupon.getId(), """
+                            {"discountAmount": 3000, "validDays": 14}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.couponId").value(coupon.getId()))
+                    .andExpect(jsonPath("$.data.name").value("오픈 기념 5,000원 할인"))
+                    .andExpect(jsonPath("$.data.discountAmount").value(3000))
+                    .andExpect(jsonPath("$.data.validDays").value(14))
+                    .andExpect(jsonPath("$.data.issueStatus").value("UPCOMING"));
+        }
+
+        @Test
+        @DisplayName("발급 시작 후 이름·종료 시각·총 수량을 바꿔도 발급 수량은 그대로다")
+        void afterStartKeepsIssuedQuantity() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            setIssuedQuantity(coupon.getId(), 300);
+            LocalDateTime newEnd = LocalDateTime.now().plusDays(14).truncatedTo(ChronoUnit.SECONDS);
+
+            patch(coupon.getId(), """
+                            {"name": "연장", "totalQuantity": 1500, "issueEndAt": "%s"}
+                            """.formatted(format(newEnd)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.name").value("연장"))
+                    .andExpect(jsonPath("$.data.totalQuantity").value(1500))
+                    .andExpect(jsonPath("$.data.remainingQuantity").value(1200))
+                    .andExpect(jsonPath("$.data.issueEndAt").value(format(newEnd)))
+                    .andExpect(jsonPath("$.data.issueStatus").value("ISSUING"));
+
+            assertThat(issuedQuantity(coupon.getId())).isEqualTo(300);
+        }
+
+        @Test
+        @DisplayName("발급 시작 후 할인액을 바꾸면 409 COUPON_NOT_MODIFIABLE")
+        void notModifiable() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+
+            patch(coupon.getId(), """
+                            {"discountAmount": 3000}
+                            """)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_MODIFIABLE"));
+        }
+
+        @Test
+        @DisplayName("총 수량을 발급 수량보다 적게 바꾸면 409 COUPON_QUANTITY_BELOW_ISSUED")
+        void quantityBelowIssued() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            setIssuedQuantity(coupon.getId(), 300);
+
+            patch(coupon.getId(), """
+                            {"totalQuantity": 299}
+                            """)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_QUANTITY_BELOW_ISSUED"));
+        }
+
+        @Test
+        @DisplayName("없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND")
+        void notFound() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+            jdbcTemplate.update(
+                    "UPDATE p_coupons SET deleted_at = now(), deleted_by = 'master' WHERE coupon_id = ?",
+                    coupon.getId());
+
+            patch(coupon.getId(), "{\"name\": \"새 이름\"}")
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+            patch(Long.MAX_VALUE, "{\"name\": \"새 이름\"}")
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("공백뿐인 이름이나 1보다 작은 수량은 400 VALIDATION_ERROR")
+        void invalidValues() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+
+            patch(coupon.getId(), "{\"name\": \"   \"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            patch(coupon.getId(), "{\"totalQuantity\": 0}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        @Test
+        @DisplayName("MASTER가 아니면 403 FORBIDDEN")
+        void notMaster() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+
+            mockMvc.perform(as(MockMvcRequestBuilders.patch("/api/coupons/{couponId}", coupon.getId()), Role.USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\": \"새 이름\"}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    /** 발급 시작 시각을 정해 쿠폰을 저장한다. 종료 시각은 7일 뒤다. */
+    private Coupon saveCoupon(LocalDateTime start) {
+        LocalDateTime issueStartAt = start.truncatedTo(ChronoUnit.SECONDS);
+        return couponRepository.save(Coupon.create(
+                "오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, LocalDateTime.now()));
+    }
+
+    /** 발급 기능 대신 발급 수량을 직접 올린다. */
+    private void setIssuedQuantity(Long couponId, int issuedQuantity) {
+        jdbcTemplate.update("UPDATE p_coupons SET issued_quantity = ? WHERE coupon_id = ?", issuedQuantity, couponId);
+    }
+
+    private int issuedQuantity(Long couponId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT issued_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, couponId);
     }
 }

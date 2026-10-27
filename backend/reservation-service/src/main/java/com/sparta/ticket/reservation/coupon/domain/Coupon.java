@@ -41,8 +41,12 @@ public class Coupon extends BaseEntity {
     @Column(nullable = false)
     private int totalQuantity;
 
-    /** 선착순 발급의 조건부 UPDATE로만 올린다. Entity는 값을 바꾸지 않는다. */
-    @Column(nullable = false)
+    /**
+     * 선착순 발급의 조건부 UPDATE로만 올린다. Entity는 값을 바꾸지 않는다.
+     * Note: JPA는 변경 감지로 UPDATE할 때 모든 컬럼을 다시 쓴다. 관리자가 쿠폰을 수정하는 사이 발급이 이 값을 올리면,
+     * 수정 트랜잭션이 읽어 둔 옛 값으로 덮어써 발급 수량이 줄어든다. updatable = false로 Entity의 UPDATE에서 이 컬럼을 뺀다.
+     */
+    @Column(nullable = false, updatable = false)
     private int issuedQuantity;
 
     @Column(nullable = false)
