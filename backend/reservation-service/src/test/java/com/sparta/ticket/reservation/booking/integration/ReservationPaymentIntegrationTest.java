@@ -108,7 +108,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     }
 
     private ResultActions checkout(Long reservationId, Long user) throws Exception {
-        return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/checkout", reservationId), user)
+        return mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), user)
                 .content("{}"));
     }
 
@@ -123,7 +123,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     }
 
     private ResultActions confirm(Long reservationId, String orderId, Long user) throws Exception {
-        return mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/confirm", reservationId), user)
+        return mockMvc.perform(as(post("/api/reservations/{id}/payments/confirm", reservationId), user)
                 .content(objectMapper.writeValueAsString(Map.of("orderId", orderId, "pgAuthToken", "pk-1"))));
     }
 
@@ -287,11 +287,11 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         String orderId = checkoutOrderId(reservationId);
         Long stranger = TestIds.next();
 
-        mockMvc.perform(as(get("/api/v1/reservations/{id}", reservationId), stranger))
+        mockMvc.perform(as(get("/api/reservations/{id}", reservationId), stranger))
                 .andExpect(status().isForbidden());
         checkout(reservationId, stranger).andExpect(status().isForbidden());
         confirm(reservationId, orderId, stranger).andExpect(status().isForbidden());
-        mockMvc.perform(as(get("/api/v1/reservations/{id}", reservationId), userId))
+        mockMvc.perform(as(get("/api/reservations/{id}", reservationId), userId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("HOLD"))
                 .andExpect(jsonPath("$.data.orderId").value(orderId))
@@ -307,7 +307,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         checkout(reservationId, userId)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("HOLD_EXPIRED"));
-        mockMvc.perform(as(post("/api/v1/reservations/{id}/payments/confirm", reservationId), userId)
+        mockMvc.perform(as(post("/api/reservations/{id}/payments/confirm", reservationId), userId)
                         .content("{\"orderId\": \"order-1\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));

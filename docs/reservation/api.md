@@ -9,7 +9,7 @@
 
 ## 1. 공통 규칙
 
-- 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). Gateway가 reservation-service로 보낸다. 지금 Gateway 라우트는 아직 `/api/v1/reservations/**`이고 gateway 후속 작업에서 바꾼다.
+- 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). Gateway가 reservation-service로 보낸다.
 - 인증은 `Authorization: Bearer {accessToken}`이다. Gateway가 토큰을 검증하고 `X-User-Id`, `X-Username`, `X-User-Role`을 넣는다. 클라이언트가 보낸 `X-User-*`는 Gateway가 지운다.
 - 회원(`USER`)은 본인 예매만 다룬다. 관리자(`MASTER`)는 모든 예매를 조회할 수 있다. 본인 확인은 서비스가 한다.
 - 예매·회차·좌석·쿠폰 ID는 BIGINT 정수, 회원 ID는 UUID 문자열, 금액은 원 단위 정수, 시각은 오프셋 없는 KST(`2026-11-01T20:10:00`)다.
