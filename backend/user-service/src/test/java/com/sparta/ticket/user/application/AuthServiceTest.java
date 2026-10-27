@@ -3,6 +3,7 @@ package com.sparta.ticket.user.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -63,6 +64,31 @@ class AuthServiceTest {
         assertThat(result.email()).isEqualTo("hong@ticket.com");
         assertThat(result.status()).isEqualTo(UserStatus.ACTIVE);
         assertThat(result.role()).isEqualTo(Role.USER);
+    }
+
+    @Test
+    @DisplayName("판매자 회원가입하면 비밀번호를 해시해 SELLER 권한으로 저장한다")
+    void signupSeller() {
+        given(userRepository.existsByEmailIncludingDeleted("hong@ticket.com")).willReturn(false);
+        given(passwordEncoder.encode("Sparta!2026")).willReturn("hashed");
+        given(userRepository.saveAndFlush(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        SignupResult result = authService.signupSeller(signup);
+
+        assertThat(result.role()).isEqualTo(Role.SELLER);
+        assertThat(result.status()).isEqualTo(UserStatus.ACTIVE);
+        verify(userRepository).saveAndFlush(argThat(user -> "hashed".equals(user.getPassword())));
+    }
+
+    @Test
+    @DisplayName("판매자 회원가입도 탈퇴자를 포함해 이미 쓰인 email이면 DUPLICATE_EMAIL")
+    void signupSellerDuplicateEmail() {
+        given(userRepository.existsByEmailIncludingDeleted("hong@ticket.com")).willReturn(true);
+
+        assertThatThrownBy(() -> authService.signupSeller(signup))
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.DUPLICATE_EMAIL);
+        verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test
