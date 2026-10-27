@@ -7,7 +7,6 @@ import com.sparta.ticket.user.application.dto.UserResult;
 import com.sparta.ticket.user.domain.User;
 import com.sparta.ticket.user.domain.UserErrorCode;
 import com.sparta.ticket.user.domain.UserRepository;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,11 +24,11 @@ public class UserQueryService {
     }
 
     /** Gateway 권한 재확인과 다른 서비스의 사용자 확인용. 탈퇴 사용자는 @SQLRestriction으로 조회되지 않아 404가 된다. */
-    public InternalUserResult getInternalUser(UUID userId) {
+    public InternalUserResult getInternalUser(Long userId) {
         return InternalUserResult.from(findUser(userId));
     }
 
-    private User findUser(UUID userId) {
+    private User findUser(Long userId) {
         return userRepository.findById(userId).orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
     }
 }
