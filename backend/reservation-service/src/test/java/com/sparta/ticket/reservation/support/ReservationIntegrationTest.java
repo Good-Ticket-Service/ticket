@@ -1,12 +1,14 @@
-package com.sparta.ticket.reservation.booking.support;
+package com.sparta.ticket.reservation.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.BookingTestConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * reservation-service 통합 테스트의 공통 부모. 모든 통합 테스트가 이 클래스를 상속해 같은 설정을 쓴다.
+ * reservation-service 통합 테스트의 공통 부모. booking·seat·coupon 등 모든 모듈의 통합 테스트가 이 클래스를 상속해 같은 설정을 쓴다.
+ * 모듈이 DDL 파일을 더하면 아래 schema-locations에 한 줄 추가한다. 모듈 테스트가 따로 @Import나 @TestPropertySource를 붙이지 않는다.
  *
  * 스키마는 seat와 함께 쓰는 schema.sql 다음에 booking이 소유한 booking.sql을 실행해 만든다(booking-decisions.md B27).
  * PostgresIntegrationTest는 schema.sql 하나만 실행하므로 여기서 두 파일로 바꾼다. @TestPropertySource 값이 @SpringBootTest의 properties보다 우선한다.
