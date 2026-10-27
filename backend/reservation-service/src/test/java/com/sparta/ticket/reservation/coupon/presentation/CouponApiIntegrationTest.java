@@ -11,6 +11,7 @@ import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -271,6 +272,77 @@ class CouponApiIntegrationTest extends PostgresIntegrationTest {
                             .content("{\"name\": \"새 이름\"}"))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /api/coupons/{couponId}/close 쿠폰 발급 중단")
+    class Close {
+
+        private ResultActions close(Long couponId, Role role) throws Exception {
+            return mockMvc.perform(as(post("/api/coupons/{couponId}/close", couponId), role));
+        }
+
+        @Test
+        @DisplayName("발급 중인 쿠폰은 종료 시각이 현재로 당겨져 ENDED가 되고, 시작 시각은 그대로다")
+        void closeIssuing() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+
+            close(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.issueStatus").value("ENDED"))
+                    .andExpect(jsonPath("$.data.issueStartAt").value(format(coupon.getIssueStartAt())));
+
+            Map<String, Object> row = periodRow(coupon.getId());
+            LocalDateTime end = ((Timestamp) row.get("issue_end_at")).toLocalDateTime();
+            assertThat(end).isBefore(coupon.getIssueEndAt()).isBeforeOrEqualTo(LocalDateTime.now());
+        }
+
+        @Test
+        @DisplayName("시작 전 쿠폰은 시작·종료 시각이 같아지고 ENDED가 된다 (ck_p_coupons_period 통과)")
+        void closeUpcoming() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));
+
+            close(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.issueStatus").value("ENDED"));
+
+            Map<String, Object> row = periodRow(coupon.getId());
+            assertThat(row.get("issue_start_at")).isEqualTo(row.get("issue_end_at"));
+        }
+
+        @Test
+        @DisplayName("이미 끝난 쿠폰을 다시 중단하면 409 COUPON_ALREADY_CLOSED")
+        void alreadyClosed() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            close(coupon.getId(), Role.MASTER).andExpect(status().isOk());
+
+            close(coupon.getId(), Role.MASTER)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_ALREADY_CLOSED"));
+        }
+
+        @Test
+        @DisplayName("없는 쿠폰이면 404 COUPON_NOT_FOUND")
+        void notFound() throws Exception {
+            close(Long.MAX_VALUE, Role.MASTER)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("MASTER가 아니면 403 FORBIDDEN")
+        void notMaster() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+
+            close(coupon.getId(), Role.USER)
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+
+        private Map<String, Object> periodRow(Long couponId) {
+            return jdbcTemplate.queryForMap(
+                    "SELECT issue_start_at, issue_end_at FROM p_coupons WHERE coupon_id = ?", couponId);
         }
     }
 

@@ -50,6 +50,15 @@ public class CouponService {
         return CouponResult.of(coupon, now);
     }
 
+    /** 발급 종료 시각을 현재로 당긴다. 발급과 같은 행을 바꾸므로 잠그고 읽는다. */
+    @Transactional
+    public CouponResult close(Long couponId) {
+        LocalDateTime now = now();
+        Coupon coupon = lockCoupon(couponId);
+        coupon.close(now);
+        return CouponResult.of(coupon, now);
+    }
+
     private Coupon lockCoupon(Long couponId) {
         return couponRepository
                 .lockById(couponId)
