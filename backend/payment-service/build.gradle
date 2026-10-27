@@ -17,3 +17,14 @@ dependencies {
 
     testImplementation(testFixtures(project(':common')))
 }
+
+// Note: PG 어댑터 계약 테스트는 실제 fake PG를 컨테이너로 띄워 HTTP로 부른다. Dockerfile 전체를 빌드하면 수 분이 걸리므로
+// fake-pg의 실행 jar를 먼저 만들고, 테스트가 그 jar를 JRE 컨테이너에 넣어 실행한다(FakePgContainer).
+def fakePgJar = project(':fake-pg').tasks.named('bootJar').flatMap { it.archiveFile }
+tasks.named('test') {
+    dependsOn ':fake-pg:bootJar'
+    inputs.file(fakePgJar)
+    doFirst {
+        systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath
+    }
+}
