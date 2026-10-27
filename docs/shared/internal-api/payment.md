@@ -6,7 +6,7 @@
 
 ## 공통
 
-- 변경 상태: #22 할인액 전달·쿠폰 책임 이전은 담당자 검토 대기다. 기존 합의 이력과 구분한다.
+- 변경 상태: #22 결제 변경은 예매 담당자가 PR #25 리뷰에서 합의했다. 쿠폰의 reservationId 연결·해제·복원 정책은 #27 제안에 결제·예매 담당이 동의하며, 상세 CouponUsage 계약은 쿠폰 담당 검토와 예매 후속 PR에서 정리한다.
 
 - #22: 쿠폰은 reservation-service가 처리한다. 결제는 쿠폰 ID를 받거나 CouponUsage를 호출하지 않고 예매가 확정한 정가·할인액·최종 금액만 검증·저장한다. 쿠폰 오류는 예매 책임이다.
 
@@ -82,7 +82,7 @@
 - 상태: 합의 (Notion, 2026-10-26)
 - 멱등성: `orderId` 기준. 이미 READY가 아니면 PG를 다시 부르지 않고 현재 상태를 돌려준다.
 - 타임아웃: 최악 응답 약 14초. 예매 read timeout은 20초를 제안한다.
-- 결과 확정 시한: PG 승인을 부른 뒤 1분 안에 결과를 모르면 결제가 FAILED(`PG_UNRESOLVED`)로 확정한다. 예매가 결과를 확인해 쿠폰을 반납한다. 그래서 `IN_PROGRESS`는 약 1분(결제 복구 주기 포함) 안에 끝난다.
+- 결과 확정 시한: PG 승인을 부른 뒤 1분 안에 결과를 모르면 결제가 FAILED(`PG_UNRESOLVED`)로 확정한다. 예매는 FAILED로 HOLD에 복귀하면 쿠폰을 유지하고, EXPIRED·RELEASED로 종료할 때 해제한다. 그래서 `IN_PROGRESS`는 약 1분(결제 복구 주기 포함) 안에 끝난다.
 - 재시도: 응답을 받지 못하면 바로 재전송하지 말고 결제 조회로 확인한다(아래 "결과를 모를 때").
 
 요청
@@ -148,8 +148,8 @@
 결제 상태별 처리: READY는 결제 포기(`NOT_REQUIRED`), FAILED는 `NOT_REQUIRED`, IN_PROGRESS는 `WAITING`, DONE은 `REQUESTED` 후 PG 취소, CANCELED는 기존 환불을 돌려준다.
 
 - 환불은 언제나 결제 금액 전액이다. 취소 가능 기간·수수료는 예매가 요청 전에 검사하고, 결제는 사유와 관계없이 검사하지 않는다. 회차 취소(`SCHEDULE_CANCELED`)는 예매가 취소 기간 검사 없이 예약마다 부른다.
-- `NOT_REQUIRED`: 돌려줄 돈이 없다. READY면 결제를 FAILED(`ABANDONED`)로 끝낸다. 쿠폰 반납은 예매가 처리한다. 환불 행은 만들지 않는다. 예매는 환불이 끝난 것으로 보고 다음 상태로 넘어가며 다시 요청하지 않는다.
-- 예매는 외부 환불 호출 전에 예매를 `CANCELING`으로 커밋하고, 요청이 접수되면 `CANCELED`로 바꾼다. 응답을 받지 못하면 예매 스케줄러가 같은 `orderId`로 다시 요청한다(멱등).
+- `NOT_REQUIRED`: 돌려줄 돈이 없다. READY면 결제를 FAILED(`ABANDONED`)로 끝낸다. 쿠폰은 결제 FAILED만으로 해제하지 않고 예매의 EXPIRED·RELEASED 또는 CANCELED 전이에서 처리한다. 환불 행은 만들지 않는다. 예매는 환불이 끝난 것으로 보고 다음 상태로 넘어가며 다시 요청하지 않는다.
+- 예매는 외부 환불 호출 전에 예매를 `CANCELING`으로 커밋하고, 요청이 접수되면 `CANCELED`로 바꾼다. #27 제안에 따라 쿠폰 복원도 예매의 CANCELED 확정과 같은 로컬 트랜잭션에서 처리하며 환불 완료를 기다리지 않는다. 응답을 받지 못하면 CANCELING을 유지하고 같은 `orderId`로 다시 요청한다(멱등).
 
 오류: 404 `PAYMENT_NOT_FOUND`.
 
@@ -173,7 +173,7 @@
 | 결제 결과 | 뜻 | 예매가 할 일 |
 |---|---|---|
 | DONE | 승인 확정 | CONFIRMED, 좌석 SOLD. 확정할 수 없으면 `CANCELING`으로 바꾼 뒤 `CONFIRM_FAILED` 환불 요청 |
-| FAILED | 이 결제 시도는 끝났다. 결과 불명(`PG_UNRESOLVED`)으로 끝난 건의 늦은 승인은 결제가 자동 환불한다 | HOLD로 복귀 (선점 만료 후면 EXPIRED + 좌석 반환) |
+| FAILED | 이 결제 시도는 끝났다. 결과 불명(`PG_UNRESOLVED`)으로 끝난 건의 늦은 승인은 결제가 자동 환불한다 | HOLD로 복귀하며 좌석·쿠폰 유지. 선점 만료 후면 EXPIRED + 좌석 반환·쿠폰 해제 |
 | IN_PROGRESS | PG 결과를 모름. 결제가 승인 호출 후 1분 안에 DONE 또는 FAILED로 확정한다 | 기다리고 다음 주기에 다시 조회한다 |
 | READY | 승인 요청이 결제에 도착하지 못했거나 아직 처리 전 | `confirmRequestedAt`이 없거나 1분 넘게 지났으면 저장한 pgAuthToken으로 같은 승인 요청을 다시 보낸다. READY만 보고 HOLD로 되돌리지 않는다(늦게 도착한 승인과 경쟁한다) |
 | 404 | 준비가 기록되지 않았다 | 다시 준비한다 |
@@ -200,3 +200,4 @@
 | 2026-10-26 | #3 | 합의 내용 반영. payment/spec.md에서 옮김 |
 | 2026-10-26 | Notion 검토 | 팀 결정 반영: 회원·판매자 ID Long, `couponId` → `userCouponId`, 결과 확정 시한 1분과 `PG_UNRESOLVED`, 결제 차단·`resolve`·`MANUAL` 제거, 관리자 차단 해제를 환불 전용(`refund/unblock`)으로, 시각 `+09:00`, 환불 사유·`NOT_REQUIRED` 처리, 취소 상태 `CANCELING`·`CANCELED` |
 | 2026-10-27 | #22 (검토 대기) | 준비 요청 userCouponId를 discountAmount로 변경하고 최소 100원 검증, 할인액 멱등 비교, 쿠폰 처리의 예매 책임을 반영했다 |
+| 2026-10-27 | PR #25 리뷰, #27 | 결제 변경의 예매 담당 합의 반영. 쿠폰은 HOLD 복귀 시 유지하고 EXPIRED·RELEASED 때 해제, CANCELED 확정 때 복원하는 제안에 맞춰 결제 측 설명을 정리했다. 상세 CouponUsage는 후속 계약에서 반영한다 |
