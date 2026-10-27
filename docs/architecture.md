@@ -1,39 +1,190 @@
 # 시스템 아키텍처
 
-기준: develop 7a48c5e, 저장소의 Notion 시스템 구성도(2026-10-26) 및 공연 #54·결제 D16~D18·모듈 합의 #34. [Notion 원본](https://app.notion.com/p/404b3ff41d3980e89bb9e17ce9f7106f)은 실시간 대조하지 못했다. 아래는 구현 완료 보고가 아닌 설계 기준이다. API/DB/공통 규약/배치는 다른 4개 문서에만 정의한다.
+- Notion 시스템 구성도를 옮긴 뒤 저장소의 후속 합의에 맞춰 본문을 정리했다. **이 문서가 현재 설계 기준**이며, Notion 원본은 수정하지 않았다.
+- 출처: 팀 Notion [시스템 구성도](https://app.notion.com/p/404b3ff41d3980e89bb9e17ce9f7106f)의 기존 전사본과 develop 7a48c5e(#54 포함). 이번 작업에서 실시간 Notion·실제 배포 상태는 검증하지 않았다.
+- 합의된 설계와 구현 완료는 다르다. API별 상태는 [api.md](api.md), 현행 DDL과 계획은 [tables.md](tables.md), 공통 표현은 [conventions.md](conventions.md)를 따른다. 배치는 [infra.md](infra.md)에 있다.
+- 결정 번호의 뜻은 13절, 담당 확인·미합의·구현 차이는 14절에 모은다. 한 담당 내부의 상세 구현·실험·작업 계획은 이슈 또는 담당 로컬 문서에 둔다.
 
-## 책임
+## 1. 전체 구성도
 
-| 서비스·모듈 | 소유·책임 | 담당 |
+```mermaid
+flowchart LR
+    C[클라이언트] -->|HTTPS| GW["gateway :8080<br/>JWT·사용자 헤더·입장 토큰"]
+    GW --> U["user :8081<br/>회원·인증"]
+    GW --> P["performance :8082<br/>공연·회차·정적 좌석 배치"]
+    GW --> R
+    GW -->|사용자 재확인| U
+    subgraph R["reservation :8083"]
+        RQ["queue<br/>대기열·입장 토큰"]
+        RS["seat<br/>선점·좌석 조회·잔여석"]
+        RB["booking<br/>예매·티켓·Saga 조정"]
+        RC["coupon<br/>이전 예정·#27 초안"]
+    end
+    RB ==>|"준비·승인·조회 Feign 동기<br/>환불만 Phase 2 Kafka 가안"| PP["payment :8084<br/>결제·환불·할인액 검증"]
+    RB -->|로컬 CouponUsage 초안| RC
+    P -->|"회차 좌석 준비·URI 미합의"| RS
+    RS -->|판매 검증| P
+    PP -->|RestClient HTTP| FPG["fake-pg :8090<br/>토스·카카오 형식"]
+```
+
+- 실선은 동기 HTTP 또는 서비스 안 모듈 호출이다. 굵은 선은 예매가 조정하는 결제·환불 흐름이다.
+- 승인은 고도화 후에도 Feign 동기다(D16). 환불 명령과 확정 결과 메시징은 후속 계약이며 그림이 토픽·스키마 합의를 대신하지 않는다.
+- 업무 서비스는 Eureka·Config를 사용하고 Prometheus가 지표를 수집한다. fake-pg는 독립 PG 모의 서버이므로 Config·Eureka·공통 업무 모듈을 사용하지 않는다.
+
+## 2. 서비스와 책임
+
+| 서비스·모듈 | 포트 | 책임·데이터 | 담당 |
+|---|---|---|---|
+| gateway-service | 8080 | 라우팅·JWT·검증된 사용자 헤더, 내부 경로 차단. 입장 토큰·요청 제한은 구현 상태 별도 확인 | 태현·윤범 |
+| user-service | 8081 | 회원·인증·역할, user_schema | 태현 |
+| performance-service | 8082 | 공연장·고정 좌석 등급/배치·공연 가격·회차·공개·판매 검증, performance_schema | 의연 |
+| reservation-service / queue | 8083 | 대기열 순번·입장 토큰, Redis | 태현 |
+| reservation-service / seat | 8083 | 회차 좌석 스냅샷·선점·실시간 좌석/잔여석 조회, reservation_schema | 정민 |
+| reservation-service / booking | 8083 | 예매·티켓·만료·결제 준비/승인·취소/보상 조정, reservation_schema | 한얼 |
+| reservation-service / coupon | 8083 | 쿠폰 정책·동기 발급·점유/사용/복원. reservation_schema로 이전 예정, #27 초안 | 윤범 |
+| payment-service | 8084 | 결제·환불·PG 실행·결과 확인, payment_schema. 쿠폰 ID/상태는 처리하지 않음 | 현민 |
+| fake-pg | 8090 | 토스·카카오 호환 거래·장애 주입·결과 조회, fake_pg_schema | 현민 |
+
+- 서비스별 계정·스키마를 격리하고 다른 서비스 데이터의 직접 조회·물리 FK를 두지 않는다. common-core는 비웹 계약, common은 MVC 공통이다.
+- seat·booking은 같은 로컬 트랜잭션에서 좌석·예매를 맞춘다. 쿠폰 이전의 목적도 같은 원자성 확보이며, 상세 연결은 #27 합의·구현 대기다. 모듈을 별도 서비스로 나누면 기존 원자성을 자동 보존할 수 없다.
+- 판매자 정산·수수료·부분 환불은 현행 확장 범위이며 합의 없이 추가하지 않는다.
+
+## 3. 서비스 간 통신
+
+| 흐름 | 현재 기준 | 상태 |
 |---|---|---|
-| user-service | 회원·판매자 가입/인증/역할·탈퇴 | 김태현 |
-| performance-service | 공연장·고정 좌석 등급/배치, 공연 가격·공개, 회차·판매 정책 | 박의연 |
-| reservation-service / queue | 대기열·입장 토큰(Redis) | 김태현 |
-| reservation-service / seat | 회차 좌석 스냅샷·선점/반환·잔여석 | 변정민 |
-| reservation-service / booking | 예매/티켓·만료·결제 조정·취소·보상 | 지한얼 |
-| reservation-service / coupon | 쿠폰 발급/점유/사용/복원(이전 계약 초안 #27) | 성윤범 |
-| payment-service | 결제/환불·PG 실행·복구·대사, 쿠폰 처리 없음 | 강현민 |
-| fake-pg | 독립 PG 모의 거래·장애 재현 | 강현민 |
+| 클라이언트 → 서비스 | Gateway → Eureka lb 라우팅. 실 라우트 차이는 infra 10절 | 기반 구현됨 |
+| gateway → user | WebClient GET /internal/users/{userId}, 권한 재확인 캐시60초 | 구현됨 |
+| 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
+| performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. URI·응답 미합의(#54) | 공연 방향과 좌석 소비안 조율 필요 |
+| seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
+| booking → coupon | 로컬 CouponUsage, reservationId 점유 | #27 초안·이전 구현 전 |
+| booking → payment 준비·승인·조회 | Feign 동기 유지. 승인 응답 DONE/FAILED/IN_PROGRESS | HTTP 계약 합의, D16 적용 |
+| booking → payment 환불 | MVP HTTP 인수. Phase 2 Kafka 명령은 P3 가안 | 접수 확인·토픽 미합의 |
+| payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
+| payment → fake-pg | RestClient + JDK HttpClient HTTP/1.1. 연결2초·읽기10초(D17) | PG 어댑터 구현됨 |
+| 잔여석 조회 | seat가 GET /api/schedules/{scheduleId}/remaining 제공. 공연 카운터 갱신 이벤트는 보류 | 좌석 API 초안 |
+| 쿠폰 발급 | POST /api/coupons/{couponId}/issue 동기201 | API 초안. Kafka202 전환 미합의 |
 
-서비스별 DB 계정/스키마 격리, 서비스 간 물리 FK/직접 조회 금지. seat/booking/coupon은 같은 reservation DB의 로컬 트랜잭션을 공유한다. Common-core는 비웹 계약, common은 MVC 공통. Config/Eureka/Gateway는 공통 인프라다. 정산은 현행 확장 범위이며 수수료/취소 수수료/정산 배치 계약은 확정되지 않았다.
+- /internal 경로는 Gateway 외부 접근을 차단한다. 내부 API 명세는 api.md에 유지하되 공개 Swagger 노출 여부는 따로 점검한다.
+- 사용자 헤더는 서비스 인증의 대체물이 아니다. 서비스 포트 외부 차단은 [infra.md](infra.md) 2-1절을 따른다.
+- 입장 토큰은 좌석 조회·선점만 검사한다. 결제·예매 요청에는 적용하지 않는다.
+- 예매의 Feign 읽기15초와 결제의20초 제안은 담당 조율 대기다. Gateway 현행 응답 타임아웃은60초다.
 
-## 통신·단계
+## 4. 예매 흐름
 
-| 흐름 | MVP | 고도화 |
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 사용자
+    participant S as reservation/seat
+    participant B as reservation/booking
+    participant P as payment
+    participant PG as fake-pg
+    U->>S: 입장 토큰으로 좌석 선점
+    S->>B: 같은 트랜잭션에서 HOLD·티켓 생성
+    S-->>U: 예매ID·선점 만료
+    U->>B: 결제 준비·쿠폰 선택
+    B->>B: 서버 가격·쿠폰에서 할인액 확정
+    B->>P: Feign 준비(orderId,totalPrice,discountAmount,expiresAt)
+    P-->>B: 금액·상태·checkoutUrl
+    B-->>U: 결제창 정보
+    U->>PG: 결제창 사용자 인증
+    PG-->>U: paymentKey 또는 pg_token
+    U->>B: 승인(orderId,pgAuthToken)
+    B->>B: PAYMENT_IN_PROGRESS 커밋
+    B->>P: Feign 승인(저장 금액)
+    P->>PG: HTTP 승인
+    PG-->>P: 성공·거절·결과 불명
+    P-->>B: DONE·FAILED·IN_PROGRESS
+    Note over P,PG: 승인 호출 후60초의 결과 확정 기준은9절
+    B->>B: 현재 시도 결과 반영·좌석/쿠폰 원자 변경
+    B-->>U: 예매 상태
+    U->>B: 결과 불명이면 예매 조회
+```
+
+준비 실패 상태를 성공 URL로 매핑하지 않는다. 준비 순서·오래된 요청 역전·HTTP200+FAILED 매핑은 14절에서 조율한다. PG 인증값은 Kafka로 보내지 않는다. 환불 실행·확정 결과 전달만 고도화 비교 대상이며, 두 단계가 전송 방식만 다르다고 가정하지 않는다.
+
+## 5. 예매 상태
+
+```mermaid
+stateDiagram-v2
+    [*] --> HOLD
+    HOLD --> PAYMENT_IN_PROGRESS: 유효한 현재 시도 승인
+    HOLD --> EXPIRED: 선점 만료
+    HOLD --> RELEASED: 사용자 선점 해제
+    PAYMENT_IN_PROGRESS --> CONFIRMED: 현재 시도 결제 성공
+    PAYMENT_IN_PROGRESS --> HOLD: 결제 실패·시간 남음
+    PAYMENT_IN_PROGRESS --> EXPIRED: 결제 실패·시간 지남
+    CONFIRMED --> CANCELING: 취소 의도 저장
+    CANCELING --> CANCELED: 환불 요청 인수
+    EXPIRED --> [*]
+    RELEASED --> [*]
+    CANCELED --> [*]
+```
+
+- HOLD는 좌석을 선점한 상태다. 준비는 상태를 바꾸지 않으며 실패 후 HOLD 복귀 때 쿠폰은 유지한다.
+- PAYMENT_IN_PROGRESS는 선점 만료 정리 대상이 아니다.60초는 결제의 판정 기준이고 잡 지연·서버 중단 중 완료 시한 보장은 아니다(9절).
+- CONFIRMED는 좌석 판매·티켓 코드·쿠폰 사용이 함께 확정된 상태다. EXPIRED/RELEASED는 좌석·예약 쿠폰을 반환한다.
+- CANCELING은 외부 환불 전 저장하는 의도, CANCELED는 결제의 환불 요청 인수 상태다. PG 취소 완료와 같지 않다.
+- facade enum ReservationState에는 CANCELING이 있다. 현행 domain ReservationStatus와 booking.sql CHECK에는 없고 활성 부분 UNIQUE에는 이미 포함된다. 취소 구현 때 domain/CHECK/집계를 맞춘다.
+- 상태 전이는 조건부 UPDATE로 한 번만 반영한다. 영구 확정 실패의 PAYMENT_IN_PROGRESS/EXPIRED → CANCELING 전이와 환불 거절 시 CANCELING → CONFIRMED 복귀는 자동 추가하지 않는다(14절).
+
+## 6. Kafka 메시징 범위
+
+아래는 후속 설계 목록이다. 토픽 이름·Envelope·스키마·버전·파티션 키·DLT 정책은 최종 계약이 아니다. 승인 명령·인증값을 메시지에 싣지 않는다(D16).
+
+| 제안 이름 | 용도·발행 → 소비 | 상태 |
 |---|---|---|
-| 외부 → 서비스 | Gateway JWT/사용자 재확인 → Eureka lb | 동일, 경로 미적용은 infra 참조 |
-| Gateway → user | WebClient 내부 회원 조회, 권한 캐시60초 | 즉시 권한 폐기 필요성은 별도 합의 |
-| 공연 → seat 준비 | Feign 계획(#54), URI/응답 미합의 | 합의 후 Kafka Requested/Completed/Failed, HTTP와 중복 실행 금지 |
-| seat → 공연 판매 검증 | 선점 트랜잭션 밖 내부 HTTP | 장애·정책 변경 경합은 별도 보상 |
-| booking → payment 준비/승인/조회 | Feign 동기 | **준비·승인·조회 유지(D16)**. 인증값/승인 명령 Kafka 전송 안 함 |
-| payment → PG | HTTP RestClient+JDK HTTP/1.1(D17); connect2초/read10초 | 동일. PG 교체는 PgClient 어댑터 |
-| booking → payment 환불 | HTTP 인수 후 최초 PG 시도, 이후 DB 복구 | Kafka 환불/확정 실패 보상 명령 + 영속 인계/워커 비교 |
-| payment → booking 결과 | 동기 응답 + 예약 스케줄러 폴링 | 확정 사실 이벤트+Outbox, 동기 승인 응답 유지 |
-| 쿠폰 발급 | 동기201·조건부 수량 갱신 | Kafka 비동기 접수 대상/응답 의미 별도 합의 |
+| coupon.issue.requested | 쿠폰 비동기 발급. 후보 식별자 couponId·userId | 미합의. 현재 계약은 동기201 |
+| seat.status.changed | seat → 공연 잔여석 반영. 후보 식별자 scheduleId·venueSeatGradeId | 보류. 현재 조회 소유자는 seat |
+| payment.completed / payment.failed | payment → 예매 확정 결과 | 고도화 초안. paidAmount/amount·reason/failureType 등 필드 미합의 |
+| payment.refund.requested | 예매 → 결제 환불/확정 실패 보상 | 고도화 초안. 접수 확인 의미 미합의 |
+| payment.refunded | 결제 → 결과 소비자 환불 확정 사실 | 고도화 초안. 실제 계좌 반영 보장 아님 |
 
-예매의 Feign read20초는 제안, Gateway 현행60초. PG RestClient는 공통 Feign의 사용자 헤더/도메인 오류 변환을 적용하지 않는다. 내부 타임아웃과 최종 상태는 동일 개념이 아니다.
+eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각각 막는다. 파티션 내 순서만으로 다른 시도의 늦은 결과를 막지 못한다. DB 인계 전 offset 커밋 금지, Outbox와 업무 상태는 함께 저장한다. DLT 이동은 업무 완료가 아니며 수동 재처리 책임을 남긴다.
 
-## 공연·좌석 준비
+## 7. 실패와 보상
+
+| 상황 | 처리·경계 |
+|---|---|
+| 선점 만료·미결제 | HOLD만 EXPIRED로 전이하고 좌석·쿠폰 해제 |
+| 승인 실패 | 현재 시도의 결과만 반영. 시간 남으면 HOLD, 지났으면 EXPIRED |
+| 승인 응답 유실·조회 장애 | PAYMENT_IN_PROGRESS 유지·폴링.60초 판정 기준은9절, 조회 불가만으로 좌석 반환 금지 |
+| PG 호출 전 READY | 승인 접수 여부를 조회하고 같은 orderId·인증값으로 재전송. 세부 재전송 시각·404 분기는14절 |
+| FAILED 종료 후 늦은 과금 | 해당 orderId만 AUTO_VOID, 새 예매 시도·쿠폰은 보존. 실패 후11분·24시간 최소 대사는 결제 계획이며 최종 누락 부재의 증명 아님 |
+| 과금됐으나 확정 불가(F6) | 현재 시도 식별·알림. MVP의 보상 의도 영속 저장 여부는 B19/D18 합의 대기 |
+| 환불 접수 응답 유실 | CANCELING 유지·동일 orderId 멱등 재요청. 인수 후 CANCELED |
+| 환불 PG 거절·장기 불명 | 금융 미완료는 결제가 관리. 인수 후 취소한 티켓을 되살리지 않음. 접수 전 정책상 거절과 구분 |
+| 회차 취소 | 공연202 접수와 예매 전달·PG 완료는 구분. 전파·재시도·상태별 정리는14절 계약 대기 |
+
+자동 환불이 목표여도 감지·로그만으로 보상 완료를 보고하지 않는다. 영속 의도·재시도·운영 인수까지 연결해야 하며, 구현 완료 여부를 담당 단독 설계와 혼동하지 않는다.
+
+## 8. 플랫폼 구성 요소
+
+| 구성 | 역할 |
+|---|---|
+| Eureka·Config Server | 서비스 등록/발견·외부 설정. fake-pg 제외 |
+| PostgreSQL | 단일 인스턴스에 전용 스키마/계정. 물리 장애·자원은 공유 |
+| Redis | 대기열·입장 토큰·캐시. 키/TTL 세부는 해당 계약 |
+| Kafka |6절 고도화 명령·결과. 단일 브로커는 고가용성 아님 |
+| Prometheus·Grafana | HTTP·JVM·DB 풀·PG 지연·미완료 거래, 고도화 후 lag/DB 작업 대기 |
+
+포트·서버·배포·측정 환경은 infra에만 정의한다.
+
+## 9. 예매 ↔ 결제 연동 규칙
+
+1~7절에 없는, 예매와 결제가 함께 지켜야 하는 규칙이다. 결제 내부 동작(복구·대사·워커·검증 관문)은 결제 담당 문서에서 관리한다.
+
+- **PG 인증값:** 토스 paymentKey·카카오 pg_token은 미완료 승인을 재전송하는 동안만 예매가 보관하고, 끝나면 지운다. 응답·로그·이벤트·메시지에 남기지 않는다. 결제는 인증값을 저장하지 않는다.
+- **현재 시도만 반영:** 결과의 orderId가 예매의 현재 orderId와 같을 때만 반영한다. 다르면 지난 시도의 결과다(실패는 무시, 성공은 F6으로 환불). F6의 MVP 처리 범위는 14절 「취소·보상」에서 정한다.
+- **결과 확정 시한:** 결제는 PG 승인 호출 시각부터 60초가 지나도 결과를 모르면 FAILED(`PG_UNRESOLVED`)로 확정한다. 서버 중단·적체 중에도 정확히 60초에 끝난다는 보장은 아니고, 실제 과금이 없었다는 증명도 아니다. 그래서 늦은 승인은 결제가 그 orderId만 자동 환불(`AUTO_VOID`)하고, 새 시도의 예매·쿠폰·티켓은 건드리지 않는다.
+- **조회가 안 될 때:** 결제 조회가 실패했다는 이유만으로 예매가 좌석·쿠폰을 풀지 않는다.
+- **환불의 세 단계:** 환불 접수, PG 취소 성공, 고객 카드·계좌 반영은 각각 다른 시점에 끝난다. `NOT_REQUIRED`·`SKIPPED`의 의미는 api.md 결제 계약을 따른다.
+- **취소 정책:** 사용자는 회차 시작 전에만 정책에 따라 취소할 수 있다. 회차 취소와 확정 실패 보상은 사용자 취소 기한의 예외다. 부분 환불·취소 수수료 차감은 지원하지 않는다.
+- **환불 실패와 예매:** 환불이 FAILED·차단돼도 취소한 예매·티켓을 되살리지 않는다. 환불 완료는 결제가 끝까지 책임진다.
+
+## 10. 공연·좌석 준비
 
 - 물리 좌석/등급은 공연장 고정, 가격·제외 정책은 공연 단위로 모든 회차가 공유. 회차별 점유만 seat 소유. 공개 후 배치/가격/제외 불변, 표시 정보 수정 범위는 API 계약.
 - DRAFT이며 삭제 회차 포함 등록 이력이 없을 때만 venue 변경. 가격/제외 초기화와 공연 버전 갱신을 한 트랜잭션에 수행.
@@ -45,7 +196,7 @@
 - 이미 공개된 공연의 publication 재요청은 If-Match 불일치에도 현재 결과200·최초 publishedAt 보존, DRAFT 복귀 없음. 공연이 참조한 물리 배치는 변경 금지(VENUE_LAYOUT_IN_USE), 미삭제 좌석이 쓰는 등급 삭제 금지(VENUE_GRADE_IN_USE). 일괄 좌석 중복은 전체 롤백.
 - 판매 검증은 신규 선점 정책/가격 확인이며 좌석 확보 보장 아님. 검증 직후 취소 경쟁은 전파/보상으로 처리. 판매 중지는 신규 선점 차단, 기존 유효 HOLD 결제는 원래 만료까지 허용.
 
-## 선점·예매 로컬 원자성
+## 11. 선점·예매 로컬 원자성
 
 - 선점10분, MVP 회원·회차당1장. seat가 공유 Clock(Asia/Seoul)으로 holdExpiresAt을 한 번 계산, 좌석/예매에 동일 저장. 결제 중 연장 안 함. 과거 DB now() 초안은 #34 공유 Clock으로 대체.
 - 잠금 순서 **좌석 ID 오름차순 → 예약**. 선점·만료·확정·해제·취소 모두 동일. 모듈 facade 모든 메서드 MANDATORY. CouponUsage는 REQUIRED로 예매 트랜잭션 참여(초안).
@@ -56,110 +207,75 @@
 - SeatFacade.sell은 HOLD+reservation_id 일치, release도 reservation_id 일치. 갱신 행 수가 요청 수와 다르면 확정 성공으로 처리하지 않는다. 가격 재조회(priceSnapshot) 없음.
 - release 결과 RELEASED/EXPIRED/ALREADY_CLOSED만 좌석 반환. NOT_RELEASABLE은409, PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/CANCELED 좌석은 해제하지 않음.
 
-## 결제·환불·Saga
+## 12. 예매 ↔ 쿠폰 (CouponUsage #27 초안)
 
-| 단계 | 설계 동작 |
-|---|---|
-| 준비 | 예매가 쿠폰/티켓에서 금액 확정, 시도 orderId 저장/재사용 → payment 준비. 원격 준비 성공과 예매 저장 순서 역전 방지는 별도 미합의(R01) |
-| 인증 | 브라우저 PG 인증 → 토스 paymentKey/카카오 pg_token → 예매 승인. PG 인증값은 미완료 재전송에 필요한 동안만 예매 보관, 종료 시 제거. 응답/로그/이벤트 금지 |
-| 승인 | 예매 PAYMENT_IN_PROGRESS 커밋 → payment 접수/실행 점유 커밋 → 트랜잭션 밖 HTTP PG → 결과 검증·저장. 실행 직전 상태/만료 재확인 |
-| 결과 DONE | 현재 시도인지 확인 → 좌석 잠금/소유 확인 → 예매 CONFIRMED+좌석 SOLD+티켓 코드+쿠폰 USED를 한 로컬 트랜잭션으로 |
-| 결과 FAILED | 시간 남으면 HOLD(이전 orderId/인증값 정리, 쿠폰 유지), 지났으면 EXPIRED+좌석/쿠폰 반환 |
-| 결과 불명 | payment IN_PROGRESS, 예매는 조회/폴링. READY면 confirmRequestedAt 확인 후 계약에 따라 같은 승인 재전송, IN_PROGRESS면 기다림. 조회 불가만으로 좌석/쿠폰 해제 금지 |
-| 결과 확정 시한 | approve_requested_at부터60초를 판단 기준으로 PG_UNRESOLVED FAILED. 서버 중단/적체 중60초 완료 보장은 아님. 실제 과금 없음의 증명 아님 |
-| 늦은 승인 | FAILED는 유지, 해당 orderId만 AUTO_VOID 전액 환불. 새 시도의 예매/쿠폰/티켓 건드리지 않음. AMOUNT_MISMATCH 과금도 실제 승인액 검증 후 보상 |
-| 사용자/회차 취소 | 예매 CANCELING(티켓 사용 불가) 먼저 커밋 → 동일 orderId 환불 인수 → CANCELED+좌석 반환+쿠폰 복원. 응답 유실은 CANCELING에서 멱등 재요청 |
-| 환불 완료 | payment 정상 DONE 원거래는 환불 DONE과 CANCELED를 함께 커밋. AUTO_VOID 원거래 FAILED는 유지. 환불 FAILED/차단은 운영 미완료로 남기며 예매/티켓을 되살리지 않음 |
-| 확정 불가 | 일시 DB/잠금 장애는 예매 확정 재시도. 영구 불가는 과금 orderId+CONFIRM_FAILED 보상 의도 영속 저장 후 재시도. 예매 기존 B19 로그/지표만의 MVP 방침과 충돌하여 합의 대기 |
+- reservationId로 점유하고, 발급 시점의 할인액을 쓴다. reserve 때 유효기간을 확인하고, 이후 RESERVED는 만료 배치가 풀지 않는다. 유효기간이 지나도 결제가 확정되면 USED다.
+- 결제 FAILED로 HOLD에 돌아가면 쿠폰을 유지하고, EXPIRED·RELEASED면 해제한다. CANCELED면 USED를 복원한다(원래 만료됐으면 EXPIRED).
+- 쿠폰을 바꾸면 기존 release와 새 reserve를 같은 트랜잭션에서 한다.
+- 취소 복원 시점은 결제·예매가 동의했고 쿠폰 담당 합의를 기다린다.
 
-환불 접수, PG 취소 성공, 고객 카드/계좌 반영은 별개다. NOT_REQUIRED/SKIPPED의 의미는 API 계약 기준이며 돈이 없다는 근거 없이 확정하지 않는다. 사용자는 회차 시작 전 정책에 따라 취소, 시작 후 불가; 회차 취소/확정 실패 보상은 사용자 취소 기한 예외. 부분 환불·취소 수수료 차감은 현재 미지원.
+## 13. 결정 번호
 
-환불 WAITING은 결제 DONE 확인 후 REQUESTED, FAILED 확인 후 SKIPPED; SKIPPED에서 늦은 과금 발견 시 REQUESTED로 재개. 취소 키는 기존 세대 내 유지하고 관리자 재시도에서만 새 세대를 만든다.
+root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측하지 말고 Git 이력·이슈에서 찾거나 담당에게 묻는다.
 
-CouponUsage #27 초안: reservationId 점유, 발급 시 할인액 사용. reserve 시 유효기간 확인, 이후 RESERVED는 만료 배치가 풀지 않음. 유효기간 경과 후 결제 확정도 USED. FAILED→HOLD는 유지, EXPIRED/RELEASED는 해제, CANCELED 시 USED 복원(원래 만료됐으면 EXPIRED). 쿠폰 변경은 기존 release→새 reserve 같은 트랜잭션. 취소 복원 시점은 결제/예매 동의·쿠폰 담당 합의 대기다.
+| 번호 | 뜻 | 상태 |
+|---|---|---|
+| D16 | (결제) 예매 → 결제 준비·승인·조회는 고도화 후에도 Feign 동기. Kafka는 환불 명령, 확정 실패 보상, 확정 결과 전달에만 쓰고 승인 명령·PG 인증값은 싣지 않는다 | 결제 결정. 승인 응답 유지는 결제 계약에 반영 |
+| D17 | (결제) PG는 Feign이 아니라 RestClient + JDK HttpClient로 부른다. 공통 Feign의 `X-User-*` 헤더·오류 변환이 외부 PG에 맞지 않는다 | 구현됨 (#45) |
+| D18 | (결제) 확정할 수 없는 결제는 보상 의도를 영속 저장해 재시작 뒤에도 이어서 처리한다. 로그·지표만으로 완료로 보지 않는다 | 결제 결정. 예매 B19와 범위 합의 대기 |
+| B19 | (예매) "결제는 됐는데 표가 없는" 상태(F6)는 자동 환불로 끝낸다. MVP는 감지·알림·지표만 두고 환불 요청은 트러블슈팅 기간에 붙인다 | 예매 결정. D18과 범위 합의 대기 |
+| F6 | (예매 실패 유형) 이미 끝난 예약이나 다른 시도(orderId 불일치)에 결제 성공이 도착한 경우. 그 orderId로 환불을 요청한다 | 예매 설계 |
+| #22 | 결제는 쿠폰을 처리하지 않는다. 예매가 확정한 정가·할인액만 받아 검증·저장한다 | 합의 (#25에서 예매 담당 승인) |
+| #27 | CouponUsage를 예매 기준(reservationId 점유)으로 바꾸는 계약 | 초안. 쿠폰 담당 합의 대기 |
+| #34 | seat ↔ booking은 facade 패키지의 메서드·타입으로만 서로 부르고, 공유 Clock으로 선점 만료를 계산한다 | 합의 |
+| #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
+| P3·P4 | (Notion) 환불(P3)·승인(P4) Phase 2 전환 안건 | P4는 D16으로 철회, P3는 환불·결과 토픽 미합의 |
+| T3 | (Notion) 취소 상태 이름을 CANCELING·CANCELED로 정한 결정 | 확정 |
+| #25 | (PR) #22 할인액 전달·쿠폰 책임 분리에 예매 담당이 동의한 리뷰 | 합의 근거 |
+| #30 | (PR) fake-pg의 카카오 호환 API 추가 | 구현됨 |
+| #45 | (PR) 토스·카카오 PG 어댑터와 RestClient 기반 처리 | 구현됨 |
+| #48 | (PR) event-service를 performance-service로 변경 | 구현됨 |
+| #57 | (PR 리뷰) 좌석 DDL을 seat.sql로 분리, schema.sql 수정하지 않음 | 담당 합의. 현행 파일은 아직 없음 |
+| B21·B22 | 예매 실패 후 orderId/금액 정리, 중복 승인/만료 경계 처리 | 현행 예매 동작 |
+| B27·B28 | booking.sql 분리, 선점 때 티켓·가격 저장 | 현행 예매 동작 |
+| B31~B33 | 활성 예매 UNIQUE, facade 경계, 공유 Clock | #34 및 현행 구현 기준 |
+| I1~I8 | 인프라 운영·배치의 결정 필요 항목 | infra 8절 참조 |
 
-## 복구·워커 고도화
+api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와 다르다. 구현 상태는 API 절의 표시를 따른다.
 
-- PG 응답은 Approved/Rejected/Unknown으로 분류. 요청 전 연결 실패·명시 거절과 전송 후 timeout/5xx/파싱 오류를 구분. 후자는 Unknown. 429 미처리 보장은 fake 가정이며 실PG는 확인 전 Unknown.
-- payment의 트랜잭션은 별도 `*Transactions` bean에 두어 Spring 프록시를 거친다. 자기 호출로 트랜잭션을 우회하지 않으며 접수/완료 저장과 외부 실행을 나눈다. 예매 스케줄러도 후보 조회/짧은 상태 변경/원격 조회를 분리한다.
-- 승인은 무조건 재전송하지 않고 같은 PG/업무 키로 조회. 결과 불명 중 다른 PG로 승인 전환 금지. 응답 거래ID/주문/금액/상태 및 제공된 가맹점/통화를 대조. 전액 환불 완료도 실제 취소액을 대조.
-- 결제 복구 조회 주기10초, 예매 폴링은 별도. 후보별 예외 격리/공정성/조회 예산 필요. FAILED의 PG 호출 대상은 종료11분·24시간 뒤 최소 대사 계획; Unknown은 체크포인트 소비 안 함. 마지막 대사 후 늦은 실행까지 안전하다는 보장은 없음. reconciled_at 이행은 tables 참조.
-- 환불 불명은 REQUESTED 유지+기존 키 조회/재시도, 한도 이후 REQUESTED 그대로 차단/경보. 업무 거절은 FAILED, 관리자 retry는 cancel_attempt 증가·새 취소 세대, unblock은 기존 세대 자동 복구 재개. 늦은 이전 거절이 새 성공을 덮지 않게 상태/세대 확인.
-- 순서: 동기 기준선 → 환불/복구 실행 풀 분리 → 같은 payment 코드/DB의 API·워커 프로세스 분리 → Kafka 직접 실행과 Inbox 인계 비교. 별도 업무 서비스가 아님. 준비/Inline 승인은 유지.
-- 기존 IN_PROGRESS/REQUESTED/next_attempt_at을 영속 작업으로 활용. 별도 job 테이블 기본 추가 금지. 복잡한 다단계가 필요할 때만 설계. API와 워커가 같은 최초 환불 실행을 이중 수행하지 않도록 역할별 scheduler/consumer/publisher 설정.
-- Kafka 수신은 **Inbox(processed_event 역할)+환불 의도/WAITING·REQUESTED 같은 트랜잭션 커밋 → offset**. PG 실행은 별도 워커. eventId 중복 제거와 orderId 업무 멱등은 둘 다 필요. Inbox만 먼저 저장 금지.
-- Outbox는 발신 상태와 발행 의도를 같이 저장, ACK 유실 재발행 전제. Kafka 발행/결제 DB 인수/PG 완료를 구분해 접수 확인 방식을 합의한다. final fact만 결과 이벤트로 발행. 승인 인증값은 메시징 저장소에 싣지 않음.
-- 점유는 짧은 FOR UPDATE SKIP LOCKED 트랜잭션→커밋→외부 호출→결과 재확인. 임대 만료로 이전 외부 호출이 취소되는 것은 아님. 실행 소유/세대·PG 멱등·조회·보상을 함께 사용.
-- PG별 승인/환불/조회 동시성·초당 호출·총 인스턴스 예산 제한, 조회/복구 자원 예약. 큐 용량/최대 대기/포화 정책 설정. 이미 인수한 환불 드롭 금지. DLT는 실패 보관/운영 재처리이며 완료가 아님.
+## 14. 미합의·구현 차이 — 여기서만 관리
 
-## 필수 구현·검증 관문
+확정 정책은 다시 협의 대상으로 돌리지 않는다. 아래는 구현 연결·이행 또는 남은 충돌의 담당 확인 목록이다. 일부 코드가 존재해도 서비스 연동 전체가 구현됐다는 뜻은 아니다.
 
-아래는 기존 reliability R01~R18과 작업 완료 조건을 압축한 요구사항이다. 미실행 항목은 미완료이며 문서 통합으로 삭제되지 않는다.
-
-| ID·시점 | 반드시 검증할 경계 |
-|---|---|
-| R01 MVP | 준비 동시/역순/재시작, 오래된 카카오 tid 응답이 새 시도/종료 상태를 덮지 않음; 예매와 직렬화/세대 계약 합의 |
-| R02 MVP | HTTP200+READY_FAILED 매핑, 서버 계산 금액·음수/초과할인/정수 범위 |
-| R03 MVP | 승인 중복·인증값 재사용·만료 경계·접수된 READY 대체 금지 |
-| R04 MVP | 타거래/누락/비정상 금액 성공 응답 거절, 실제 전액 취소 검증 |
-| R05 MVP | PG 성공 후 DB 실패/DB 커밋 후 응답 유실/호출 전 종료/조회 장애 |
-| R06 MVP | A시도 시한종료 후 B성공·A늦은승인, A만 보상; 일시 복수 과금 금액/노출시간 |
-| R07 MVP/운영 전 | 대사 체크포인트 점유·재시작·Unknown 재조회, 지연 실행·PG 보장 검증 |
-| R08 MVP→고도화 | 59/60초 경계와 실제 실행 지연 분리, 느린 조회로 묶음 지연/공정성/최고 나이 |
-| R09 MVP→고도화 | 다중 실행·재인수·구 워커 늦은 성공/거절의 최신 상태 역전 방지 |
-| R10 MVP | 영구 확정 불가의 영속 보상·재시작, 로그/지표만으로 완료 판정 금지 |
-| R11 MVP | CANCELING 저장/전송/접수응답/CANCELED 저장 각각 중단·복구, 환불 실패로 티켓 부활 금지 |
-| R12 MVP | 좌석/예약/쿠폰 원자 롤백·갱신행 부족·이전 orderId 격리 |
-| R13 고도화 | Outbox ACK 유실·DB/offset 사이 종료·다른 eventId 같은업무·역순·DLT 재처리 |
-| R14 고도화 | 대량환불 포화에서 일반승인/조회 보호·합산PG예산·미인수/인수작업 구분 |
-| R15 MVP/운영 전 | 관리자/상태 전이 이력(전후상태,거래ID,세대,시각,작업자,사유,PG근거), 미완료 목록·건수/금액/나이·담당·경보·종료 근거. 이력 스키마 미정 |
-| R16 MVP | 내부/관리자 무권한 접근·위조헤더 거절, 오류/URL/로그/이력/DLT 비밀값 제거 |
-| R17 운영 전 | DONE/CANCELED 포함 전체 PG 대사·외부취소/부분취소/내부누락; 웹훅 채택 시 공식 진위검증·중복/역순/유실복구 |
-| R18 운영 전 | 버전별 DDL 이행·미완료작업 보존·백업복원 후 PG 재대조, RPO/RTO·재개 승인자 |
-
-Saga 완료는 재시작 후 다음 작업 발견·일시 실패 재시도·영구 실패 보상·접수 유실 재개·로컬 원자성·미완료 운영 인수를 연결 시험으로 증명해야 한다. Kafka/별도 saga 테이블 존재 또는 결제 단독 가짜 포트 시험만으로 완료가 아니다. 기존 Task 매핑: 1-1(경계합의),7~12/12-1(MVP),10-1(이력/운영),13~18(성능·Kafka),19/21/21-1(전체대사·실PG·운영).
-
-## 측정·예상 한계
-
-| 비교/장애 | 지표·판정 |
-|---|---|
-| 정상·TOSS/KAKAO 혼합 | 같은 자원/데이터/PG 한도에서 접수RPS와 승인 DB커밋 완료TPS 분리, p50/p95/p99·오류·금액 대조 |
-| 거절·처리전5xx·전송후유실·지연승인·조회실패·429 | 고정 장애 설정/실행조건 기록, Unknown 복구·1분 판정 지연·AUTO_VOID 완료·중복/누락 금액 |
-| 중복·만료·동시환불·프로세스종료 | 위 R 행렬 자동화, PG/payment/booking 대조; 측정 전후 미해소 건수·금액0 또는 담당 인수 |
-| 순차HTTP→제한병렬HTTP→Kafka직접→Inbox워커 | 총자원/PG예산 고정. 병렬화 효과와 Kafka 효과 구분. 환불 접수/완료, 일반승인/조회p95,p99,DB풀/락/CPU,PG동시수·429 |
-| 적체·복구 | Kafka lag만 보지 않고 Outbox/DB작업 최고대기·건수·미환불금액·최장 Unknown·복구시간 |
-| 쿠폰발급+좌석선점 동시 부하 | 같은 reservation 프로세스/DB 경합과 사용자별1장/수량 불변식 |
-
-동기 MVP는 느린 PG가 HTTP 스레드/실행 풀을 점유하고 복구 후보 순차 조회가 밀릴 수 있다. Kafka는 버퍼링·재시작·격리에 유리하지만 같은 PG/DB 한도에서 완료TPS 자동 증가를 보장하지 않는다. 측정 결과는 이슈/PR에 커밋·장비·컨테이너 자원·seed/설정·부하·지속시간·원본 결과·개선 전후·최종 정합성을 기록한다. 목표값/시나리오는 실측 결과로 보고하지 않는다.
-
-기존 실험 입력(측정값 아님): MVP PG50ms/실패0 기준선, 지연1·3·5초, 승인한도50건/초; 고도화 환불5,000건+일반요청, 서비스30초 중지, 확장 정산100만건. 단독 payment→PG 비교가 주 실험이고 전체 Gateway→예매 연결은 영향 확인용이다. 워밍업 뒤3회·중앙값, 한 번에 변수 하나 변경. 총 CPU/메모리/DB풀 합계 고정, 목표/실제 유입률·k6 dropped_iterations도 기록한다.
-
-| 장애 행렬 | 고정 입력·기대 결과 |
-|---|---|
-| 4a 처리전 실패 | CONFIRM serverErrorRate=1 → PG 미승인이어도 호출자는 Unknown/조회로 확정 |
-| 4b 명시 거절 | CONFIRM failRate=1 → REJECTED, 자동 승인 재전송 없음 |
-| 4c 승인 응답 유실 | CONFIRM responseLossRate=1,holdMs>read timeout → 조회 DONE 또는 시한 뒤 AUTO_VOID |
-| 4d 지연 승인 | delayedApprovalRate=1,delayedApprovalMs=70000; PG_UNRESOLVED 목표면 INQUIRE 장애도 설정 → FAILED 유지·늦은 과금만 환불 |
-| 4e/4f 환불 장애 | CANCEL serverErrorRate=1 또는 responseLossRate=1 → REQUESTED 유지·동일 키/조회 복구·실제 취소1회 |
-| 4g 조회 장애 | INQUIRE serverErrorRate=1 또는 latencyMs>timeout → 승인/취소 사실과 조회 실패 구분 |
-| 4h 환불 거절 | CANCEL failRate=1 → FAILED·경보, 관리자 retry의 새 취소 세대로 재개 |
-
-확률1 단일 장애 검증 후 0/1%/10% 부하로 확대하고 실제 적용 건수/분모를 기록한다. responseLossRate는 TCP 단절이 아니라 처리 후 holdMs 대기·500 반환 모사다. 설정 PUT의 생략 항목은 기존 값 유지가 아니라 기본값으로 초기화된다. 특정 orderId/시도별 강제 시나리오·seed/거래ID 기반 선택은 추가 구현 필요(현재 Random 재현 보장 없음). 장애 해제 후 관찰 기간·24시간 대사 미관찰 구간을 남긴다.
-
-## 미합의·구현 차이 — 여기서만 관리
-
-| 항목 | 필요한 결정/후속 작업 |
-|---|---|
-| 준비 순서 R01 | 예매의 준비 직렬화/영속 점유/세대 검증, 오래된 원격 시도 차단, READY_FAILED 매핑 |
-| 결제 연결 필드 | sellerId/performanceId 확보 경로·스냅샷. 현재 판매 검증 응답에는 두 필드 없음; 임의 추가 금지 |
-| CouponUsage #27 | 쿠폰 담당의 인자/반환/상태·취소 복원 합의와 실제 이전·DDL·호출 연결 |
-| 예매 보상/취소 | CANCELING enum/CHECK/집계/복구 구현(부분UNIQUE는 이미 포함), B19와 R10 범위 합의 |
-| 회차 취소 | 공연202만 확정. 공연→예매 URI·payload·영속재시도 주체·결제중보호·좌석재판매차단·PG환불진행 조회 합의. reservation-summary 건수만으로 PG환불 완료 판단 금지 |
-| 삭제 전 조회 | 공연/회차의 예매 존재 확인·오류·조회 불가 정책 계약 |
-| 연령·회원탈퇴 | 나이 미달 차단의 생년월일/기준시각/ageRating 전달, 진행 예매/공연 보유 회원 탈퇴 정책 |
-| 시간·시각화·페이징 | 공통 Offset 직렬화 이행, Page DTO/size 통일; 현행 형식 차이는 conventions/API 참조 |
-| 입장·캐시 | 공연단위 토큰TTL10분, 좌석조회/선점에만 적용. 발급/조회응답·Redis키·오픈전 진입·잔여석캐시TTL 미정 |
-| 만료 직전 요청 | payment.expiresAt=holdExpiresAt 경계·전송 중 만료 처리·grace 합의 |
-| 내부 보안·운영 | 서비스/관리자 호출 인증·감사주체·이력스키마·재처리 승인·미완료경보 합의 |
-| 추가 API | 티켓 조회/관리자예매목록/전체공연취소는 현행 계약 없음. 공연 전체는 회차별 취소 |
-| 공연 세부 | 등급/좌석 미존재 오류 코드, 공개정적배치 접근권한, 좌석준비 URI/타임아웃/자동재시도/영구실패 운영 |
+| 항목 | 현재 근거·필요한 결정/후속 작업 | 관련 담당 |
+|---|---|---|
+| 준비 순서 | 같은 예매 준비의 직렬화/영속 소유 방식, 오래된 원격 시도 차단, READY_FAILED 매핑. 타임아웃 재전송은 같은 orderId 유지 제안 | 예매·결제 |
+| 결제 연결 필드 | sellerId/performanceId 확보 경로·스냅샷. 현재 판매 검증 DTO에는 없음; 임의 추가 금지 | 예매·공연·결제 |
+| CouponUsage #27 | 인자/반환/상태·취소 복원 합의와 실제 이전·DDL·호출 연결 | 예매·쿠폰 |
+| 할인액 경계 | 예매 원본은 min(쿠폰액,max(0,정가-100)), 결제는 보정 없이 검증. 예매의 실제 보정/쿠폰 거절 경계와 구현 연결 확인 | 예매·쿠폰·결제 |
+| checkout DTO | couponId/paymentWindowUrl/선택 pgProvider에서 userCouponId/checkoutUrl/필수 pgProvider로 이행. 목표는 기존 합의 | 예매·결제 |
+| 좌석 ID 필드명 | 현행 seatIds에서 scheduleSeatIds(길이1)로 직렬화 이행 | 예매·좌석 |
+| 취소·보상 | CANCELING domain enum/CHECK/집계/복구 미구현(활성 UNIQUE·facade enum은 포함). F6의 B19(감지·알림)와 D18(보상 의도 영속 저장) MVP 범위 조율 | 예매·좌석·결제 |
+| 취소 거절 복귀 | 원본 CANCELING→CONFIRMED가 접수 전 정책 거절인지 확인. 인수한 환불의 PG 실패로 티켓을 복구하지 않는 계약 유지 | 예매·결제 |
+| 회차 취소 | 공연202만 확정. 전달 URI/payload/영속 재시도 주체·결제중 보호·신규 판매 차단·PG 환불 조회 합의. reservation-summary만으로 PG 환불 완료 판단 금지 | 공연·예매·좌석·결제 |
+| 삭제 전 조회 | 공연/회차 삭제의 예매 존재 확인·오류·의존 조회 불가 정책 계약 | 공연·예매 |
+| 연령·탈퇴 | 미달 차단에 필요한 생년월일/기준시각/ageRating 전달, 진행 거래·공연 보유 회원 탈퇴 정책 | 회원·공연·예매 |
+| 시각·페이징 | +09:00 Offset 공통 목표의 DTO별 이행, Page DTO/size 통일. 감사 주체 정책과 직렬화 형식은 구분 | 전 도메인 |
+| 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답·회차→공연 검증·Redis 키·오픈 전 진입·잔여석 캐시TTL 결정 | 대기열·좌석·Gateway |
+| 만료 직전 요청 | payment.expiresAt=holdExpiresAt 경계·전송 중 만료 처리·grace 합의 | 예매·결제 |
+| Feign timeout | 현행 예매15초와 결제20초 제안의 실행 예산 조율 | 예매·결제 |
+| 조회404·취소 오류 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409; NOT_CANCELLABLE의 HTTP/기간 정책 확정 필요 | 예매·결제 |
+| 금액 타입 | payment_amount 및 원본 discount_amount BIGINT에서 공통 INT 목표로 DDL·DTO 이행 범위·시점 | 예매·결제 |
+| 내부 보안·운영 | 서비스/관리자 인증·감사 주체·이력 스키마·재처리 승인·미완료 경보 합의 | 플랫폼·각 도메인 |
+| 추가 API | 티켓 조회/관리자 예매 목록은 현행 계약 없음. 전체 공연 취소 API는 제공하지 않고 회차별 취소 | 예매·공연 |
+| 좌석 준비 통신 | #54 공연 MVP Feign과 좌석 원본 Kafka 차이. URI·응답·timeout·자동 재시도·영구 실패 운영·전환 일정 확정 | 공연·좌석 |
+| 공연 복원 검토 | 등급/좌석 미존재 오류, 공개 정적배치 권한, 취소 목록 포함, 공개검증, salesStatus/period 대상 회차 확인. 공개 wrapper/숫자ID/UNAUTHORIZED는 공통 기준 유지 | 공연·좌석 |
+| 판매 검증 경계 | 중지 후 기존 유효 HOLD 결제 허용은 기존 정책. 취소 경합·판매 마감 이후 확정 경계·필요한 재검증 확인 | 공연·예매·좌석 |
+| 결과·환불 토픽 | 토픽·스키마·버전, paidAmount/amount 및 reason/failureType/failureCode 명칭, 수신/DB 인계/PG 완료를 구분한 접수 보장 합의. 승인 토픽은 D16으로 철회 | 예매·결제 |
+| 쿠폰 발급 방식 | 현재 동기201 유지. Kafka202 전환 대상·접수 보장·시점 미합의 | 쿠폰·플랫폼 |
+| 잔여석 이벤트 | 소유는 seat. performance 카운터·seat.status.changed 도입 여부와 조회 구현 연결 확인 | 좌석·공연 |
+| 좌석 상태 CHECK | AVAILABLE/HOLD/SOLD와 예약ID/만료시각 일관성 CHECK 추가 여부. 기존 의미를 새 DDL 제약으로 단정하지 않음 | 좌석 |
+| Facade 조회 경계 | 모든 메서드 MANDATORY. getReservation은 호출자 트랜잭션에서 비잠금 사전 조회, 좌석→예약 변경 순서 유지 | 좌석·예매 |
+| 실제 Gateway 경로 | 공통 계약 경로와 현행 하위 라우팅의 이행 확인. HOLD_EXPIRED는 합의·현행409 유지, 이전410을 재적용하지 않음 | 공연·좌석·예매·Gateway |
+| fake-pg 결제창 경로 | 브라우저 접근 경로는 미구현. Gateway 라우트가 없고 서비스 포트를 외부에 열지 않는 배포 기준과 연결 필요 | 플랫폼·결제 |
+| 대기열 분리 | 별도 서비스 분리는 측정 후 결정 | 대기열·플랫폼 |

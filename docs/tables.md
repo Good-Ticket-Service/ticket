@@ -2,7 +2,7 @@
 
 기준: develop 7a48c5e. `현행`은 아래 SQL에 존재, `설계`는 DDL 미반영이다. 서비스 간 물리 FK 없음. 모듈 간 참조도 합의된 FK만 둔다. 업무 규칙은 [architecture.md](architecture.md).
 공통 감사 A=`created_at TIMESTAMP NOT NULL,created_by VARCHAR(100) NOT NULL,updated_at TIMESTAMP NOT NULL,updated_by VARCHAR(100) NOT NULL,deleted_at TIMESTAMP NULL,deleted_by VARCHAR(100) NULL`. A가 붙은 테이블에서 반복하지 않는다.
-PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와 목표 INT 차이는 마지막 표 참조. 시각은 KST, 공연 업무 시각 TIMESTAMP(3), 감사 시각 TIMESTAMP.
+PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와 목표 INT 차이는 마지막 표 참조. 시각은 KST, 공연 업무 시각 TIMESTAMP(3), 감사 시각 TIMESTAMP. 원본 복원 출처는 api 머리말처럼7a48c5e Git 이력 기준이며 담당 확인 표시는 새 합의를 요구하는 표시가 아니다.
 
 ## 현행 DDL
 
@@ -348,6 +348,15 @@ performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 
 - `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
 
 
+
+### 공연 테이블의 관계·계산 제약 복원
+
+- 물리 좌석의 venue_seat_grade_id와 좌석의 venue_id는 같은 공연장이어야 한다. 가격의 등급과 제외 좌석도 해당 performance의 venue_id에 속해야 한다. (원본 복원: performance/tables.md:160-230, 담당 확인 필요)
+- 공연별 가격 행이 없으면 가격 누락이다. 판매 대상의 가격 미설정을0원으로 저장하지 않는다. 모든 좌석이 제외된 등급만 가격 행을 생략할 수 있다. (원본 복원: performance/api.md:320-329, 담당 확인 필요)
+- p_performance_seat_policies는 해당 공연의 제외 좌석만 담는다. 미삭제 제외 행이 없으면 판매 후보이며 등급/가격은 이 행에서 덮어쓰지 않는다. (원본 복원: performance/tables.md:280, 담당 확인 필요)
+- 가격·제외 집합 교체는 DRAFT에서 기존 행을 소프트 삭제하고 새 행을 만든다. 부모 삭제 후에도 참조 이력은 유지하며 부모 삭제 여부로 조회를 차단한다. (원본 복원: performance/tables.md:130-139, 담당 확인 필요)
+- 회차 취소는 소프트 삭제와 다르고 취소 회차 재개는 허용하지 않는다. period를 미삭제·미취소 회차로 계산하는 것은 원본의 구현 제안이다. salesStatus의 우선순위/정각 경계는 #54 원본을 아래 계산 필드에 보존하며 담당 확인 대상이다. (원본 복원: performance/tables.md:110-139; performance/api.md:450-467, 담당 확인 필요)
+
 ## 추가 제약·차이
 
 다음은 최신 결제 설계의 추가 필드다. 현재 SQL에 없는 항목을 누락하거나 현행 구현으로 오인하지 않도록 별도로 둔다.
@@ -365,10 +374,10 @@ performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 
 | 공연 조회 인덱스 | p_venue_seats(venue_id,venue_seat_grade_id);p_performances(seller_id,deleted_at),(publication_status,genre,id);p_schedules(performance_id,booking_open_at) |
 | 공연 FK | 같은 performance_schema 내 venue/grade/seat/performance/schedule 관계만. schedule_seat은 외부 참조 |
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
-| 회차 좌석 설계 | UNIQUE(schedule_id,venue_seat_id); INDEX(schedule_id,is_sellable,status), INDEX(status,hold_expires_at), INDEX(reservation_id). AVAILABLE이면 예약/만료 NULL, HOLD이면 예약/만료 필수, SOLD이면 예약 필수·만료 NULL. 해당 CHECK 추가는 미합의 |
-| 예매 쿠폰(추가 설계) | p_reservations.user_coupon_id BIGINT NULL, discount_amount INT NULL. DDL 미반영. 보정 없이 최종100원 미만 거절 |
-| 예매 금액 | payment_amount 현행 BIGINT, 목표 INT. discount_amount 초안의 BIGINT/할인 보정 문구는 폐기. 변경은 구현 PR의 DDL 이행 필요 |
-| 예매 CANCELING | 활성 UNIQUE에는 포함되지만 현행 enum/CHECK에는 미반영. 취소 구현 시 enum/CHECK/집계 추가 |
+| 회차 좌석 설계 | UNIQUE(schedule_id,venue_seat_id); INDEX(schedule_id,is_sellable,status), INDEX(status,hold_expires_at), INDEX(reservation_id). AVAILABLE이면 예약/만료 NULL, HOLD이면 예약/만료 필수, SOLD이면 예약 필수·만료 NULL. 해당 CHECK 추가는 미합의이며 architecture 14절 참조 |
+| 예매 쿠폰(추가 설계) | user_coupon_id BIGINT NULL, discount_amount 원본 초안 BIGINT NULL. DDL 미반영. 예매 할인액은 min(쿠폰액,max(0,정가-100)) 원본안을 복원하며 결제는 보정 없이 검증한다. 타입 이행·경계는 architecture 14절 |
+| 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
+| 예매 CANCELING | 활성 UNIQUE에는 포함되지만 현행 domain enum/CHECK에는 미반영(facade enum에는 포함). 취소 구현 시 enum/CHECK/집계 추가 |
 | 티켓 가격 | 현행 CHECK(price>=0), 판매 정책 목표>0. 무료 결제 경로 없음 |
 | 대사(추가 설계) | 현행 p_payments.reconciled_at을 reconcile_count/next_reconcile_at으로 이행 예정. 아직 현행 필드로 취급하지 않음 |
 | 고도화(설계 전) | Outbox/Inbox/영속 작업/전이 이력의 물리 테이블·컬럼·보존 기간은 미정. Kafka 도입 때 스키마 확정 |
@@ -382,10 +391,10 @@ performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 
 | Performance.genre / ageRating | CONCERT,MUSICAL,PLAY,SPORTS / ALL,12,15,19 |
 | Performance.publicationStatus / operationStatus | DRAFT,PUBLISHED / ACTIVE,CANCELED |
 | Schedule.seatSetupStatus | PENDING,READY,FAILED |
-| Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE |
-| Performance.period(비저장) | 미삭제 회차 start_at의 최소/최대 날짜, 회차 없으면 null |
+| Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE(원본: performance/api.md:463-467; 담당 확인 필요) |
+| Performance.period(비저장) | 구현 제안: 미삭제·미취소 회차 start_at의 최소/최대 KST 날짜, 대상 없으면 null(원본: performance/tables.md:206,298; 담당 확인 필요) |
 | SeatState | AVAILABLE,HOLD,SOLD |
-| ReservationState | HOLD,PAYMENT_IN_PROGRESS,CONFIRMED,EXPIRED,RELEASED,CANCELED; CANCELING 추가 예정 |
+| ReservationState(facade) / ReservationStatus(domain) | facade에는 CANCELING 포함. 현행 domain/CHECK에는 CANCELING 없음. 나머지는 HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/EXPIRED/RELEASED/CANCELED |
 | Coupon.issueStatus(비저장) | now<start:UPCOMING;start<=now<end:ISSUING;그 밖 ENDED. 수량0이어도 ISSUING 가능 |
 | Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
