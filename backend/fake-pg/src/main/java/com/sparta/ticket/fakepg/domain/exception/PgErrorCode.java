@@ -4,7 +4,8 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 토스페이먼츠 오류 코드 중 fake PG가 내는 값. 응답 본문은 {@code {"code": ..., "message": ...}} 형식이다.
+ * fake PG가 내는 오류. 이름은 토스페이먼츠 오류 코드를 따른다(NOT_AUTHENTICATED_PAYMENT는 카카오 전용).
+ * 토스 API는 {@code {"code", "message"}}로, 카카오 API는 카카오 오류 코드로 바꿔 응답한다.
  *
  * Note: {@code stored}는 멱등 키에 저장해 재요청 때 그대로 재현할 응답인지다. PG가 처리를 끝내고 낸 업무 응답만 저장하고,
  * 처리 전에 막힌 응답(5xx, 429, 동시 처리 중)은 저장하지 않는다. 그래야 같은 키로 다시 보내면 처리가 이어진다.
@@ -15,6 +16,7 @@ public enum PgErrorCode {
     INVALID_REQUEST(400, true, "잘못된 요청입니다."),
     ALREADY_PROCESSED_PAYMENT(400, true, "이미 처리된 결제입니다."),
     ALREADY_CANCELED_PAYMENT(400, true, "이미 취소된 결제입니다."),
+    NOT_AUTHENTICATED_PAYMENT(400, true, "사용자 결제 인증이 완료되지 않았습니다."),
     UNAUTHORIZED_KEY(401, false, "인증되지 않은 시크릿 키입니다."),
     REJECT_CARD_PAYMENT(403, true, "한도초과 혹은 잔액부족으로 결제에 실패했습니다."),
     NOT_CANCELABLE_PAYMENT(403, true, "취소할 수 없는 결제입니다."),
