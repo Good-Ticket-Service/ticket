@@ -4,19 +4,19 @@
 - 담당:
 - 출처: Notion "도메인별 API 명세"의 회원 항목 (2026-10-26 기준). 담당자가 검토하며 고친다.
 
-외부 API(`/api/v1/**`)만 둔다. 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다.
+외부 API(`/api/**`)만 둔다. 회원 경로는 Notion 공통 계약의 외부 기본 경로(`/api`) 결정에 따라 `v1`을 쓰지 않는다(#24). 공통 헤더·응답 형식은 [shared/conventions.md](../shared/conventions.md)를 따른다.
 
 ## 1. 외부 API
 
 | Method | URI | 권한·허용 호출자 | 성공 HTTP | 기능 |
 |---|---|---|---|---|
-| POST | `/api/v1/auth/signup` | 누구나 | 201 | 회원가입 |
-| POST | `/api/v1/auth/login` | 누구나 | 200 | 로그인 |
-| GET | `/api/v1/users/me` | 본인 JWT 토큰을 가진 회원 | (미기재) | 내 정보조회 |
-| PATCH | `/api/v1/users/me` | 본인 JWT 토큰을 가진 회원 | 200 | 내 정보수정 |
-| DELETE | `/api/v1/users/me` | 본인 JWT 토큰을 가진 회원 | (미기재) | 회원탈퇴 |
+| POST | `/api/auth/signup` | 누구나 | 201 | 회원가입 |
+| POST | `/api/auth/login` | 누구나 | 200 | 로그인 |
+| GET | `/api/users/me` | 본인 JWT 토큰을 가진 회원 | (미기재) | 내 정보조회 |
+| PATCH | `/api/users/me` | 본인 JWT 토큰을 가진 회원 | 200 | 내 정보수정 |
+| DELETE | `/api/users/me` | 본인 JWT 토큰을 가진 회원 | (미기재) | 회원탈퇴 |
 
-### POST /api/v1/auth/signup — 회원가입
+### POST /api/auth/signup — 회원가입
 
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
@@ -49,7 +49,7 @@
 }
 ```
 
-### POST /api/v1/auth/login — 로그인
+### POST /api/auth/login — 로그인
 
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
@@ -78,7 +78,7 @@
 }
 ```
 
-### GET /api/v1/users/me — 내 정보조회
+### GET /api/users/me — 내 정보조회
 
 - 권한·허용 호출자: 본인 JWT 토큰을 가진 회원
 - 필수 헤더: `Authorization: Bearer <token>`
@@ -103,7 +103,7 @@
 }
 ```
 
-### PATCH /api/v1/users/me — 내 정보수정
+### PATCH /api/users/me — 내 정보수정
 
 - 권한·허용 호출자: 본인 JWT 토큰을 가진 회원
 - 필수 헤더: `Authorization: Bearer <token>`
@@ -137,7 +137,7 @@
 }
 ```
 
-### DELETE /api/v1/users/me — 회원탈퇴
+### DELETE /api/users/me — 회원탈퇴
 
 - 권한·허용 호출자: 본인 JWT 토큰을 가진 회원
 - 필수 헤더: `Authorization: Bearer <token>`
