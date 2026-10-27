@@ -9,7 +9,7 @@
 
 ## 1. 공통 규칙
 
-- 경로는 `/api/v1/reservations/**`다. Gateway가 reservation-service로 보낸다.
+- 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). Gateway가 reservation-service로 보낸다. 지금 Gateway 라우트는 아직 `/api/v1/reservations/**`이고 gateway 후속 작업에서 바꾼다.
 - 인증은 `Authorization: Bearer {accessToken}`이다. Gateway가 토큰을 검증하고 `X-User-Id`, `X-Username`, `X-User-Role`을 넣는다. 클라이언트가 보낸 `X-User-*`는 Gateway가 지운다.
 - 회원(`USER`)은 본인 예매만 다룬다. 관리자(`MASTER`)는 모든 예매를 조회할 수 있다. 본인 확인은 서비스가 한다.
 - 예매·회차·좌석·쿠폰 ID는 BIGINT 정수, 회원 ID는 UUID 문자열, 금액은 원 단위 정수, 시각은 오프셋 없는 KST(`2026-11-01T20:10:00`)다.
@@ -26,7 +26,7 @@
   "status": 409,
   "code": "HOLD_EXPIRED",
   "message": "좌석 선점 시간이 지났습니다.",
-  "path": "/api/v1/reservations/3001/payments/confirm",
+  "path": "/api/reservations/3001/payments/confirm",
   "timestamp": "2026-11-01T20:10:01"
 }
 ```
@@ -58,10 +58,10 @@
 ### 결제 흐름
 
 ```txt
-① 준비  POST /api/v1/reservations/{id}/payments/checkout  → orderId, 결제 금액, 결제창 URL
+① 준비  POST /api/reservations/{id}/payments/checkout  → orderId, 결제 금액, 결제창 URL
 ② 인증  사용자가 PG 결제창에서 인증한다. 예매 서비스는 관여하지 않는다
-③ 승인  POST /api/v1/reservations/{id}/payments/confirm   → 예매 상태
-④ 폴링  ③의 응답이 PAYMENT_IN_PROGRESS면 GET /api/v1/reservations/{id}로 결과를 기다린다
+③ 승인  POST /api/reservations/{id}/payments/confirm   → 예매 상태
+④ 폴링  ③의 응답이 PAYMENT_IN_PROGRESS면 GET /api/reservations/{id}로 결과를 기다린다
 ```
 
 좌석 선점(`POST /api/schedules/{scheduleId}/holds`)은 [좌석 도메인](../seat/api.md)에 있다. 선점이 성공하면 같은 트랜잭션에서 예매가 HOLD로 만들어진다.
@@ -70,13 +70,13 @@
 
 | Method | URI | 권한·허용 호출자 | 성공 HTTP | 기능 | 구현 |
 |---|---|---|---|---|---|
-| GET | `/api/v1/reservations/{reservationId}` | 본인 회원(USER), 관리자(MASTER) | 200 | 예매 상태 조회 | 구현 (develop 머지 전) |
-| POST | `/api/v1/reservations/{reservationId}/payments/checkout` | 본인 회원(USER) | 200 | 결제 준비 | 구현 (develop 머지 전) |
-| POST | `/api/v1/reservations/{reservationId}/payments/confirm` | 본인 회원(USER) | 200 | 결제 승인 | 구현 (develop 머지 전) |
-| GET | `/api/v1/reservations` | 회원(USER) | 200 | 내 예매 목록 | 제안 |
-| POST | `/api/v1/reservations/{reservationId}/cancel` | 본인 회원(USER) | 200 | 예매 취소 | 제안 |
+| GET | `/api/reservations/{reservationId}` | 본인 회원(USER), 관리자(MASTER) | 200 | 예매 상태 조회 | 구현 (develop 머지 전) |
+| POST | `/api/reservations/{reservationId}/payments/checkout` | 본인 회원(USER) | 200 | 결제 준비 | 구현 (develop 머지 전) |
+| POST | `/api/reservations/{reservationId}/payments/confirm` | 본인 회원(USER) | 200 | 결제 승인 | 구현 (develop 머지 전) |
+| GET | `/api/reservations` | 회원(USER) | 200 | 내 예매 목록 | 제안 |
+| POST | `/api/reservations/{reservationId}/cancel` | 본인 회원(USER) | 200 | 예매 취소 | 제안 |
 
-### GET /api/v1/reservations/{reservationId} — 예매 상태 조회
+### GET /api/reservations/{reservationId} — 예매 상태 조회
 
 - 권한·허용 호출자: 본인 회원(USER), 관리자(MASTER)
 - 필수 헤더: Authorization
@@ -98,7 +98,7 @@
 | orderId | string 또는 null |
 | paymentAmount | integer 또는 null |
 
-### POST /api/v1/reservations/{reservationId}/payments/checkout — 결제 준비
+### POST /api/reservations/{reservationId}/payments/checkout — 결제 준비
 
 - 권한·허용 호출자: 본인 회원(USER)
 - 필수 헤더: Authorization, `Content-Type: application/json`
@@ -121,7 +121,7 @@
 | amount | integer |
 | paymentWindowUrl | string 또는 null |
 
-### POST /api/v1/reservations/{reservationId}/payments/confirm — 결제 승인
+### POST /api/reservations/{reservationId}/payments/confirm — 결제 승인
 
 - 권한·허용 호출자: 본인 회원(USER)
 - 필수 헤더: Authorization, `Content-Type: application/json`
@@ -138,7 +138,7 @@
 
 응답: `ReservationResponse` (예매 상태 조회와 같음). status는 CONFIRMED / HOLD / EXPIRED / PAYMENT_IN_PROGRESS.
 
-### GET /api/v1/reservations — 내 예매 목록
+### GET /api/reservations — 내 예매 목록
 
 - 권한·허용 호출자: 회원(USER)
 - 필수 헤더: Authorization
@@ -157,7 +157,7 @@
 
 응답 `PageResponse`: `content: ReservationSummary[]`, `page`, `size`, `totalElements`, `totalPages`, `sort`
 
-### POST /api/v1/reservations/{reservationId}/cancel — 예매 취소
+### POST /api/reservations/{reservationId}/cancel — 예매 취소
 
 - 권한·허용 호출자: 본인 회원(USER)
 - 필수 헤더: Authorization, `Content-Type: application/json`
@@ -190,5 +190,5 @@
 | 선점 만료 에러 | 409 HOLD_EXPIRED. 공연 공통 계약 5.12는 410 | 팀 전체 |
 | 결제 승인 응답 | 실패·지연도 200과 예매 상태로 답한다 | T5 |
 | 결제 준비·승인 요청 필드 | `userCouponId`(제안), `pgProvider`, `orderId`, `pgAuthToken` | P1, #27 |
-| 응답 형식 | `/api/v1`, `data` 래퍼, 숫자로 보내는 BIGINT ID, 오프셋 없는 시각. 공연 공통 계약은 `/api`, 래퍼 없음, 문자열 BIGINT, `+09:00`, `traceId` 오류 형식 | 팀 전체 |
+| 응답 형식 | `/api`(경로는 #32로 통일), `data` 래퍼, 숫자로 보내는 BIGINT ID, 오프셋 없는 시각. 공연 공통 계약은 `/api`, 래퍼 없음, 문자열 BIGINT, `+09:00`, `traceId` 오류 형식 | 팀 전체 |
 | 공연 정보 표시 | 목록에 공연 제목·회차 시각·좌석 위치를 넣으려면 공연 서비스 조회나 선점 때 스냅샷이 필요하다 | 공연 담당 |
