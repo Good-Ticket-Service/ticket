@@ -59,6 +59,22 @@ public class CouponService {
         return CouponResult.of(coupon, now);
     }
 
+    /**
+     * 아무도 받지 않은 쿠폰만 논리 삭제한다. 조건 확인과 삭제를 조건부 UPDATE 한 번으로 해서 첫 발급과 경합하지 않는다.
+     * 0행이면 그때 이유를 가른다. 남아 있는 쿠폰이면 이미 발급된 것(409), 없으면 없거나 이미 삭제된 것(404)이다.
+     * Note: 조회를 UPDATE보다 먼저 하면, 그사이 다른 요청이 삭제했을 때 404여야 할 응답이 409가 된다.
+     */
+    @Transactional
+    public void delete(Long couponId, String username) {
+        int deleted = couponRepository.softDeleteIfNotIssued(couponId, username, now());
+        if (deleted == 0) {
+            throw new BusinessException(
+                    couponRepository.existsById(couponId)
+                            ? CouponErrorCode.COUPON_NOT_DELETABLE
+                            : CouponErrorCode.COUPON_NOT_FOUND);
+        }
+    }
+
     private Coupon lockCoupon(Long couponId) {
         return couponRepository
                 .lockById(couponId)
