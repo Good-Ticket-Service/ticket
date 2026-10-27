@@ -23,6 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 쿠폰 관리자 API. 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 CouponService에 넘긴다.
+ * Gateway가 /api/coupons/**를 reservation-service로 보낸다. 명세는 docs/coupon/api.md다.
+ */
 @Tag(name = "쿠폰")
 @RestController
 @RequiredArgsConstructor
@@ -31,6 +35,7 @@ public class CouponController {
 
     private final CouponService couponService;
 
+    /** 쿠폰 생성. 201과 만든 쿠폰을 돌려준다. */
     @Operation(summary = "쿠폰 생성")
     @RequireRole(Role.MASTER)
     @PostMapping
@@ -39,6 +44,7 @@ public class CouponController {
         return ApiResponse.created("쿠폰이 생성되었습니다.", couponService.create(request.toCommand()));
     }
 
+    /** 쿠폰 부분 수정. 보낸 항목만 바꾸고 200과 바뀐 쿠폰을 돌려준다. */
     @Operation(summary = "쿠폰 수정")
     @RequireRole(Role.MASTER)
     @PatchMapping("/{couponId}")
@@ -47,6 +53,7 @@ public class CouponController {
         return ApiResponse.ok(couponService.update(couponId, request.toCommand()));
     }
 
+    /** 쿠폰 발급 중단. 발급 종료 시각을 현재로 당기고 200과 ENDED 상태의 쿠폰을 돌려준다. */
     @Operation(summary = "쿠폰 발급 중단")
     @RequireRole(Role.MASTER)
     @PostMapping("/{couponId}/close")
@@ -54,6 +61,7 @@ public class CouponController {
         return ApiResponse.ok(couponService.close(couponId));
     }
 
+    /** 쿠폰 논리 삭제. 삭제자는 요청한 관리자의 로그인 ID(email)로 기록하고, 204(본문 없음)를 돌려준다. */
     @Operation(summary = "쿠폰 삭제", description = "아무도 받지 않은 쿠폰만 지울 수 있다.")
     @RequireRole(Role.MASTER)
     @DeleteMapping("/{couponId}")

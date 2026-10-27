@@ -58,6 +58,7 @@ public class Coupon extends BaseEntity {
     @Column(nullable = false)
     private int validDays;
 
+    /** 검증을 마친 값으로만 부른다. 외부에서는 create로 만든다. */
     private Coupon(
             String name,
             int discountAmount,
@@ -170,24 +171,29 @@ public class Coupon extends BaseEntity {
         return CouponIssueStatus.ENDED;
     }
 
+    /** 발급 시작 시각이 지났는지. 지난 뒤에는 할인액·시작 시각·유효 일수를 바꿀 수 없다. */
     public boolean isIssueStarted(LocalDateTime now) {
         return !now.isBefore(issueStartAt);
     }
 
+    /** 남은 발급 수량. 컬럼 없이 총 수량에서 발급 수량을 빼서 계산한다. */
     public int getRemainingQuantity() {
         return totalQuantity - issuedQuantity;
     }
 
+    /** 요청한 값이 있고, 그 값이 지금 값과 다르면 true. 보내지 않았거나(null) 같은 값이면 바꾸지 않는 것으로 본다. */
     private static boolean changes(Object requested, Object current) {
         return requested != null && !Objects.equals(requested, current);
     }
 
+    /** 1 이상인지 확인한다. 아니면 400 VALIDATION_ERROR. DB의 CHECK 제약(양수)과 같은 규칙이다. */
     private static void requirePositive(int value, String message) {
         if (value <= 0) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, message);
         }
     }
 
+    /** 발급 종료 시각이 시작 시각보다, 그리고 현재보다 뒤인지 확인한다. 아니면 400 VALIDATION_ERROR. */
     private static void requireValidEnd(LocalDateTime issueStartAt, LocalDateTime issueEndAt, LocalDateTime now) {
         if (!issueEndAt.isAfter(issueStartAt)) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "발급 종료 시각은 발급 시작 시각 이후여야 합니다.");

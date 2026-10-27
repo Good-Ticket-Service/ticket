@@ -20,6 +20,7 @@ public class CouponService {
 
     private final CouponRepository couponRepository;
 
+    /** 쿠폰을 만들어 저장하고, 계산 값(남은 수량, 발급 상태)을 붙여 돌려준다. 발급 수량은 0으로 시작한다. */
     @Transactional
     public CouponResult create(CreateCouponCommand command) {
         LocalDateTime now = now();
@@ -34,7 +35,10 @@ public class CouponService {
         return CouponResult.of(couponRepository.save(coupon), now);
     }
 
-    /** 발급과 같은 행을 바꾸므로 잠그고 읽는다. 총 수량을 발급 수량과 비교할 때 발급이 끼어들지 않는다. */
+    /**
+     * 보낸 항목만 바꾼다. 바꿀 수 있는지는 Coupon.update가 판단하고, 바뀐 값은 트랜잭션이 끝날 때 변경 감지로 저장된다.
+     * 발급과 같은 행을 바꾸므로 잠그고 읽는다. 총 수량을 발급 수량과 비교할 때 발급이 끼어들지 않는다.
+     */
     @Transactional
     public CouponResult update(Long couponId, UpdateCouponCommand command) {
         LocalDateTime now = now();
@@ -75,6 +79,7 @@ public class CouponService {
         }
     }
 
+    /** 쿠폰 행을 잠그고 읽는다. 없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND. */
     private Coupon lockCoupon(Long couponId) {
         return couponRepository
                 .lockById(couponId)

@@ -17,6 +17,7 @@ public record UpdateCouponRequest(
         LocalDateTime issueEndAt,
         @Min(1) Integer validDays) {
 
+    /** 검증을 통과한 요청을 Service가 받는 Command로 바꾼다. 보내지 않은 항목은 null 그대로 넘긴다. */
     public UpdateCouponCommand toCommand() {
         return new UpdateCouponCommand(name, discountAmount, totalQuantity, issueStartAt, issueEndAt, validDays);
     }

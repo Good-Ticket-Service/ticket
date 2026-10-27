@@ -16,6 +16,7 @@ public record CouponResult(
         int validDays,
         CouponIssueStatus issueStatus) {
 
+    /** 쿠폰과 현재 시각으로 응답을 만든다. 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다. */
     public static CouponResult of(Coupon coupon, LocalDateTime now) {
         return new CouponResult(
                 coupon.getId(),
