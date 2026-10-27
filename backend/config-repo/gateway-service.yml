@@ -61,6 +61,7 @@ auth:
   # 인증 없이 통과시키는 경로
   whitelist:
     - /api/auth/signup
+    - /api/auth/seller/signup
     - /api/auth/login
     - /swagger-ui.html
     - /swagger-ui/**
