@@ -3,7 +3,6 @@ package com.sparta.ticket.user.presentation;
 import com.sparta.ticket.user.application.UserQueryService;
 import com.sparta.ticket.user.application.dto.InternalUserResult;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,7 +24,7 @@ public class InternalUserController {
 
     /** Gateway가 토큰을 검증한 뒤 저장된 role·탈퇴 여부를 다시 확인할 때 부른다(60초 캐시). */
     @GetMapping("/{userId}")
-    public InternalUserResult getUser(@PathVariable UUID userId) {
+    public InternalUserResult getUser(@PathVariable Long userId) {
         return userQueryService.getInternalUser(userId);
     }
 }
