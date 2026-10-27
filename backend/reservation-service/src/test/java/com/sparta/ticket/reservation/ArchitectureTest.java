@@ -1,5 +1,7 @@
 package com.sparta.ticket.reservation;
 
+import static com.tngtech.archunit.base.DescribedPredicate.not;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.sparta.ticket.common.support.LayeredArchitectureRules;
@@ -32,11 +34,10 @@ class ArchitectureTest {
             .that()
             .resideInAPackage("com.sparta.ticket.reservation.seat..")
             .should()
-            .dependOnClassesThat()
-            .resideInAnyPackage(
-                    "com.sparta.ticket.reservation.booking.domain..",
-                    "com.sparta.ticket.reservation.booking.infrastructure..")
-            .because("seat는 BookingFacade와 그 요청·응답 타입(booking.application)으로만 booking을 부른다. Feign으로 바꿀 때 그대로 DTO가 된다")
+            .dependOnClassesThat(resideInAPackage("com.sparta.ticket.reservation.booking..")
+                    .and(not(resideInAPackage("com.sparta.ticket.reservation.booking.application.facade.."))))
+            .because("seat는 booking.application.facade의 타입으로만 booking을 부른다(#34, B32). "
+                    + "Feign으로 바꿀 때 이 타입이 그대로 요청·응답 DTO가 된다")
             .allowEmptyShould(true);
 
     @ArchTest
@@ -44,10 +45,8 @@ class ArchitectureTest {
             .that()
             .resideInAPackage("com.sparta.ticket.reservation.booking..")
             .should()
-            .dependOnClassesThat()
-            .resideInAnyPackage(
-                    "com.sparta.ticket.reservation.seat.domain..",
-                    "com.sparta.ticket.reservation.seat.infrastructure..")
-            .because("booking은 SeatFacade와 그 요청·응답 타입으로만 seat를 부른다")
+            .dependOnClassesThat(resideInAPackage("com.sparta.ticket.reservation.seat..")
+                    .and(not(resideInAPackage("com.sparta.ticket.reservation.seat.application.facade.."))))
+            .because("booking은 seat.application.facade의 타입으로만 seat를 부른다(#34, B32)")
             .allowEmptyShould(true);
 }

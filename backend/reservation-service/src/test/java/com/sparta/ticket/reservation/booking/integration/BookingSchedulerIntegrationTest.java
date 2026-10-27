@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
-import com.sparta.ticket.reservation.booking.application.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.ReservationPaymentService;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
+import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Status;

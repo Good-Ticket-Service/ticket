@@ -1,6 +1,6 @@
 package com.sparta.ticket.reservation.booking.support;
 
-import com.sparta.ticket.reservation.booking.application.SeatLine;
+import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
 import java.util.Arrays;
 import java.util.List;
 
