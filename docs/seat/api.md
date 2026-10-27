@@ -34,7 +34,7 @@
 | 좌석 상태 | 조건 | 선택 가능 |
 |---|---|---|
 | AVAILABLE | `is_sellable = true` | 가능 |
-| HOLD | 만료 전 (`hold_expires_at > DB now()`) | 불가 |
+| HOLD | 만료 전 (`hold_expires_at > now`) | 불가 |
 | HOLD | 만료 후, 그 예약이 결제 중(`PAYMENT_IN_PROGRESS`) | 불가 |
 | HOLD | 만료 후, 그 예약이 결제 중 아님 | 가능 (선점 시 예전 예약을 정리) |
 | SOLD | — | 불가 |
@@ -42,6 +42,7 @@
 
 - 만료된 HOLD 좌석의 예약 ID를 모아 `BookingFacade.findPaymentInProgress(reservationIds)`를 한 번 호출한다. 예약 테이블을 직접 JOIN하지 않는다.
 - 좌석과 예약의 `hold_expires_at`은 같은 값이고, 결제 중에도 바꾸지 않는다. 결제 중인 좌석은 예약 상태로 보호한다.
+- `now`는 DB `now()`가 아니라 seat·booking이 함께 쓰는 `Clock` 빈(`ClockConfig`)에서 읽어 쿼리 인자로 넘긴다. 만료 판단, 결제 시작, `hold_expires_at` 계산이 같은 시계를 쓰게 하려는 것이다([#34](https://github.com/Good-Ticket-Service/ticket/issues/34) 쟁점 1).
 
 ---
 
@@ -166,10 +167,10 @@
 5. 재요청 확인: 요청 좌석이 이 회원의 만료 전 HOLD면 기존 예약을 200으로 반환하고 끝낸다.
 6. 본인 만료 HOLD 정리: 다른 좌석에 이 회원의 만료 HOLD가 있으면 예약을 EXPIRED로 바꾸고 그 좌석을 AVAILABLE로 반환한다.
 7. `is_sellable = false`면 409 `SEAT_NOT_SELLABLE`. 좌석의 `config_version`·`base_price`가 검증 응답과 다르면 409 `SEAT_CONFIG_VERSION_MISMATCH`.
-8. 선택 가능 판정(위 표): 만료 전 HOLD·SOLD면 409 `SEAT_ALREADY_TAKEN`. 만료 HOLD면 `findPaymentInProgress`로 확인해 결제 중이면 409 `SEAT_ALREADY_TAKEN`, 아니면 예전 예약을 조건부로 EXPIRED로 바꾼다(`status = HOLD AND hold_expires_at <= DB now()`). 0행이면 그 사이 결제가 시작된 것이므로 409 `SEAT_ALREADY_TAKEN`.
+8. 선택 가능 판정(위 표): 만료 전 HOLD·SOLD면 409 `SEAT_ALREADY_TAKEN`. 만료 HOLD면 `findPaymentInProgress`로 확인해 결제 중이면 409 `SEAT_ALREADY_TAKEN`, 아니면 `BookingFacade.expireIfDue`로 예전 예약을 조건부로 EXPIRED로 바꾼다(`status = HOLD AND hold_expires_at <= now`). 0행이면 그 사이 결제가 시작된 것이므로 409 `SEAT_ALREADY_TAKEN`.
 9. 매수 제한: `BookingFacade.countActiveSeats(userId, scheduleId)`가 1 이상이면 409 `PURCHASE_LIMIT_EXCEEDED`(회원·회차당 1장, 선점 포함).
-10. `BookingFacade.hold(...)`로 예약 HOLD와 티켓을 만든다(티켓 가격 = `base_price`). 예약 테이블의 부분 UNIQUE `uq_reservations_active_user_schedule`를 위반하면 제약 이름을 확인해 트랜잭션 전체를 롤백하고 409 `PURCHASE_LIMIT_EXCEEDED`.
-11. 좌석을 HOLD로 바꾸고 `reservation_id`, `hold_expires_at`(DB now() + 10분)을 기록한다.
+10. `BookingFacade.hold(...)`로 예약 HOLD와 티켓을 만든다(티켓 가격 = `base_price`). 예약 테이블의 부분 UNIQUE `uk_p_reservations_active_user_schedule`를 위반하면 `hold()`가 호출 안에서 예외를 던진다(`saveAndFlush`). seat는 제약 이름을 확인해 트랜잭션 전체를 롤백하고 409 `PURCHASE_LIMIT_EXCEEDED`로 바꾼다.
+11. 좌석을 HOLD로 바꾸고 `reservation_id`, `hold_expires_at`(`Clock` 기준 now + 10분)을 기록한다.
 12. 커밋 후 201.
 
 오류
@@ -216,13 +217,23 @@
 
 처리
 
-1. `BookingFacade`로 예약을 잠금 없이 조회한다(소유 회원, 회차, 상태, 티켓의 좌석 ID). 없거나 경로의 `scheduleId`와 다르면 404, 본인 예약이 아니면 403.
-2. 이미 RELEASED·EXPIRED면 아무것도 바꾸지 않고 204를 돌려준다(같은 요청을 반복해도 안전하다).
-3. 트랜잭션 시작. 좌석 행을 잠근다(잠금 순서: 좌석 → 예약).
-4. 예약이 HOLD이고 만료 전(`hold_expires_at > DB now()`)이면 `BookingFacade.release(reservationId)`로 **RELEASED**, 만료 후면 **EXPIRED**로 정리한다. 둘 다 조건부 변경이다.
-5. 0행이면 상태를 다시 확인한다. EXPIRED·RELEASED면 204, PAYMENT_IN_PROGRESS·CONFIRMED·CANCELING·CANCELED면 409 `INVALID_STATUS_TRANSITION`.
-6. 좌석을 AVAILABLE로 반환하고 `reservation_id`·`hold_expires_at`을 비운다. `reservation_id`가 이 예약과 일치할 때만 바뀐다.
-7. 커밋 후 204. 매수 제한이 풀려 같은 회차의 다른 좌석을 바로 선점할 수 있다.
+예약 상태 판단은 booking 한 곳에서 한다. seat는 `BookingFacade.release(userId, reservationId)`를 한 번 부르고 결과에 따라 좌석만 반환한다([#34](https://github.com/Good-Ticket-Service/ticket/issues/34) 쟁점 5).
+
+```
+[트랜잭션]
+  이 예약이 잡은 좌석(reservation_id = :reservationId)을 id 오름차순으로 잠근다
+  result = BookingFacade.release(userId, reservationId)   // 404·403·409는 예외로 올라온다
+  좌석 반환 (reservation_id 일치 조건)                      // RELEASED·EXPIRED·ALREADY_ENDED 모두
+커밋 → 204
+```
+
+1. 트랜잭션 시작. 이 예약이 잡은 좌석 행을 잠근다(잠금 순서: 좌석 → 예약). 좌석의 `schedule_id`가 경로의 `scheduleId`와 다르면 404 `RESERVATION_NOT_FOUND`.
+2. `BookingFacade.release(userId, reservationId)`가 예약 상태를 판단해 바꾼다.
+   - HOLD이고 만료 전이면 **RELEASED**, 만료 후면 **EXPIRED**로 정리한다.
+   - 이미 RELEASED·EXPIRED면 아무것도 바꾸지 않고 `ALREADY_ENDED`를 돌려준다(같은 요청을 반복해도 안전하다).
+   - 없으면 `RESERVATION_NOT_FOUND`, 본인 예약이 아니면 `FORBIDDEN`, 결제 중·확정·취소면 `INVALID_STATUS_TRANSITION` 예외를 던진다.
+3. 결과가 무엇이든 좌석을 AVAILABLE로 반환하고 `reservation_id`·`hold_expires_at`을 비운다. `reservation_id`가 이 예약과 일치할 때만 바뀐다.
+4. 커밋 후 204. 매수 제한이 풀려 같은 회차의 다른 좌석을 바로 선점할 수 있다.
 
 오류
 
@@ -236,4 +247,4 @@
 
 - 제공: 회차 좌석 준비. 공연 서비스가 발행한 `ScheduleSeatSetupRequested`를 Kafka로 소비하고, 결과를 `ScheduleSeatSetupCompleted` / `ScheduleSeatSetupFailed`로 발행한다. 이벤트 형식과 토픽 이름은 공연 담당과 협의 중이라 아직 정하지 않았다. 지금 계약 문서: [shared/internal-api/seat.md](../shared/internal-api/seat.md)
 - 사용: 공연 판매 검증 [shared/internal-api/event.md](../shared/internal-api/event.md)
-- 같은 서비스 안의 booking 모듈과는 `BookingFacade`·`SeatFacade`로만 통신한다. 메서드는 계약 이슈 #41에서 정한다(초안).
+- 같은 서비스 안의 booking 모듈과는 `BookingFacade`·`SeatFacade`로만 통신한다. 메서드는 계약 이슈 [#34](https://github.com/Good-Ticket-Service/ticket/issues/34)에서 합의했고, 계약 PR(`docs/shared/modules/booking-facade.md`, `seat-facade.md`)로 옮긴다.
