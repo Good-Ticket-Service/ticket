@@ -1,5 +1,5 @@
 -- reservation-service 스키마(reservation_schema)에서 booking이 소유한 테이블의 현재 DDL. 예약 Entity를 추가·변경하면 이 파일도 같이 고친다.
--- seat와 함께 쓰는 schema.sql을 고치지 않도록 테이블 소유대로 파일을 나눴다(docs/reservation/booking-decisions.md B27).
+-- seat와 함께 쓰는 schema.sql을 고치지 않도록 테이블 소유대로 파일을 나눴다(docs/tables.md의 현행 booking DDL).
 -- schema.sql 다음에 적용한다. 통합 테스트는 ReservationIntegrationTest가 이 순서로 실행한 뒤 Entity와 대조한다(ddl-auto=validate). dev DB에도 같은 순서로 적용한다.
 -- 테이블 이름에 스키마를 붙이지 않는다. 서비스 계정(reservation_app)으로 적용하면 계정 기본 search_path인 reservation_schema에 만들어진다.
 

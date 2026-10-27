@@ -1,6 +1,6 @@
 ---
 name: load-test
-description: k6 부하 테스트와 docs/perf 결과 기록을 준비할 때 기존 Claude 절차의 틀을 읽는다.
+description: k6 부하 테스트와 이슈·PR의 측정 결과 기록을 준비할 때 기존 Claude 절차의 틀을 읽는다.
 ---
 
 # 부하 테스트

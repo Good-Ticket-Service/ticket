@@ -24,7 +24,7 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 결제 하나에 환불 행 하나(1차는 전액 환불). 사용자 환불과 자동 취소(AUTO_VOID)가 겹쳐도 같은 행을 쓴다.
- * 전이표는 docs/payment/plan.md 3절이다.
+ * 전이표는 docs/architecture.md의 결제 상태 전이이다.
  */
 @Getter
 @Entity

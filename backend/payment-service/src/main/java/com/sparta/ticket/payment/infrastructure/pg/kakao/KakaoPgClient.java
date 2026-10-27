@@ -27,7 +27,7 @@ import org.springframework.web.client.RestClient;
  *
  * Note: 카카오에는 멱등 키가 없다. 응답을 잃은 승인·취소를 다시 보내면 재현이 아니라 "이미 처리됨" 오류가 온다. 그래서 승인의
  * 이미 처리됨은 Unknown으로 두어 복구가 조회로 확정하게 하고, 취소는 보내기 전에 조회해 이미 취소됐으면 성공으로 돌려준다.
- * 오류 코드는 fake PG가 정한 대응(docs/payment/api.md 3절)이며 샌드박스 검증 때 맞춘다.
+ * 오류 코드는 fake PG가 정한 대응(docs/api.md의 Fake PG 계약)이며 샌드박스 검증 때 맞춘다.
  */
 @Component
 public class KakaoPgClient implements PgClient {

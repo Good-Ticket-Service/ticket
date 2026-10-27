@@ -19,7 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * 관리 API로 건 장애가 설계(docs/payment/plan.md 8절, experiments.md)대로 일어나는지 확인한다.
+ * 관리 API로 건 장애가 설계(docs/architecture.md의 측정·검증)대로 일어나는지 확인한다.
  * 확률은 0 또는 1로 걸어 결과를 고정한다.
  */
 class FaultInjectionTest extends FakePgIntegrationTest {

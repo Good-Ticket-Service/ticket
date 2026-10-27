@@ -43,7 +43,7 @@ disable-model-invocation: true
 ## 5. 문서
 
 - `README.md` "모듈과 포트" 표, `CLAUDE.md` "구조"의 모듈 목록에 추가한다.
-- `docs/README.md` 도메인 표에 한 줄 추가하고, `docs/_template/`으로 `docs/{도메인}/api.md`, `tables.md`를 만든다.
+- `docs/architecture.md` 책임 표와 `docs/api.md`, `docs/tables.md`, `docs/infra.md`의 해당 절을 갱신한다. docs 파일/폴더를 추가하지 않는다.
 - `.claude/rules/docs-first.md`의 서비스·문서 표에 추가한다.
 - `.github/CODEOWNERS`에 담당이 정해졌으면 추가한다.
 

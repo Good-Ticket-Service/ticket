@@ -13,7 +13,7 @@
 ```
 ticket/
 ├── backend/            # Gradle 루트: 모듈, gradlew, Dockerfile, config-repo, sql(서비스별 DDL)
-├── docs/               # 도메인별 API·테이블 명세와 구현 계획, 서비스 간 계약(shared/). 목록은 docs/README.md
+├── docs/               # api·tables·conventions·architecture·infra의 공통 문서 5개
 ├── infra/              # Compose가 쓰는 실행 환경(PostgreSQL 초기화 등)
 ├── script/run.sh       # 로컬 전체 기동
 ├── docker-compose.yml  # 전체 시스템 정의(빌드 컨텍스트는 backend/)
@@ -94,7 +94,7 @@ script/run.sh --reset         # DB 볼륨까지 지우고 새로 시작
 
 ### fake PG
 
-결제 테스트·부하 실험용으로 토스페이먼츠 API를 흉내 내는 서버다(`backend/fake-pg`). 실제 PG처럼 Eureka 없이 주소로 찾아가고, Gateway에는 노출하지 않는다. 설계는 `docs/payment/plan.md` 7·8절이다.
+결제 테스트·부하 실험용으로 토스페이먼츠 API를 흉내 내는 서버다(`backend/fake-pg`). 실제 PG처럼 Eureka 없이 주소로 찾아가고, Gateway에는 노출하지 않는다. API는 `docs/api.md`, 설계·검증은 `docs/architecture.md`를 따른다.
 
 | 경로 | 하는 일 |
 | --- | --- |

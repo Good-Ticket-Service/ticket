@@ -9,7 +9,7 @@ import org.springframework.http.ResponseEntity;
  * 카카오 형식 오류 본문 {@code {"error_code", "error_message"}}.
  *
  * Note: 카카오는 업무 오류를 대부분 400과 음수 코드로 돌려준다. 아래 코드값은 fake PG가 정한 대응이며 실제 카카오 코드와 다를 수
- * 있다. payment의 카카오 어댑터는 docs/payment/api.md 3절의 대응표를 기준으로 분류하고, 샌드박스 검증 때 맞춘다.
+ * 있다. payment의 카카오 어댑터는 docs/api.md의 Fake PG 계약의 대응표를 기준으로 분류하고, 샌드박스 검증 때 맞춘다.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record KakaoErrorResponse(int errorCode, String errorMessage) {

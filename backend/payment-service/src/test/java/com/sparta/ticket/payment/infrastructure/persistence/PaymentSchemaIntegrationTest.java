@@ -24,7 +24,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** schema.sql의 유니크·부분 유니크·CHECK 제약이 설계(docs/payment/plan.md 7절)대로 동작하는지 실제 PostgreSQL로 확인한다. */
+/** schema.sql의 유니크·부분 유니크·CHECK 제약이 설계(docs/tables.md)대로 동작하는지 실제 PostgreSQL로 확인한다. */
 class PaymentSchemaIntegrationTest extends PostgresIntegrationTest {
 
     /** 컨테이너를 테스트 클래스끼리 공유하므로 예매 ID가 겹치지 않게 큰 값에서 시작한다. */

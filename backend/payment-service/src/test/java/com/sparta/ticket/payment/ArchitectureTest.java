@@ -27,7 +27,7 @@ class ArchitectureTest {
     /**
      * Note: 흐름 클래스(PaymentService, PaymentProcessor 등)에 @Transactional이 붙으면 안쪽 트랜잭션이 바깥에 합류해
      * PG 호출이 트랜잭션 안으로 들어가고, PG를 부르기 전에 커밋해야 하는 IN_PROGRESS가 커밋되지 않는다.
-     * 그래서 트랜잭션 경계는 이름이 Transactions로 끝나는 전용 bean에만 둔다(docs/payment/plan.md 6절).
+     * 그래서 트랜잭션 경계는 이름이 Transactions로 끝나는 전용 bean에만 둔다(docs/architecture.md의 트랜잭션 경계).
      */
     @ArchTest
     static final ArchRule TRANSACTIONAL_ONLY_IN_TRANSACTIONS_CLASSES = classes()

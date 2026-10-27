@@ -4,7 +4,7 @@ Claude와 Codex는 같은 저장소 문서를 기준으로 개발한다. Codex�
 
 | 기존 구성 | Codex 적용 |
 |---|---|
-| PR #16: `docs/`, 도메인 명세, `docs/shared/` 계약 | AGENTS.md에서 문서 탐색·선행 읽기·계약 변경 흐름을 지시한다 |
+| PR #16: 공통 문서·도메인 명세·계약 | AGENTS.md에서 docs의 공통 5개 파일 탐색·선행 읽기·계약 변경 흐름을 지시한다 |
 | PR #17: GitHub 이슈·PR 양식, CODEOWNERS, CI | 기존 파일을 함께 사용한다. GitHub 설정을 복제하지 않는다 |
 | PR #18: `CLAUDE.md` | AGENTS.md에서 공통 지침 원본으로 읽는다 |
 | `.claude/rules/*.md` | 규칙을 읽고 paths에 해당하는 작업에 적용한다. Claude 경로 매칭 엔진 자체를 실행하는 것은 아니다 |

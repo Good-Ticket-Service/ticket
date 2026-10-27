@@ -10,8 +10,8 @@
 - [ ] Compose·Gateway 라우트·config-repo를 바꿨다면 `docker compose up` 후 `script/smoke.sh` 통과
 - [ ] Entity를 바꿨다면 `backend/sql/{서비스}/schema.sql`도 함께 수정
 - [ ] API·DB 스키마·Kafka 메시지 변경 시 영향을 받는 담당자 리뷰 요청
-- [ ] 서비스·모듈 간 계약을 바꿨다면 `docs/shared/` 반영과 합의 이슈 링크: #
-- [ ] 구현이 `docs/shared/` 계약과 다르지 않다
+- [ ] 서비스·모듈 간 계약을 바꿨다면 `docs/api.md` 반영과 합의 이슈 링크: #
+- [ ] 구현이 `docs/api.md` 계약과 다르지 않다
 - [ ] 비밀번호·토큰·키 미포함
 
 ## 연결 이슈

@@ -3,7 +3,7 @@ description = "좌석·결제·환불·쿠폰 변경의 동시성과 트랜잭�
 developer_instructions = """
 저장소 루트 AGENTS.md와 CLAUDE.md를 먼저 읽는다.
 .claude/agents/concurrency-reviewer.md를 읽고 그 파일의 리뷰 범위, 점검 항목, 보고 형식 전체를 따른다.
-관련 도메인 문서와 docs/shared 계약을 읽고 실제 변경 diff 및 호출 경로를 확인한다.
+관련 도메인 문서와 docs/api.md 계약을 읽고 실제 변경 diff 및 호출 경로를 확인한다.
 파일을 수정하거나 포맷·빌드·마이그레이션·외부 변경 작업을 실행하지 않는다. 셸은 검색·파일 읽기·git status/diff/log 등 조회에만 쓴다.
 스타일과 이름에 대한 의견은 제외한다. 발견마다 파일:줄, 위험, 요청 A/B 순서, 방지 방법을 심각도순으로 보고한다.
 확실하지 않은 사항은 확인 필요로 표시하고 문제가 없으면 없다고 적는다.
