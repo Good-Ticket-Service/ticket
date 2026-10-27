@@ -111,16 +111,7 @@ stateDiagram-v2
 
 ## 6. 작업 목록
 
-| 작업 | 완료 조건 | 이슈 |
-|---|---|---|
-| `ScheduleSeat` 엔티티와 `schema.sql` | 엔티티·DDL·`tables.md` 일치, 통합 테스트가 `schema.sql`과 엔티티를 대조해 통과 | |
-| 회차 좌석 준비 소비 | 최초·같은 버전·오래된 버전·재준비 케이스 테스트 | |
-| 선택 가능 좌석 조회, 등급별 잔여석 조회 | 판정 표의 각 상태 테스트, `findPaymentInProgress` 1회 호출 | |
-| 좌석 선점 (비관적 락) | 12단계 처리, 같은 좌석 동시 선점 시 1건만 성공, 재요청 200 | |
-| 선점 해제 | RELEASED / EXPIRED 구분, 반복 요청 204, 결제 중 409 | |
-| `SeatFacade` 구현 | 잠금 순서, reservation_id 일치 조건 테스트 | |
-| 동시성 검증 | 동시 선점·재선점과 결제 시작 경합을 Testcontainers로 재현 | |
-| 트러블슈팅: 선점 방식 비교 | 조건부 UPDATE·NOWAIT·Redis·낙관적 락(version 추가) 측정 결과를 `docs/perf/`에 기록 | |
+작업 순서와 완료 조건은 [todo.md](todo.md)에 둔다. Task 하나를 이슈 1개·PR 1개로 올린다.
 
 ## 7. 열린 질문
 
