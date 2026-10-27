@@ -7,7 +7,6 @@ import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -27,13 +26,13 @@ public interface ReservationJpaRepository
 
     @Override
     default int recordCheckout(
-            Long id, UUID userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp) {
+            Long id, Long userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp) {
         return updateCheckout(
                 id, ReservationStatus.HOLD, userId, expectedOrderId, orderId, paymentAmount, stamp.at(), stamp.by());
     }
 
     @Override
-    default int startPayment(Long id, UUID userId, String orderId, String pgAuthToken, ChangeStamp stamp) {
+    default int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.START_PAYMENT;
         return updateStartPayment(id, t.from(), t.to(), userId, orderId, pgAuthToken, stamp.at(), stamp.by());
     }
@@ -63,7 +62,7 @@ public interface ReservationJpaRepository
     }
 
     @Override
-    default int releaseHold(Long id, UUID userId, ChangeStamp stamp) {
+    default int releaseHold(Long id, Long userId, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.RELEASE_HOLD;
         return updateReleaseHold(id, t.from(), t.to(), userId, stamp.at(), stamp.by());
     }
@@ -89,7 +88,7 @@ public interface ReservationJpaRepository
     int updateCheckout(
             @Param("id") Long id,
             @Param("status") ReservationStatus status,
-            @Param("userId") UUID userId,
+            @Param("userId") Long userId,
             @Param("expectedOrderId") String expectedOrderId,
             @Param("orderId") String orderId,
             @Param("paymentAmount") long paymentAmount,
@@ -107,7 +106,7 @@ public interface ReservationJpaRepository
             @Param("id") Long id,
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
-            @Param("userId") UUID userId,
+            @Param("userId") Long userId,
             @Param("orderId") String orderId,
             @Param("pgAuthToken") String pgAuthToken,
             @Param("at") LocalDateTime at,
@@ -179,7 +178,7 @@ public interface ReservationJpaRepository
             @Param("id") Long id,
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
-            @Param("userId") UUID userId,
+            @Param("userId") Long userId,
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 

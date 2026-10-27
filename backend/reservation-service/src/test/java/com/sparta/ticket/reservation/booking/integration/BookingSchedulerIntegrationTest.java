@@ -24,7 +24,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -72,7 +71,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private final UserContext user = new UserContext(UUID.randomUUID(), "hong01", Role.USER);
+    private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
 
     @BeforeEach
     void setUp() {

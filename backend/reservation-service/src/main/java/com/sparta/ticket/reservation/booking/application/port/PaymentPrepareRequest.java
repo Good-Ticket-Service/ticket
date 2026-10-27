@@ -1,7 +1,6 @@
 package com.sparta.ticket.reservation.booking.application.port;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * 결제 준비 요청. baseAmount는 좌석 가격 스냅샷의 합계이고, 쿠폰은 payment가 적용한다.
@@ -10,7 +9,7 @@ import java.util.UUID;
 public record PaymentPrepareRequest(
         String orderId,
         Long reservationId,
-        UUID userId,
+        Long userId,
         long baseAmount,
         Long couponId,
         String pgProvider,
