@@ -70,6 +70,11 @@ public class User extends BaseEntity {
         return new User(email, encodedPassword, name, phone, Role.USER);
     }
 
+    /** 판매자 회원가입. 승인 절차 없이 가입 즉시 SELLER로 활성화된다. */
+    public static User sellerSignup(String email, String encodedPassword, String name, String phone) {
+        return new User(email, encodedPassword, name, phone, Role.SELLER);
+    }
+
     /** 기동 시 환경 변수로 만드는 초기 관리자. 가입 API로는 MASTER를 만들 수 없으므로 이 경로만 MASTER로 시작한다. */
     public static User master(String email, String encodedPassword) {
         return new User(email, encodedPassword, "마스터", MASTER_PHONE, Role.MASTER);

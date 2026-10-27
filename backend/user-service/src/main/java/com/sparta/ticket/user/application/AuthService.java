@@ -33,10 +33,24 @@ public class AuthService {
 
     @Transactional
     public SignupResult signup(SignupCommand command) {
+        return register(command, User::signup);
+    }
+
+    /** 판매자 회원가입. 역할만 SELLER이고 검증·해시·email 중복 정책은 일반 회원가입과 같다. */
+    @Transactional
+    public SignupResult signupSeller(SignupCommand command) {
+        return register(command, User::sellerSignup);
+    }
+
+    /**
+     * Note: 역할을 매개변수(Role)로 받지 않고 User의 이름 있는 팩토리를 받는다. 어떤 진입점이 어떤 역할을 만드는지가
+     * 코드에 고정되어, 실수로라도 가입 경로에서 MASTER를 만들 수 없다.
+     */
+    private SignupResult register(SignupCommand command, UserFactory factory) {
         if (userRepository.existsByEmailIncludingDeleted(command.email())) {
             throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
         }
-        User user = User.signup(
+        User user = factory.create(
                 command.email(), passwordEncoder.encode(command.password()), command.name(), command.phone());
         try {
             return SignupResult.from(userRepository.saveAndFlush(user));
@@ -60,5 +74,10 @@ public class AuthService {
         User user = found.filter(candidate -> matches && candidate.isActive())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.LOGIN_FAILED));
         return TokenResult.bearer(tokenIssuer.issue(user), tokenIssuer.expirationSeconds());
+    }
+
+    @FunctionalInterface
+    private interface UserFactory {
+        User create(String email, String encodedPassword, String name, String phone);
     }
 }

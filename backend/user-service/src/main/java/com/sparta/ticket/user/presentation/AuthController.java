@@ -31,6 +31,12 @@ public class AuthController {
         return ApiResponse.created("회원가입이 완료되었습니다.", authService.signup(request.toCommand()));
     }
 
+    @PostMapping("/seller/signup")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<SignupResult> signupSeller(@Valid @RequestBody SignupRequest request) {
+        return ApiResponse.created("회원가입이 완료되었습니다.", authService.signupSeller(request.toCommand()));
+    }
+
     @PostMapping("/login")
     public ApiResponse<TokenResult> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.ok("로그인에 성공했습니다.", authService.login(request.toCommand()));

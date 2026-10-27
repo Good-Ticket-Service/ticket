@@ -3,6 +3,7 @@ package com.sparta.ticket.user.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,7 +16,9 @@ import com.sparta.ticket.user.application.dto.SignupCommand;
 import com.sparta.ticket.user.application.dto.SignupResult;
 import com.sparta.ticket.user.domain.UserErrorCode;
 import com.sparta.ticket.user.domain.UserRepository;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -26,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -74,6 +78,39 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
         assertThat(row.get("created_by")).isEqualTo("SYSTEM");
         assertThat(row.get("updated_by")).isEqualTo("SYSTEM");
         assertThat(row.get("created_at")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("판매자 회원가입은 요청 본문의 role을 무시하고 SELLER로 저장하며, 로그인할 수 있다")
+    void sellerSignupIgnoresRequestedRole() throws Exception {
+        mockMvc.perform(post("/api/auth/seller/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email": "itseller01@ticket.com", "password": "%s", "name": "김판매",
+                                 "phone": "010-1234-5678", "role": "MASTER"}
+                                """.formatted(PASSWORD)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.role").value("SELLER"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT role FROM p_users WHERE email = ?", String.class, "itseller01@ticket.com"))
+                .isEqualTo("SELLER");
+        String token = authService
+                .login(new LoginCommand("itseller01@ticket.com", PASSWORD))
+                .accessToken();
+        String payload = new String(Base64.getUrlDecoder().decode(token.split("\\.")[1]), StandardCharsets.UTF_8);
+        assertThat(payload).contains("\"role\":\"SELLER\"");
+    }
+
+    @Test
+    @DisplayName("일반 회원 email로는 판매자로 가입할 수 없다(1 email = 1 계정)")
+    void sellerSignupWithUserEmail() {
+        authService.signup(signup("itseller02@ticket.com"));
+
+        assertThatThrownBy(() -> authService.signupSeller(signup("itseller02@ticket.com")))
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.DUPLICATE_EMAIL);
     }
 
     @Test
