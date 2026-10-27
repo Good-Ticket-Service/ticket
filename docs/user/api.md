@@ -11,6 +11,7 @@
 | Method | URI | 권한·허용 호출자 | 성공 HTTP | 기능 |
 |---|---|---|---|---|
 | POST | `/api/auth/signup` | 누구나 | 201 | 회원가입 |
+| POST | `/api/auth/seller/signup` | 누구나 | 201 | 판매자 회원가입 |
 | POST | `/api/auth/login` | 누구나 | 200 | 로그인 |
 | GET | `/api/users/me` | 본인 JWT 토큰을 가진 회원 | (미기재) | 내 정보조회 |
 | PATCH | `/api/users/me` | 본인 JWT 토큰을 가진 회원 | 200 | 내 정보수정 |
@@ -44,6 +45,40 @@
     "email": "fan@ticket.com",
     "name": "김태현",
     "role": "USER",
+    "status": "ACTIVE"
+  }
+}
+```
+
+오류
+
+| 상태 | 코드 | 때 |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | 형식 오류. 필드별 `errors` 포함 |
+| 409 | `DUPLICATE_EMAIL` | 이미 쓰는 email. 탈퇴 회원의 email도 포함한다 |
+
+### POST /api/auth/seller/signup — 판매자 회원가입
+
+- 권한·허용 호출자: 누구나
+- 필수 헤더: 없음
+- 성공 HTTP: 201
+- 출처: Notion "판매자 회원가입" (2026-10-27), #49
+
+요청·응답·오류는 회원가입과 같고 응답의 `role`만 `SELLER`다.
+
+- 서버가 역할을 SELLER로 고정한다. 요청 본문의 `role`은 받지 않는다(넣어도 무시한다).
+- 승인 절차 없이 가입 즉시 `ACTIVE`인 SELLER가 된다.
+- email은 일반 회원과 같은 공간을 쓴다. 1 email = 1 계정이라 일반 회원 email로는 판매자로 가입할 수 없다.
+
+```json
+{
+  "status": 201,
+  "message": "회원가입이 완료되었습니다.",
+  "data": {
+    "userId": 2,
+    "email": "seller@ticket.com",
+    "name": "김판매",
+    "role": "SELLER",
     "status": "ACTIVE"
   }
 }
