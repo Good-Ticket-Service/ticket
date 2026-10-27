@@ -16,9 +16,9 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Stat
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
-import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
+import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
