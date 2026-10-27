@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "예약")
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/reservations")
+@RequestMapping("/api/reservations")
 public class ReservationController {
 
     private final ReservationQueryService reservationQueryService;

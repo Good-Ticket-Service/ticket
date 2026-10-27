@@ -46,7 +46,7 @@ reservation-service의 booking 모듈이 맡는 예약 흐름을 구현할 수 �
 | `schedule_seat`, 예약 테이블 | `schema.sql`이 비어 있다(`SELECT 1;`) | 첫 테이블을 넣는 PR에서 `SELECT 1;`을 지운다. 순서는 11장 S7 |
 | Feign 기본 타임아웃 | `config-repo/application.yml`에서 connect 5초, read 20초 | 결제 호출만 read 15초로 따로 정한다(5.2) |
 
-외부 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). 지금 게이트웨이 라우트는 `/api/v1/reservations/** → reservation-service`라서, 라우트를 `/api/reservations/**`로 바꾸는 gateway 후속 작업(#32)이 필요하다.
+외부 경로는 `/api/reservations/**`다(버전 `v1`을 붙이지 않는다, #32). 게이트웨이 라우트 `/api/reservations/** → reservation-service`가 있어서 7장의 외부 API는 게이트웨이를 고치지 않아도 된다.
 
 ---
 
