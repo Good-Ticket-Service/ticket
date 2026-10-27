@@ -3,7 +3,7 @@ package com.sparta.ticket.reservation.coupon.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.ReservationIntegrationTest;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import java.time.LocalDateTime;
@@ -14,7 +14,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** schema.sql의 p_coupons 제약이 설계(docs/coupon/tables.md 3절)대로 동작하는지 실제 PostgreSQL로 확인한다. */
-class CouponSchemaIntegrationTest extends PostgresIntegrationTest {
+class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 12, 0);
 
