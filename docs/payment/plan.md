@@ -292,15 +292,17 @@ Orders의 `OrderRecoveryJob` 구조를 따른다.
 | 2xx 성공 | Approved |
 | TCP 연결 단계 실패(connect timeout, connection refused). 요청 바이트를 보내기 전 실패만 해당 | Rejected(`PG_UNAVAILABLE`) |
 | PG 계약상 "처리하지 않았음"이 보장되는 429 | Rejected(`PG_BUSY`). fake PG는 이렇게 정의했다. 실제 PG는 문서로 확인되기 전까지 Unknown으로 둔다 |
-| PG 업무 거절 코드 (잔액 부족, 카드 거절, 취소 불가 등) | Rejected(`PG_REJECTED`, PG 원본 코드) |
+| PG 업무 거절 코드 (잔액 부족, 카드 거절, 취소 불가 등) | Rejected(PG 원본 코드, 메시지). 원본 코드는 `pg_failure_code`에 그대로 저장한다 |
 | 읽기 타임아웃, 쓰기 후 연결 끊김, 5xx, 프록시가 보낸 오류, 해석 불가 응답, "이미 처리됨" | Unknown |
 
-  - Feign은 연결 실패와 읽기 타임아웃을 같은 `RetryableException`으로 감싼다. 어댑터는 원인 예외(`ConnectException`, `SocketTimeoutException`의 단계)를 보고 구분하고, 구분할 수 없으면 Unknown이다.
+  - PG는 Feign이 아니라 `RestClient` + JDK `HttpClient`로 부른다(decisions.md D17). 연결 거부(`ConnectException`)와 연결 타임아웃(`HttpConnectTimeoutException`)은 요청을 보내기 전 실패라 Rejected, 읽기 타임아웃(`HttpTimeoutException`)과 그 밖의 I/O 오류는 Unknown이다. 성공 응답을 해석하지 못해도 Unknown이다.
+  - 토스는 처리됐을 수 있는 4xx(`ALREADY_PROCESSED_PAYMENT`, 멱등 키 처리 중·불일치)만 Unknown이고 그 밖의 4xx는 업무 거절이다. 카카오는 오류 코드가 fake PG 대응값이라, 처리하지 않았음이 확실한 코드만 업무 거절이고 목록 밖은 Unknown이다(api.md 3절).
+  - 토스 승인의 `Idempotency-Key`는 `{orderId}:confirm`이다. 같은 결제를 다시 승인하면 토스는 첫 응답을 재현하고, 카카오는 "이미 처리됨"(Unknown)을 준다.
   - 환불에서는 Rejected(`PG_UNAVAILABLE`·`PG_BUSY`)도 일시 장애로 보고 REQUESTED를 유지한다. 업무 거절 코드만 FAILED다.
   - 카카오는 승인 응답의 금액도 저장 금액과 대조한다(토스는 PG가 대조한다).
   - 취소의 "이미 취소됨"은 업무 거절이 아니다. 어댑터가 조회해 Canceled면 성공이다.
   - Rejected는 "확실히 승인되지 않았다"일 때만 쓴다. 조금이라도 처리됐을 가능성이 있으면 Unknown이다.
-- **자동 재시도 없음:** PG 승인·취소 클라이언트는 자동 재시도를 끈다(`Retryer.NEVER_RETRY` 또는 같은 설정). 재시도는 복구 잡만 한다. PG 조회는 GET이라 팀 `IdempotentRetryConfig`를 붙여도 된다.
+- **자동 재시도 없음:** PG 어댑터는 승인·취소·조회를 자동 재시도하지 않는다(`RestClient`는 재시도하지 않는다). 재시도는 복구 잡만 한다.
 - **타임아웃 예산:** PG connect 2초 + read 10초, payment DB 커넥션 대기(Hikari `connection-timeout`) 2초로 payment의 승인 응답이 15초 안에 끝나게 한다. payment의 최악 응답이 약 14초이므로 reservation의 payment 호출 read timeout은 20초로 두고(15초는 여유가 부족하다) Gateway(60초)보다 짧게 둔다.
 - **동시 처리:** 같은 결제를 두 곳에서 처리하지 않게 하는 수단은 DB 잠금과 5절 점유다. 여러 인스턴스(`--scale payment-service=2`)에서도 성립해야 한다.
   - 점유 기간(30초)을 넘긴 호출은 다른 워커가 인수한 뒤에도 계속될 수 있다. 토스 멱등 키·카카오 취소 후 조회·상태 재확인으로 중복 영향을 막는지 장애 시험으로 확인한다. 실행 소유자·버전 검사는 오래된 결과 저장을 제어하지만 PG 호출 자체를 취소하지 않는다. 늦은 승인·환불 결과는 기존 복구·보상 규칙과 함께 처리한다([worker-design.md](worker-design.md) 5절).
