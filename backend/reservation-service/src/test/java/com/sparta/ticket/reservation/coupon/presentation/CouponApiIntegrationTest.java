@@ -222,6 +222,25 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
+        @DisplayName("발급을 중단한 쿠폰의 종료 시각을 미래로 바꾸면 409 COUPON_ALREADY_CLOSED이고 ENDED 그대로다")
+        void closedCannotReopen() throws Exception {
+            Coupon coupon = saveCoupon(LocalDateTime.now().minusHours(1));
+            mockMvc.perform(as(post("/api/coupons/{couponId}/close", coupon.getId()), Role.MASTER))
+                    .andExpect(status().isOk());
+            LocalDateTime future = LocalDateTime.now().plusDays(7).truncatedTo(ChronoUnit.SECONDS);
+
+            patch(coupon.getId(), """
+                            {"issueEndAt": "%s"}
+                            """.formatted(format(future)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_ALREADY_CLOSED"));
+
+            LocalDateTime end = jdbcTemplate.queryForObject(
+                    "SELECT issue_end_at FROM p_coupons WHERE coupon_id = ?", LocalDateTime.class, coupon.getId());
+            assertThat(end).isBeforeOrEqualTo(LocalDateTime.now());
+        }
+
+        @Test
         @DisplayName("없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND")
         void notFound() throws Exception {
             Coupon coupon = saveCoupon(LocalDateTime.now().plusDays(1));

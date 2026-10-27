@@ -190,6 +190,45 @@ class CouponTest {
 
             assertThat(coupon.getName()).isEqualTo("오픈 기념 5,000원 할인");
         }
+
+        @Test
+        @DisplayName("발급을 중단한 쿠폰의 종료 시각을 미래로 바꾸면 COUPON_ALREADY_CLOSED이고 다시 열리지 않는다")
+        void closedCannotReopen() {
+            Coupon coupon = issuing();
+            coupon.close(NOW);
+            LocalDateTime later = NOW.plusMinutes(1);
+
+            assertError(
+                    () -> coupon.update(null, null, null, null, END, null, later),
+                    CouponErrorCode.COUPON_ALREADY_CLOSED);
+
+            assertThat(coupon.getIssueEndAt()).isEqualTo(NOW);
+            assertThat(coupon.issueStatus(later)).isEqualTo(CouponIssueStatus.ENDED);
+        }
+
+        @Test
+        @DisplayName("발급 기간이 지나 끝난 쿠폰도 종료 시각을 바꿀 수 없다")
+        void expiredCannotReopen() {
+            Coupon coupon = issuing();
+            LocalDateTime afterEnd = END.plusDays(1);
+
+            assertError(
+                    () -> coupon.update(null, null, null, null, afterEnd.plusDays(7), null, afterEnd),
+                    CouponErrorCode.COUPON_ALREADY_CLOSED);
+        }
+
+        @Test
+        @DisplayName("끝난 쿠폰도 이름·총 수량은 바꿀 수 있다")
+        void closedOtherFieldsAllowed() {
+            Coupon coupon = issuing();
+            coupon.close(NOW);
+
+            coupon.update("종료된 이벤트", null, 2_000, null, null, null, NOW.plusMinutes(1));
+
+            assertThat(coupon.getName()).isEqualTo("종료된 이벤트");
+            assertThat(coupon.getTotalQuantity()).isEqualTo(2_000);
+            assertThat(coupon.getIssueEndAt()).isEqualTo(NOW);
+        }
     }
 
     @Nested
