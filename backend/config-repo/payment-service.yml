@@ -10,3 +10,16 @@ spring:
     properties:
       hibernate:
         default_schema: payment_schema
+
+# PG 연결. 기본값(로컬 fake PG, fake 키)은 PgProperties에 있고, 여기서는 환경마다 바뀌는 값만 덮어쓴다.
+# Compose는 PG_BASE_URL=http://fake-pg:8090을 넣는다. 실제 샌드박스 키는 커밋하지 않고 환경 변수로만 넣는다.
+pg:
+  connect-timeout: 2s
+  read-timeout: 10s
+  toss:
+    base-url: ${PG_BASE_URL:http://localhost:8090}
+    secret-key: ${PG_TOSS_SECRET_KEY:test_sk_fake_toss}
+  kakao:
+    base-url: ${PG_BASE_URL:http://localhost:8090}
+    secret-key: ${PG_KAKAO_SECRET_KEY:DEV_fake_kakao}
+    cid: ${PG_KAKAO_CID:TC0ONETIME}
