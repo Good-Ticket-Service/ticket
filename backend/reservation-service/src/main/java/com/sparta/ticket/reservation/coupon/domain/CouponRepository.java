@@ -6,6 +6,7 @@ import java.util.Optional;
 /** domain이 필요로 하는 저장소 기능만 선언한다. 구현은 infrastructure의 Spring Data 인터페이스가 맡는다. */
 public interface CouponRepository {
 
+    /** 새 쿠폰을 저장한다(INSERT). 저장된 쿠폰에는 DB가 만든 ID가 채워진다. */
     Coupon save(Coupon coupon);
 
     /** 논리 삭제된 쿠폰은 찾지 않는다(Coupon의 @SQLRestriction). */
@@ -17,6 +18,7 @@ public interface CouponRepository {
      */
     Optional<Coupon> lockById(Long id);
 
+    /** 삭제되지 않은 쿠폰이 있는지. 삭제가 0행일 때 404와 409를 가르는 데 쓴다. */
     boolean existsById(Long id);
 
     /**

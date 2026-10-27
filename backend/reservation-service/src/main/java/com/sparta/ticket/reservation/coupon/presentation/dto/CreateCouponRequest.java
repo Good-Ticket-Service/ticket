@@ -16,6 +16,7 @@ public record CreateCouponRequest(
         @NotNull LocalDateTime issueEndAt,
         @NotNull @Min(1) Integer validDays) {
 
+    /** 검증을 통과한 요청을 Service가 받는 Command로 바꾼다. */
     public CreateCouponCommand toCommand() {
         return new CreateCouponCommand(name, discountAmount, totalQuantity, issueStartAt, issueEndAt, validDays);
     }
