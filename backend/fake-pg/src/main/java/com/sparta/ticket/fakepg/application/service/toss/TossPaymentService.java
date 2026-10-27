@@ -1,9 +1,9 @@
 package com.sparta.ticket.fakepg.application.service.toss;
 
+import com.sparta.ticket.fakepg.application.service.approval.ConfirmDecision;
+import com.sparta.ticket.fakepg.application.service.approval.ConfirmResult;
 import com.sparta.ticket.fakepg.application.service.fault.FaultInjector;
 import com.sparta.ticket.fakepg.application.service.fault.ResponseHoldException;
-import com.sparta.ticket.fakepg.application.service.toss.TossPaymentTransactions.ConfirmDecision;
-import com.sparta.ticket.fakepg.application.service.toss.TossPaymentTransactions.ConfirmResult;
 import com.sparta.ticket.fakepg.domain.exception.PgErrorCode;
 import com.sparta.ticket.fakepg.domain.exception.PgException;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
