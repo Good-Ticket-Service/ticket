@@ -168,7 +168,7 @@ sequenceDiagram
 
 ## 5. 예매 상태
 
-> 아래는 Notion 기준 목표 상태다. 현재 저장소의 [reservation/tables.md](../reservation/tables.md)는 `CANCELLED` 철자를 쓰고 `RELEASED`, `CANCEL_PENDING`이 없다 (9장, T3). 구현은 도메인 문서를 따른다.
+> 상세 전이와 컬럼은 [reservation/orchestration.md](../reservation/orchestration.md) 4장과 [reservation/tables.md](../reservation/tables.md)에 있다. `CANCELING`은 취소를 구현할 때 코드에 더한다.
 
 ```mermaid
 stateDiagram-v2
@@ -179,8 +179,8 @@ stateDiagram-v2
     PAYMENT_IN_PROGRESS --> CONFIRMED: 결제 성공
     PAYMENT_IN_PROGRESS --> HOLD: 결제 실패, 시간 남음
     PAYMENT_IN_PROGRESS --> EXPIRED: 결제 실패, 시간 지남
-    CONFIRMED --> CANCEL_PENDING: 사용자 취소 · 공연 취소
-    CANCEL_PENDING --> CANCELED: payment가 환불 요청 접수
+    CONFIRMED --> CANCELING: 사용자 취소 · 공연 취소
+    CANCELING --> CANCELED: payment가 환불 요청 접수
     EXPIRED --> [*]
     RELEASED --> [*]
     CANCELED --> [*]
@@ -188,13 +188,15 @@ stateDiagram-v2
 
 | 상태 | 뜻 |
 |---|---|
-| HOLD | 좌석 선점, 결제 승인 전 |
+| HOLD | 좌석 선점, 결제 승인 전. 결제 실패로 돌아오면 좌석·쿠폰을 유지한다 |
 | PAYMENT_IN_PROGRESS | 결제 결과 대기. 이 동안은 만료되지 않는다. payment가 승인 요청 후 1분 안에 결과를 확정하므로 오래 머물지 않는다 |
-| CONFIRMED | 예매 확정, 좌석 SOLD |
-| EXPIRED | 선점 시간 안에 결제를 못 마침 (만료 스케줄러 10초 주기) |
-| RELEASED | 사용자가 선점을 직접 해제 |
-| CANCEL_PENDING | 외부 환불 호출 전에 커밋하는 취소 의도. 티켓은 쓸 수 없고 좌석은 그대로다. 환불 요청 응답이 사라지면 스케줄러가 이 상태에서 다시 요청한다 |
-| CANCELED | payment가 환불 요청을 접수함. 좌석 반환. 환불이 거절되거나 늦어져도 되돌리지 않고, 환불 완료까지는 payment가 책임진다 |
+| CONFIRMED | 예매 확정, 좌석 SOLD, 쿠폰 사용 |
+| EXPIRED | 선점 시간 안에 결제를 못 마침 (만료 스케줄러 10초 주기). 좌석 반환, 쿠폰 해제 |
+| RELEASED | 사용자가 선점을 직접 해제. 좌석 반환, 쿠폰 해제 |
+| CANCELING | 외부 환불 호출 전에 커밋하는 취소 의도. 티켓은 쓸 수 없고 좌석은 그대로다. 환불 요청 응답이 사라지면 스케줄러가 이 상태에서 같은 orderId로 다시 요청한다 |
+| CANCELED | payment가 환불 요청을 접수함. 좌석 반환, 쿠폰 복원(같은 로컬 트랜잭션). 환불이 거절되거나 늦어져도 되돌리지 않고, 환불 완료까지는 payment가 책임진다 |
+
+취소 상태 이름은 `CANCELING`·`CANCELED`로 확정했다 (T3). `CANCELLED`, `CANCEL_PENDING`, `CANCEL_REQUESTED`는 쓰지 않는다.
 
 모든 상태 전이는 조건부 UPDATE(`WHERE id = ? AND status = ?`)로 한다. 재시도나 중복 이벤트가 와도 한 번만 반영된다.
 
@@ -228,10 +230,10 @@ stateDiagram-v2
 | 결과 불명으로 실패 처리한 뒤 PG 승인이 발견됨 | payment 대사(실패 확정 후 11분·1,440분)가 자동 환불한다. 예매를 다시 확정하지 않고 쿠폰도 다시 바꾸지 않는다(쿠폰은 예매가 끝날 때 이미 돌려줬다) | 트러블슈팅 |
 | 이벤트 발행 유실 | 커밋 후 발행 + 결과 확인 스케줄러 → 이후 Transactional Outbox | MVP → 트러블슈팅 |
 | 같은 이벤트 중복 수신 | 조건부 UPDATE가 두 번째를 무시 → 이후 `processed_event` 테이블 | MVP → 트러블슈팅 |
-| 결제는 됐는데 예매를 확정할 수 없음 (이미 만료 등) | 예매가 `reason=CONFIRM_FAILED`로 환불 요청 → payment가 자동 환불. MVP에서는 감지해 알림만 남긴다 | 트러블슈팅 |
-| 취소 중 환불 요청 응답 유실 | CANCEL_PENDING을 먼저 커밋했으므로 스케줄러가 같은 orderId로 환불을 다시 요청한다 (orderId 기준 멱등) | 취소 구현 때 |
-| 공연 취소 | 예매마다 CANCEL_PENDING 커밋 후 `reason=SCHEDULE_CANCELED`로 환불 요청. 취소 기한·수수료 없이 전액 환불 | 취소 구현 때 |
-| 취소 확정 (사용자·공연) | payment가 환불 요청을 접수하면 CANCELED와 함께 쿠폰 복구. 그 뒤 환불이 실패해도 쿠폰은 되돌리지 않는다 (제안) | 취소 구현 때 |
+| 결제는 됐는데 예매를 확정할 수 없음 (이미 만료 등) | 예매가 CANCELING 커밋 후 `reason=CONFIRM_FAILED`로 환불 요청 → payment가 자동 환불. MVP에서는 감지해 알림만 남긴다 | 트러블슈팅 |
+| 취소 중 환불 요청 응답 유실 | CANCELING을 먼저 커밋했으므로 스케줄러가 같은 orderId로 환불을 다시 요청한다 (orderId 기준 멱등) | 취소 구현 때 |
+| 공연 취소 | 예매마다 CANCELING 커밋 후 `reason=SCHEDULE_CANCELED`로 환불 요청. 취소 기한·수수료 없이 전액 환불 | 취소 구현 때 |
+| 취소 확정 (사용자·공연) | payment가 환불 요청을 접수하면 CANCELED와 같은 로컬 트랜잭션에서 쿠폰 복원. 그 뒤 환불이 실패해도 쿠폰은 되돌리지 않는다 | 취소 구현 때 |
 | 소비자가 계속 실패 | 재시도 후 DLT, 대시보드 알림 | 트러블슈팅 |
 
 원칙: "결제는 됐는데 표가 없는 상태"는 반드시 자동 환불로 끝낸다.
@@ -261,7 +263,6 @@ stateDiagram-v2
 | 서버 환경에서 사용자가 fake-pg 결제창에 닿는 경로: fake-pg는 gateway 라우트에 없고 서비스 포트는 외부에 열지 않는다 | [infra.md](infra.md) |
 | 선점 만료 에러: 409 `HOLD_EXPIRED` / 410 | 팀 전체 |
 | 대기열을 별도 서비스로 분리할지 (측정 후 결정) | 설계서 5장 |
-| 취소 상태 철자: 이 문서와 ERD는 `CANCELED`, 저장소 문서는 `CANCELLED`. `CANCEL_PENDING`은 저장소 예매 문서(`orchestration.md`, `tables.md`)에 아직 없다 | T3 |
 
 ## 변경 이력
 
@@ -269,3 +270,4 @@ stateDiagram-v2
 |---|---|
 | 2026-10-26 | Notion 시스템 구성도에서 옮겼다 |
 | 2026-10-27 | 쿠폰 모듈을 payment에서 reservation으로 옮기는 제안을 반영했다 (#27) |
+| 2026-10-27 | 취소 상태 이름을 `CANCELING`·`CANCELED`로 확정했다(T3). 5장 상태도·표, 7장 보상 표를 맞추고 9장의 철자 항목을 지웠다 |

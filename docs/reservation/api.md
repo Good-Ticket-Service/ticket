@@ -49,11 +49,15 @@
 
 | 상태 | 뜻 | 바뀌는 때 |
 | --- | --- | --- |
-| HOLD | 좌석을 선점했고 결제 승인 전이다 | 좌석 선점, 결제 실패 뒤 선점 시간이 남았을 때 |
+| HOLD | 좌석을 선점했고 결제 승인 전이다. 결제 실패로 돌아와도 쿠폰은 유지한다 | 좌석 선점, 결제 실패 뒤 선점 시간이 남았을 때 |
 | PAYMENT_IN_PROGRESS | 결제 승인을 요청하고 결과를 기다린다. 이 동안에는 만료되지 않는다 | 결제 승인 요청 |
 | CONFIRMED | 예매 확정 | 결제 성공 |
 | EXPIRED | 선점 시간 안에 결제를 마치지 못했다 | 선점 만료 스케줄러, 선점 시간이 지난 뒤 결제 실패 |
-| CANCELLED | 확정 뒤 취소 | 예매 취소 (제안) |
+| RELEASED | 사용자가 선점을 직접 해제했다 | 선점 해제 (B30) |
+| CANCELING | 취소 의도를 커밋하고 환불 요청 결과를 기다린다. 티켓은 쓸 수 없다 | 예매 취소 시작 (취소 구현 때 추가) |
+| CANCELED | 확정 뒤 취소. payment가 환불 요청을 접수했다 | 예매 취소 |
+
+취소 상태 이름은 `CANCELING`·`CANCELED`로 확정했다 (T3). `CANCELLED`, `CANCEL_PENDING`, `CANCEL_REQUESTED`는 쓰지 않는다.
 
 ### 결제 흐름
 
@@ -163,11 +167,11 @@
 - 필수 헤더: Authorization, `Content-Type: application/json`
 - 성공 HTTP: 200
 
-확정된 예매를 취소한다. payment가 환불 요청을 받은 뒤 CANCELLED로 바꾸고 좌석을 반환한다. (제안, 미구현) 환불 API(P3)와 취소 기간·수수료(D6)가 정해진 뒤 구현한다.
+확정된 예매를 취소한다. 먼저 CANCELING을 커밋하고, payment가 환불 요청을 받은 뒤 CANCELED로 바꾸며 좌석을 반환하고 쿠폰을 복원한다. (제안, 미구현) 환불 API(P3)와 취소 기간·수수료(D6)가 정해진 뒤 구현한다.
 
 요청: Path `reservationId: integer`, 본문 `{ reason: string 또는 null }`
 
-응답: `ReservationResponse` (예매 상태 조회와 같음). status는 CANCELLED.
+응답: `ReservationResponse` (예매 상태 조회와 같음). status는 CANCELED. 환불 요청 결과를 모르면 CANCELING이다.
 
 ## 3. 내부 작업 (API 없음)
 
@@ -186,7 +190,7 @@
 | --- | --- | --- |
 | 선점 해제(`DELETE /api/reservations/{id}/hold`) 담당 | 공연 공통 계약 5.12는 예매 서비스 소유로 적었다. 예매를 RELEASED로 바꾸므로 좌석 담당과 나눌 몫을 정한다 | S3 |
 | 예매당 좌석 수 | `seatIds` 목록을 다룬다. 좌석 선점은 1장이다 | S3 |
-| 상태 이름 | `CANCELLED`, `RELEASED` 없음. ERD 명세서는 `CANCELED`, `RELEASED`, 공연 공통 계약 5.12 선점 응답은 `HELD` | T3 |
+| 상태 이름 | 해결: `RELEASED`, `CANCELING`, `CANCELED`로 ERD 명세서와 맞췄다. 공연 공통 계약 5.12 선점 응답의 `HELD`는 예매 상태가 아니라 좌석 상태 문제로 남는다 | T3 |
 | 선점 만료 에러 | 409 HOLD_EXPIRED. 공연 공통 계약 5.12는 410 | 팀 전체 |
 | 결제 승인 응답 | 실패·지연도 200과 예매 상태로 답한다 | T5 |
 | 결제 준비·승인 요청 필드 | `userCouponId`(제안), `pgProvider`, `orderId`, `pgAuthToken` | P1, #27 |

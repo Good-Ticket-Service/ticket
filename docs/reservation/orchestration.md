@@ -111,7 +111,7 @@ booking 테스트는 `SeatFacade`의 가짜 구현으로 하고, seat 쪽 실제
 
 ## 4. 예약 상태와 전이
 
-### 4.1 상태 (설계서 9장, 확인 필요)
+### 4.1 상태 (설계서 9장, T3 확정)
 
 ```mermaid
 stateDiagram-v2
@@ -129,6 +129,8 @@ stateDiagram-v2
     RELEASED --> [*]
     CANCELED --> [*]
 ```
+
+취소 상태 이름은 `CANCELING`·`CANCELED`로 확정했다 (T3). `CANCELLED`, `CANCEL_PENDING`, `CANCEL_REQUESTED`는 쓰지 않는다. `CANCELING`은 취소를 구현할 때 enum과 `booking.sql` CHECK에 더한다.
 
 ### 4.2 전이 표
 
