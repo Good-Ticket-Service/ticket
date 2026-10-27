@@ -102,6 +102,8 @@ erDiagram
         varchar cancel_reason
         varchar cancel_transaction_key
         varchar failure_code
+        varchar partner_user_id "카카오만"
+        varchar pg_token "카카오만"
         timestamp updated_at
     }
 
@@ -272,25 +274,28 @@ INDEX(next_attempt_at) WHERE status = REQUESTED AND recovery_blocked = false: �
 결제 서비스 테이블이 아니다.
 실제 토스가 자기 서버에 두는 거래 장부를 흉내 내는 테스트 서버의 데이터다.
 결제 기록과는 order_id로 대조(대사)할 뿐 물리 FK로 연결되지 않는다.
-결제 인증 시뮬레이션에서 READY로 생긴다.
+토스는 결제 인증 시뮬레이션, 카카오는 결제 준비에서 READY로 생긴다.
+카카오는 사용자 승인 시뮬레이션이 pg_token을 채워야 승인할 수 있다.
 승인하면 DONE, 거절하면 ABORTED, 취소하면 CANCELED가 된다.
 
 | 컬럼(영문) | 컬럼(한글) | 타입 | 제약·기본값 | 설명 |
 | --- | --- | --- | --- | --- |
 | id | 거래 식별자 | BIGINT | PK, NOT NULL, IDENTITY | 거래 행 ID. |
 | provider | PG 종류 | VARCHAR(20) | NOT NULL | TOSS / KAKAO. |
-| payment_key | 결제 키 | VARCHAR(200) | NOT NULL, UNIQUE | 토스 paymentKey(tgen_...). 인증할 때 발급한다. |
+| payment_key | 결제 키 | VARCHAR(200) | NOT NULL, UNIQUE | 토스 paymentKey(tgen_..., 인증 때 발급) 또는 카카오 tid(T..., 준비 때 발급). 카카오는 재준비하면 새 tid로 바뀐다. |
 | order_id | 주문 번호 | VARCHAR(64) | NOT NULL | 결제의 order_id와 같은 값. |
-| order_name | 주문명 | VARCHAR(100) | NOT NULL | 결제창에 보이는 상품명. 기본값 "공연 티켓". |
-| amount | 결제 금액(원) | INT | NOT NULL, 0 초과 | 인증한 금액. 승인 요청 금액과 다르면 거절한다. |
+| order_name | 주문명 | VARCHAR(100) | NOT NULL | 결제창에 보이는 상품명. 토스 기본값 "공연 티켓", 카카오는 item_name. |
+| amount | 결제 금액(원) | INT | NOT NULL, 0 초과 | 인증(카카오는 준비)한 금액. 토스는 승인 요청 금액과 다르면 거절하고, 카카오는 승인 응답으로 돌려준다. |
 | status | 거래 상태 | VARCHAR(20) | NOT NULL | READY / DONE / CANCELED / ABORTED / EXPIRED. 토스 상태값. |
-| auth_expires_at | 인증 만료 시각 | TIMESTAMP | NOT NULL | 인증 후 승인까지 허용하는 시각(10분). |
-| requested_at | 인증 시각 | TIMESTAMP | NOT NULL | 결제 인증 시뮬레이션 시각. |
+| auth_expires_at | 인증 만료 시각 | TIMESTAMP | NOT NULL | 인증(카카오는 준비) 후 승인까지 허용하는 시각(10분). |
+| requested_at | 인증 시각 | TIMESTAMP | NOT NULL | 결제 인증 시뮬레이션(카카오는 준비) 시각. |
 | approved_at | 승인 시각 | TIMESTAMP | NULL | 승인한 시각. 늦은 승인이면 나중에 채워진다. |
 | canceled_at | 취소 시각 | TIMESTAMP | NULL | 취소한 시각. |
 | cancel_reason | 취소 사유 | VARCHAR(200) | NULL | 취소 요청의 사유. |
 | cancel_transaction_key | 취소 거래 키 | VARCHAR(200) | NULL | 취소할 때 발급한 키(tcancel_...). |
 | failure_code | 실패 코드 | VARCHAR(80) | NULL | 거절 코드. 예: REJECT_CARD_PAYMENT. |
+| partner_user_id | 가맹점 회원 ID | VARCHAR(100) | NULL | 카카오 partner_user_id. 준비와 승인에 같은 값이 와야 한다. 토스는 NULL. |
+| pg_token | 사용자 승인 토큰 | VARCHAR(100) | NULL | 카카오 사용자 승인 시뮬레이션이 발급한 값. 승인 요청의 pg_token과 비교한다. 사용자 승인 전과 토스는 NULL. |
 | updated_at | 최종 변경 시각 | TIMESTAMP | NOT NULL | 상태가 바뀔 때 갱신. |
 
 **키·인덱스**
