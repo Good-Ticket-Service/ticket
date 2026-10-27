@@ -6,6 +6,8 @@
 
 ## 공통
 
+- 고도화 설계 방향은 [결제 결정 D16](../../payment/decisions.md)에 따른다. 준비·승인은 Feign, 결제 → PG는 HTTP다. 환불 명령·확정 결과 메시징은 별도 계약 이슈로 합의하며 이 문서의 기존 HTTP 요청·응답을 대체하지 않는다. 승인 명령·인증값을 Kafka로 보내거나 승인 응답을 ACCEPTED로 전환하는 이전 계획은 폐기한다.
+
 - 변경 상태: #22 결제 변경은 예매 담당자가 PR #25 리뷰에서 합의했다. 쿠폰의 reservationId 연결·해제·복원 정책은 #27 제안에 결제·예매 담당이 동의하며, 상세 CouponUsage 계약은 쿠폰 담당 검토와 예매 후속 PR에서 정리한다.
 
 - #22: 쿠폰은 reservation-service가 처리한다. 결제는 쿠폰 ID를 받거나 CouponUsage를 호출하지 않고 예매가 확정한 정가·할인액·최종 금액만 검증·저장한다. 쿠폰 오류는 예매 책임이다.
@@ -97,7 +99,7 @@
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | paymentId | Long | |
-| status | String | `DONE` / `FAILED` / `IN_PROGRESS`(결과 불명, 1분 안에 확정된다). Kafka 전환 후에는 `ACCEPTED` |
+| status | String | `DONE` / `FAILED` / `IN_PROGRESS`(결과 불명, 1분 시한과 복구 주기에 따라 확정). 결과 Kafka 발행 여부와 관계없이 동기 승인 응답을 유지한다 |
 | failureType, failureCode | String | FAILED일 때 |
 
 오류
@@ -201,3 +203,4 @@
 | 2026-10-26 | Notion 검토 | 팀 결정 반영: 회원·판매자 ID Long, `couponId` → `userCouponId`, 결과 확정 시한 1분과 `PG_UNRESOLVED`, 결제 차단·`resolve`·`MANUAL` 제거, 관리자 차단 해제를 환불 전용(`refund/unblock`)으로, 시각 `+09:00`, 환불 사유·`NOT_REQUIRED` 처리, 취소 상태 `CANCELING`·`CANCELED` |
 | 2026-10-27 | #22 (검토 대기) | 준비 요청 userCouponId를 discountAmount로 변경하고 최소 100원 검증, 할인액 멱등 비교, 쿠폰 처리의 예매 책임을 반영했다 |
 | 2026-10-27 | PR #25 리뷰, #27 | 결제 변경의 예매 담당 합의 반영. 쿠폰은 HOLD 복귀 시 유지하고 EXPIRED·RELEASED 때 해제, CANCELED 확정 때 복원하는 제안에 맞춰 결제 측 설명을 정리했다. 상세 CouponUsage는 후속 계약에서 반영한다 |
+| 2026-10-27 | 결제 결정 D16, 문서 정합화 | 기존 동기 승인 응답을 유지하고 향후 ACCEPTED 전환 설명을 제거했다. 환불·결과 이벤트 계약은 별도 합의 대상으로 구분했다 |
