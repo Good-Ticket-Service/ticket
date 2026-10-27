@@ -45,7 +45,7 @@ users는 회원 서비스(user-service)가 소유한다.
 | 컬럼 | 값 | 의미 | 바뀌는 때 |
 | --- | --- | --- | --- |
 | role | USER | 일반 회원. 예매·결제·취소 가능 | 가입 시 기본값 |
-| role | SELLER | 판매자. 본인 공연·회차·가격 등록 가능 | 판매자 회원가입 API로 생성 (미구현) |
+| role | SELLER | 판매자. 본인 공연·회차·가격 등록 가능 | 판매자 회원가입 API(`POST /api/auth/seller/signup`)로 생성 |
 | role | MASTER | 관리자. 공연장 등록, 회차 취소, 쿠폰 생성, 회원 관리 | 기동 시 환경 변수 `MASTER_EMAIL`·`MASTER_PASSWORD`로 생성 |
 | status | ACTIVE | 정상 회원 | 가입 시 |
 | status | WITHDRAWN | 탈퇴한 회원. 로그인만 막고 정보는 1년 보유 | 회원 탈퇴 (AUTH-06) |
