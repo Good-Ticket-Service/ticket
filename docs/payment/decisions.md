@@ -151,3 +151,12 @@
 - 대가: 컨슈머 멱등(`processed_event`), 파티션 키(`paymentId`)로 같은 결제의 순서 보장, 재시도 후 DLT와 재처리 절차, 사용자가 보는 "처리 중" 구간(최종 일관성), traceId 전파와 lag 모니터링.
 - 맞지 않는 곳: 대기열은 순번 조회와 이탈 처리가 필요해 Redis ZSET이 맞다. 좌석 선점은 즉답과 동시성 제어가 필요하다.
 - 증명: 1차 Feign·폴링 버전과 같은 시나리오로 비교한다. 환불 5,000건의 완료 시간과 PG 거절 수, PG 장애 주입 후 유실 0건, 결제 승인 중 예매 중지 시 불일치 0건, 피크 시 결제 조회 요청 수 감소.
+
+## D17. PG는 Feign이 아니라 RestClient로 부른다
+
+- 결정: PG 어댑터는 `RestClient` + JDK `HttpClient`(HTTP/1.1, 연결 2초, 읽기 10초)로 부른다. 팀 서비스 간 호출은 그대로 Feign이다.
+- 이유:
+  - 팀 공통 Feign 설정은 모든 Feign 클라이언트에 `X-User-*` 헤더를 붙인다. 외부 PG에 내부 회원 정보가 나간다.
+  - 공통 `FeignErrorDecoder`가 4xx·5xx를 `BusinessException`으로 바꿔 PG 원본 오류 코드가 사라진다.
+  - Feign은 연결 실패와 읽기 타임아웃을 같은 `RetryableException`으로 감싼다. JDK `HttpClient`는 `ConnectException`·`HttpConnectTimeoutException`(보내기 전)과 `HttpTimeoutException`(보낸 뒤)을 예외 타입으로 구분해 준다. 이 구분이 Rejected와 Unknown을 가른다(D1).
+- 대가: Feign의 선언형 인터페이스 대신 요청을 코드로 조립한다. 메트릭·추적은 Boot의 `RestClient.Builder`를 복제해 받으므로 그대로 붙는다.
