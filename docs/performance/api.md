@@ -5,6 +5,66 @@
 - 출처: Notion [API 명세](https://app.notion.com/p/404b3ff41d398040a969f8eaa2e007a8)의 공연 도메인 (2026-10-27 기준). 이후 원본은 이 문서이며, Notion은 담당자가 이 문서를 기준으로 갱신한다.
 - 테이블과 ERD: [tables.md](tables.md)
 
+## 작업 우선순위
+
+이 장은 공연 담당의 구현 계획이다. API 계약(경로·요청·응답·오류)에는 영향을 주지 않는다. 일정과 목표는 [plan.md](plan.md)에 있다.
+
+**작업 우선순위 안내**
+
+🔴 **P0:** 선행 작업 및 핵심 예매 흐름. 먼저 구현한다.
+
+🟠 **P1:** MVP 완성과 정상 운영에 필요한 기능. P0와 연결해 구현한다.
+
+🟡 **P2:** 핵심 흐름 완성 후 구현하는 편의·운영 기능.
+
+⏸️ **보류:** 정책·연동 계약 확정 후 착수하거나 현재 구현 대상에서 제외한다.
+
+**집중도**
+
+⭐ **집중:** 동시성·연동·성능 측정이 걸린 API. 설계와 테스트, 성능 측정에 시간을 들인다.
+
+표시 없음: 공통 패턴(검증 → 조회·저장 → DTO 변환)으로 빠르게 구현한다. 공연장·등급·좌석 데이터는 API보다 시드 SQL을 먼저 준비해 핵심 흐름 개발을 막지 않는다.
+
+| 우선순위 | 집중 | API | 기능 | 집중 이유 |
+| --- | --- | --- | --- | --- |
+| 🔴 P0 |  | `POST /api/admin/venues` | 공연장 등록 |  |
+| 🔴 P0 |  | `POST /api/admin/venues/{venueId}/seat-grades` | 공연장 좌석 등급 등록 |  |
+| 🔴 P0 |  | `POST /api/admin/venues/{venueId}/seats` | 공연장 좌석 등록 |  |
+| 🔴 P0 |  | `POST /api/seller/performances` | 공연 초안 등록 |  |
+| 🔴 P0 |  | `PUT /api/seller/performances/{performanceId}/grade-prices` | 공연별 등급 가격 설정 |  |
+| 🔴 P0 | ⭐ | `POST /api/seller/performances/{performanceId}/schedules` | 공연 회차 등록 | Feign 좌석 준비, 자동 재시도, 부모 행 잠금. G2 Kafka 전환 대상 |
+| 🔴 P0 | ⭐ | `POST /api/seller/performances/{performanceId}/publication` | 공연 공개 | 공개 조건 검증과 상태 전이 |
+| 🔴 P0 | ⭐ | `GET /api/performances` | 공개 공연 목록 조회 | 목록 필터·정렬 쿼리. G1 측정 대상, 향후 G3 검색 대상 |
+| 🔴 P0 | ⭐ | `GET /api/performances/{performanceId}` | 공개 공연 상세 조회 | 예매 오픈 직후 조회 폭주. G1 측정·캐시 대상 |
+| 🔴 P0 | ⭐ | `GET /api/performances/{performanceId}/schedules` | 공연 회차 목록 조회 | 예매 오픈 직후 조회 폭주. G1 측정 대상 |
+| 🔴 P0 | ⭐ | `GET /api/schedules/{scheduleId}` | 공연 회차 상세 조회 | 예매 오픈 직후 조회 폭주. G1 측정 대상 |
+| 🔴 P0 | ⭐ | `GET /api/performances/{performanceId}/seat-layout` | 공연 좌석 배치 조회 | 좌석 수만큼 커지는 응답. G1 측정·캐시 대상 |
+| 🔴 P0 | ⭐ | `POST /internal/schedules/{scheduleId}/sale-validations` | 회차 판매 정책·기본 가격 검증 | 예매 요청마다 호출되는 핫 경로. G1 측정 대상 |
+| 🟠 P1 |  | `GET /api/seller/performances` | 내 공연 목록 조회 |  |
+| 🟠 P1 |  | `GET /api/seller/performances/{performanceId}` | 내 공연 상세 조회 |  |
+| 🟠 P1 |  | `PATCH /api/seller/performances/{performanceId}` | 공연 정보 수정 |  |
+| 🟠 P1 |  | `PUT /api/seller/performances/{performanceId}/seat-exclusions` | 공연 공통 판매 제외 설정 |  |
+| 🟠 P1 |  | `GET /api/seller/schedules/{scheduleId}` | 판매자 공연 회차 상세 조회 |  |
+| 🟠 P1 |  | `PATCH /api/seller/schedules/{scheduleId}` | 공연 회차 수정 |  |
+| 🟠 P1 |  | `GET /api/seller/venues` | 공연장 목록 조회 |  |
+| 🟠 P1 |  | `GET /api/seller/venues/{venueId}` | 공연장 상세 조회 |  |
+| 🟠 P1 |  | `GET /api/seller/venues/{venueId}/seat-grades` | 공연장 좌석 등급 조회 |  |
+| 🟠 P1 |  | `GET /api/seller/venues/{venueId}/seats` | 공연장 좌석 조회 |  |
+| 🟠 P1 |  | `PUT /api/admin/schedules/{scheduleId}/sales-suspension` | 회차 판매 일시 중지·재개 |  |
+| 🟡 P2 |  | `DELETE /api/seller/performances/{performanceId}` | 공연 삭제 |  |
+| 🟡 P2 |  | `DELETE /api/seller/schedules/{scheduleId}` | 공연 회차 삭제 |  |
+| 🟡 P2 |  | `PATCH /api/admin/venues/{venueId}/seat-grades/{gradeId}` | 공연장 좌석 등급명 수정 |  |
+| 🟡 P2 |  | `DELETE /api/admin/venues/{venueId}/seat-grades/{gradeId}` | 공연장 좌석 등급 삭제 |  |
+| 🟡 P2 |  | `PATCH /api/admin/venues/{venueId}/seats/{seatId}` | 공연장 좌석 정보 수정 |  |
+| 🟡 P2 |  | `DELETE /api/admin/venues/{venueId}/seats/{seatId}` | 공연장 좌석 삭제 |  |
+| 🟡 P2 |  | `GET /api/admin/performances` | 전체 공연 목록 조회 |  |
+| 🟡 P2 |  | `GET /api/admin/performances/{performanceId}` | 관리자 공연 상세 조회 |  |
+| ⏸️ 보류 |  | `POST /api/admin/schedules/{scheduleId}/cancellation` | 공연 회차 취소 |  |
+
+합계: 🔴 P0 13개(⭐ 8개), 🟠 P1 11개, 🟡 P2 8개, ⏸️ 보류 1개.
+
+P2는 이번 일정(11/13 마감)에서 구현하지 않는 것을 기본으로 한다.
+
 ## 1. 공통 계약
 
 절 번호(5.x)는 Notion 원본 번호를 유지한다. 본문의 "5.8", "5.9" 같은 참조도 이 번호를 가리킨다.
@@ -583,6 +643,7 @@ salesStatus는 CANCELED → CLOSED → BEFORE_OPEN → UNAVAILABLE → ON_SALE �
 
 #### POST /api/admin/venues — 공연장 등록
 
+- 우선순위: 🔴 P0
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 201
@@ -705,6 +766,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/venues — 공연장 목록 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: SELLER / MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -829,6 +891,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/venues/{venueId} — 공연장 상세 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: SELLER / MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -936,6 +999,7 @@ errors는 검증 오류일 때만 포함하고, 위 권한 오류 예시에는 �
 
 #### POST /api/admin/venues/{venueId}/seat-grades — 공연장 좌석 등급 등록
 
+- 우선순위: 🔴 P0
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1055,6 +1119,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/venues/{venueId}/seat-grades — 공연장 좌석 등급 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: SELLER / MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -1157,6 +1222,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### PATCH /api/admin/venues/{venueId}/seat-grades/{gradeId} — 공연장 좌석 등급명 수정
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1267,6 +1333,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### DELETE /api/admin/venues/{venueId}/seat-grades/{gradeId} — 공연장 좌석 등급 삭제
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1342,6 +1409,7 @@ errors는 검증 오류일 때만 포함하고, 위 업무 오류 예시에는 �
 
 #### POST /api/admin/venues/{venueId}/seats — 공연장 좌석 등록
 
+- 우선순위: 🔴 P0
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1464,6 +1532,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/venues/{venueId}/seats — 공연장 좌석 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: SELLER / MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -1575,6 +1644,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### PATCH /api/admin/venues/{venueId}/seats/{seatId} — 공연장 좌석 정보 수정
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1700,6 +1770,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### DELETE /api/admin/venues/{venueId}/seats/{seatId} — 공연장 좌석 삭제
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -1776,6 +1847,7 @@ errors는 검증 오류일 때만 포함하고, 위 업무 오류 예시에는 �
 
 #### POST /api/seller/performances — 공연 초안 등록
 
+- 우선순위: 🔴 P0
 - 권한·허용 호출자: SELLER
 - 필수 헤더: Authorization
 - 성공 HTTP: 201
@@ -1940,6 +2012,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/performances — 내 공연 목록 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: SELLER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -2084,6 +2157,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/seller/performances/{performanceId} — 내 공연 상세 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -2303,6 +2377,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### PATCH /api/seller/performances/{performanceId} — 공연 정보 수정
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -2471,6 +2546,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### PUT /api/seller/performances/{performanceId}/grade-prices — 공연별 등급 가격 설정
 
+- 우선순위: 🔴 P0
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -2594,6 +2670,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### PUT /api/seller/performances/{performanceId}/seat-exclusions — 공연 공통 판매 제외 설정
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -2715,6 +2792,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### POST /api/seller/performances/{performanceId}/publication — 공연 공개
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -2860,6 +2938,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### DELETE /api/seller/performances/{performanceId} — 공연 삭제
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -2944,6 +3023,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### POST /api/seller/performances/{performanceId}/schedules — 공연 회차 등록
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
 - 성공 HTTP: 201
@@ -3133,6 +3213,7 @@ FAILED 복구: DRAFT 공연은 판매자가 기존 구성 변경 API(등급 가�
 
 #### GET /api/seller/schedules/{scheduleId} — 판매자 공연 회차 상세 조회
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -3262,6 +3343,7 @@ errors는 검증 오류일 때만 포함하고, 위 권한 오류 예시에는 �
 
 #### PATCH /api/seller/schedules/{scheduleId} — 공연 회차 수정
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -3423,6 +3505,7 @@ schedule_seat에는 시간 스냅샷이 없으므로 시간만 변경할 때 좌
 
 #### DELETE /api/seller/schedules/{scheduleId} — 공연 회차 삭제
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: 소유 SELLER
 - 필수 헤더: Authorization
   If-Match
@@ -3509,6 +3592,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/admin/performances — 전체 공연 목록 조회
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -3654,6 +3738,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/admin/performances/{performanceId} — 관리자 공연 상세 조회
 
+- 우선순위: 🟡 P2
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
 - 성공 HTTP: 200
@@ -3873,6 +3958,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### POST /api/admin/schedules/{scheduleId}/cancellation — 공연 회차 취소
 
+- 우선순위: ⏸️ 보류
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -4004,6 +4090,7 @@ reservation-summary의 상태별 예약 건수만으로 환불 완료를 판단�
 
 #### PUT /api/admin/schedules/{scheduleId}/sales-suspension — 회차 판매 일시 중지·재개
 
+- 우선순위: 🟠 P1
 - 권한·허용 호출자: MASTER
 - 필수 헤더: Authorization
   If-Match
@@ -4129,6 +4216,7 @@ suspended=false이면 reason은 생략 또는 null이며 기존 저장 사유를
 
 #### GET /api/performances — 공개 공연 목록 조회
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
 - 성공 HTTP: 200
@@ -4272,6 +4360,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/performances/{performanceId} — 공개 공연 상세 조회
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
 - 성공 HTTP: 200
@@ -4417,6 +4506,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/performances/{performanceId}/schedules — 공연 회차 목록 조회
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
 - 성공 HTTP: 200
@@ -4547,6 +4637,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/schedules/{scheduleId} — 공연 회차 상세 조회
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
 - 성공 HTTP: 200
@@ -4670,6 +4761,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 #### GET /api/performances/{performanceId}/seat-layout — 공연 좌석 배치 조회
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 누구나
 - 필수 헤더: 없음
 - 성공 HTTP: 200
@@ -4797,6 +4889,7 @@ errors는 검증 오류일 때만 포함한다. 각 항목은 field, reason이�
 
 ### POST /internal/schedules/{scheduleId}/sale-validations — 회차 판매 정책·기본 가격 검증
 
+- 우선순위: 🔴 P0 ⭐ 집중
 - 권한·허용 호출자: 예매 서비스
 - 필수 헤더: 서비스 인증
 - 성공 HTTP: 200
