@@ -18,6 +18,27 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
 
     @Override
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Payment p WHERE p.orderId = :orderId")
+    Optional<Payment> lockByOrderId(@Param("orderId") String orderId);
+
+    /** Note: 중복 키의 DB 예외에는 키 원문이 출력된다. 키 단위 잠금 후 선검사로 정상 경쟁을 예외 없이 처리한다. */
+    @Override
+    default void lockTransactionKey(String transactionKey) {
+        acquireTransactionKey(transactionKey);
+    }
+
+    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(:transactionKey, 0))", nativeQuery = true)
+    Integer acquireTransactionKey(@Param("transactionKey") String transactionKey);
+
+    @Override
+    @Query(
+            value = "SELECT EXISTS (SELECT 1 FROM p_payments WHERE pg_provider = :provider"
+                    + " AND pg_transaction_id = :transactionId)",
+            nativeQuery = true)
+    boolean isPgTransactionInUse(@Param("provider") String provider, @Param("transactionId") String transactionId);
+
+    @Override
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Payment p WHERE p.reservationId = :reservationId"
             + " AND p.status IN (com.sparta.ticket.payment.domain.model.payment.PaymentStatus.READY,"
             + " com.sparta.ticket.payment.domain.model.payment.PaymentStatus.IN_PROGRESS,"

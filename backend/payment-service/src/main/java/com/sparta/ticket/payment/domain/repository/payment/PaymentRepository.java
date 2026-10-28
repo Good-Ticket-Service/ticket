@@ -16,6 +16,15 @@ public interface PaymentRepository {
     /** 행을 잠그고(SELECT ... FOR UPDATE) 읽는다. 상태를 바꾸기 전에 최신 상태를 다시 판단할 때 쓴다. */
     Optional<Payment> lockById(Long id);
 
+    /** 승인 접수는 선조회 없이 잠금 조회해 대기 중 바뀐 최신 상태를 읽는다. */
+    Optional<Payment> lockByOrderId(String orderId);
+
+    /** 같은 PG 키의 동시 사용을 트랜잭션 종료까지 직렬화한다. */
+    void lockTransactionKey(String transactionKey);
+
+    /** 논리 삭제된 행의 거래 키도 다시 쓰지 않는다. */
+    boolean isPgTransactionInUse(String provider, String transactionId);
+
     /**
      * 예매의 살아 있는 결제(READY·IN_PROGRESS·DONE)를 잠가서 읽는다. 부분 UNIQUE 인덱스로 예매당 하나뿐이다.
      * 새 준비가 이전 READY를 대체할지, 진행 중이라 거절할지 판단할 때 쓴다.
