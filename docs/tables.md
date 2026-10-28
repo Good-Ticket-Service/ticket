@@ -191,6 +191,12 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | refund_amount | INT NOT NULL |
 | reason | VARCHAR(30) NOT NULL |
 | status | VARCHAR(20) NOT NULL |
+| recovery_mode | VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'; ACTIVE/SLOW/VERIFY_ONLY/PAUSED |
+| verification_reason | VARCHAR(80); 최초 조회 전용 전환 사유, 후속 일시 오류와 별도 보존 |
+| slow_started_at | TIMESTAMP |
+| slow_attempts | INT NOT NULL DEFAULT 0; 0 이상 |
+| cancel_key_created_at | TIMESTAMP; 같은 취소 키의 자동 재요청 허용 기간 기준 |
+| execution_version | BIGINT NOT NULL DEFAULT 0; 0 이상, 실행 점유·관리자 재개 시 증가 |
 | cancel_attempt | INT NOT NULL DEFAULT 0 |
 | pg_cancel_id | VARCHAR(200) |
 | failure_code | VARCHAR(80) |
@@ -212,8 +218,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `CONSTRAINT ck_p_refunds_reason CHECK (reason IN ('USER_CANCEL', 'SCHEDULE_CANCELED', 'CONFIRM_FAILED', 'AUTO_VOID'))`.
 
 - `CONSTRAINT ck_p_refunds_amount CHECK (refund_amount > 0)`.
+- recovery_mode는 지정한 4개 값만 허용한다. recovery_blocked이면 PAUSED이며 FAILED의 실행 모드는 PAUSED 또는 VERIFY_ONLY다. 업무 결과와 조회·취소 실행 정책을 구분한다.
 
-- `CREATE INDEX ix_p_refunds_requested_next_attempt ON p_refunds (next_attempt_at) WHERE status = 'REQUESTED' AND recovery_blocked = FALSE;`
+- `CREATE INDEX ix_p_refunds_requested_next_attempt ON p_refunds (next_attempt_at) WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;`
 
 ### pg_transaction — fake-pg/schema.sql
 
