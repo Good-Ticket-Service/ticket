@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 예매 서비스가 부르는 결제 내부 API(docs/shared/internal-api/payment.md). Gateway가 /internal/**을 막아 외부에서 호출할 수 없다.
+ * 예매 서비스가 부르는 결제 내부 API(docs/api.md 결제 내부). Gateway가 /internal/**을 막아 외부에서 호출할 수 없다.
  * 서비스 간 계약이라 응답을 ApiResponse로 감싸지 않는다.
  */
 @RestController

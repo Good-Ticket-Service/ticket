@@ -10,7 +10,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 
 /**
- * POST /internal/payments 요청(docs/shared/internal-api/payment.md). 할인액은 음수도 받아 둔다. 음수·초과 할인은 입력 형식
+ * POST /internal/payments 요청(docs/api.md 결제 내부). 할인액은 음수도 받아 둔다. 음수·초과 할인은 입력 형식
  * 오류(VALIDATION_ERROR)가 아니라 금액 규칙 위반(INVALID_PAYMENT_AMOUNT)으로 계약에 정해져 있어 도메인이 판단한다.
  */
 public record CheckoutRequest(
