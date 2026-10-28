@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum PaymentErrorCode implements ErrorCode {
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "결제를 찾을 수 없습니다."),
+    REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "환불을 찾을 수 없습니다."),
+    REFUND_COMMAND_CONFLICT(HttpStatus.CONFLICT, "같은 명령 ID로 다른 운영 명령을 실행할 수 없습니다."),
     PAYMENT_ORDER_CONFLICT(HttpStatus.CONFLICT, "같은 주문번호로 다른 결제를 요청할 수 없습니다."),
     PAYMENT_ALREADY_IN_PROGRESS(HttpStatus.CONFLICT, "이 예매의 결제가 이미 진행 중입니다."),
     PAYMENT_ALREADY_DONE(HttpStatus.CONFLICT, "이 예매는 이미 결제됐습니다."),
