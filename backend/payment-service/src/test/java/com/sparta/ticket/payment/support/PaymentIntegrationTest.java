@@ -1,9 +1,13 @@
 package com.sparta.ticket.payment.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
+import com.sparta.ticket.payment.application.port.pg.PgApprovalGate;
 import com.sparta.ticket.payment.application.port.pg.PgClient;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
+import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
+import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.support.pg.PgClientFixture;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.ObjectProvider;
@@ -31,13 +35,29 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
     @Autowired
     protected PgClientFixture pg;
 
+    @Autowired
+    protected PublisherFixture publisher;
+
     @BeforeEach
     void resetPg() {
         pg.reset();
+        publisher.fail = false;
     }
 
     @TestConfiguration
     static class PgFixtureConfig {
+
+        @Bean
+        @Primary
+        PgApprovalGate fixtureApprovalGate(PgClientFixture fixture) {
+            return provider -> fixture.approvalAllowed();
+        }
+
+        @Bean
+        @Primary
+        PublisherFixture fixturePublisher() {
+            return new PublisherFixture();
+        }
 
         @Bean
         PgClientFixture pgClientFixture() {
@@ -55,5 +75,20 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
                 }
             };
         }
+    }
+
+    /** 결과 저장 중 실패를 주입해 결제와 환불 의도의 원자적 롤백을 검증한다. */
+    public static class PublisherFixture implements PaymentResultPublisher {
+        public volatile boolean fail;
+
+        @Override
+        public void paymentFinalized(Payment payment) {
+            if (fail) {
+                throw new IllegalStateException("결과 저장 실패 주입");
+            }
+        }
+
+        @Override
+        public void refundFinalized(Payment payment, Refund refund) {}
     }
 }
