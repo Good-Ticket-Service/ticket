@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 public class HoldExpiryService {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationTransactions transactions;
+    private final HoldExpiryTransaction transaction;
     private final ChangeStamps changeStamps;
 
     /** 한 묶음을 처리하고 만료한 건수를 돌려준다. timeBudget을 넘기면 남은 건은 다음 실행에 넘긴다. */
@@ -28,7 +28,7 @@ public class HoldExpiryService {
                 break;
             }
             try {
-                if (transactions.expireHold(reservationId)) {
+                if (transaction.expireHold(reservationId)) {
                     expired++;
                 }
             } catch (RuntimeException e) {

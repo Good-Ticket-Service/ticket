@@ -3,8 +3,8 @@ package com.sparta.ticket.reservation.booking.application;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.reservation.booking.application.ReservationTransactions.CheckoutTarget;
-import com.sparta.ticket.reservation.booking.application.ReservationTransactions.PaymentStart;
+import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.CheckoutTarget;
+import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutResult;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
@@ -20,14 +20,14 @@ import org.springframework.stereotype.Service;
 
 /**
  * 결제 준비와 승인 유스케이스. 일부러 @Transactional을 붙이지 않는다. payment 호출은 트랜잭션 밖에서 하고,
- * 앞뒤의 DB 변경은 ReservationTransactions와 PaymentResultApplier가 각자의 트랜잭션으로 한다.
+ * 앞뒤의 DB 변경은 PaymentRequestTransactions와 PaymentResultApplier가 각자의 트랜잭션으로 한다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReservationPaymentService {
 
-    private final ReservationTransactions transactions;
+    private final PaymentRequestTransactions transactions;
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
 
