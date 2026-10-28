@@ -38,6 +38,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 class PaymentReconcileIntegrationTest extends PaymentIntegrationTest {
+    @Autowired
+    private com.sparta.ticket.payment.application.service.refund.RefundRecoveryJob refundRecovery;
+
     private static final AtomicLong IDS = new AtomicLong(8_000_000);
 
     @Autowired
@@ -549,6 +552,12 @@ class PaymentReconcileIntegrationTest extends PaymentIntegrationTest {
                     .isEqualTo(RefundStatus.REQUESTED);
             assertThat(pg.approveCalls()).isEqualTo(1);
             assertThat(admin.transactionStatus(payment.getOrderId())).isEqualTo("DONE");
+            pg.cancelReturns(http::cancel);
+            refundRecovery.runOnce();
+            assertThat(refunds.findByPaymentId(payment.getId()).orElseThrow().getStatus())
+                    .isEqualTo(RefundStatus.DONE);
+            assertThat(admin.transactionStatus(payment.getOrderId())).isEqualTo("CANCELED");
+            assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.FAILED);
         } finally {
             admin.clearFaults();
         }
