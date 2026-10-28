@@ -61,7 +61,7 @@ public class PaymentResultApplier {
         }
         metrics.lateSuccess();
         log.warn(
-                "결제는 됐는데 표가 없다. 자동 환불 대상(F6)이다. reservationId={}, orderId={}, status={}, currentOrderId={}",
+                "결제는 됐는데 표가 없다. 자동 환불 대상이다. reservationId={}, orderId={}, status={}, currentOrderId={}",
                 id,
                 orderId,
                 current.getStatus(),

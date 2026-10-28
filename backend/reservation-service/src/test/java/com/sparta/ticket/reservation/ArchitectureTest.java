@@ -26,7 +26,8 @@ class ArchitectureTest {
             .resideInAnyPackage(
                     "com.sparta.ticket.reservation.booking.infrastructure.persistence..",
                     "com.sparta.ticket.reservation.booking.domain..")
-            .because("결제 결과는 PaymentResultApplier 한 곳에서만 예약에 반영한다(booking-decisions.md B7)")
+            .because("결제 결과는 PaymentResultApplier 한 곳에서만 예약에 반영한다. "
+                    + "어댑터가 예약을 직접 바꾸면 Feign 응답과 Kafka 결과 수신의 반영 규칙이 갈라진다")
             .allowEmptyShould(true);
 
     @ArchTest
@@ -36,7 +37,7 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat(resideInAPackage("com.sparta.ticket.reservation.booking..")
                     .and(not(resideInAPackage("com.sparta.ticket.reservation.booking.application.facade.."))))
-            .because("seat는 booking.application.facade의 타입으로만 booking을 부른다(#34, B32). "
+            .because("seat는 booking.application.facade의 타입으로만 booking을 부른다(#34). "
                     + "Feign으로 바꿀 때 이 타입이 그대로 요청·응답 DTO가 된다")
             .allowEmptyShould(true);
 
@@ -47,6 +48,6 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat(resideInAPackage("com.sparta.ticket.reservation.seat..")
                     .and(not(resideInAPackage("com.sparta.ticket.reservation.seat.application.facade.."))))
-            .because("booking은 seat.application.facade의 타입으로만 seat를 부른다(#34, B32)")
+            .because("booking은 seat.application.facade의 타입으로만 seat를 부른다(#34)")
             .allowEmptyShould(true);
 }

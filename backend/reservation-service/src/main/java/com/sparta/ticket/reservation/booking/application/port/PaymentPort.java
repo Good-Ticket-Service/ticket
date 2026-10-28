@@ -2,7 +2,7 @@ package com.sparta.ticket.reservation.booking.application.port;
 
 /**
  * booking이 payment에 바라는 기능. payment의 요청·응답 형식은 어댑터가 이 타입으로 바꾼다.
- * 계약(orchestration.md P1, P2)이 정해지기 전에는 Feign 어댑터를 만들지 않고, 테스트는 가짜 구현으로 한다.
+ * 테스트는 가짜 구현으로 한다.
  */
 public interface PaymentPort {
 

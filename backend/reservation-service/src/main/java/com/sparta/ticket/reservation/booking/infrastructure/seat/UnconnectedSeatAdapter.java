@@ -7,7 +7,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 /**
- * seat 모듈의 좌석 연산(S3)이 오기 전의 자리. 좌석 상태를 흉내 내지 않고 503으로 답한다.
+ * seat 모듈의 SeatFacade(#34)가 구현되기 전의 자리. 좌석 상태를 흉내 내지 않고 503으로 답한다.
  * seat 담당의 SeatFacade가 생기면 그것을 부르는 어댑터로 바꾸고 이 클래스를 지운다.
  */
 @Component

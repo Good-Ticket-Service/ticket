@@ -28,7 +28,7 @@ public class BookingMetrics {
                 .description("payment가 받지 못한 승인 요청을 다시 보낸 수")
                 .register(registry);
         this.lateSuccesses = Counter.builder("reservation.payment.late_success")
-                .description("이미 끝났거나 지난 시도인 예약에 도착한 결제 성공 수. 자동 환불 대상(F6)")
+                .description("이미 끝났거나 지난 시도인 예약에 도착한 결제 성공 수. 자동 환불 대상")
                 .register(registry);
         Gauge.builder("reservation.payment.in_progress", paymentsInProgress, AtomicLong::get)
                 .description("결제 중 예약 수. 결과 확인 스케줄러가 실행마다 갱신한다")

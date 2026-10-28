@@ -218,7 +218,9 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         double lateBefore = lateSuccessCount();
         assertThat(paymentResultApplier.apply(reservationId, orderId, ConfirmOutcome.succeeded()))
                 .isFalse();
-        assertThat(lateSuccessCount()).as("끝난 예약에 온 같은 orderId의 성공은 F6이다").isEqualTo(lateBefore + 1);
+        assertThat(lateSuccessCount())
+                .as("끝난 예약에 온 같은 orderId의 성공은 자동 환불 대상으로 센다")
+                .isEqualTo(lateBefore + 1);
         assertThat(seats.locked).as("끝난 예약의 좌석은 다시 잠그지 않는다").hasSize(1);
     }
 
@@ -240,7 +242,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("승인 뒤 결과 반영이 실패해도 오류 대신 결제 중 상태로 답한다(F5)")
+    @DisplayName("승인 뒤 결과 반영이 실패해도 오류 대신 결제 중 상태로 답한다")
     void applyFailureReturnsState() throws Exception {
         Long reservationId = hold();
         String orderId = checkoutOrderId(reservationId);
@@ -330,7 +332,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("지난 시도의 실패는 무시하고, 지난 시도의 성공과 끝난 예약의 성공은 F6으로 센다. 같은 성공이 다시 오면 무시한다")
+    @DisplayName("지난 시도의 실패는 무시하고, 지난 시도의 성공과 끝난 예약의 성공은 자동 환불 대상으로 센다. 같은 성공이 다시 오면 무시한다")
     void staleAndDuplicateResults() throws Exception {
         Long reservationId = hold();
         String oldOrderId = checkoutOrderId(reservationId);

@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * seat 모듈이 부르는 booking의 진입점. 예약은 booking만 만들고 바꾼다(설계서 3.1, #34).
+ * seat 모듈이 부르는 booking의 진입점. 예약은 booking만 만들고 바꾼다(#34).
  * 모든 메서드는 seat의 트랜잭션 안에서 불러야 한다(MANDATORY). 이 패키지의 타입만 주고받으므로,
  * 나중에 Facade를 Feign으로 바꾸면 이 타입이 그대로 요청·응답 DTO가 된다. 그때는 좌석과 예약이 따로 커밋되므로 보상이 필요하다.
  */

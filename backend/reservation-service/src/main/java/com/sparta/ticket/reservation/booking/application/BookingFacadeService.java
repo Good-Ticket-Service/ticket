@@ -39,7 +39,7 @@ public class BookingFacadeService implements BookingFacade {
                 .map(seat -> new SeatPrice(seat.scheduleSeatId(), seat.price()))
                 .toList();
         // Note: save만 하면 INSERT가 커밋 때로 미뤄질 수 있다. 바로 flush해서 UNIQUE 위반을 이 호출 안에서 드러낸다.
-        // 그러면 seat는 좌석을 바꾸기 전에 실패를 알고, 트랜잭션 밖에서 제약 이름으로 409를 만든다(B31).
+        // 그러면 seat는 좌석을 바꾸기 전에 실패를 알고, 트랜잭션 밖에서 제약 이름으로 409를 만든다.
         return reservationRepository
                 .saveAndFlush(Reservation.hold(userId, scheduleId, prices, holdExpiresAt))
                 .getId();

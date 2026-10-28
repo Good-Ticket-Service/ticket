@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * 결제 중으로 오래 머문 예약의 결과를 payment에 물어 마무리한다(F10, F4). 원격 호출은 트랜잭션 밖에서 하고,
+ * 결제 중으로 오래 머문 예약의 결과를 payment에 물어 마무리한다. 원격 호출은 트랜잭션 밖에서 하고,
  * 결과 반영은 PaymentResultApplier에 맡긴다. 같은 승인을 다시 보내는 곳은 여기뿐이다.
  */
 @Slf4j
