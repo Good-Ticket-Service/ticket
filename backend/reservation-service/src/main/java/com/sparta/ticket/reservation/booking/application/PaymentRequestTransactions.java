@@ -98,6 +98,11 @@ public class PaymentRequestTransactions {
         if (started) {
             return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));
         }
+        return notStarted(reservation, userId, command, stamp);
+    }
+
+    /** 전이가 0행이었을 때, 다시 읽은 예약으로 이유를 가린다. 본인 예약인지, 같은 시도의 orderId인지를 상태보다 먼저 본다. */
+    private PaymentStart notStarted(Reservation reservation, Long userId, ConfirmCommand command, ChangeStamp stamp) {
         validateOwner(reservation, userId);
         if (!reservation.isAttempt(command.orderId())) {
             throw new BusinessException(ReservationErrorCode.ORDER_ID_MISMATCH);
