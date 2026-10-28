@@ -76,6 +76,7 @@ public class UserCoupon extends BaseEntity {
      * 발급 기간·수량 확인은 이 메서드가 아니라 발급 수량의 조건부 UPDATE가 한다. 동시 요청 사이에서 한 번에 판단해야 하기 때문이다.
      */
     public static UserCoupon issue(Long userId, Coupon coupon, LocalDateTime now) {
+        // 할인액은 지금 쿠폰 값으로 복사하고, 발급 시각과 만료 시각은 같은 now로 계산한다
         return new UserCoupon(
                 userId, coupon.getId(), coupon.getDiscountAmount(), now, now.plusDays(coupon.getValidDays()));
     }

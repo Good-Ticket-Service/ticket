@@ -30,7 +30,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * 쿠폰 관리자 API를 Gateway가 넘겨주는 사용자 헤더와 실제 PostgreSQL로 호출한다. 명세는 docs/coupon/api.md다.
+ * 쿠폰 관리자 API를 Gateway가 넘겨주는 사용자 헤더와 실제 PostgreSQL로 호출한다. 명세는 docs/api.md 쿠폰 절이다.
  * reservation-service 통합 테스트의 공통 부모(ReservationIntegrationTest)를 상속해 다른 통합 테스트와 같은 컨텍스트를 쓴다.
  */
 class CouponApiIntegrationTest extends ReservationIntegrationTest {

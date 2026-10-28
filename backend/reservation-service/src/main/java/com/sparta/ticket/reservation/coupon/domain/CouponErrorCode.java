@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 
 /**
  * 쿠폰 오류 코드. BusinessException에 담아 던지면 공통 예외 처리가 HTTP 상태와 code·message로 응답한다.
- * 인증(401)·권한(403)·입력 검증(400 VALIDATION_ERROR)은 CommonErrorCode를 쓴다. 목록은 docs/coupon/api.md의 오류 표다.
+ * 인증(401)·권한(403)·입력 검증(400 VALIDATION_ERROR)은 CommonErrorCode를 쓴다. 목록은 docs/api.md 쿠폰 절의 오류 표다.
  */
 @Getter
 @Accessors(fluent = true)
