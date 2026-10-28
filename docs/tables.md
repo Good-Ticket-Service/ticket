@@ -146,7 +146,12 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | confirm_requested_at | TIMESTAMP |
 | approve_requested_at | TIMESTAMP |
 | approved_at | TIMESTAMP |
-| reconciled_at | TIMESTAMP |
+| failed_at | TIMESTAMP; 최초 실패 확정 시각 |
+| reconcile_count | INT NOT NULL DEFAULT 0; 확인 완료한 체크포인트 수(0~저장 일정 길이) |
+| next_reconcile_at | TIMESTAMP; 다음 체크포인트·점유·재조회 시각. 마지막 확인 후 NULL |
+| reconcile_checkpoints_minutes | VARCHAR(1024); 실패 당시 분 단위 누적 일정 CSV. 기존 결제에 설정 변경 소급하지 않음 |
+| reconcile_retry_count | INT NOT NULL DEFAULT 0; 현재 단계의 연속 조회 불명 횟수 |
+| reconcile_unknown_since | TIMESTAMP; 현재 단계의 최초 연속 조회 불명 시각. 확인 완료 시 NULL |
 | next_attempt_at | TIMESTAMP |
 | recovery_started_at | TIMESTAMP |
 | recovery_attempts | INT NOT NULL DEFAULT 0 |
@@ -158,6 +163,12 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT ck_p_payments_status CHECK (status IN ('READY', 'IN_PROGRESS', 'DONE', 'FAILED', 'CANCELED'))`.
 
+- `CONSTRAINT ck_p_payments_reconcile_count CHECK (reconcile_count >= 0 AND ((reconcile_checkpoints_minutes IS NULL AND reconcile_count = 0) OR (reconcile_checkpoints_minutes IS NOT NULL AND reconcile_count <= cardinality(string_to_array(reconcile_checkpoints_minutes, ',')))))`.
+
+- `CONSTRAINT ck_p_payments_reconcile_state CHECK (next_reconcile_at IS NULL OR (status = 'FAILED' AND approve_requested_at IS NOT NULL AND failed_at IS NOT NULL AND reconcile_checkpoints_minutes IS NOT NULL AND reconcile_count < cardinality(string_to_array(reconcile_checkpoints_minutes, ','))))`.
+
+- `CONSTRAINT ck_p_payments_reconcile_retry CHECK (reconcile_retry_count >= 0 AND ((reconcile_retry_count = 0 AND reconcile_unknown_since IS NULL) OR (reconcile_retry_count > 0 AND reconcile_unknown_since IS NOT NULL)))`.
+
 - `CONSTRAINT ck_p_payments_pg_provider CHECK (pg_provider IN ('TOSS', 'KAKAO'))`.
 
 - `CONSTRAINT ck_p_payments_amount CHECK ( discount_amount >= 0 AND amount::BIGINT = total_price::BIGINT - discount_amount::BIGINT AND amount >= 100)`.
@@ -168,7 +179,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CREATE INDEX ix_p_payments_in_progress_next_attempt ON p_payments (next_attempt_at) WHERE status = 'IN_PROGRESS';`
 
-- `CREATE INDEX ix_p_payments_reconcile ON p_payments (updated_at) WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND reconciled_at IS NULL;`
+- `CREATE INDEX ix_p_payments_reconcile ON p_payments (next_reconcile_at,id) WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND next_reconcile_at IS NOT NULL;`
 
 ### p_refunds — payment-service/schema.sql + A
 
@@ -384,8 +395,6 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 |---|---|---|---|
 | p_payments | pg_failure_code | VARCHAR(80) NULL | PG 원본 거절 코드 전용. 현행 failure_code/failure_message와 분리 예정 |
 | p_refunds | pg_failure_code | VARCHAR(80) NULL | PG 원본 거절 코드 전용. 현행 failure_code/failure_message와 분리 예정 |
-| p_payments | reconcile_count | INT NOT NULL DEFAULT 0 | 최소 대사 완료 횟수. 현행 reconciled_at 이행 예정 |
-| p_payments | next_reconcile_at | TIMESTAMP NULL | 다음 최소 대사 시각. 마지막 대사 뒤 NULL |
 
 | 대상 | 기준 |
 |---|---|
@@ -397,7 +406,7 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 | 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
 | 예매 CANCELING | 활성 UNIQUE에는 포함되지만 현행 domain enum/CHECK에는 미반영(facade enum에는 포함). 취소 구현 시 enum/CHECK/집계 추가 |
 | 티켓 가격 | 현행 CHECK(price>=0), 판매 정책 목표>0. 무료 결제 경로 없음 |
-| 대사(추가 설계) | 현행 p_payments.reconciled_at을 reconcile_count/next_reconcile_at으로 이행 예정. 아직 현행 필드로 취급하지 않음 |
+| 최소 Reconcile 이행 | 워킹트리 SQL/Entity는 일정 스냅샷·단계·영속 불명 재시도를 지원한다. 기존 DB는 모든 결제 실행을 중지하고 `backend/sql/payment-service/migrations/001-reconcile-checkpoints.sql` 적용 후 새 코드만 기동. 새 DB는 schema.sql만 적용. 기존 reconciled_at은 재확인, 2단계 완료만 5단계 완료로 매핑하며 진행 중인 옛 단계는 첫 단계부터 보수적으로 재확인한다 |
 | 고도화(설계 전) | Outbox/Inbox/영속 작업/전이 이력의 물리 테이블·컬럼·보존 기간은 미정. Kafka 도입 때 스키마 확정 |
 | 대기열 | Redis 키/자료형·토큰 저장 형식 미정. RDB 테이블 임의 추가 금지 |
 
