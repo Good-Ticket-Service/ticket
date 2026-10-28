@@ -227,12 +227,14 @@ public class Payment extends BaseEntity {
      */
     public void startApproval(String authTransactionId, LocalDateTime now, Duration firstCheckAfter) {
         require(PaymentStatus.READY);
+        // Note: DB 반올림으로 60초 정각 판정이 달라지지 않도록 최초 기준·예약 시각의 정밀도를 통일한다.
+        LocalDateTime startedAt = toDbPrecision(now);
         if (authTransactionId != null) {
             this.pgTransactionId = authTransactionId;
         }
         this.status = PaymentStatus.IN_PROGRESS;
-        this.approveRequestedAt = now;
-        this.recovery.start(now, now.plus(firstCheckAfter));
+        this.approveRequestedAt = startedAt;
+        this.recovery.start(startedAt, startedAt.plus(firstCheckAfter));
     }
 
     public void approve(String transactionId, LocalDateTime approvedAt) {
