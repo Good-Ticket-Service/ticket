@@ -142,8 +142,7 @@ public class ScheduleSeat extends BaseEntity {
         if (!sellable) {
             throw new BusinessException(ReservationErrorCode.SEAT_NOT_SELLABLE);
         }
-        boolean selectable = status == SeatStatus.AVAILABLE || (status == SeatStatus.HOLD && isHoldExpiredAt(now));
-        if (!selectable) {
+        if (selectabilityAt(now) == SeatSelectability.NOT_SELECTABLE) {
             throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
         }
         this.status = SeatStatus.HOLD;
@@ -168,6 +167,22 @@ public class ScheduleSeat extends BaseEntity {
         this.status = SeatStatus.AVAILABLE;
         this.reservationId = null;
         this.holdExpiresAt = null;
+    }
+
+    /**
+     * 좌석 하나만 보고 선택 가능한지 판정한다. 좌석 조회·잔여석·선점이 모두 이 규칙을 쓴다.
+     * 만료된 HOLD는 그 예약이 결제 중이면 선택할 수 없지만, 예약 상태는 booking이 갖고 있어 여기서는 EXPIRED_HOLD로만 알린다.
+     */
+    public SeatSelectability selectabilityAt(LocalDateTime now) {
+        // 판매 제외 좌석은 상태와 관계없이 선택 불가
+        if (!sellable) {
+            return SeatSelectability.NOT_SELECTABLE;
+        }
+        if (status == SeatStatus.AVAILABLE) {
+            return SeatSelectability.SELECTABLE;
+        }
+        // 만료된 HOLD는 결제 중 확인 대상, 만료 전 HOLD·SOLD는 선택 불가
+        return isHoldExpiredAt(now) ? SeatSelectability.EXPIRED_HOLD : SeatSelectability.NOT_SELECTABLE;
     }
 
     public boolean isHeldBy(Long reservationId) {
