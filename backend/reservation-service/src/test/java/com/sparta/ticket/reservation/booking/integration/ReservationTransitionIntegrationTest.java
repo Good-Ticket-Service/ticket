@@ -7,12 +7,14 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.application.facade.HoldTarget;
 import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationState;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -69,7 +71,10 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
 
     private Long hold(Duration holdFor, Long... seatIds) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                userId, TestIds.next(), TestSeats.priced(seatIds), clock.now().plus(holdFor)));
+                userId,
+                TestHoldTargets.of(TestIds.next()),
+                TestSeats.priced(seatIds),
+                clock.now().plus(holdFor)));
     }
 
     private int inTransaction(Callable<Integer> action) {
@@ -92,7 +97,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("선점 트랜잭션 안에서 HOLD 예약과 좌석마다 티켓이 저장되고, 트랜잭션 없이 부르거나 같은 좌석을 두 번 넣으면 막는다")
+    @DisplayName("선점 트랜잭션 안에서 HOLD 예약과 좌석마다 티켓이 저장되고, 트랜잭션 없이 부르거나 같은 좌석을 두 번 넣거나 공연·판매자가 없으면 막는다")
     void hold() {
         Long seatA = TestIds.next();
         Long seatB = TestIds.next();
@@ -114,13 +119,20 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                 .isEqualTo(2);
         assertThatThrownBy(() -> bookingFacade.hold(
                         userId,
-                        TestIds.next(),
+                        TestHoldTargets.of(TestIds.next()),
                         TestSeats.priced(seatA),
                         clock.now().plusMinutes(10)))
                 .isInstanceOf(IllegalTransactionStateException.class);
         assertThatThrownBy(() -> hold(Duration.ofMinutes(10), seatA, seatA))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("같은 좌석");
+        assertThatThrownBy(() -> transactionTemplate.execute(status -> bookingFacade.hold(
+                        userId,
+                        new HoldTarget(TestIds.next(), null, TestHoldTargets.SELLER_ID),
+                        TestSeats.priced(TestIds.next()),
+                        clock.now().plusMinutes(10))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("판매자");
     }
 
     @Test
@@ -129,7 +141,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         Long scheduleId = TestIds.next();
         Long first = transactionTemplate.execute(status -> bookingFacade.hold(
                 userId,
-                scheduleId,
+                TestHoldTargets.of(scheduleId),
                 TestSeats.priced(TestIds.next()),
                 clock.now().plusMinutes(10)));
 
@@ -137,7 +149,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         transactionTemplate.executeWithoutResult(status -> {
             assertThatThrownBy(() -> bookingFacade.hold(
                             userId,
-                            scheduleId,
+                            TestHoldTargets.of(scheduleId),
                             TestSeats.priced(TestIds.next()),
                             clock.now().plusMinutes(10)))
                     .isInstanceOf(DataIntegrityViolationException.class)
@@ -148,7 +160,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
         release(userId, first);
         Long again = transactionTemplate.execute(status -> bookingFacade.hold(
                 userId,
-                scheduleId,
+                TestHoldTargets.of(scheduleId),
                 TestSeats.priced(TestIds.next()),
                 clock.now().plusMinutes(10)));
         assertThat(again).as("RELEASED는 진행 중인 예약이 아니다").isNotNull();

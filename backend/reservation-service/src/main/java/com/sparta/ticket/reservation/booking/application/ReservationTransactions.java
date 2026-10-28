@@ -36,6 +36,8 @@ public class ReservationTransactions {
             Long reservationId,
             Long userId,
             Long scheduleId,
+            Long performanceId,
+            Long sellerId,
             String currentOrderId,
             LocalDateTime holdExpiresAt,
             long baseAmount) {}
@@ -60,6 +62,8 @@ public class ReservationTransactions {
                 reservation.getId(),
                 reservation.getUserId(),
                 reservation.getScheduleId(),
+                reservation.getPerformanceId(),
+                reservation.getSellerId(),
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
                 reservation.baseAmount());

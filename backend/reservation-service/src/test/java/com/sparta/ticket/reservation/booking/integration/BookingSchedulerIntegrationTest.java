@@ -16,6 +16,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Stat
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -85,7 +86,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     private Long hold(Duration holdFor, Long seatId) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
                 user.userId(),
-                TestIds.next(),
+                TestHoldTargets.of(TestIds.next()),
                 TestSeats.priced(seatId),
                 clock.now().plus(holdFor)));
     }

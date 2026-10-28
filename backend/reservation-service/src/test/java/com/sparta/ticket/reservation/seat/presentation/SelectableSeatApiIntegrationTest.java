@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
@@ -72,8 +73,8 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
 
     /** 실제 예약을 만들어 결제 중으로 바꾼다. 결제 중 여부는 booking의 예약 상태로 판단하기 때문이다. */
     private Long paymentInProgressReservation(Long seatId) {
-        Long reservationId = transactionTemplate.execute(
-                status -> bookingFacade.hold(77L, SCHEDULE, TestSeats.priced(seatId), NOW.minusMinutes(1)));
+        Long reservationId = transactionTemplate.execute(status ->
+                bookingFacade.hold(77L, TestHoldTargets.of(SCHEDULE), TestSeats.priced(seatId), NOW.minusMinutes(1)));
         jdbcTemplate.update(
                 "UPDATE p_reservations SET status = 'PAYMENT_IN_PROGRESS' WHERE reservation_id = ?", reservationId);
         return reservationId;
