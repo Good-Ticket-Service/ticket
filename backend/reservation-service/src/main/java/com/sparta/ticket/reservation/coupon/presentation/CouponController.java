@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 쿠폰 관리자 API. 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 CouponService에 넘긴다.
- * Gateway가 /api/coupons/**를 reservation-service로 보낸다. 명세는 docs/coupon/api.md다.
+ * Gateway가 /api/coupons/**를 reservation-service로 보낸다. 명세는 docs/api.md 쿠폰 절이다.
  */
 @Tag(name = "쿠폰")
 @RestController

@@ -26,6 +26,7 @@ public class CouponService {
     @Transactional
     public CouponResult create(CreateCouponCommand command) {
         LocalDateTime now = now();
+        // 검증과 생성은 Coupon이 한다. 규칙에 어긋나면 여기서 예외가 난다
         Coupon coupon = Coupon.create(
                 command.name(),
                 command.discountAmount(),
@@ -34,6 +35,7 @@ public class CouponService {
                 command.issueEndAt(),
                 command.validDays(),
                 now);
+        // 저장하면 DB가 만든 ID가 채워진다. 응답의 발급 상태는 같은 now로 계산한다
         return CouponResult.of(couponRepository.save(coupon), now);
     }
 
@@ -44,7 +46,9 @@ public class CouponService {
     @Transactional
     public CouponResult update(Long couponId, UpdateCouponCommand command) {
         LocalDateTime now = now();
+        // 행을 잠그고 읽어, 수정이 끝날 때까지 발급의 수량 UPDATE가 기다리게 한다
         Coupon coupon = lockCoupon(couponId);
+        // 바꿀 수 있는지 판단과 값 변경은 Coupon이 한다. 저장은 커밋 때 변경 감지로 된다
         coupon.update(
                 command.name(),
                 command.discountAmount(),
@@ -60,6 +64,7 @@ public class CouponService {
     @Transactional
     public CouponResult close(Long couponId) {
         LocalDateTime now = now();
+        // 발급과 겹치지 않도록 행을 잠그고 읽은 뒤 종료 시각을 당긴다
         Coupon coupon = lockCoupon(couponId);
         coupon.close(now);
         return CouponResult.of(coupon, now);
@@ -72,7 +77,9 @@ public class CouponService {
      */
     @Transactional
     public void delete(Long couponId, String username) {
+        // 발급 수량이 0이고 아직 삭제되지 않은 경우에만 삭제 정보를 기록한다
         int deleted = couponRepository.softDeleteIfNotIssued(couponId, username, now());
+        // 0행이면 쿠폰이 남아 있는지로 409(이미 발급됨)와 404(없음)를 가른다
         if (deleted == 0) {
             throw new BusinessException(
                     couponRepository.existsById(couponId)

@@ -33,17 +33,21 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
     @Override
     public UserCoupon saveIssued(UserCoupon userCoupon) {
         try {
+            // flush까지 해서 INSERT를 바로 실행한다. 제약 위반이 커밋 때가 아니라 여기서 드러난다
             return jpaRepository.saveAndFlush(userCoupon);
         } catch (DataIntegrityViolationException e) {
+            // 1인 1장 위반이면 업무 오류(409)로 바꾼다
             if (violates(e, ONE_PER_USER_CONSTRAINT)) {
                 throw new BusinessException(CouponErrorCode.COUPON_ALREADY_ISSUED);
             }
+            // 다른 제약 위반은 예상하지 못한 오류라 그대로 던진다
             throw e;
         }
     }
 
     /** 원인 중 Hibernate 제약 위반 예외를 찾아 제약 이름을 비교한다. 메시지 문자열은 DB·버전마다 달라 쓰지 않는다. */
     private static boolean violates(DataIntegrityViolationException e, String constraintName) {
+        // Spring 예외 안에 감싸인 원인을 따라가며 Hibernate 제약 위반 예외를 찾는다
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation) {
                 return constraintName.equalsIgnoreCase(violation.getConstraintName());

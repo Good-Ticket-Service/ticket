@@ -18,7 +18,7 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 관리자가 만든 쿠폰 정의. 회원이 받은 쿠폰 한 장 한 장은 회원 쿠폰(p_user_coupons)이다.
- * 발급 상태는 컬럼 없이 발급 기간과 현재 시각으로 계산한다. 명세는 docs/coupon/api.md, docs/coupon/tables.md다.
+ * 발급 상태는 컬럼 없이 발급 기간과 현재 시각으로 계산한다. 명세는 docs/api.md 쿠폰 절, docs/tables.md p_coupons다.
  */
 @Getter
 @Entity
@@ -84,9 +84,11 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             int validDays,
             LocalDateTime now) {
+        // 숫자 항목은 모두 1 이상이어야 한다(DB CHECK 제약과 같은 규칙)
         requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
         requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
         requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
+        // 발급 기간 순서와 종료 시각이 미래인지 확인한다
         requireValidEnd(issueStartAt, issueEndAt, now);
         return new Coupon(name, discountAmount, totalQuantity, issueStartAt, issueEndAt, validDays);
     }
@@ -106,15 +108,18 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             Integer validDays,
             LocalDateTime now) {
+        // 1) 끝난 쿠폰의 종료 시각 변경 금지: 중단한 쿠폰이 다시 열리는 것을 막는다
         if (issueStatus(now) == CouponIssueStatus.ENDED && changes(issueEndAt, this.issueEndAt)) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
+        // 2) 발급이 시작됐으면 할인액·시작 시각·유효 일수는 바꿀 수 없다
         if (isIssueStarted(now)
                 && (changes(discountAmount, this.discountAmount)
                         || changes(issueStartAt, this.issueStartAt)
                         || changes(validDays, this.validDays))) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_MODIFIABLE);
         }
+        // 3) 보낸 숫자 값 검증. 총 수량은 이미 발급한 수량보다 작아질 수 없다
         if (discountAmount != null) {
             requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
         }
@@ -127,12 +132,14 @@ public class Coupon extends BaseEntity {
                 throw new BusinessException(CouponErrorCode.COUPON_QUANTITY_BELOW_ISSUED);
             }
         }
+        // 4) 바뀐 뒤의 발급 기간을 만들어 순서와 종료 시각을 다시 확인한다. 한쪽만 보내도 다른 쪽은 지금 값과 비교한다
         LocalDateTime nextStart = issueStartAt != null ? issueStartAt : this.issueStartAt;
         LocalDateTime nextEnd = issueEndAt != null ? issueEndAt : this.issueEndAt;
         if (issueStartAt != null || issueEndAt != null) {
             requireValidEnd(nextStart, nextEnd, now);
         }
 
+        // 5) 검증을 모두 통과한 뒤에만 값을 바꾼다. 중간에 실패해도 일부만 바뀐 상태가 남지 않는다
         if (name != null) {
             this.name = name;
         }
@@ -156,20 +163,25 @@ public class Coupon extends BaseEntity {
      */
     public void close(LocalDateTime now) {
         CouponIssueStatus status = issueStatus(now);
+        // 이미 끝난 쿠폰은 다시 중단할 수 없다
         if (status == CouponIssueStatus.ENDED) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
+        // 시작 전이면 시작 시각도 당겨 기간 순서(시작 <= 종료)를 지킨다
         if (status == CouponIssueStatus.UPCOMING) {
             this.issueStartAt = now;
         }
+        // 종료 시각을 현재로 당기면 이 순간부터 ENDED로 계산된다
         this.issueEndAt = now;
     }
 
     /** 시작 시각 이상, 종료 시각 미만이면 발급 중이다. 종료 시각 정각부터는 끝난 것으로 본다. */
     public CouponIssueStatus issueStatus(LocalDateTime now) {
+        // 시작 시각 전
         if (now.isBefore(issueStartAt)) {
             return CouponIssueStatus.UPCOMING;
         }
+        // 시작 시각 이후이고 종료 시각 전. 발급 수량 조건부 UPDATE의 기간 조건과 같은 경계다
         if (now.isBefore(issueEndAt)) {
             return CouponIssueStatus.ISSUING;
         }
@@ -200,9 +212,11 @@ public class Coupon extends BaseEntity {
 
     /** 발급 종료 시각이 시작 시각보다, 그리고 현재보다 뒤인지 확인한다. 아니면 400 VALIDATION_ERROR. */
     private static void requireValidEnd(LocalDateTime issueStartAt, LocalDateTime issueEndAt, LocalDateTime now) {
+        // 종료가 시작과 같거나 빠르면 발급할 수 있는 기간이 없다
         if (!issueEndAt.isAfter(issueStartAt)) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "발급 종료 시각은 발급 시작 시각 이후여야 합니다.");
         }
+        // 종료 시각이 이미 지났으면 만들자마자 끝난 쿠폰이 된다
         if (!issueEndAt.isAfter(now)) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "발급 종료 시각은 현재 이후여야 합니다.");
         }
