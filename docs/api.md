@@ -336,11 +336,11 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 좌석 — reservation-service / seat
 
-상태: 외부 API는 초안(구현 전). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: GET seats는 구현됨(#84, Gateway 라우트는 미반영). 나머지 외부 API는 초안(구현 전). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
-| GET /api/schedules/{scheduleId}/seats | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID |
+| GET /api/schedules/{scheduleId}/seats | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(회차에 좌석이 없음: 없는 회차·좌석 준비 전을 나누지 않음) |
 | GET /api/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
 | POST /api/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 404 SEAT_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
 | DELETE /api/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
@@ -484,13 +484,13 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외), SeatFacade는 합의·구현 전, CouponUsage는 초안이다.
+상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외), SeatFacade는 합의·구현됨(#80), CouponUsage는 초안이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
 | booking → seat | 합의 #34 | hold(Long userId,Long scheduleId,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
-| seat → booking | 합의 #34; 구현 전 | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
+| seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
 | coupon → booking | 초안 #27 | reserve(Long userCouponId,Long userId,Long reservationId):할인액; use(Long reservationId); release(Long reservationId). 반환 타입/인자 최종 합의 대기 |
 
 - SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
