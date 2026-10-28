@@ -38,6 +38,7 @@ public class CouponIssueService {
         LocalDateTime now = now();
 
         // 1) 이미 받은 회원은 잠금을 잡기 전에 빨리 거른다. 동시에 들어온 같은 회원의 요청은 4)의 UNIQUE가 막는다
+        //    이미 받은 회원에게는 쿠폰의 기간·수량과 상관없이 409 ALREADY_ISSUED를 먼저 준다(오류 우선순위)
         if (userCouponRepository.existsByUserIdAndCouponId(userId, couponId)) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_ISSUED);
         }
@@ -45,6 +46,9 @@ public class CouponIssueService {
         // 2) 발급 기간·수량·삭제 여부를 확인하며 발급 수량을 1 올린다.
         //    Note: UPDATE는 바꾸는 행에 자동으로 쓰기 락을 걸고 커밋까지 유지한다(SELECT ... FOR UPDATE 불필요).
         //    같은 쿠폰의 다른 발급·수정은 이 락이 풀릴 때까지 기다린 뒤 최신 값으로 조건을 다시 확인한다
+        //    Note: 기간 조건은 락을 기다리기 전에 정한 now로 본다. 그래서 관리자가 발급을 중단하는 동안 줄 서 있던 요청은
+        //    중단 커밋 뒤에도 발급될 수 있다. 중단 전에 도착한 요청으로 보고 허용한다(issued_at < issue_end_at은 지켜진다).
+        //    DB 시계로 바꾸면 막을 수 있지만 공용 Clock 기준(#34)과 테스트의 시각 고정이 깨진다
         int increased = couponRepository.increaseIssuedQuantity(couponId, now, username);
         if (increased == 0) {
             throw new BusinessException(rejectReason(couponId, now));
@@ -64,6 +68,8 @@ public class CouponIssueService {
      * 발급 수량 UPDATE가 0행일 때 이유를 가른다. 확인 순서는 없음(404) → 기간 밖(400) → 소진(409)이다.
      * Note: UPDATE와 이 조회 사이에 관리자가 기간이나 총 수량을 바꾸면 세 조건이 모두 통과할 수 있다.
      * UPDATE 시점에는 발급할 수 없었으므로 소진(409)으로 응답하고, 회원이 다시 요청하면 새 조건으로 판단된다.
+     * 반대로 소진으로 0행이 된 뒤 관리자가 발급을 중단하면 기간 밖(400)으로 응답한다. 0행 UPDATE는 락을 남기지 않아
+     * 이 조회가 그사이 커밋을 보기 때문이다. 어느 쪽이든 "지금 발급할 수 없다"는 결과는 같다.
      */
     private CouponErrorCode rejectReason(Long couponId, LocalDateTime now) {
         // 삭제된 쿠폰은 @SQLRestriction으로 조회되지 않아 없는 쿠폰과 같게 404다
