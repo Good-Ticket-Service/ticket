@@ -13,8 +13,6 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
-import com.sparta.ticket.reservation.booking.application.port.ScheduleInfoPort;
-import com.sparta.ticket.reservation.booking.application.port.ScheduleInfoPort.ScheduleInfo;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +30,6 @@ public class ReservationPaymentService {
     private final ReservationTransactions transactions;
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
-    private final ScheduleInfoPort scheduleInfoPort;
 
     /** 결제를 준비한다. 상태는 HOLD 그대로이고, 새 orderId와 결제 금액을 기록한다. */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
@@ -41,14 +38,13 @@ public class ReservationPaymentService {
             throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE, "쿠폰 적용은 아직 지원하지 않습니다.");
         }
         CheckoutTarget target = transactions.loadCheckoutTarget(user.userId(), reservationId);
-        ScheduleInfo schedule = scheduleInfoPort.find(target.scheduleId());
         String orderId = UUID.randomUUID().toString();
         PreparedPayment prepared = paymentPort.prepare(new PaymentPrepareRequest(
                 orderId,
                 target.reservationId(),
                 target.userId(),
-                schedule.sellerId(),
-                schedule.performanceId(),
+                target.sellerId(),
+                target.performanceId(),
                 target.scheduleId(),
                 target.baseAmount(),
                 0L,

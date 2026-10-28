@@ -16,6 +16,7 @@ import com.sparta.ticket.reservation.booking.infrastructure.seat.SeatFacadeAdapt
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -111,7 +112,10 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
     /** seat의 선점처럼 예약을 만들고 좌석을 그 예약의 HOLD로 둔다. */
     private Long holdWithSeats(List<Long> seatIds) {
         Long reservationId = transactionTemplate.execute(status -> bookingFacade.hold(
-                user.userId(), scheduleId, TestSeats.priced(seatIds.toArray(Long[]::new)), NOW.plusMinutes(10)));
+                user.userId(),
+                TestHoldTargets.of(scheduleId),
+                TestSeats.priced(seatIds.toArray(Long[]::new)),
+                NOW.plusMinutes(10)));
         holdSeats(reservationId, seatIds);
         return reservationId;
     }

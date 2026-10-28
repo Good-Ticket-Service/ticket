@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.booking.application;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.application.facade.HoldTarget;
 import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationState;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
@@ -11,6 +12,7 @@ import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.SaleTarget;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
@@ -34,14 +36,21 @@ public class BookingFacadeService implements BookingFacade {
     /** 좌석과 예약이 한 트랜잭션에서 바뀌어야 하므로, 바깥 트랜잭션 없이 부르면 예외로 막는다. */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public Long hold(Long userId, Long scheduleId, List<SeatLine> seats, LocalDateTime holdExpiresAt) {
+    public Long hold(Long userId, HoldTarget target, List<SeatLine> seats, LocalDateTime holdExpiresAt) {
+        if (target == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "선점할 회차가 없습니다.");
+        }
         List<SeatPrice> prices = seats.stream()
                 .map(seat -> new SeatPrice(seat.scheduleSeatId(), seat.price()))
                 .toList();
         // Note: save만 하면 INSERT가 커밋 때로 미뤄질 수 있다. 바로 flush해서 UNIQUE 위반을 이 호출 안에서 드러낸다.
         // 그러면 seat는 좌석을 바꾸기 전에 실패를 알고, 트랜잭션 밖에서 제약 이름으로 409를 만든다.
         return reservationRepository
-                .saveAndFlush(Reservation.hold(userId, scheduleId, prices, holdExpiresAt))
+                .saveAndFlush(Reservation.hold(
+                        userId,
+                        new SaleTarget(target.scheduleId(), target.performanceId(), target.sellerId()),
+                        prices,
+                        holdExpiresAt))
                 .getId();
     }
 

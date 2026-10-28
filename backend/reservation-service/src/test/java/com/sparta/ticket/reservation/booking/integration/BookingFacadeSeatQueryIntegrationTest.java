@@ -9,6 +9,7 @@ import com.sparta.ticket.reservation.booking.application.facade.ReservationState
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -63,8 +64,8 @@ class BookingFacadeSeatQueryIntegrationTest extends ReservationIntegrationTest {
     }
 
     private Long holdUntil(Long user, Long scheduleId, LocalDateTime holdExpiresAt, Long... seatIds) {
-        return transactionTemplate.execute(
-                status -> bookingFacade.hold(user, scheduleId, TestSeats.priced(seatIds), holdExpiresAt));
+        return transactionTemplate.execute(status ->
+                bookingFacade.hold(user, TestHoldTargets.of(scheduleId), TestSeats.priced(seatIds), holdExpiresAt));
     }
 
     private void checkout(Long reservationId) {
@@ -228,7 +229,7 @@ class BookingFacadeSeatQueryIntegrationTest extends ReservationIntegrationTest {
             assertThat(bookingFacade.countActiveSeats(userId, scheduleId)).isZero();
             return bookingFacade.hold(
                     userId,
-                    scheduleId,
+                    TestHoldTargets.of(scheduleId),
                     TestSeats.priced(TestIds.next()),
                     clock.now().plusMinutes(10));
         });

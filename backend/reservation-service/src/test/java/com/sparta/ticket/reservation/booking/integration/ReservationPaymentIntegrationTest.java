@@ -18,9 +18,9 @@ import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
-import com.sparta.ticket.reservation.booking.support.FakeScheduleInfoPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
@@ -97,7 +97,10 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
 
     private Long hold() {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                userId, scheduleId, TestSeats.priced(seatB, seatA), clock.now().plusMinutes(10)));
+                userId,
+                TestHoldTargets.of(scheduleId),
+                TestSeats.priced(seatB, seatA),
+                clock.now().plusMinutes(10)));
     }
 
     private MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Long user) {
@@ -154,8 +157,8 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         assertThat(request.totalPrice()).isEqualTo(20_000L);
         assertThat(request.discountAmount()).isZero();
         assertThat(request.scheduleId()).isEqualTo(scheduleId);
-        assertThat(request.performanceId()).isEqualTo(FakeScheduleInfoPort.PERFORMANCE_ID);
-        assertThat(request.sellerId()).isEqualTo(FakeScheduleInfoPort.SELLER_ID);
+        assertThat(request.performanceId()).isEqualTo(TestHoldTargets.PERFORMANCE_ID);
+        assertThat(request.sellerId()).isEqualTo(TestHoldTargets.SELLER_ID);
         assertThat(request.pgProvider()).isEqualTo("TOSS");
         assertThat(payment.prepared.get(0).expiresAt()).isEqualTo(clock.now().plusMinutes(10));
         assertThat(payment.confirmedAmounts).as("승인 금액은 준비 응답의 값이다").containsExactly(17_000L);

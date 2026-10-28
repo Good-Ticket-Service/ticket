@@ -43,6 +43,12 @@ public class Reservation extends BaseEntity {
     @Column(nullable = false)
     private Long scheduleId;
 
+    @Column(nullable = false)
+    private Long performanceId;
+
+    @Column(nullable = false)
+    private Long sellerId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ReservationStatus status;
@@ -64,15 +70,20 @@ public class Reservation extends BaseEntity {
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
     private List<Ticket> tickets = new ArrayList<>();
 
-    private Reservation(Long userId, Long scheduleId, LocalDateTime holdExpiresAt) {
+    private Reservation(Long userId, SaleTarget target, LocalDateTime holdExpiresAt) {
         this.userId = userId;
-        this.scheduleId = scheduleId;
+        this.scheduleId = target.scheduleId();
+        this.performanceId = target.performanceId();
+        this.sellerId = target.sellerId();
         this.holdExpiresAt = holdExpiresAt;
         this.status = ReservationStatus.HOLD;
     }
 
     /** 좌석 선점과 같은 트랜잭션에서 HOLD 예약과 좌석마다 티켓을 만든다. */
-    public static Reservation hold(Long userId, Long scheduleId, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+    public static Reservation hold(Long userId, SaleTarget target, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
+        if (target.scheduleId() == null || target.performanceId() == null || target.sellerId() == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "회차·공연·판매자는 모두 있어야 합니다.");
+        }
         if (seats == null || seats.isEmpty()) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "선점할 좌석이 없습니다.");
         }
@@ -82,7 +93,7 @@ public class Reservation extends BaseEntity {
         if (seats.stream().anyMatch(seat -> seat.price() < 0)) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "좌석 가격은 0원 이상이어야 합니다.");
         }
-        Reservation reservation = new Reservation(userId, scheduleId, holdExpiresAt);
+        Reservation reservation = new Reservation(userId, target, holdExpiresAt);
         seats.forEach(seat -> reservation.tickets.add(new Ticket(reservation, seat)));
         return reservation;
     }
