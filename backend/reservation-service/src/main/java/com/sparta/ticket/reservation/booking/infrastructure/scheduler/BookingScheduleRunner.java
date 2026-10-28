@@ -1,7 +1,7 @@
 package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
 
-import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
-import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
+import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.infrastructure.scheduler.BookingSchedulerProperties.HoldExpiry;
 import com.sparta.ticket.reservation.booking.infrastructure.scheduler.BookingSchedulerProperties.PaymentReconcile;
 import lombok.RequiredArgsConstructor;

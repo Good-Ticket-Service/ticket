@@ -1,5 +1,8 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.expiry;
 
+import com.sparta.ticket.reservation.booking.application.BookingMetrics;
+import com.sparta.ticket.reservation.booking.application.ChangeStamps;
+import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -16,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @RequiredArgsConstructor
-public class HoldExpiryTransaction {
+public class HoldExpiryTransactions {
 
     private final ReservationRepository reservationRepository;
     private final ReservationTransitionExecutor transitionExecutor;

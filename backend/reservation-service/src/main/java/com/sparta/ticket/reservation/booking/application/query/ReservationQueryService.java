@@ -1,4 +1,4 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.query;
 
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.exception.BusinessException;
