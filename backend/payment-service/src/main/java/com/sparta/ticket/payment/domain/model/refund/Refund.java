@@ -61,6 +61,22 @@ public class Refund extends BaseEntity {
     @Column(nullable = false)
     private int cancelAttempt;
 
+    @Column(nullable = false)
+    private long executionVersion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private RefundRecoveryMode recoveryMode = RefundRecoveryMode.ACTIVE;
+
+    private LocalDateTime slowStartedAt;
+    private LocalDateTime cancelKeyCreatedAt;
+
+    @Column(nullable = false)
+    private int slowAttempts;
+
+    @Column(length = 80)
+    private String verificationReason;
+
     @Column(length = 200)
     private String pgCancelId;
 
@@ -73,7 +89,7 @@ public class Refund extends BaseEntity {
 
     private LocalDateTime refundedAt;
 
-    /** 자동 처리 중단 여부. 업무 거절이나 시간 초과면 켜고 관리자가 확인한다. 결제는 차단하지 않으므로 환불에만 있다. */
+    /** 운영 중단 여부. 시간 초과는 SLOW로 전환하며 조회를 멈추지 않는다. */
     @Column(nullable = false)
     private boolean recoveryBlocked;
 
@@ -136,6 +152,7 @@ public class Refund extends BaseEntity {
         if (status != RefundStatus.WAITING && status != RefundStatus.SKIPPED) {
             return false;
         }
+        if (refundAmount <= 0) throw new BusinessException(PaymentErrorCode.INVALID_PAYMENT_AMOUNT);
         this.refundAmount = refundAmount;
         this.status = RefundStatus.REQUESTED;
         markRequested(now, nextAttemptAt);
@@ -154,10 +171,24 @@ public class Refund extends BaseEntity {
         this.pgCancelId = pgCancelId;
         this.refundedAt = refundedAt;
         this.recoveryBlocked = false;
+        this.recoveryMode = RefundRecoveryMode.PAUSED;
         this.recovery.finish();
     }
 
-    /** PG의 업무 거절. 자동으로 다시 보내지 않도록 차단하고 경보 대상으로 남긴다. */
+    /** 오래된 성공의 재조회가 실패해도 운영 인수에 필요한 단서를 남긴다. */
+    public void requireCancellationVerification() {
+        if (status != RefundStatus.DONE) recovery.recordError("STALE_CANCEL_SUCCESS_REQUIRES_VERIFICATION");
+    }
+
+    public void confirmCancellation(String pgCancelId, LocalDateTime refundedAt) {
+        if (status != RefundStatus.REQUESTED && status != RefundStatus.FAILED) throw invalidTransition();
+        this.status = RefundStatus.REQUESTED;
+        complete(pgCancelId, refundedAt);
+        this.failureCode = null;
+        this.failureMessage = null;
+    }
+
+    /** PG의 업무 거절은 자동 처리를 차단하고 운영 확인 대상으로 남긴다. */
     public void reject(String code, String message) {
         require(RefundStatus.REQUESTED);
         this.status = RefundStatus.FAILED;
@@ -169,12 +200,20 @@ public class Refund extends BaseEntity {
     /** 관리자 재시도. 토스는 같은 멱등 키의 거절을 그대로 재현하므로 키 세대를 올려 새 요청으로 보낸다. */
     public void retryByAdmin(LocalDateTime now) {
         require(RefundStatus.FAILED);
-        this.cancelAttempt++;
+        this.cancelAttempt = Math.incrementExact(cancelAttempt);
+        this.executionVersion = Math.incrementExact(executionVersion);
         this.status = RefundStatus.REQUESTED;
         this.failureCode = null;
         this.failureMessage = null;
         this.recoveryBlocked = false;
-        this.recovery.start(now, now);
+        this.recoveryMode = RefundRecoveryMode.ACTIVE;
+        this.slowStartedAt = null;
+        this.slowAttempts = 0;
+        this.verificationReason = null;
+        this.cancelKeyCreatedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        this.recovery.start(
+                now.truncatedTo(java.time.temporal.ChronoUnit.MICROS),
+                now.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     public String pgCancelKey(String orderId) {
@@ -182,33 +221,70 @@ public class Refund extends BaseEntity {
     }
 
     public void claimRecovery(LocalDateTime until) {
-        require(RefundStatus.REQUESTED);
+        if (!isAutomaticallyQueryable()) throw invalidTransition();
+        this.executionVersion = Math.incrementExact(executionVersion);
         recovery.claimUntil(until);
     }
 
     public void deferRecovery(String error, LocalDateTime nextAttemptAt) {
-        require(RefundStatus.REQUESTED);
+        if (!isAutomaticallyQueryable()) throw invalidTransition();
         recovery.defer(error, nextAttemptAt);
+        if (recoveryMode != RefundRecoveryMode.ACTIVE && slowAttempts < Integer.MAX_VALUE) slowAttempts++;
     }
 
-    /** 시간 초과(give-up). REQUESTED 그대로 자동 처리만 멈춘다. */
+    public boolean isAutomaticallyQueryable() {
+        return !recoveryBlocked
+                && recoveryMode != RefundRecoveryMode.PAUSED
+                && (status == RefundStatus.REQUESTED
+                        || (status == RefundStatus.FAILED && recoveryMode == RefundRecoveryMode.VERIFY_ONLY));
+    }
+
+    public boolean enterSlowIfDue(LocalDateTime now, Duration after) {
+        if (recoveryMode == RefundRecoveryMode.ACTIVE && recovery.isGivenUp(now, after)) {
+            recoveryMode = RefundRecoveryMode.SLOW;
+            slowStartedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+            slowAttempts = 0;
+            return true;
+        }
+        return false;
+    }
+
+    public void verifyOnly(String reason, LocalDateTime now) {
+        if (status != RefundStatus.REQUESTED && status != RefundStatus.FAILED) return;
+        recoveryMode = RefundRecoveryMode.VERIFY_ONLY;
+        recoveryBlocked = false;
+        if (verificationReason == null) verificationReason = reason.length() > 80 ? reason.substring(0, 80) : reason;
+        if (slowStartedAt == null) slowStartedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        recovery.recordError(reason);
+        if (recovery.getNextAttemptAt() == null)
+            recovery.claimUntil(now.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+    }
+
+    public boolean canCancelAt(LocalDateTime now, Duration maximumAge) {
+        return status == RefundStatus.REQUESTED
+                && !recoveryBlocked
+                && (recoveryMode == RefundRecoveryMode.ACTIVE || recoveryMode == RefundRecoveryMode.SLOW)
+                && cancelKeyCreatedAt != null
+                && !now.isBefore(cancelKeyCreatedAt)
+                && now.isBefore(cancelKeyCreatedAt.plus(maximumAge));
+    }
+
+    /** 명시적인 운영 중단. 시간 경과만으로 이 메서드를 호출하지 않는다. */
     public void blockRecovery(String reason) {
         require(RefundStatus.REQUESTED);
         block(reason);
     }
 
-    /** 관리자가 PG 상태를 확인한 뒤 다시 자동 처리에 넣는다. 중단 기준 시각을 다시 센다. */
+    /** 기존 키·최초 시각을 유지하고 조회 전용으로 재개한다. */
     public void unblockRecovery(LocalDateTime now) {
         require(RefundStatus.REQUESTED);
-        if (!recoveryBlocked) {
-            throw invalidTransition();
-        }
+        if (!recoveryBlocked) throw invalidTransition();
         this.recoveryBlocked = false;
-        recovery.restart(now);
-    }
-
-    public boolean isRecoveryGivenUp(LocalDateTime now, Duration giveUpAfter) {
-        return status == RefundStatus.REQUESTED && recovery.isGivenUp(now, giveUpAfter);
+        this.recoveryMode = RefundRecoveryMode.VERIFY_ONLY;
+        if (verificationReason == null) verificationReason = "OPERATOR_RESUMED_VERIFICATION";
+        if (slowStartedAt == null) slowStartedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        this.executionVersion = Math.incrementExact(executionVersion);
+        recovery.claimUntil(now.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     private void markRequested(LocalDateTime now, LocalDateTime nextAttemptAt) {
@@ -216,11 +292,16 @@ public class Refund extends BaseEntity {
             this.requestedAt = now;
         }
         this.recoveryBlocked = false;
-        this.recovery.start(now, nextAttemptAt);
+        this.recoveryMode = RefundRecoveryMode.ACTIVE;
+        this.cancelKeyCreatedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        this.recovery.start(
+                now.truncatedTo(java.time.temporal.ChronoUnit.MICROS),
+                nextAttemptAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     private void block(String reason) {
         this.recoveryBlocked = true;
+        this.recoveryMode = RefundRecoveryMode.PAUSED;
         recovery.recordError(reason);
     }
 

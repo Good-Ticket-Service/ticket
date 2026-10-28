@@ -86,8 +86,8 @@ class RefundTest {
     }
 
     @Test
-    @DisplayName("시간 초과 차단은 REQUESTED를 유지하고, 차단 해제는 중단 기준 시각을 다시 센다")
-    void blockAndUnblockRestartsClock() {
+    @DisplayName("운영 중단 해제는 조회 전용으로 재개하고 원래 시각과 취소 키를 보존한다")
+    void blockAndUnblockPreservesClockAndKey() {
         Refund refund = requested();
         refund.blockRecovery("GIVE_UP");
 
@@ -98,7 +98,12 @@ class RefundTest {
         refund.unblockRecovery(NOW.plusHours(2));
 
         assertThat(refund.isRecoveryBlocked()).isFalse();
-        assertThat(refund.getRecoveryStartedAt()).isEqualTo(NOW.plusHours(2));
+        assertThat(refund.getRecoveryStartedAt()).isEqualTo(NOW);
+        assertThat(refund.getRequestedAt()).isEqualTo(NOW);
+        assertThat(refund.getCancelKeyCreatedAt()).isEqualTo(NOW);
+        assertThat(refund.getRecoveryMode()).isEqualTo(RefundRecoveryMode.VERIFY_ONLY);
+        assertThat(refund.canCancelAt(NOW.plusHours(2), java.time.Duration.ofHours(24)))
+                .isFalse();
         assertThat(refund.getNextAttemptAt()).isEqualTo(NOW.plusHours(2));
     }
 

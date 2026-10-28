@@ -30,7 +30,7 @@ public class Recovery {
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
 
-    /** 복구를 시작한 시각. 환불은 자동 처리 중단(give-up) 기준이고, 관리자가 차단을 풀면 다시 센다. 결제는 PG 승인 호출 시각과 같다. */
+    /** 복구를 시작한 시각. 환불은 저빈도 확인 전환 기준이며 같은 취소 키의 단순 재개로 초기화하지 않는다. 결제는 PG 승인 호출 시각과 같다. */
     @Column(name = "recovery_started_at")
     private LocalDateTime startedAt;
 
@@ -56,7 +56,7 @@ public class Recovery {
     }
 
     public void defer(String error, LocalDateTime nextAttemptAt) {
-        this.attempts++;
+        if (this.attempts < Integer.MAX_VALUE) this.attempts++;
         this.lastError = truncate(error);
         this.nextAttemptAt = nextAttemptAt;
     }

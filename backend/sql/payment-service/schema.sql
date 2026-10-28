@@ -90,6 +90,12 @@ CREATE TABLE p_refunds
     reason              VARCHAR(30)  NOT NULL,
     status              VARCHAR(20)  NOT NULL,
     cancel_attempt      INT          NOT NULL DEFAULT 0,
+    execution_version   BIGINT       NOT NULL DEFAULT 0 CONSTRAINT ck_p_refunds_execution_version CHECK (execution_version >= 0),
+    recovery_mode       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    verification_reason VARCHAR(80),
+    slow_started_at     TIMESTAMP,
+    slow_attempts       INT NOT NULL DEFAULT 0,
+    cancel_key_created_at TIMESTAMP,
     pg_cancel_id        VARCHAR(200),
     failure_code        VARCHAR(80),
     failure_message     VARCHAR(255),
@@ -112,10 +118,14 @@ CREATE TABLE p_refunds
     CONSTRAINT uk_p_refunds_payment_id UNIQUE (payment_id),
     CONSTRAINT ck_p_refunds_status CHECK (status IN ('WAITING', 'REQUESTED', 'DONE', 'FAILED', 'SKIPPED')),
     CONSTRAINT ck_p_refunds_reason CHECK (reason IN ('USER_CANCEL', 'SCHEDULE_CANCELED', 'CONFIRM_FAILED', 'AUTO_VOID')),
-    CONSTRAINT ck_p_refunds_amount CHECK (refund_amount > 0)
+    CONSTRAINT ck_p_refunds_amount CHECK (refund_amount > 0),
+    CONSTRAINT ck_p_refunds_recovery_mode CHECK (recovery_mode IN ('ACTIVE','SLOW','VERIFY_ONLY','PAUSED')),
+    CONSTRAINT ck_p_refunds_slow_attempts CHECK (slow_attempts >= 0),
+    CONSTRAINT ck_p_refunds_blocked_mode CHECK (NOT recovery_blocked OR recovery_mode = 'PAUSED'),
+    CONSTRAINT ck_p_refunds_failed_mode CHECK (status <> 'FAILED' OR recovery_mode IN ('VERIFY_ONLY','PAUSED'))
 );
 
 -- 복구 잡: 결과를 모르는 취소
 CREATE INDEX ix_p_refunds_requested_next_attempt
     ON p_refunds (next_attempt_at)
-    WHERE status = 'REQUESTED' AND recovery_blocked = FALSE;
+    WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;
