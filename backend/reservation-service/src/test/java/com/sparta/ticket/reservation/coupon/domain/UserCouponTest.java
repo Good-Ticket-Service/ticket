@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class UserCouponTest {
 
@@ -34,5 +35,30 @@ class UserCouponTest {
 
         assertThat(userCoupon.getIssuedAt()).isEqualTo(NOW);
         assertThat(userCoupon.getExpiresAt()).isEqualTo(NOW.plusDays(7));
+    }
+
+    @Test
+    @DisplayName("AVAILABLE은 만료 시각 1초 전까지 AVAILABLE로, 만료 시각 정각부터 EXPIRED로 보인다")
+    void displayStatusAtExpiry() {
+        UserCoupon userCoupon = UserCoupon.issue(1L, issuing(), NOW);
+        LocalDateTime expiresAt = userCoupon.getExpiresAt();
+
+        assertThat(userCoupon.displayStatus(expiresAt.minusSeconds(1))).isEqualTo(UserCouponStatus.AVAILABLE);
+        assertThat(userCoupon.displayStatus(expiresAt)).isEqualTo(UserCouponStatus.EXPIRED);
+        // 보여 주는 상태만 바뀌고 저장된 상태는 그대로다
+        assertThat(userCoupon.getStatus()).isEqualTo(UserCouponStatus.AVAILABLE);
+    }
+
+    @Test
+    @DisplayName("RESERVED·USED는 만료 시각이 지나도 저장된 상태 그대로 보인다")
+    void displayStatusKeepsReservedAndUsed() {
+        UserCoupon userCoupon = UserCoupon.issue(1L, issuing(), NOW);
+        LocalDateTime afterExpiry = userCoupon.getExpiresAt().plusDays(1);
+
+        // RESERVED·USED 전이는 예매 연동(CouponUsage)이 맡아 아직 메서드가 없으므로 필드를 직접 바꾼다
+        for (UserCouponStatus status : new UserCouponStatus[] {UserCouponStatus.RESERVED, UserCouponStatus.USED}) {
+            ReflectionTestUtils.setField(userCoupon, "status", status);
+            assertThat(userCoupon.displayStatus(afterExpiry)).isEqualTo(status);
+        }
     }
 }
