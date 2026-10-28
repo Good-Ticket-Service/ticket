@@ -251,11 +251,9 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 항목 | 현재 근거·필요한 결정/후속 작업 | 관련 담당 |
 |---|---|---|
 | 준비 순서 | 같은 예매 준비의 직렬화/영속 소유 방식, 오래된 원격 시도 차단, READY_FAILED 매핑. 타임아웃 재전송은 같은 orderId 유지 제안 | 예매·결제 |
-| 결제 연결 필드 | sellerId/performanceId 확보 경로·스냅샷. 현재 판매 검증 DTO에는 없음; 임의 추가 금지 | 예매·공연·결제 |
+| 결제 연결 필드 | sellerId/performanceId 확보 경로·스냅샷. 현재 판매 검증 DTO에는 없음; 임의 추가 금지. 합의: #86 | 예매·공연·결제 |
 | CouponUsage #27 | 인자/반환/상태·취소 복원 합의와 실제 이전·DDL·호출 연결 | 예매·쿠폰 |
 | 할인액 경계 | 예매 원본은 min(쿠폰액,max(0,정가-100)), 결제는 보정 없이 검증. 예매의 실제 보정/쿠폰 거절 경계와 구현 연결 확인 | 예매·쿠폰·결제 |
-| checkout DTO | couponId/paymentWindowUrl/선택 pgProvider에서 userCouponId/checkoutUrl/필수 pgProvider로 이행. 목표는 기존 합의 | 예매·결제 |
-| 좌석 ID 필드명 | 현행 seatIds에서 scheduleSeatIds(길이1)로 직렬화 이행 | 예매·좌석 |
 | 취소·보상 | CANCELING domain enum/CHECK/집계/복구 미구현(활성 UNIQUE·facade enum은 포함). F6의 B19(감지·알림)와 D18(보상 의도 영속 저장) MVP 범위 조율 | 예매·좌석·결제 |
 | 취소 거절 복귀 | 원본 CANCELING→CONFIRMED가 접수 전 정책 거절인지 확인. 인수한 환불의 PG 실패로 티켓을 복구하지 않는 계약 유지 | 예매·결제 |
 | 회차 취소 | 공연202만 확정. 전달 URI/payload/영속 재시도 주체·결제중 보호·신규 판매 차단·PG 환불 조회 합의. reservation-summary만으로 PG 환불 완료 판단 금지 | 공연·예매·좌석·결제 |
