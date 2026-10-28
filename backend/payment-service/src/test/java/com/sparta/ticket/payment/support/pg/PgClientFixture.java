@@ -5,11 +5,13 @@ import com.sparta.ticket.payment.domain.model.pg.PgInquiry;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.domain.model.pg.PgResult;
+import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -25,12 +27,34 @@ public class PgClientFixture {
     private final AtomicInteger readyCalls = new AtomicInteger();
     private volatile CountDownLatch readyGate;
     private volatile CountDownLatch readyEntered;
+    private final AtomicInteger approveCalls = new AtomicInteger();
+    private volatile Function<PgClient.PgApproveRequest, PgResult> approveResponse;
+    private volatile boolean approvalAllowed = true;
 
     public synchronized void reset() {
         readyResponses.clear();
         readyCalls.set(0);
         readyGate = null;
         readyEntered = null;
+        approveCalls.set(0);
+        approveResponse = null;
+        approvalAllowed = true;
+    }
+
+    public void approveReturns(Function<PgClient.PgApproveRequest, PgResult> response) {
+        approveResponse = response;
+    }
+
+    public int approveCalls() {
+        return approveCalls.get();
+    }
+
+    public boolean approvalAllowed() {
+        return approvalAllowed;
+    }
+
+    public void approvalAllowed(boolean allowed) {
+        approvalAllowed = allowed;
     }
 
     /** 다음 준비 호출들이 차례로 돌려줄 결과. 쌓인 결과가 없으면 성공(tid 자동 생성)이다. */
@@ -76,7 +100,11 @@ public class PgClientFixture {
 
         @Override
         public PgResult approve(PgApproveRequest request) {
-            throw new UnsupportedOperationException("Task 8에서 쓴다");
+            approveCalls.incrementAndGet();
+            Function<PgApproveRequest, PgResult> response = approveResponse;
+            return response == null
+                    ? new PgResult.Approved(request.transactionId(), request.amount(), LocalDateTime.now())
+                    : response.apply(request);
         }
 
         @Override
