@@ -93,6 +93,7 @@ CREATE TABLE p_refunds
     execution_version   BIGINT       NOT NULL DEFAULT 0 CONSTRAINT ck_p_refunds_execution_version CHECK (execution_version >= 0),
     recovery_mode       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     verification_reason VARCHAR(80),
+    restriction_started_at TIMESTAMP,
     slow_started_at     TIMESTAMP,
     slow_attempts       INT NOT NULL DEFAULT 0,
     cancel_key_created_at TIMESTAMP,
@@ -129,3 +130,28 @@ CREATE TABLE p_refunds
 CREATE INDEX ix_p_refunds_requested_next_attempt
     ON p_refunds (next_attempt_at)
     WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;
+
+-- 최종 운영 명령 결과. 자동 거래 전이 이력이나 PG 작업 큐가 아니다.
+CREATE TABLE p_refund_operation_commands (
+    command_id VARCHAR(80) PRIMARY KEY,
+    input_hash VARCHAR(64) NOT NULL,
+    payment_id BIGINT NOT NULL,
+    refund_id BIGINT NOT NULL,
+    action VARCHAR(10) NOT NULL CHECK (action IN ('RETRY','RESUME')),
+    actor VARCHAR(200) NOT NULL,
+    reason VARCHAR(40) NOT NULL,
+    result VARCHAR(40) NOT NULL CHECK (result IN ('APPLIED','CONFIRMED_CANCELED','DENIED','STALE','PG_UNKNOWN')),
+    explanation VARCHAR(80) NOT NULL,
+    expected_state VARCHAR(160) NOT NULL,
+    before_state VARCHAR(160) NOT NULL,
+    after_state VARCHAR(160) NOT NULL,
+    inquiry VARCHAR(40) NOT NULL,
+    processed_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    created_by VARCHAR(100) NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    updated_by VARCHAR(100) NOT NULL,
+    deleted_at TIMESTAMP,
+    deleted_by VARCHAR(100)
+);
+CREATE INDEX ix_refund_operations_history ON p_refund_operation_commands (refund_id, processed_at DESC, command_id DESC);

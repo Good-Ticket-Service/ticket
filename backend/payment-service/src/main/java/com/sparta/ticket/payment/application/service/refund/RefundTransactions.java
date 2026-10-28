@@ -184,7 +184,13 @@ public class RefundTransactions {
             }
             verificationRequired(payment, refund, "PG_INCONSISTENT_APPROVAL", now);
         } else if (inquiry instanceof PgInquiry.Canceled || inquiry instanceof PgInquiry.Inconsistent) {
-            verificationRequired(payment, refund, "PG_INCONSISTENT_CANCELLATION", now);
+            verificationRequired(
+                    payment,
+                    refund,
+                    inquiry instanceof PgInquiry.Inconsistent inconsistent
+                            ? inconsistent.reason()
+                            : "PG_INCONSISTENT_CANCELLATION",
+                    now);
         } else {
             defer(refund, "PG_CANCEL_INQUIRY_UNKNOWN", now);
         }
@@ -224,7 +230,7 @@ public class RefundTransactions {
         if (result instanceof PgResult.Approved success && valid(success, refund.getRefundAmount())) {
             finish(payment, refund, success.transactionId(), success.at());
         } else if (result instanceof PgResult.Rejected rejected && businessRejection(rejected)) {
-            refund.reject(rejected.code(), "PG_CANCEL_REJECTED");
+            refund.reject(rejected.code(), "PG_CANCEL_REJECTED", now);
             publisher.refundFinalized(payment, refund);
             committedCounter("payment.refund.rejected", payment.getId());
         } else if (result instanceof PgResult.Approved
@@ -261,22 +267,6 @@ public class RefundTransactions {
                 && canceled.canceledAt() != null;
     }
 
-    @Transactional
-    public RefundResult retry(String orderId) {
-        Payment payment = locked(orderId);
-        Refund refund = requiredRefund(payment);
-        refund.retryByAdmin(LocalDateTime.now(clock));
-        return RefundResult.from(refund);
-    }
-
-    @Transactional
-    public RefundResult unblock(String orderId) {
-        Payment payment = locked(orderId);
-        Refund refund = requiredRefund(payment);
-        refund.unblockRecovery(LocalDateTime.now(clock));
-        return RefundResult.from(refund);
-    }
-
     @Transactional(readOnly = true)
     public double oldestDueAgeSeconds() {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -287,11 +277,6 @@ public class RefundTransactions {
     private Payment locked(String orderId) {
         return payments.lockByOrderId(orderId)
                 .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-    }
-
-    private Refund requiredRefund(Payment payment) {
-        return refunds.lockByPaymentId(payment.getId())
-                .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION));
     }
 
     private void finish(Payment payment, Refund refund, String cancelId, LocalDateTime at) {
