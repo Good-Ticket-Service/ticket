@@ -19,7 +19,7 @@ spring:
             - id: performance-service
               uri: lb://performance-service
               predicates:
-                - Path=/api/v1/events/**
+                - Path=/api/performances/**
             - id: reservation-service
               uri: lb://reservation-service
               predicates:
@@ -63,6 +63,8 @@ auth:
     - /api/auth/signup
     - /api/auth/seller/signup
     - /api/auth/login
+    # 공개 공연 조회(목록·상세·회차·좌석 배치). 모두 GET이고, 공연 쓰기 API는 /api/seller/**·/api/admin/** 에 있다
+    - /api/performances/**
     - /swagger-ui.html
     - /swagger-ui/**
     - /webjars/**
