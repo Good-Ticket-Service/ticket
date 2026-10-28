@@ -20,8 +20,14 @@ spring:
             connect-timeout: 1000
             read-timeout: 3000
 
-# booking의 만료·결과 확인 스케줄러. 측정하면서 바꿀 값이라 코드에 기본값을 두지 않는다(docs/architecture.md의 복구 설계)
+# 공연 단위 대기열. 끄고 켜며 같은 조건으로 측정을 비교한다. 바꾸면 reservation-service를 다시 띄운다
 reservation:
+  queue:
+    enabled: ${QUEUE_ENABLED:false}
+    # 초당 입장 인원. 기준선 측정 전 임시값이다. 서버가 버티는 동시 인원 ÷ 평균 머무는 시간으로 다시 정한다
+    admit-per-second: ${QUEUE_ADMIT_PER_SECOND:10}
+
+  # booking의 만료·결과 확인 스케줄러. 측정하면서 바꿀 값이라 코드에 기본값을 두지 않는다(docs/architecture.md의 복구 설계)
   booking:
     scheduler:
       hold-expiry:
