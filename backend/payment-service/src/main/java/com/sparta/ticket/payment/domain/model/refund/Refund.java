@@ -77,6 +77,8 @@ public class Refund extends BaseEntity {
     @Column(length = 80)
     private String verificationReason;
 
+    private LocalDateTime restrictionStartedAt;
+
     @Column(length = 200)
     private String pgCancelId;
 
@@ -178,6 +180,8 @@ public class Refund extends BaseEntity {
     /** 오래된 성공의 재조회가 실패해도 운영 인수에 필요한 단서를 남긴다. */
     public void requireCancellationVerification() {
         if (status != RefundStatus.DONE) recovery.recordError("STALE_CANCEL_SUCCESS_REQUIRES_VERIFICATION");
+        // Note: 거절 뒤 성공 근거가 오면 단순 확정 거절로 새 키를 허용할 수 없다. 최초 사유는 별도로 보존한다.
+        if (status == RefundStatus.FAILED) failureCode = "PG_CANCEL_RESULT_CONFLICT";
     }
 
     public void confirmCancellation(String pgCancelId, LocalDateTime refundedAt) {
@@ -197,6 +201,11 @@ public class Refund extends BaseEntity {
         block(code);
     }
 
+    public void reject(String code, String message, LocalDateTime now) {
+        reject(code, message);
+        if (restrictionStartedAt == null) restrictionStartedAt = now;
+    }
+
     /** 관리자 재시도. 토스는 같은 멱등 키의 거절을 그대로 재현하므로 키 세대를 올려 새 요청으로 보낸다. */
     public void retryByAdmin(LocalDateTime now) {
         require(RefundStatus.FAILED);
@@ -210,6 +219,7 @@ public class Refund extends BaseEntity {
         this.slowStartedAt = null;
         this.slowAttempts = 0;
         this.verificationReason = null;
+        this.restrictionStartedAt = null;
         this.cancelKeyCreatedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         this.recovery.start(
                 now.truncatedTo(java.time.temporal.ChronoUnit.MICROS),
@@ -251,6 +261,7 @@ public class Refund extends BaseEntity {
 
     public void verifyOnly(String reason, LocalDateTime now) {
         if (status != RefundStatus.REQUESTED && status != RefundStatus.FAILED) return;
+        if (restrictionStartedAt == null) restrictionStartedAt = now;
         recoveryMode = RefundRecoveryMode.VERIFY_ONLY;
         recoveryBlocked = false;
         if (verificationReason == null) verificationReason = reason.length() > 80 ? reason.substring(0, 80) : reason;
@@ -275,16 +286,31 @@ public class Refund extends BaseEntity {
         block(reason);
     }
 
-    /** 기존 키·최초 시각을 유지하고 조회 전용으로 재개한다. */
-    public void unblockRecovery(LocalDateTime now) {
+    public void blockRecovery(String reason, LocalDateTime now) {
+        blockRecovery(reason);
+        if (restrictionStartedAt == null) restrictionStartedAt = now;
+    }
+
+    /** 운영 재개는 실패 상태와 기존 취소 키를 보존하고 조회 권한만 되돌린다. */
+    public void resumeVerification(LocalDateTime now) {
+        if ((status != RefundStatus.REQUESTED && status != RefundStatus.FAILED)
+                || recoveryMode != RefundRecoveryMode.PAUSED
+                || !recoveryBlocked) throw invalidTransition();
+        verifyOnly("OPERATOR_RESUMED_VERIFICATION", now);
+        executionVersion = Math.incrementExact(executionVersion);
+        recovery.claimUntil(now);
+    }
+
+    /** 안전성이 재확인된 기존 키만 재개한다. 키 생성 시각과 세대를 초기화하지 않는다. */
+    public void retrySameKey(LocalDateTime now) {
         require(RefundStatus.REQUESTED);
-        if (!recoveryBlocked) throw invalidTransition();
-        this.recoveryBlocked = false;
-        this.recoveryMode = RefundRecoveryMode.VERIFY_ONLY;
-        if (verificationReason == null) verificationReason = "OPERATOR_RESUMED_VERIFICATION";
-        if (slowStartedAt == null) slowStartedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        this.executionVersion = Math.incrementExact(executionVersion);
-        recovery.claimUntil(now.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        if (recoveryMode != RefundRecoveryMode.VERIFY_ONLY) throw invalidTransition();
+        executionVersion = Math.incrementExact(executionVersion);
+        recoveryMode = RefundRecoveryMode.ACTIVE;
+        recoveryBlocked = false;
+        verificationReason = null;
+        restrictionStartedAt = null;
+        recovery.claimUntil(now);
     }
 
     private void markRequested(LocalDateTime now, LocalDateTime nextAttemptAt) {
@@ -303,6 +329,7 @@ public class Refund extends BaseEntity {
         this.recoveryBlocked = true;
         this.recoveryMode = RefundRecoveryMode.PAUSED;
         recovery.recordError(reason);
+        if (verificationReason == null) verificationReason = reason;
     }
 
     private void require(RefundStatus expected) {

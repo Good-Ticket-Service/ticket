@@ -95,7 +95,7 @@ class RefundTest {
         assertThat(refund.isRecoveryBlocked()).isTrue();
         assertThat(refund.getLastError()).isEqualTo("GIVE_UP");
 
-        refund.unblockRecovery(NOW.plusHours(2));
+        refund.resumeVerification(NOW.plusHours(2));
 
         assertThat(refund.isRecoveryBlocked()).isFalse();
         assertThat(refund.getRecoveryStartedAt()).isEqualTo(NOW);
@@ -110,7 +110,7 @@ class RefundTest {
     @Test
     @DisplayName("차단되지 않은 환불은 차단 해제할 수 없다")
     void unblockOnlyWhenBlocked() {
-        assertInvalidTransition(() -> requested().unblockRecovery(NOW));
+        assertInvalidTransition(() -> requested().resumeVerification(NOW));
     }
 
     @Test

@@ -83,6 +83,23 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         });
     }
 
+    @Autowired
+    private org.springframework.transaction.support.TransactionTemplate operationScenario;
+
+    private void retryDomainForScenario(String orderId) {
+        operationScenario.executeWithoutResult(status -> {
+            Payment p = payments.lockByOrderId(orderId).orElseThrow();
+            refunds.lockByPaymentId(p.getId()).orElseThrow().retryByAdmin(now());
+        });
+    }
+
+    private void unblockDomainForScenario(String orderId) {
+        operationScenario.executeWithoutResult(status -> {
+            Payment p = payments.lockByOrderId(orderId).orElseThrow();
+            refunds.lockByPaymentId(p.getId()).orElseThrow().resumeVerification(now());
+        });
+    }
+
     private LocalDateTime now() {
         return LocalDateTime.now(paymentClock);
     }
@@ -207,14 +224,14 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         service.refund(p.getOrderId(), RefundReason.USER_CANCEL);
         assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.FAILED);
         assertThat(refund(p).getFailureMessage()).isEqualTo("PG_CANCEL_REJECTED");
-        transactions.retry(p.getOrderId());
+        retryDomainForScenario(p.getOrderId());
         pg.cancelReturns(r -> {
             assertThat(r.idempotencyKey()).endsWith(":cancel:1");
             return new PgResult.Approved("c", r.amount(), now());
         });
         job.runOnce();
         assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.DONE);
-        assertThatThrownBy(() -> transactions.retry(p.getOrderId()))
+        assertThatThrownBy(() -> retryDomainForScenario(p.getOrderId()))
                 .isInstanceOf(com.sparta.ticket.common.exception.BusinessException.class);
     }
 
@@ -268,7 +285,7 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.REQUESTED);
         assertThat(refund(p).getRequestedAt()).isEqualTo(requested);
         assertThat(refund(p).getNextAttemptAt()).isAfterOrEqualTo(now().plusSeconds(479));
-        assertThatThrownBy(() -> transactions.unblock(p.getOrderId()))
+        assertThatThrownBy(() -> unblockDomainForScenario(p.getOrderId()))
                 .isInstanceOf(com.sparta.ticket.common.exception.BusinessException.class);
     }
 
@@ -502,7 +519,7 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         paymentClock.advance(Duration.ofSeconds(30));
         RefundClaim current = claim(p);
         transactions.apply(current, new PgResult.Rejected("DECLINED", "ignore"));
-        transactions.retry(p.getOrderId());
+        retryDomainForScenario(p.getOrderId());
         RefundClaim next = claim(p);
         transactions.apply(old, new PgResult.Rejected("OLD_DENIED", "ignore"));
         assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.REQUESTED);

@@ -220,7 +220,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | reason | VARCHAR(30) NOT NULL |
 | status | VARCHAR(20) NOT NULL |
 | recovery_mode | VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'; ACTIVE/SLOW/VERIFY_ONLY/PAUSED |
-| verification_reason | VARCHAR(80); 최초 조회 전용 전환 사유, 후속 일시 오류와 별도 보존 |
+| verification_reason | VARCHAR(80); 최초 차단·조회 전용 전환 사유, 후속 일시 오류와 별도 보존 |
+| restriction_started_at | TIMESTAMP NULL; 제한 구간 최초 진입 시각. 과거 데이터에서 불명인 시각은 NULL 유지 |
 | slow_started_at | TIMESTAMP |
 | slow_attempts | INT NOT NULL DEFAULT 0; 0 이상 |
 | cancel_key_created_at | TIMESTAMP; 같은 취소 키의 자동 재요청 허용 기간 기준 |
@@ -249,6 +250,30 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - recovery_mode는 지정한 4개 값만 허용한다. recovery_blocked이면 PAUSED이며 FAILED의 실행 모드는 PAUSED 또는 VERIFY_ONLY다. 업무 결과와 조회·취소 실행 정책을 구분한다.
 
 - `CREATE INDEX ix_p_refunds_requested_next_attempt ON p_refunds (next_attempt_at) WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;`
+
+### p_refund_operation_commands — payment-service/schema.sql + A
+
+운영 명령의 최종 결과다. 자동 상태 변경 이력·PG 작업 큐가 아니며 적용과 함께 저장한다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| command_id | VARCHAR(80) PK; 명령 중복 방지 |
+| input_hash | VARCHAR(64) NOT NULL; 정규화 명령·실행 주체 SHA-256 |
+| payment_id | BIGINT NOT NULL |
+| refund_id | BIGINT NOT NULL |
+| action | VARCHAR(10) NOT NULL; RETRY/RESUME CHECK |
+| actor | VARCHAR(200) NOT NULL; 인증된 관리자 `USER:{userId}` |
+| reason | VARCHAR(40) NOT NULL; RESUME_OBSERVATION/ROOT_CAUSE_FIXED/AUTH_CONFIGURATION_FIXED |
+| result | VARCHAR(40) NOT NULL; APPLIED/CONFIRMED_CANCELED/DENIED/STALE/PG_UNKNOWN CHECK |
+| explanation | VARCHAR(80) NOT NULL; 제한된 결과 코드 |
+| expected_state | VARCHAR(160) NOT NULL; 기대 상태:모드:실행 버전:취소 세대 |
+| before_state | VARCHAR(160) NOT NULL; 적용 직전 동일 형식 |
+| after_state | VARCHAR(160) NOT NULL; 적용 직후 동일 형식 |
+| inquiry | VARCHAR(40) NOT NULL; 원문·PG 키를 제외한 조회 결과 분류 |
+| processed_at | TIMESTAMP NOT NULL |
+
+- 인덱스: `(refund_id, processed_at DESC, command_id DESC)`.
+- 004-refund-operations.sql은 기존 제한 시각을 추정하지 않으며 재실행 시 명령 결과·기존 거래를 초기화하지 않는다.
 
 ### pg_transaction — fake-pg/schema.sql
 
