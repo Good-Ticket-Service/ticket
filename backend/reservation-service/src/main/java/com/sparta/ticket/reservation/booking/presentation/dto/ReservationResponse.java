@@ -8,7 +8,7 @@ import java.util.List;
 public record ReservationResponse(
         Long reservationId,
         Long scheduleId,
-        List<Long> seatIds,
+        List<Long> scheduleSeatIds,
         ReservationStatus status,
         LocalDateTime holdExpiresAt,
         String orderId,
@@ -18,7 +18,7 @@ public record ReservationResponse(
         return new ReservationResponse(
                 result.reservationId(),
                 result.scheduleId(),
-                result.seatIds(),
+                result.scheduleSeatIds(),
                 result.status(),
                 result.holdExpiresAt(),
                 result.orderId(),
