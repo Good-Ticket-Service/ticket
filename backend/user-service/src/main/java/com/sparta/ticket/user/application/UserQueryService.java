@@ -23,9 +23,11 @@ public class UserQueryService {
         return UserResult.from(findUser(user.userId()));
     }
 
-    /** Gateway 권한 재확인과 다른 서비스의 사용자 확인용. 탈퇴 사용자는 @SQLRestriction으로 조회되지 않아 404가 된다. */
+    /** Gateway 권한 재확인용. 논리 삭제 여부와 별개로 ACTIVE 사용자만 인증에 사용한다. */
     public InternalUserResult getInternalUser(Long userId) {
-        return InternalUserResult.from(findUser(userId));
+        User user = findUser(userId);
+        if (!user.isActive()) throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+        return InternalUserResult.from(user);
     }
 
     private User findUser(Long userId) {

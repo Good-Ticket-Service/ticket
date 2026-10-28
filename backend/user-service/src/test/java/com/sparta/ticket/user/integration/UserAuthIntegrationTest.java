@@ -140,6 +140,19 @@ class UserAuthIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("논리 삭제 없이 WITHDRAWN 상태만 바뀌어도 내부 인증 조회는 404다")
+    void inactiveUserIsNotAnAuthenticationPrincipal() throws Exception {
+        SignupResult result = authService.signup(signup("itstatus01@ticket.com"));
+        mockMvc.perform(get("/internal/users/{userId}", result.userId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"));
+        jdbcTemplate.update("UPDATE p_users SET status = 'WITHDRAWN' WHERE user_id = ?", result.userId());
+        mockMvc.perform(get("/internal/users/{userId}", result.userId()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("같은 email로 동시에 가입하면 하나만 성공하고 나머지는 500이 아니라 DUPLICATE_EMAIL")
     void concurrentSignup() throws Exception {
         int threads = 8;
