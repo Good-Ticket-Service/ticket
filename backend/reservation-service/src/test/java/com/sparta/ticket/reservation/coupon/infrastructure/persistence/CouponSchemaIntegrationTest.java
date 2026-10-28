@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** schema.sql의 p_coupons 제약이 설계(docs/coupon/tables.md 3절)대로 동작하는지 실제 PostgreSQL로 확인한다. */
+/** coupon.sql의 p_coupons 제약이 명세(docs/tables.md p_coupons)대로 동작하는지 실제 PostgreSQL로 확인한다. */
 class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 12, 0);
