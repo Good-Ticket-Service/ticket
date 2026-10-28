@@ -3,6 +3,8 @@ package com.sparta.ticket.payment.presentation.internal;
 import com.sparta.ticket.payment.application.service.payment.PaymentService;
 import com.sparta.ticket.payment.presentation.dto.internal.CheckoutRequest;
 import com.sparta.ticket.payment.presentation.dto.internal.CheckoutResponse;
+import com.sparta.ticket.payment.presentation.dto.internal.ConfirmRequest;
+import com.sparta.ticket.payment.presentation.dto.internal.ConfirmResponse;
 import com.sparta.ticket.payment.presentation.dto.internal.PaymentResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,5 +35,10 @@ public class InternalPaymentController {
     @GetMapping("/{orderId}")
     public PaymentResponse find(@PathVariable String orderId) {
         return PaymentResponse.from(paymentService.find(orderId));
+    }
+
+    @PostMapping("/{orderId}/confirm")
+    public ConfirmResponse confirm(@PathVariable String orderId, @Valid @RequestBody ConfirmRequest request) {
+        return ConfirmResponse.from(paymentService.confirm(orderId, request.toCommand()));
     }
 }
