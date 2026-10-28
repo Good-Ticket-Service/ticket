@@ -1,8 +1,11 @@
 package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -10,6 +13,8 @@ import static org.mockito.Mockito.verify;
 import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -47,6 +52,29 @@ class BookingSchedulingConfigTest {
                     .reconcile(
                             eq(Duration.ofMinutes(1)), eq(Duration.ofMinutes(30)), anyInt(), eq(Duration.ofMillis(40)));
         });
+    }
+
+    @Test
+    @DisplayName("결과 확인이 payment를 기다리며 멈춰 있어도 만료는 계속 돈다")
+    void expiryKeepsRunningWhileReconcileBlocks() throws Exception {
+        CountDownLatch reconcileStarted = new CountDownLatch(1);
+        CountDownLatch paymentResponds = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    reconcileStarted.countDown();
+                    paymentResponds.await(5, TimeUnit.SECONDS);
+                    return 0;
+                })
+                .when(reconcileService)
+                .reconcile(any(), any(), anyInt(), any());
+        try {
+            runner.run(context -> {
+                assertThat(reconcileStarted.await(2, TimeUnit.SECONDS)).isTrue();
+                clearInvocations(holdExpiryService);
+                verify(holdExpiryService, timeout(2_000).atLeast(3)).expireDue(anyInt(), any());
+            });
+        } finally {
+            paymentResponds.countDown();
+        }
     }
 
     @Test
