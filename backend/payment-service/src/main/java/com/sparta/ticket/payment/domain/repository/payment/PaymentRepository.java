@@ -1,6 +1,9 @@
 package com.sparta.ticket.payment.domain.repository.payment;
 
 import com.sparta.ticket.payment.domain.model.payment.Payment;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /** domain이 필요로 하는 저장소 기능만 선언한다. 구현은 infrastructure의 Spring Data 인터페이스가 맡는다. */
@@ -30,4 +33,10 @@ public interface PaymentRepository {
      * 새 준비가 이전 READY를 대체할지, 진행 중이라 거절할지 판단할 때 쓴다.
      */
     Optional<Payment> lockLiveByReservationId(Long reservationId);
+
+    List<Payment> lockNextExpiredReady(LocalDateTime now, Collection<Long> excludedIds);
+
+    List<Payment> lockNextRecovery(LocalDateTime now, Collection<Long> excludedIds);
+
+    LocalDateTime oldestDueRecovery(LocalDateTime now);
 }

@@ -3,6 +3,9 @@ package com.sparta.ticket.payment.infrastructure.persistence.payment;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -44,4 +47,30 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
             + " com.sparta.ticket.payment.domain.model.payment.PaymentStatus.IN_PROGRESS,"
             + " com.sparta.ticket.payment.domain.model.payment.PaymentStatus.DONE)")
     Optional<Payment> lockLiveByReservationId(@Param("reservationId") Long reservationId);
+
+    @Override
+    @Query(
+            value = "SELECT * FROM p_payments WHERE status = 'READY' AND expires_at <= :now"
+                    + " AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
+                    + " ORDER BY expires_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+            nativeQuery = true)
+    List<Payment> lockNextExpiredReady(
+            @Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
+
+    @Override
+    @Query(
+            value = "SELECT * FROM p_payments WHERE status = 'IN_PROGRESS' AND next_attempt_at <= :now"
+                    + " AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
+                    + " ORDER BY next_attempt_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+            nativeQuery = true)
+    List<Payment> lockNextRecovery(@Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
+
+    @Override
+    @Query(
+            value = "SELECT min(due_at) FROM ("
+                    + " SELECT expires_at AS due_at FROM p_payments WHERE status = 'READY' AND expires_at <= :now AND deleted_at IS NULL"
+                    + " UNION ALL SELECT next_attempt_at AS due_at FROM p_payments WHERE status = 'IN_PROGRESS'"
+                    + " AND next_attempt_at <= :now AND deleted_at IS NULL) candidates",
+            nativeQuery = true)
+    LocalDateTime oldestDueRecovery(@Param("now") LocalDateTime now);
 }
