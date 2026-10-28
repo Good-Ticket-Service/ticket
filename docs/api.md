@@ -428,9 +428,9 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 쿠폰 — reservation-service / coupon
 
-상태: 초안(이전·구현 전). 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
+상태: 생성·수정·발급 중단·삭제는 구현됨. 목록·상세 조회, 발급, 내 쿠폰 조회는 초안(구현 전). 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
 
-모든 항목 설계 계약이며 구현 전. 로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:형식 미정}`. page=0,size=10(10/30/50).
+로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:형식 미정}`. page=0,size=10(10/30/50).
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
