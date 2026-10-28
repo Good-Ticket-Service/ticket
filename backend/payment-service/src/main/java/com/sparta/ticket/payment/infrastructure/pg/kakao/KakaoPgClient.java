@@ -129,7 +129,8 @@ public class KakaoPgClient implements PgClient {
         }
         Optional<JsonNode> json = PgJson.parse(objectMapper, responded.body());
         if (responded.isSuccessful() && json.isPresent()) {
-            return PgJson.safely(() -> inquiry(json.get())).orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
+            return PgJson.safely(() -> inquiry(json.get(), request))
+                    .orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
         }
         if (errorCode(responded).filter(NOT_FOUND::equals).isPresent()) {
             return new PgInquiry.NotFound();
@@ -157,21 +158,31 @@ public class KakaoPgClient implements PgClient {
                 && errorCode(responded).filter(ALREADY_CANCELED::equals).isPresent()) {
             return canceledResult(request).orElseGet(() -> new PgResult.Unknown("이미 취소됨 응답 후 조회로 취소를 확인하지 못했다"));
         }
-        return result(
-                call,
-                CANCEL_REJECTED_CODES,
-                json -> new PgResult.Approved(
-                        json.path("tid").asText(),
-                        json.path("canceled_amount").path("total").asInt(),
-                        time(json.path("canceled_at"))));
+        return result(call, CANCEL_REJECTED_CODES, json -> {
+            if (!request.transactionId().equals(json.path("tid").asText())
+                    || !"CANCEL_PAYMENT".equals(json.path("status").asText())
+                    || json.path("cancel_available_amount").path("total").asInt(-1) != 0
+                    || json.path("canceled_amount").path("total").asInt(-1) != request.amount()) {
+                return new PgResult.Unknown("PG_INVALID_CANCELLATION");
+            }
+            return new PgResult.Approved(
+                    json.path("tid").asText(),
+                    json.path("canceled_amount").path("total").asInt(),
+                    time(json.path("canceled_at")));
+        });
     }
 
     private Optional<PgResult> canceledResult(PgCancelRequest request) {
         PgInquiry inquiry = inquire(new PgInquireRequest(request.orderId(), request.transactionId()));
         if (inquiry instanceof PgInquiry.Canceled canceled) {
-            return Optional.of(
-                    new PgResult.Approved(canceled.transactionId(), request.amount(), canceled.canceledAt()));
+            if (!request.transactionId().equals(canceled.transactionId())
+                    || canceled.amount() != request.amount()
+                    || canceled.remainingAmount() != 0)
+                return Optional.of(new PgResult.Unknown("PG_INVALID_CANCELLATION"));
+            return Optional.of(new PgResult.Approved(canceled.cancelId(), canceled.amount(), canceled.canceledAt()));
         }
+        if (inquiry instanceof PgInquiry.Inconsistent)
+            return Optional.of(new PgResult.Unknown("PG_INVALID_CANCELLATION"));
         return Optional.empty();
     }
 
@@ -207,16 +218,29 @@ public class KakaoPgClient implements PgClient {
         return new PgResult.Rejected(code.get(), message);
     }
 
-    private PgInquiry inquiry(JsonNode json) {
+    private PgInquiry inquiry(JsonNode json, PgInquireRequest request) {
         String status = json.path("status").asText();
+        if (!request.transactionId().equals(json.path("tid").asText())
+                || !request.orderId().equals(json.path("partner_order_id").asText())) {
+            return new PgInquiry.Inconsistent("PG_TRANSACTION_MISMATCH");
+        }
+        if ("PART_CANCEL_PAYMENT".equals(status)) return new PgInquiry.Inconsistent("PG_PARTIAL_CANCELLATION");
         if ("SUCCESS_PAYMENT".equals(status)) {
+            if (json.path("cancel_available_amount").path("total").asInt(-1)
+                    != json.path("amount").path("total").asInt(-2))
+                return new PgInquiry.Inconsistent("PG_REMAINING_AMOUNT_MISMATCH");
             return new PgInquiry.Approved(
                     json.path("tid").asText(),
                     json.path("amount").path("total").asInt(),
                     time(json.path("approved_at")));
         }
         if ("CANCEL_PAYMENT".equals(status)) {
-            return new PgInquiry.Canceled(json.path("tid").asText(), time(json.path("canceled_at")));
+            return new PgInquiry.Canceled(
+                    json.path("tid").asText(),
+                    time(json.path("canceled_at")),
+                    json.path("canceled_amount").path("total").asInt(-1),
+                    json.path("cancel_available_amount").path("total").asInt(-1),
+                    json.path("tid").asText(null));
         }
         if (NOT_APPROVED_STATUSES.contains(status)) {
             return new PgInquiry.NotFound();
