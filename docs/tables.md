@@ -171,6 +171,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | payment_amount | BIGINT |
 | pg_auth_token | VARCHAR(255) |
 | payment_checked_at | TIMESTAMP |
+| refund_required_at | TIMESTAMP |
 
 - performance_id·seller_id는 선점 때 판매 검증(P21)이 돌려준 값이다. 결제 준비에 그대로 넘기며 바꾸지 않는다(#86).
 

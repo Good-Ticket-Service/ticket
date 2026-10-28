@@ -59,6 +59,12 @@ public class PaymentResultApplier {
         if (current.isAttempt(orderId) && current.getStatus() == ReservationStatus.CONFIRMED) {
             return false;
         }
+        // Note: 확정하지 못한 지금 시도는 결제 중으로 남아 결과 확인이 같은 성공을 계속 다시 받는다.
+        // 처음 한 번만 환불 대상으로 세야 환불할 결제 수가 부풀지 않는다.
+        if (isCurrentPayment(current, orderId)
+                && reservationRepository.markRefundRequired(id, orderId, stamp.at()) == 0) {
+            return false;
+        }
         metrics.lateSuccess();
         log.warn(
                 "결제는 됐는데 표가 없다. 자동 환불 대상이다. reservationId={}, orderId={}, status={}, currentOrderId={}",

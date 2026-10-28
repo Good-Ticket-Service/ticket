@@ -66,6 +66,8 @@ public class Reservation extends BaseEntity {
 
     private LocalDateTime paymentCheckedAt;
 
+    private LocalDateTime refundRequiredAt;
+
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
     private List<Ticket> tickets = new ArrayList<>();

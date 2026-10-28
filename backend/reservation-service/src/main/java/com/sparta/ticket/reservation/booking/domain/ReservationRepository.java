@@ -58,10 +58,16 @@ public interface ReservationRepository {
     /** 결과 확인 스케줄러가 확인한 시각을 남긴다. 상태와 감사 컬럼은 바꾸지 않는다. */
     int markPaymentChecked(Long id, LocalDateTime checkedAt);
 
+    /**
+     * 결제 중인 지금 시도가 성공했는데 확정하지 못했다고 기록한다. 이미 기록됐으면 0행이다.
+     * 상태와 감사 컬럼은 바꾸지 않는다.
+     */
+    int markRefundRequired(Long id, String orderId, LocalDateTime at);
+
     /** 시간이 지난 HOLD를 오래된 순으로 고른다. 잠그지 않는다. */
     List<Long> findExpiredHoldIds(LocalDateTime now, int limit);
 
-    /** updatedBefore보다 먼저 결제 중이 된 예약을 오래 확인하지 않은 순으로 고른다. 잠그지 않는다. */
+    /** updatedBefore보다 먼저 결제 중이 된 예약을 오래 확인하지 않은 순으로 고른다. 환불이 필요하다고 기록된 예약은 빼고, 잠그지 않는다. */
     List<Long> findStalePaymentIds(LocalDateTime updatedBefore, int limit);
 
     long countPaymentsInProgress();

@@ -192,6 +192,15 @@ public interface ReservationJpaRepository
             """)
     int markPaymentChecked(@Param("id") Long id, @Param("checkedAt") LocalDateTime checkedAt);
 
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r SET r.refundRequiredAt = :at
+             WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.orderId = :orderId AND r.refundRequiredAt IS NULL
+            """)
+    int markRefundRequired(@Param("id") Long id, @Param("orderId") String orderId, @Param("at") LocalDateTime at);
+
     /** 상태를 리터럴로 써야 booking.sql의 부분 인덱스(WHERE status = 'HOLD')를 확실히 탄다. */
     @Query("""
             SELECT r.id FROM Reservation r
@@ -236,6 +245,7 @@ public interface ReservationJpaRepository
             SELECT r.id FROM Reservation r
              WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
                AND r.updatedAt <= :updatedBefore
+               AND r.refundRequiredAt IS NULL
              ORDER BY COALESCE(r.paymentCheckedAt, r.updatedAt), r.id
             """)
     List<Long> selectStalePaymentIds(@Param("updatedBefore") LocalDateTime updatedBefore, Pageable pageable);
