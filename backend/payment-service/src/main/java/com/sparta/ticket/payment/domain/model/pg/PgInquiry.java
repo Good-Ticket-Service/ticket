@@ -10,7 +10,14 @@ public sealed interface PgInquiry {
 
     record Approved(String transactionId, int amount, LocalDateTime approvedAt) implements PgInquiry {}
 
-    record Canceled(String transactionId, LocalDateTime canceledAt) implements PgInquiry {}
+    record Canceled(String transactionId, LocalDateTime canceledAt, int amount, int remainingAmount, String cancelId)
+            implements PgInquiry {
+        public Canceled(String transactionId, LocalDateTime canceledAt) {
+            this(transactionId, canceledAt, -1, -1, null);
+        }
+    }
+
+    record Inconsistent(String reason) implements PgInquiry {}
 
     record NotFound() implements PgInquiry {}
 

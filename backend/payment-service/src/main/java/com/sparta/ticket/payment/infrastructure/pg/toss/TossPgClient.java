@@ -101,7 +101,8 @@ public class TossPgClient implements PgClient {
         }
         Optional<JsonNode> json = PgJson.parse(objectMapper, responded.body());
         if (responded.isSuccessful() && json.isPresent()) {
-            return PgJson.safely(() -> inquiry(json.get())).orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
+            return PgJson.safely(() -> inquiry(json.get(), request))
+                    .orElseGet(() -> new PgInquiry.Unknown("해석할 수 없는 조회 응답"));
         }
         if (responded.status() == 404
                 && json.map(j -> j.path("code").asText()).orElse("").equals("NOT_FOUND_PAYMENT")) {
@@ -133,21 +134,52 @@ public class TossPgClient implements PgClient {
                         .isPresent()) {
             return confirmCanceled(request);
         }
-        return result(call, json -> {
-            JsonNode cancel = json.path("cancels").path(0);
-            return new PgResult.Approved(
-                    cancel.path("transactionKey").asText(),
-                    cancel.path("cancelAmount").asInt(),
-                    time(cancel.path("canceledAt")));
-        });
+        PgResult outcome = result(call, json -> cancellation(json, request));
+        if (outcome instanceof PgResult.Rejected rejected
+                && !Set.of(
+                                "PG_BUSY",
+                                "PG_UNAVAILABLE",
+                                "NOT_CANCELABLE_PAYMENT",
+                                "UNAUTHORIZED_KEY",
+                                "INVALID_REQUEST",
+                                "NOT_FOUND_PAYMENT",
+                                "REJECT_CARD_PAYMENT")
+                        .contains(rejected.code())) {
+            return new PgResult.Unknown("PG_UNCLASSIFIED_CANCEL_REJECTION");
+        }
+        return outcome;
+    }
+
+    private PgResult cancellation(JsonNode json, PgCancelRequest request) {
+        JsonNode cancel = json.path("cancels").path(0);
+        if (!request.transactionId().equals(json.path("paymentKey").asText())
+                || !request.orderId().equals(json.path("orderId").asText())
+                || !"CANCELED".equals(json.path("status").asText())
+                || json.path("balanceAmount").asInt(-1) != 0
+                || cancel.path("cancelAmount").asInt(-1) != request.amount()
+                || cancel.path("transactionKey").asText().isBlank()) {
+            return new PgResult.Unknown("PG_INVALID_CANCELLATION");
+        }
+        return new PgResult.Approved(
+                cancel.path("transactionKey").asText(),
+                cancel.path("cancelAmount").asInt(),
+                time(cancel.path("canceledAt")));
     }
 
     private PgResult confirmCanceled(PgCancelRequest request) {
         PgInquiry inquiry = inquire(new PgInquireRequest(request.orderId(), request.transactionId()));
-        if (inquiry instanceof PgInquiry.Canceled canceled) {
-            return new PgResult.Approved(canceled.transactionId(), request.amount(), canceled.canceledAt());
+        if (inquiry instanceof PgInquiry.Canceled canceled
+                && request.transactionId().equals(canceled.transactionId())
+                && canceled.amount() == request.amount()
+                && canceled.remainingAmount() == 0
+                && canceled.cancelId() != null
+                && !canceled.cancelId().isBlank()) {
+            return new PgResult.Approved(canceled.cancelId(), canceled.amount(), canceled.canceledAt());
         }
-        return new PgResult.Unknown("이미 취소됨 응답 후 조회 결과 " + inquiry);
+        return new PgResult.Unknown(
+                inquiry instanceof PgInquiry.Canceled || inquiry instanceof PgInquiry.Inconsistent
+                        ? "PG_INVALID_CANCELLATION"
+                        : "PG_CANCEL_NOT_CONFIRMED");
     }
 
     /** 승인·취소 응답 분류. 공통 규칙 → 2xx 성공 → 처리됐을 수 있는 4xx는 Unknown → 그 밖의 4xx는 업무 거절. */
@@ -172,16 +204,28 @@ public class TossPgClient implements PgClient {
         return new PgResult.Rejected(code.get(), message);
     }
 
-    private PgInquiry inquiry(JsonNode json) {
+    private PgInquiry inquiry(JsonNode json, PgInquireRequest request) {
         String status = json.path("status").asText();
+        if (!request.orderId().equals(json.path("orderId").asText())
+                || request.transactionId() != null
+                        && !request.transactionId()
+                                .equals(json.path("paymentKey").asText())) {
+            return new PgInquiry.Inconsistent("PG_TRANSACTION_MISMATCH");
+        }
+        if ("PARTIAL_CANCELED".equals(status)) return new PgInquiry.Inconsistent("PG_PARTIAL_CANCELLATION");
         if ("DONE".equals(status)) {
+            if (json.path("balanceAmount").asInt(-1) != json.path("totalAmount").asInt(-2))
+                return new PgInquiry.Inconsistent("PG_REMAINING_AMOUNT_MISMATCH");
             return new PgInquiry.Approved(
                     json.path("paymentKey").asText(), json.path("totalAmount").asInt(), time(json.path("approvedAt")));
         }
         if ("CANCELED".equals(status)) {
             return new PgInquiry.Canceled(
                     json.path("paymentKey").asText(),
-                    time(json.path("cancels").path(0).path("canceledAt")));
+                    time(json.path("cancels").path(0).path("canceledAt")),
+                    json.path("cancels").path(0).path("cancelAmount").asInt(-1),
+                    json.path("balanceAmount").asInt(-1),
+                    json.path("cancels").path(0).path("transactionKey").asText(null));
         }
         if (NOT_APPROVED_STATUSES.contains(status)) {
             return new PgInquiry.NotFound();
