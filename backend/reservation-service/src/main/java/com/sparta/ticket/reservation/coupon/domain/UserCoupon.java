@@ -80,4 +80,18 @@ public class UserCoupon extends BaseEntity {
         return new UserCoupon(
                 userId, coupon.getId(), coupon.getDiscountAmount(), now, now.plusDays(coupon.getValidDays()));
     }
+
+    /**
+     * 회원에게 보여 줄 상태. 만료 배치가 아직 처리하지 않았어도 유효 기간이 지난 AVAILABLE은 EXPIRED로 본다.
+     * 저장된 status는 바꾸지 않는다. 만료 시각 정각부터 만료다(만료 시각 = 발급 시각 + 유효 일수).
+     * Note: 이 규칙은 내 쿠폰 조회의 상태 필터(UserCouponRepository.findMine)와 같은 경계다. 둘이 다르면 필터와 응답 상태가 어긋난다.
+     */
+    public UserCouponStatus displayStatus(LocalDateTime now) {
+        // 사용 가능 상태인데 만료 시각이 지났으면 만료로 보여 준다
+        if (status == UserCouponStatus.AVAILABLE && !now.isBefore(expiresAt)) {
+            return UserCouponStatus.EXPIRED;
+        }
+        // 그 밖에는 저장된 상태 그대로다. RESERVED는 예매가 잡고 있어 기간이 지나도 만료로 보지 않는다(architecture 12절)
+        return status;
+    }
 }

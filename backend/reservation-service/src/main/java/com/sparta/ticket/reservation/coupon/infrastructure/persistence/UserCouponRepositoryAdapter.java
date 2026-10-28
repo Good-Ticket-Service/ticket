@@ -4,9 +4,16 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -24,6 +31,31 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
     @Override
     public boolean existsByUserIdAndCouponId(Long userId, Long couponId) {
         return jpaRepository.existsByUserIdAndCouponId(userId, couponId);
+    }
+
+    @Override
+    public Set<Long> findIssuedCouponIds(Long userId, Collection<Long> couponIds) {
+        // 빈 목록으로 IN 쿼리를 만들지 않는다. 빈 페이지면 조회할 것이 없다
+        if (couponIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(jpaRepository.findIssuedCouponIds(userId, couponIds));
+    }
+
+    /** 상태 필터에 맞는 쿼리를 고른다. AVAILABLE·EXPIRED는 만료 시각까지 보아야 해서 저장된 상태만으로 찾지 않는다. */
+    @Override
+    public Page<UserCoupon> findMine(Long userId, UserCouponStatus status, LocalDateTime now, Pageable pageable) {
+        if (status == null) {
+            return jpaRepository.findByUserId(userId, pageable);
+        }
+        return switch (status) {
+            // 쓸 수 있는 쿠폰: 만료 시각이 지난 AVAILABLE은 뺀다
+            case AVAILABLE -> jpaRepository.findAvailable(userId, now, pageable);
+            // 만료된 쿠폰: 배치가 아직 처리하지 않은 AVAILABLE도 넣는다
+            case EXPIRED -> jpaRepository.findExpired(userId, now, pageable);
+            // 예매에 잡혔거나 사용한 쿠폰은 저장된 상태 그대로다
+            case RESERVED, USED -> jpaRepository.findByUserIdAndStatus(userId, status, pageable);
+        };
     }
 
     /**

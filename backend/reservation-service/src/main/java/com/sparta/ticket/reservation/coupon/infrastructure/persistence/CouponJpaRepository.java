@@ -1,10 +1,13 @@
 package com.sparta.ticket.reservation.coupon.infrastructure.persistence;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -51,4 +54,29 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
             """, nativeQuery = true)
     int increaseIssuedQuantity(
             @Param("id") Long id, @Param("now") LocalDateTime now, @Param("updatedBy") String updatedBy);
+
+    /**
+     * 발급 상태에 맞는 쿼리를 골라 부른다. 정렬·페이지는 Pageable을 그대로 쓴다(허용 필드 검사는 application이 한다).
+     * Note: Spring Data는 인터페이스의 default 메서드를 쿼리로 만들지 않고 그대로 실행한다.
+     */
+    @Override
+    default Page<Coupon> searchByIssueStatus(CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable) {
+        return switch (issueStatus) {
+            case UPCOMING -> findUpcoming(now, pageable);
+            case ISSUING -> findIssuing(now, pageable);
+            case ENDED -> findEnded(now, pageable);
+        };
+    }
+
+    /** 발급 시작 전 쿠폰. */
+    @Query("SELECT c FROM Coupon c WHERE c.issueStartAt > :now")
+    Page<Coupon> findUpcoming(@Param("now") LocalDateTime now, Pageable pageable);
+
+    /** 발급 중인 쿠폰. 시작 시각 이상, 종료 시각 미만이다. 수량이 다 떨어져도 기간 안이면 발급 중이다. */
+    @Query("SELECT c FROM Coupon c WHERE c.issueStartAt <= :now AND c.issueEndAt > :now")
+    Page<Coupon> findIssuing(@Param("now") LocalDateTime now, Pageable pageable);
+
+    /** 발급이 끝난 쿠폰. 종료 시각 정각부터 끝난 것으로 본다. 발급 중단한 쿠폰도 여기에 든다. */
+    @Query("SELECT c FROM Coupon c WHERE c.issueEndAt <= :now")
+    Page<Coupon> findEnded(@Param("now") LocalDateTime now, Pageable pageable);
 }
