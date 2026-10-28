@@ -65,7 +65,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT ck_p_tickets_price CHECK (price >= 0)`.
 
-### p_coupons — reservation-service/schema.sql + A
+### p_coupons — reservation-service/coupon.sql + A
 
 | 필드 | 타입 | 제약·설명 |
 |---|---|---|
@@ -266,7 +266,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 ## 설계 테이블 — DDL 미반영
 
-performance-service/schema.sql은 현재 초기 자리표시자다. reservation-service/schema.sql에는 p_coupons만 있다. 아래 명세를 현행 생성 SQL로 오해하지 않는다.
+performance-service/schema.sql은 현재 초기 자리표시자다. reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세를 현행 생성 SQL로 오해하지 않는다.
 
 ### p_venues — 설계 + A
 
