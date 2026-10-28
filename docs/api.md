@@ -31,7 +31,8 @@
 
 33개 계약. Path ID는 양의 long. 공연 목록은 `PageP<T>={items:T[],page:int,size:int,totalElements:long}`. 기본 page=0,size=20(1~100). Idempotency-Key는 공연·회차 생성/회차 취소의 권장 초안이며 범위·보존 기간 미정이다.
 If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUIRED, 충돌 409 VERSION_CONFLICT. 하위 등급/좌석은 venue.version, 가격/제외는 performance.version, 회차 명령은 schedule.version. 회차 생성에는 If-Match 없음.
-오류 별칭은 현행 common에 맞춰 UNAUTHENTICATED → UNAUTHORIZED로 정리했다. INVALID_REQUEST는 CommonErrorCode에 실제 존재하므로 VALIDATION_ERROR와 임의 합치지 않는다.
+오류 별칭은 현행 common에 맞춰 UNAUTHENTICATED → UNAUTHORIZED로 정리했다.
+요청 형식 오류(필드 검증, 타입·열거값 불일치, 날짜 형식, page·size 범위, Path ID 형식)는 400 VALIDATION_ERROR다. 공통 GlobalExceptionHandler가 이 코드로 응답하기 때문이다(#83, 공연 담당 결정). 업무 규칙 위반은 INVALID_TIME_RANGE 같은 공연 오류 코드를 쓴다.
 
 - 공연 관리 PATCH는 최소1개 필드가 필요하다. 알 수 없는 필드·타입/필수값 오류는400, 공개 후 금지 구성 필드는400/409로 거절한다. (원본 복원: performance/api.md:1739,2502, 담당 확인 필요)
 - 공연/회차 생성·회차 취소의 Idempotency-Key는 권장 초안이다. 같은 키·같은 요청은 기존 결과, 다른 요청은409이며 범위·보존기간은 미합의다. (원본 복원: performance/api.md:112-114, 담당 확인 필요)
@@ -42,7 +43,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 201; 헤더: Location=`/api/seller/venues/{venueId}`.
 - B: `name:string[공연장명. 1~100자.]; address:string[주소. 1~255자.]; region:string[지역. 1~20자.]`.
 - R: P1.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/seller/venues
 
@@ -50,14 +51,14 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: SELLER / MASTER; 성공: 200.
 - Q: `region?:string[지역. 생략 시 전체.]; keyword?:string[검색어. 생략 시 필터 없음.]; page?:integer[0부터 시작, 기본 0.]; size?:integer[1~100, 기본 20.]`.
 - R: P2.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/seller/venues/{venueId}
 
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: SELLER / MASTER; 성공: 200; 헤더: 응답 ETag.
 - R: P1.
-- E: 400 INVALID_REQUEST; 401 UNAUTHORIZED; 403 FORBIDDEN; 404 VENUE_NOT_FOUND.
+- E: 400 VALIDATION_ERROR; 401 UNAUTHORIZED; 403 FORBIDDEN; 404 VENUE_NOT_FOUND.
 
 ### POST /api/admin/venues/{venueId}/seat-grades
 
@@ -65,7 +66,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 201; 헤더: If-Match.
 - B: `grades:GradeInput[][1개 이상. 공연장 내 동일 이름 중복 불가.]; grades[].name:string[등급명. 1~20자, 공백 불가.]`.
 - R: P3.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 공연장 내 등급명 중복은409 DUPLICATE_VENUE_GRADE다. 사용 중 배치에는 등급을 추가하지 않는다(409 VENUE_LAYOUT_IN_USE). (원본 복원: performance/api.md:198-244, 담당 확인 필요)
 
 ### GET /api/seller/venues/{venueId}/seat-grades
@@ -73,7 +74,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: SELLER / MASTER; 성공: 200.
 - R: P3.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### PATCH /api/admin/venues/{venueId}/seat-grades/{gradeId}
 
@@ -81,7 +82,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 200; 헤더: If-Match.
 - B: `name:string[새 등급명. 1~20자, 공연장 내 유일.]`.
 - R: P4.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 공연이 참조한 배치 수정은409 VENUE_LAYOUT_IN_USE, 등급명 중복은409 DUPLICATE_VENUE_GRADE다. 성공 시 venue.version을 증가시킨다. (원본 복원: performance/api.md:239-244, 담당 확인 필요)
 
 ### DELETE /api/admin/venues/{venueId}/seat-grades/{gradeId}
@@ -98,7 +99,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 201; 헤더: If-Match.
 - B: `seats:SeatInput[][1개 이상. 동일 구역·열·번호 중복 불가.]; seats[].section:string[구역. 1~20자.]; seats[].rowLabel:string[열. 1~10자.]; seats[].seatNumber:integer[좌석 번호. 1 이상.]; seats[].venueSeatGradeId:long[동일 공연장의 고정 등급 ID.]`.
 - R: P5.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 다른 공연장 등급은400 VENUE_GRADE_MISMATCH, 같은 위치 좌석 중복은409 DUPLICATE_VENUE_SEAT이며 일괄 요청 전체를 롤백한다. 사용 중 배치 추가는409 VENUE_LAYOUT_IN_USE다. (원본 복원: performance/api.md:232-244, 담당 확인 필요)
 
 ### GET /api/seller/venues/{venueId}/seats
@@ -106,7 +107,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: SELLER / MASTER; 성공: 200.
 - R: P6.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### PATCH /api/admin/venues/{venueId}/seats/{seatId}
 
@@ -114,7 +115,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 200; 헤더: If-Match.
 - B: `section?:string[구역. 1~20자.]; rowLabel?:string[열. 1~10자.]; seatNumber?:integer[좌석 번호. 1 이상.]; venueSeatGradeId?:long[동일 공연장의 고정 등급 ID.]`.
 - R: P7.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 공연이 참조한 배치는409 VENUE_LAYOUT_IN_USE다. 공연장 소속·위치 중복을 검사하고 성공 시 venue.version을 증가시킨다. (원본 복원: performance/api.md:239-244, 담당 확인 필요)
 
 ### DELETE /api/admin/venues/{venueId}/seats/{seatId}
@@ -131,7 +132,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: SELLER; 성공: 201; 헤더: Location=`/api/seller/performances/{performanceId}`.
 - B: `venueId:long[미삭제 공연장 ID.]; title:string[공연명. 1~200자.]; genre:string[CONCERT / MUSICAL / PLAY / SPORTS.]; ageRating:string[ALL / 12 / 15 / 19.]; runningTime:integer[공연 시간(분). 1 이상.]; castInfo?:string|null[최대 500자. 생략하면 null.]; description?:string|null[초안에서는 생략 가능. 공개 조건은 별도 검증.]; posterUrl?:string|null[최대 500자 HTTPS URL. 초안에서는 생략 가능.]`.
 - R: P8.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/seller/performances
 
@@ -139,14 +140,14 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: SELLER; 성공: 200.
 - Q: `status?:string[공개 상태 필터 DRAFT / PUBLISHED. 생략 시 전체.]; keyword?:string[검색어. 생략 시 필터 없음.]; page?:integer[0부터 시작, 기본 0.]; size?:integer[1~100, 기본 20.]`.
 - R: P9.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/seller/performances/{performanceId}
 
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 소유 SELLER; 성공: 200; 헤더: 응답 ETag.
 - R: P10.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### PATCH /api/seller/performances/{performanceId}
 
@@ -154,7 +155,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 소유 SELLER; 성공: 200; 헤더: If-Match.
 - B: `venueId?:long[미삭제 공연장 ID. 공연이 DRAFT이며 삭제된 회차를 포함한 회차 등록 이력이 없을 때만 변경 가능.]; title?:string[공연명. 1~200자. DRAFT에서 변경 가능.]; genre?:string[CONCERT / MUSICAL / PLAY / SPORTS. DRAFT에서 변경 가능.]; ageRating?:string[ALL / 12 / 15 / 19. DRAFT에서 변경 가능.]; runningTime?:integer[공연 시간(분). 1 이상. DRAFT에서 변경 가능.]; castInfo?:string|null[최대 500자. 생략하면 기존 값을 유지하고 명시적 null이면 제거한다. DRAFT·PUBLISHED 모두 수정 가능하다.]; description?:string|null[생략하면 기존 값을 유지한다. DRAFT·PUBLISHED 모두 수정 가능하다. 명시적 null은 공개 필수 요건을 깨지 않는 경우에만 허용한다.]; posterUrl?:string|null[최대 500자 HTTPS URL. 생략하면 기존 값을 유지한다. DRAFT·PUBLISHED 모두 수정 가능하다. 명시적 null은 공개 필수 요건을 깨지 않는 경우에만 허용한다.]`.
 - R: P8.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 최소1개 변경 필드를 받는다. 공개 후 description/posterUrl/castInfo만 허용하며 공개 필수 조건을 깨는 null 변경은 거절한다. (원본 복원: performance/api.md:2499-2505, 담당 확인 필요)
 
 ### PUT /api/seller/performances/{performanceId}/grade-prices
@@ -163,7 +164,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 소유 SELLER; 성공: 200; 헤더: If-Match.
 - B: `gradePrices:PriceInput[][전체 가격 집합. 등급 ID 중복 불가.]; gradePrices[].venueSeatGradeId:long[공연장의 고정 등급 ID.]; gradePrices[].price:integer[공연 공통 기본 가격. 원, 0 초과.]`.
 - R: P11.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - DRAFT 전용이며 공개 후409 PERFORMANCE_CONFIGURATION_LOCKED다. 전체 가격 집합을 교체한다. 중복/타 공연장 등급을 거절하고 판매 대상 등급 가격 누락은400 GRADE_PRICE_MISSING이다. 모두 제외된 등급만 가격 생략 가능하다. (원본 복원: performance/api.md:298-329, 담당 확인 필요)
 
 ### PUT /api/seller/performances/{performanceId}/seat-exclusions
@@ -172,7 +173,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 소유 SELLER; 성공: 200; 헤더: If-Match.
 - B: `excludedSeats:ExcludedSeat[][공연 공통 전체 제외 집합. 빈 배열은 제외 없음.]; excludedSeats[].venueSeatId:long[공연장 물리 좌석 ID.]; excludedSeats[].reason:string[제외 사유. 1~255자. 관리 응답 전용.]`.
 - R: P12.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - DRAFT 전용 전체 집합 교체다. 빈 배열은 제외 없음이다. 중복/타 공연장 좌석과 남은 판매 대상의 가격 누락을 거절한다. 공개 후409 PERFORMANCE_CONFIGURATION_LOCKED다. (원본 복원: performance/api.md:332-353, 담당 확인 필요)
 
 ### POST /api/seller/performances/{performanceId}/publication
@@ -180,7 +181,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 소유 SELLER; 성공: 200; 헤더: If-Match.
 - R: P8.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 본문 없음. 공개 필수 조건 부족은409 PUBLICATION_REQUIREMENTS_NOT_MET와 누락 항목이다. 이미 공개됐다면 If-Match 불일치에도 현재 결과200·최초 publishedAt을 유지한다. DRAFT 복귀 API는 없다. (원본 복원: performance/api.md:399-410, 담당 확인 필요)
 
 ### DELETE /api/seller/performances/{performanceId}
@@ -188,7 +189,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 소유 SELLER; 성공: 204; 헤더: If-Match.
 - R: 없음 (204 본문 없음).
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 소프트 삭제한다. 삭제 정책 위반은409 DELETE_NOT_ALLOWED, 예매 존재는409 RESERVATION_EXISTS, 예매 확인 불가는503 DEPENDENCY_UNAVAILABLE다. 삭제 초안 조건은 DRAFT·오픈 전·선점 및 예매0건·예매 측 정리 가능 확인이다. 조회 계약은 architecture 14절에서 확정한다. (원본 복원: performance/api.md:528,544-547,2988,3558, 담당 확인 필요)
 
 ### POST /api/seller/performances/{performanceId}/schedules
@@ -197,7 +198,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 소유 SELLER; 성공: 201; 헤더: Location=`/api/seller/schedules/{scheduleId}`.
 - B: `startAt:datetime[회차 시작 시각.]; bookingOpenAt:datetime[예매 오픈 시각.]; bookingCloseAt:datetime[예매 마감 시각.]`.
 - R: P13.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 취소되지 않은 본인 공연에만 등록하며 공개 후 새 회차 추가도 허용한다. 기존 좌석/등급/가격/제외 설정을 사용하고 좌석별 배정 입력은 거절한다. 중복은409 DUPLICATE_SCHEDULE, 잘못된 시각은400 INVALID_TIME_RANGE다. (원본 복원: performance/api.md:355-397, 담당 확인 필요)
 
 ### GET /api/seller/schedules/{scheduleId}
@@ -205,7 +206,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 소유 SELLER; 성공: 200; 헤더: 응답 ETag.
 - R: P13.
-- E: 400 INVALID_REQUEST; 401 UNAUTHORIZED; 403 FORBIDDEN; 404 SCHEDULE_NOT_FOUND.
+- E: 400 VALIDATION_ERROR; 401 UNAUTHORIZED; 403 FORBIDDEN; 404 SCHEDULE_NOT_FOUND.
 
 ### PATCH /api/seller/schedules/{scheduleId}
 
@@ -213,7 +214,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 소유 SELLER; 성공: 200; 헤더: If-Match.
 - B: `startAt?:datetime[회차 시작 시각.]; bookingOpenAt?:datetime[예매 오픈 시각.]; bookingCloseAt?:datetime[예매 마감 시각.]`.
 - R: P13.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - DRAFT 회차의 시간만 수정하며 최소1개 필드가 필요하다. 잘못된 시각은400 INVALID_TIME_RANGE, 중복은409 DUPLICATE_SCHEDULE다. 성공 시 schedule.version만 증가하고 시간만 변경하면 좌석 재준비하지 않는다. (원본 복원: performance/api.md:385-397, 담당 확인 필요)
 
 ### DELETE /api/seller/schedules/{scheduleId}
@@ -221,7 +222,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 소유 SELLER; 성공: 204; 헤더: If-Match.
 - R: 없음 (204 본문 없음).
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 소프트 삭제하고 schedule.version을 증가시킨다. 삭제 정책/예매 존재/의존 조회 불가를 구분하며 세부 조회 계약은 architecture 14절을 따른다. (원본 복원: performance/api.md:528,544-547,2988,3558, 담당 확인 필요)
 
 ### GET /api/admin/performances
@@ -230,14 +231,14 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 200.
 - Q: `sellerId?:long[판매자 필터.]; publicationStatus?:string[DRAFT / PUBLISHED.]; operationStatus?:string[ACTIVE / CANCELED.]; page?:integer[0부터 시작, 기본 0.]; size?:integer[1~100, 기본 20.]`.
 - R: P9.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/admin/performances/{performanceId}
 
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: MASTER; 성공: 200; 헤더: 응답 ETag.
 - R: P10.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### POST /api/admin/schedules/{scheduleId}/cancellation
 
@@ -245,7 +246,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 202; 헤더: If-Match.
 - B: `reason:string[취소 사유. 1~500자.]`.
 - R: P14.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 같은 회차 반복 취소는 기존 결과를 반환하고 환불을 중복 생성하지 않는다.202/PENDING은 공연 취소 접수이며 예매 전달·PG 환불 완료를 보장하지 않는다. (원본 복원: performance/api.md:426-449, 담당 확인 필요)
 
 ### PUT /api/admin/schedules/{scheduleId}/sales-suspension
@@ -254,24 +255,24 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: MASTER; 성공: 200; 헤더: If-Match.
 - B: `suspended:boolean[true 중지, false 재개.]; reason?:string|null[중지(suspended=true) 시 필수이며 trim 후 1~500자. 재개(suspended=false) 시 생략 또는 null이고 저장된 중지 사유를 비운다.]`.
 - R: P15.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 취소 회차 재개는409다(세부 코드 미정). 재개해도 오픈 전/마감 후/좌석 미준비/취소 조건을 우회하지 않는다. 신규 선점만 차단하며 기존 유효 HOLD 결제는 원래 만료까지 허용한다. (원본 복원: performance/api.md:450-467, 담당 확인 필요)
 
 ### GET /api/performances
 
-- 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
+- 상태: 구현됨(#83).
 - 권한: 누구나; 성공: 200.
 - Q: `genre?:string[CONCERT / MUSICAL / PLAY / SPORTS.]; region?:string[지역. 생략 시 전체.]; from?:date[공연 시작일 검색 하한. KST, 포함.]; to?:date[공연 시작일 검색 상한. KST, 포함.]; keyword?:string[검색어. 생략 시 필터 없음.]; sort?:string[LATEST / BOOKING_OPEN_ASC. 기본 LATEST.]; page?:integer[0부터 시작, 기본 0.]; size?:integer[1~100, 기본 20.]`.
 - R: P16.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR; 400 INVALID_TIME_RANGE(from이 to보다 늦음).
 - 기본 목록은 공개·미삭제·정상 공연이다. 취소 공연 검색 포함은 미합의다. from<=to이며 KST 날짜 양끝을 포함한다. BOOKING_OPEN_ASC는 판매 종료 전 회차의 가장 이른 오픈 시각 기준이고 대상 회차가 없으면 마지막에 둔다. (원본 복원: performance/api.md:291-295,4324, 담당 확인 필요)
 
 ### GET /api/performances/{performanceId}
 
-- 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
+- 상태: 구현됨(#83).
 - 권한: 누구나; 성공: 200.
 - R: P17.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 초안/삭제는404 PERFORMANCE_NOT_FOUND다. 취소된 공개 공연 상세는 취소 안내를 위해 허용한다. 공개 DTO에 sellerId/version/publicationStatus/좌석 준비 내부 오류/제외 사유를 노출하지 않는다. (원본 복원: performance/api.md:97-108,270-285, 담당 확인 필요)
 
 ### GET /api/performances/{performanceId}/schedules
@@ -279,14 +280,14 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 누구나; 성공: 200.
 - R: P18.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### GET /api/schedules/{scheduleId}
 
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 누구나; 성공: 200.
 - R: P19.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 공개 부모의 미삭제 회차만 반환한다. 존재하지 않거나 일반 조회 불가면404 SCHEDULE_NOT_FOUND다. 좌석 선택 가능 여부와 잔여석은 seat API에서 별도로 조회한다. (원본 복원: performance/api.md:388-397,496-513, 담당 확인 필요)
 
 ### GET /api/performances/{performanceId}/seat-layout
@@ -294,7 +295,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 상태: 초안(#54 상세 DTO, 구현 전). 공통 정책 합의와 상세 필드 합의를 구분한다.
 - 권한: 누구나; 성공: 200.
 - R: P20.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 
 ### POST /internal/schedules/{scheduleId}/sale-validations
 
@@ -302,7 +303,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 권한: 예매 서비스; 성공: 200.
 - B: `configVersion:integer[예매 서비스가 보유한 좌석 구성 버전. 1 이상.]; venueSeatIds:long[][1개 이상, 중복 불가. 공연장 물리 좌석 ID 목록.]`.
 - R: P21.
-- E: 400 INVALID_REQUEST.
+- E: 400 VALIDATION_ERROR.
 - 신규 선점용이며 DRAFT 공연은 HTTP200/allowed=false/PERFORMANCE_NOT_PUBLISHED다. policyVersion은 performance.version, 등급은 물리 좌석의 고정 등급, basePrice는 공연별 가격에서 읽는다. 좌석 소속·판매 대상·configVersion을 확인하되 좌석 점유 성공은 보장하지 않는다. (원본 복원: performance/api.md:470-505, 담당 확인 필요)
 
 ### 공연 응답 스키마
