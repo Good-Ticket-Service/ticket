@@ -11,9 +11,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions;
+import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.CheckoutTarget;
 import com.sparta.ticket.reservation.booking.application.PaymentResultApplier;
-import com.sparta.ticket.reservation.booking.application.ReservationTransactions;
-import com.sparta.ticket.reservation.booking.application.ReservationTransactions.CheckoutTarget;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
@@ -55,7 +55,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     private BookingFacade bookingFacade;
 
     @Autowired
-    private ReservationTransactions reservationTransactions;
+    private PaymentRequestTransactions paymentRequestTransactions;
 
     @Autowired
     private PaymentResultApplier paymentResultApplier;
@@ -366,12 +366,12 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("준비 결과를 기록하기 전에 다른 준비가 먼저 기록되면 CHECKOUT_CONFLICT")
     void checkoutConflict() {
         Long reservationId = hold();
-        CheckoutTarget first = reservationTransactions.loadCheckoutTarget(userId, reservationId);
-        CheckoutTarget second = reservationTransactions.loadCheckoutTarget(userId, reservationId);
+        CheckoutTarget first = paymentRequestTransactions.loadCheckoutTarget(userId, reservationId);
+        CheckoutTarget second = paymentRequestTransactions.loadCheckoutTarget(userId, reservationId);
 
-        reservationTransactions.recordCheckout(second, "order-2", 20_000L);
+        paymentRequestTransactions.recordCheckout(second, "order-2", 20_000L);
 
-        assertThatThrownBy(() -> reservationTransactions.recordCheckout(first, "order-1", 20_000L))
+        assertThatThrownBy(() -> paymentRequestTransactions.recordCheckout(first, "order-1", 20_000L))
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.CHECKOUT_CONFLICT);
         assertThat(row(reservationId).get("order_id")).isEqualTo("order-2");

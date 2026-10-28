@@ -1,6 +1,6 @@
 package com.sparta.ticket.reservation.booking.application;
 
-import com.sparta.ticket.reservation.booking.application.ReservationTransactions.PendingPayment;
+import com.sparta.ticket.reservation.booking.application.PaymentReconcileTransactions.PendingPayment;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 public class PaymentReconcileService {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationTransactions transactions;
+    private final PaymentReconcileTransactions transactions;
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
     private final ChangeStamps changeStamps;
