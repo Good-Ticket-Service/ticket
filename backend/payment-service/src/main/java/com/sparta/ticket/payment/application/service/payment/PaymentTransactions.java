@@ -110,6 +110,12 @@ public class PaymentTransactions {
         }
     }
 
+    /** 호출자가 결제 행을 먼저 잠근 같은 트랜잭션에서만 사용한다. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void failForRecovery(Payment payment, PaymentFailureCode code) {
+        fail(payment, code);
+    }
+
     /** 요청 경로·후속 복구가 공유한다. 잠금 순서는 항상 payment → refund다. */
     @Transactional
     public void complete(Long paymentId, PgResult result) {
