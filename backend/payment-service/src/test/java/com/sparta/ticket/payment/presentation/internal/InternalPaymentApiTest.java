@@ -16,7 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-/** 결제 준비·조회 내부 API의 요청·응답·오류 형식이 계약(docs/shared/internal-api/payment.md)과 같은지 확인한다. */
+/** 결제 준비·조회 내부 API의 요청·응답·오류 형식이 계약(docs/api.md 결제 내부)과 같은지 확인한다. */
 class InternalPaymentApiTest extends PaymentIntegrationTest {
 
     private static final AtomicLong RESERVATION_IDS = new AtomicLong(3_000_000);

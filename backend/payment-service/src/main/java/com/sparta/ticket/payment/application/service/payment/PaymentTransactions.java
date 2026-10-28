@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 결제 상태를 바꾸는 트랜잭션 단위. 흐름 클래스(PaymentService)가 PG 호출 앞뒤로 차례로 부른다. 메서드 하나가 상태 전이 하나다.
- * 상태를 바꾸는 메서드는 행을 잠근 뒤 현재 상태를 다시 판단한다(docs/payment/plan.md 6절).
+ * 상태를 바꾸는 메서드는 행을 잠근 뒤 현재 상태를 다시 판단한다(docs/architecture.md).
  */
 @Component
 @Slf4j

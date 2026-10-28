@@ -1,7 +1,7 @@
 package com.sparta.ticket.payment.domain.model.payment;
 
 /**
- * 예매가 FAILED 결제를 보고 다음 행동을 고르는 분류(docs/shared/internal-api/payment.md failureType). 예매는 failureCode가
+ * 예매가 FAILED 결제를 보고 다음 행동을 고르는 분류(docs/api.md 결제 내부 failureType). 예매는 failureCode가
  * 아니라 이 값만 본다.
  */
 public enum PaymentFailureType {

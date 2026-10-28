@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * 결제 준비·조회 흐름. 트랜잭션은 PaymentTransactions에만 있고, PG 호출은 두 트랜잭션 사이(트랜잭션 밖)에서 한다
- * (docs/payment/plan.md 4절 ①). 같은 예매의 준비 순서는 예매가 한 번에 하나씩 보내 보장한다(Task 1-1 합의).
+ * (docs/architecture.md). 같은 예매의 준비 순서 보호는 예매와 연결할 계약·구현 과제다(architecture 14절).
  */
 @Service
 @RequiredArgsConstructor

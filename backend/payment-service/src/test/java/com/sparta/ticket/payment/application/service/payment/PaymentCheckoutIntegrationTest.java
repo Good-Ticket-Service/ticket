@@ -33,7 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 결제 준비 흐름(docs/payment/plan.md 4절 ①)을 실제 PostgreSQL로 검증한다. 유니크 제약·행 잠금이 운영과 같이 동작해야 동시 요청
+ * 결제 준비 흐름(docs/api.md 결제 내부)을 실제 PostgreSQL로 검증한다. 유니크 제약·행 잠금이 운영과 같이 동작해야 동시 요청
  * 결과를 믿을 수 있다. PG 준비는 픽스처가 돌려준다.
  */
 class PaymentCheckoutIntegrationTest extends PaymentIntegrationTest {
