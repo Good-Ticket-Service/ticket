@@ -65,6 +65,26 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT ck_p_tickets_price CHECK (price >= 0)`.
 
+### p_coupons — reservation-service/schema.sql + A
+
+| 필드 | 타입 | 제약·설명 |
+|---|---|---|
+| coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
+| name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
+| discount_amount | INT | NOT NULL; 정액 할인액(원). 발급 시작 후 변경 불가 |
+| total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 issued_quantity 이상으로 변경 가능 |
+| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급된 수량. 선착순 발급의 조건부 UPDATE로만 올림 |
+| issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
+| issue_end_at | TIMESTAMP | NOT NULL; 발급 종료 시각. 발급 중단 시 현재 시각으로 당김 |
+| valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가 |
+
+제약·인덱스:
+
+- `ck_p_coupons_discount ; CHECK ; discount_amount > 0`
+- `ck_p_coupons_quantity ; CHECK ; total_quantity > 0 AND issued_quantity BETWEEN 0 AND total_quantity`
+- `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
+- `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
+
 ### p_payments — payment-service/schema.sql + A
 
 | 필드 | 타입·제약·기본값 |
@@ -198,7 +218,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 ## 설계 테이블 — DDL 미반영
 
-performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 자리표시자다. 아래 명세를 현행 생성 SQL로 오해하지 않는다.
+performance-service/schema.sql은 현재 초기 자리표시자다. reservation-service/schema.sql에는 p_coupons만 있다. 아래 명세를 현행 생성 SQL로 오해하지 않는다.
 
 ### p_venues — 설계 + A
 
@@ -307,19 +327,6 @@ performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 
 | hold_expires_at | TIMESTAMP | NULL 허용; HOLD에서는 필수(선점 시각 + 10분, 공용 Clock 기준). seat가 선점 트랜잭션에서 한 번 계산해 BookingFacade.hold()에 넘긴 값과 같다. AVAILABLE·SOLD에서는 NULL. 예약의 p_reservations.hold_expires_at과 같은 값이며 결제 중에도 바꾸지 않는다. |
 | config_version | BIGINT | NOT NULL, 1 이상; 공연 서비스 schedule.seat_config_version과 대응한다. 오래된 생성 요청이 최신 데이터를 덮어쓰지 못하게 한다. |
 
-### p_coupons — 설계 + A
-
-| 필드 | 타입 | 제약·설명 |
-|---|---|---|
-| coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
-| name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
-| discount_amount | INT | NOT NULL; 정액 할인액(원). 발급 시작 후 변경 불가 |
-| total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 issued_quantity 이상으로 변경 가능 |
-| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급된 수량. 선착순 발급의 조건부 UPDATE로만 올림 |
-| issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
-| issue_end_at | TIMESTAMP | NOT NULL; 발급 종료 시각. 발급 중단 시 현재 시각으로 당김 |
-| valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가 |
-
 ### p_user_coupons — 설계 + A
 
 | 필드 | 타입 | 제약·설명 |
@@ -335,10 +342,6 @@ performance-service/schema.sql, reservation-service/schema.sql은 현재 초기 
 
 제약·인덱스:
 
-- `ck_p_coupons_discount ; CHECK ; discount_amount > 0`
-- `ck_p_coupons_quantity ; CHECK ; total_quantity > 0 AND issued_quantity BETWEEN 0 AND total_quantity`
-- `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
-- `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
 - `uk_p_user_coupons_user_coupon ; UNIQUE ① ; (user_id, coupon_id)`
 - `uk_p_user_coupons_reservation ; 부분 UNIQUE ② ; (reservation_id) WHERE reservation_id IS NOT NULL`
 - `ck_p_user_coupons_discount ; CHECK ; discount_amount > 0`
