@@ -11,6 +11,7 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ class PaymentTest {
     private static Payment failed() {
         Payment payment = inProgress();
         payment.fail("REJECT_CARD_PAYMENT", "한도 초과");
+        payment.recordFailure(NOW, new ReconcileSchedule(List.of(1L, 5L, 15L, 60L, 1440L)));
         return payment;
     }
 
@@ -247,6 +249,7 @@ class PaymentTest {
         void unresolvedFailureNeedsReconciliation() {
             Payment payment = inProgress();
             payment.fail(PaymentFailureCode.PG_UNRESOLVED, "결과 확정 시한 경과");
+            payment.recordFailure(NOW, new ReconcileSchedule(List.of(1L, 5L, 15L, 60L, 1440L)));
 
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(payment.getFailureCode()).isEqualTo("PG_UNRESOLVED");
@@ -266,7 +269,7 @@ class PaymentTest {
         }
 
         @Test
-        @DisplayName("최소 대사는 PG 승인을 불렀던 FAILED 결제만 한 번 본다")
+        @DisplayName("최소 대사는 PG 승인을 불렀던 FAILED 결제의 체크포인트를 확인한다")
         void reconcileOnlyFailedAfterApprovalCall() {
             Payment expiredBeforeApproval = ready();
             expiredBeforeApproval.fail(PaymentFailureCode.EXPIRED, null);
@@ -275,10 +278,13 @@ class PaymentTest {
             assertThat(expiredBeforeApproval.needsReconciliation()).isFalse();
             assertThat(failedAfterApproval.needsReconciliation()).isTrue();
 
-            failedAfterApproval.markReconciled(NOW.plusHours(1));
+            failedAfterApproval.advanceReconciliation();
+            assertThat(failedAfterApproval.getReconcileCount()).isEqualTo(1);
+            assertThat(failedAfterApproval.needsReconciliation()).isTrue();
+            for (int i = 1; i < 5; i++) failedAfterApproval.advanceReconciliation();
 
             assertThat(failedAfterApproval.needsReconciliation()).isFalse();
-            assertInvalidTransition(() -> failedAfterApproval.markReconciled(NOW.plusHours(2)));
+            assertInvalidTransition(() -> failedAfterApproval.advanceReconciliation());
         }
     }
 

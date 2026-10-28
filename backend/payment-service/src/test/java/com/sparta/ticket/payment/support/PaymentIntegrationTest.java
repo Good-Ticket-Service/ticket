@@ -29,7 +29,12 @@ import org.springframework.test.context.TestPropertySource;
  */
 @AutoConfigureMockMvc
 @Import(PaymentIntegrationTest.PgFixtureConfig.class)
-@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "payment.recovery.enabled=false"})
+@TestPropertySource(
+        properties = {
+            "spring.jpa.open-in-view=false",
+            "payment.recovery.enabled=false",
+            "payment.reconcile.enabled=false"
+        })
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
