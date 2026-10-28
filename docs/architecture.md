@@ -235,7 +235,8 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | #30 | (PR) fake-pg의 카카오 호환 API 추가 | 구현됨 |
 | #45 | (PR) 토스·카카오 PG 어댑터와 RestClient 기반 처리 | 구현됨 |
 | #48 | (PR) event-service를 performance-service로 변경 | 구현됨 |
-| #57 | (PR 리뷰) 좌석 DDL을 seat.sql로 분리, schema.sql 수정하지 않음 | 담당 합의. 현행 파일은 아직 없음 |
+| #57 | (PR 리뷰) 좌석 DDL을 seat.sql로 분리, schema.sql 수정하지 않음 | 담당 합의. #66에서 seat.sql 반영 |
+| #66 | 좌석 상태별 예약ID/만료시각 일관성 CHECK(`ck_p_schedule_seats_holder`) 추가 | 예매 담당 리뷰로 합의 |
 | B21·B22 | 예매 실패 후 orderId/금액 정리, 중복 승인/만료 경계 처리 | 현행 예매 동작 |
 | B27·B28 | booking.sql 분리, 선점 때 티켓·가격 저장 | 현행 예매 동작 |
 | B31~B33 | 활성 예매 UNIQUE, facade 경계, 공유 Clock | #34 및 현행 구현 기준 |
@@ -274,7 +275,6 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 결과·환불 토픽 | 토픽·스키마·버전, paidAmount/amount 및 reason/failureType/failureCode 명칭, 수신/DB 인계/PG 완료를 구분한 접수 보장 합의. 승인 토픽은 D16으로 철회 | 예매·결제 |
 | 쿠폰 발급 방식 | 현재 동기201 유지. Kafka202 전환 대상·접수 보장·시점 미합의 | 쿠폰·플랫폼 |
 | 잔여석 이벤트 | 소유는 seat. performance 카운터·seat.status.changed 도입 여부와 조회 구현 연결 확인 | 좌석·공연 |
-| 좌석 상태 CHECK | AVAILABLE/HOLD/SOLD와 예약ID/만료시각 일관성 CHECK 추가 여부. 기존 의미를 새 DDL 제약으로 단정하지 않음 | 좌석 |
 | Facade 조회 경계 | 모든 메서드 MANDATORY. getReservation은 호출자 트랜잭션에서 비잠금 사전 조회, 좌석→예약 변경 순서 유지 | 좌석·예매 |
 | 실제 Gateway 경로 | 공통 계약 경로와 현행 하위 라우팅의 이행 확인. HOLD_EXPIRED는 합의·현행409 유지, 이전410을 재적용하지 않음 | 공연·좌석·예매·Gateway |
 | fake-pg 결제창 경로 | 브라우저 접근 경로는 미구현. Gateway 라우트가 없고 서비스 포트를 외부에 열지 않는 배포 기준과 연결 필요 | 플랫폼·결제 |

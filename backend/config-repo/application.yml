@@ -20,6 +20,7 @@ spring:
     open-in-view: false
     hibernate:
       # local 밖(dev 등)의 기본값. 테이블은 backend/sql/{서비스}/schema.sql을 DB에 적용해 만들고, Hibernate는 Entity와 맞는지만 검사한다.
+      # reservation-service는 모듈별 파일을 schema.sql → booking.sql → seat.sql 순서로 적용한다.
       # 다르면 기동을 멈춘다. local 프로필은 application-local.yml에서 create로 바꾼다.
       ddl-auto: validate
   # spring-boot-starter-data-redis를 넣은 서비스만 이 값으로 연결한다. 넣지 않은 서비스에는 영향이 없다.
