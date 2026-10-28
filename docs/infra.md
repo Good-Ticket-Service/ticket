@@ -245,7 +245,7 @@ flowchart LR
 - Config: `backend/config-repo/{서비스}.yml`, 공통 `application.yml`, 로컬 `application-local.yml`. 앱의 `application.yml`은 이름과 config import 중심이다. fake-pg는 Config·Eureka·common에 의존하지 않는다.
 - 서버별 `compose.edge/core/data.yml`과 기동·중지 워크플로는 구현·존재를 확인한 뒤 사용한다. 현재 루트 `docker-compose.yml`을 서버 배포 완료 증거로 보지 않는다. Config 파일은 config-server 이미지에 포함되므로 바꾸면 재빌드·재배포가 필요하다.
 - 데이터 초기화·볼륨 삭제는 승인 없이 하지 않는다. 운영 DB에서 `ddl-auto: create`를 쓰지 않는다. DDL 이행·백업·복원 뒤에는 미완료 작업 보존과 PG 재대조를 확인한다(실제 과금 운영 전 검증 항목).
-- Gateway 현행 라우트: `/api/auth/**`·`/api/users/**` → user, `/api/reservations/**` → reservation, `/api/performances/**` → performance, `/api/v1/payments/**` → payment. 결제 라우트는 현재 API 명세(`v1` 없음)와 다른 이전 라우트다. 공개 공연 조회 `/api/performances/**`는 인증 제외(whitelist)다.
+- Gateway 현행 라우트: `/api/auth/**`·`/api/users/**` → user, `/api/reservations/**` → reservation, `/api/performances/**` → performance, `/api/v1/payments/**` → payment. 결제 라우트는 현재 API 명세(`v1` 없음)와 다른 이전 라우트다. 공개 공연 조회 `/api/performances/**`는 인증 제외(whitelist)다. #88의 결제 관리자 라우트 추가는 12절을 따른다.
 - 필요한 라우트 이행: 공연 `/api/seller/**`·`/api/admin/**`와 회차 단건 → performance. `/api/schedules/{id}/seats|holds|remaining|queue`와 `/api/coupons/**` → reservation. 구체적인 하위 경로를 먼저 매칭해 충돌을 막는다. 이 문서는 실제 gateway 설정을 바꾸지 않는다.
 - Actuator는 관리 포트·내부망에서만 수집한다. 현행 Gateway의 공개 Prometheus whitelist는 배포 전 차단하거나 분리해야 한다.
 - Swagger 집계는 `/{서비스}/v3/api-docs` RewritePath를 쓴다. 내부 API가 외부 문서에 노출되는지는 별도 필터·스키마로 확인한다.
@@ -257,3 +257,11 @@ flowchart LR
 - 구체적인 경보 임계값과 Slack·Alertmanager 도입은 아직 정하지 않았다.
 - k6는 VPC 안에서 Gateway E2E 모드와 서비스 직접 호출 모드를 구분한다. SSM 터널·노트북 네트워크를 부하 경로에 넣지 않는다.
 - 같은 자원·PG 한도·데이터·설정에서 개선 전후를 비교하고, 환경과 원본 결과는 이슈·PR에 남긴다. 시험이 끝나면 PG·payment·예매의 상태와 금액을 대조한다.
+
+## 12. 결제 관리자 접근 (#88 브랜치 구현)
+
+- 관리자 API 계약은 api.md의 결제 관리자 절에 둔다. Gateway가 `/api/admin/payments/**`를 payment로 전달하고 MASTER만 허용한다. 이 경로는 사용자 캐시를 우회해 매 요청 현재 계정·역할을 확인한다. 조회 장애는503이며 기존 캐시로 대체하지 않는다.
+- payment도 공통 `@RequireRole(MASTER)`로 검사하고 실행자를 인증된 사용자 ID로 기록한다. 직접 접근 시 사용자 헤더를 위조할 수 있으므로 서비스 포트 비공개와 Gateway 경유 접근을 배포 환경에서 보장해야 한다. 실제 보안 그룹·내부 호출자 통제는 미검증이다.
+- `/internal/**` 외부 차단을 유지한다. 서비스 인증 전반의 미합의 상태를 이번 관리자 경로 구현으로 해결했다고 간주하지 않는다.
+- 기존 DB는 002→003→004 이행 후 배포한다. 실행자는 조회→원인 확인·수정→최신 상태로 명령→PG/DB 대조 순서로 처리한다. 결과 불명은 동일 commandId로 확인하며 DB 상태를 직접 덮어쓰지 않는다.
+- MASTER 생성은 user-service의 기존 초기 계정 설정을 사용한다. 실제 계정 발급과 배포 접근 검증·운영 DB 이행은 별도 확인한다. Slack·Alertmanager 연결은 Task11 범위다.

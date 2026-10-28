@@ -19,7 +19,7 @@
 | GET /api/users/me | 200 | 없음 | User | 404 USER_NOT_FOUND |
 | PATCH /api/users/me | 200 | name:string, phone:string(선택/null 정책 미정) | User | 미정; 구현 전 |
 | DELETE /api/users/me | 200(기존 예시 기준) | 없음 | userId:long, status:WITHDRAWN, withdrawnAt:datetime | 미정; 구현 전 |
-| GET /internal/users/{userId} | 200 | 없음 | userId:long, email:string, role:string | 내부 호출, 조회 멱등;404 USER_NOT_FOUND |
+| GET /internal/users/{userId} | 200 | 없음 | userId:long, email:string, role:string | 내부 호출, 조회 멱등;404 USER_NOT_FOUND(없음·논리 삭제·비ACTIVE). ACTIVE 검증은 #88 브랜치 구현 |
 
 - Signup = `{email:string(이메일), password:string(8~15자·대소문자/숫자/특수문자), name:string(공백 불가), phone:string(01[016789]-숫자3~4-숫자4)}`. 역할은 서버 고정. 탈퇴 이메일도 중복 거절.
 - SignupResult = `{userId:long,email:string,name:string,role:string,status:string}`.
@@ -470,9 +470,9 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 결제 내부 — payment-service
 
-상태: HTTP 계약 합의. 준비·승인·조회·환불 Controller 구현. 관리자 HTTP 응답·인증은 미정이며 재처리 로직만 구현한다.
+상태: HTTP 계약 합의. 준비·승인·조회·환불 Controller 구현. 관리자 운영 API는 아래 별도 절을 따른다.
 
-권한: 내부 예매 호출; 관리자 경로는 운영자 전용(서비스 인증 방식 미정). orderId는 예매가 시도마다 발급하는 1~64자 문자열, 같은 시도 재시도는 같은 값. 준비/승인/환불은 orderId 멱등. HTTP 200에도 업무 FAILED가 올 수 있다.
+권한: 내부 예매 호출(서비스 인증 방식 미정). orderId는 예매가 시도마다 발급하는 1~64자 문자열, 같은 시도 재시도는 같은 값. 준비/승인/환불은 orderId 멱등. HTTP 200에도 업무 FAILED가 올 수 있다.
 
 결제 HTTP 계약은 합의 상태(#22·PR #25), 구현 완료와 구분한다. D16에 따라 고도화에도 준비·승인 동기 계약을 유지한다.
 
@@ -482,14 +482,32 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 | POST /internal/payments/{orderId}/confirm | 200 | pgAuthToken:string,amount:int | paymentId:long,status:DONE/FAILED/IN_PROGRESS,failureType:string?,failureCode:string? | 400 PAYMENT_AMOUNT_MISMATCH;404 PAYMENT_NOT_FOUND |
 | GET /internal/payments/{orderId} | 200 | 없음 | paymentId:long,orderId:string,reservationId:long,status:string,amount:int,failureType:string?,failureCode:string?,confirmRequestedAt:datetime\|null,approvedAt:datetime\|null,refund:RefundView\|null | 404 PAYMENT_NOT_FOUND |
 | POST /internal/payments/{orderId}/refund | 200 | reason:USER_CANCEL/SCHEDULE_CANCELED/CONFIRM_FAILED | refundStatus:WAITING/REQUESTED/DONE/FAILED/SKIPPED/NOT_REQUIRED,refundAmount:int | 404 PAYMENT_NOT_FOUND |
-| POST /internal/admin/payments/{orderId}/refund/unblock | 미정 | 없음 | 응답 형식 미정 | 409 INVALID_STATUS_TRANSITION |
-| POST /internal/admin/payments/{orderId}/refund/retry | 미정 | 없음 | 응답 형식 미정 | FAILED 환불만; 세부 오류 미정 |
 
 - RefundView = `{status:string,reason:string,refundAmount:int,refundedAt:datetime|null}`. amount=totalPrice-discountAmount, 보정 없이 100원 미만 거절. 동일 orderId의 할인액 변경도 PAYMENT_ORDER_CONFLICT.
 - 준비 재요청은 기존 응답; 이전 READY는 SUPERSEDED로 종료하되 승인 접수된 READY/IN_PROGRESS는 대체 불가. DONE 결제 존재 시 새 준비 불가.
 - 실패 구분: REJECTED(PG_REJECTED/AMOUNT_MISMATCH/INVALID_AUTH_TOKEN), UNAVAILABLE(PG_UNAVAILABLE/PG_BUSY/PG_UNRESOLVED), EXPIRED(EXPIRED), NOT_APPROVED(NOT_APPROVED/CANCELED_AT_PG), CLOSED(SUPERSEDED/ABANDONED/READY_FAILED).
 - 환불은 전액. READY→FAILED(ABANDONED), FAILED는 NOT_REQUIRED(환불 행 없음); IN_PROGRESS는 WAITING, DONE은 REQUESTED 후 PG 취소, CANCELED는 기존 환불. 접수와 PG 취소 완료는 다르다.
 - 기존 환불 행이 있으면 최초 사유와 상태를 먼저 재현한다. NOT_REQUIRED의 refundAmount는 0이다.
+
+## 결제 관리자 — payment-service (#88 브랜치 구현)
+
+권한: MASTER. 외부 ApiResponse/ErrorResponse 적용. Gateway 인증 경계는 infra 12절을 따른다.
+
+| Method URI | 성공 | 입력 | data | 추가 오류 |
+|---|---|---|---|---|
+| GET /api/admin/payments/refunds | 200 | Q: after:long>=0=0,limit:int[1,100]=20,status?:RefundStatus,mode?:RefundRecoveryMode,provider?:PgProvider,olderThanMinutes?:long[0,5256000] | items:OperationView[],nextCursor:long\|null | 400 VALIDATION_ERROR |
+| GET /api/admin/payments/{orderId}/refund | 200 | Q: refresh:boolean=false | current:OperationView,commands:OperationHistory[최대20],pgObservation:string,observedAt:datetime\|null | 404 PAYMENT_NOT_FOUND/REFUND_NOT_FOUND |
+| POST /api/admin/payments/{orderId}/refund/retry | 200 | B: OperationInput | OperationOutcome | 404 PAYMENT_NOT_FOUND/REFUND_NOT_FOUND;409 REFUND_COMMAND_CONFLICT/INVALID_STATUS_TRANSITION;503 SERVICE_UNAVAILABLE |
+| POST /api/admin/payments/{orderId}/refund/resume | 200 | B: OperationInput | OperationOutcome | 위와 같음 |
+
+- OperationInput=`{commandId:string[8,80],reason:RESUME_OBSERVATION/ROOT_CAUSE_FIXED/AUTH_CONFIGURATION_FIXED,expectedStatus:RefundStatus,expectedMode:RefundRecoveryMode,expectedVersion:long>=0,expectedAttempt:int>=0}` 모든 필드 필수. commandId는 영숫자·`_`·`-`, orderId는 기존 결제 계약과 같은 비공백 1~64자.
+- OperationOutcome=`{commandId:string,result:APPLIED/CONFIRMED_CANCELED,explanation:string,status:RefundStatus,mode:RefundRecoveryMode,executionVersion:long,cancelAttempt:int,processedAt:datetime}`.
+- OperationView: refundId:long,orderId:string,paymentStatus:PaymentStatus,status:RefundStatus,mode:RefundRecoveryMode,provider:PgProvider,refundReason:RefundReason,amount:int,executionVersion:long,cancelAttempt:int,automaticallyQueryable:boolean,automaticCancelAllowed:boolean,guidance:string.
+- OperationView 추가: rowCreatedAt/requestedAt/restrictionStartedAt/nextAttemptAt/paymentNextAttemptAt/paymentNextReconcileAt/cancelKeyCreatedAt:datetime|null,restrictionReason/lastError/failureCode:string|null.
+- OperationHistory: commandId/action/actor/reason/result/explanation/expectedState/beforeState/afterState/inquiry:string,processedAt:datetime.
+- 목록은 미완료 환불만 반환하며 after/nextCursor는 refund ID다. 상세의 refresh=true만 PG 읽기 전용 조회를 수행한다. pgObservation=NOT_QUERIED/APPROVED/CANCELED_REQUIRES_VALIDATION/INCONSISTENT/NOT_FOUND/UNKNOWN.
+- 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는409 REFUND_COMMAND_CONFLICT. STALE/DENIED는409,PG_UNKNOWN은503이며 명령 결과는 저장한다. 동일 명령의 결과 불명은 같은 commandId로 확인한다.
+- resume는 조회 전용 재개, retry의 APPLIED는 기존 Recovery에 실행을 예약한 상태다. PG 취소·고객 계좌 반영 완료를 뜻하지 않는다. 실행자·명령 종류는 본문에서 받지 않는다.
 
 ## 서비스 내부 모듈 계약
 
