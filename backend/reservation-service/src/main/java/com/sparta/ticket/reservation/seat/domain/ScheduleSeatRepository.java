@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.domain;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -13,4 +14,10 @@ public interface ScheduleSeatRepository {
 
     /** 넘긴 좌석을 id 오름차순으로 잠그고 읽는다. 없는 id와 삭제된 좌석은 결과에서 빠진다. 트랜잭션 안에서만 부른다. */
     List<ScheduleSeat> findAllByIdsForUpdate(Collection<Long> ids);
+
+    /** 이 예약의 HOLD 좌석만 SOLD로 바꾸고 만료 시각을 비운다. 바뀐 행 수를 돌려준다. */
+    int sell(Collection<Long> ids, Long reservationId, LocalDateTime at, String by);
+
+    /** 이 예약이 가진 좌석만 AVAILABLE로 돌리고 예약과 만료 시각을 비운다. 바뀐 행 수를 돌려준다. */
+    int release(Collection<Long> ids, Long reservationId, LocalDateTime at, String by);
 }
