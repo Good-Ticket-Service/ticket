@@ -462,7 +462,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 결제 내부 — payment-service
 
-상태: HTTP 계약은 합의, Controller 구현 전. 관리자 응답 상세는 미정이다.
+상태: HTTP 계약 합의. 준비·승인·조회·환불 Controller 구현. 관리자 HTTP 응답·인증은 미정이며 재처리 로직만 구현한다.
 
 권한: 내부 예매 호출; 관리자 경로는 운영자 전용(서비스 인증 방식 미정). orderId는 예매가 시도마다 발급하는 1~64자 문자열, 같은 시도 재시도는 같은 값. 준비/승인/환불은 orderId 멱등. HTTP 200에도 업무 FAILED가 올 수 있다.
 
@@ -481,6 +481,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 준비 재요청은 기존 응답; 이전 READY는 SUPERSEDED로 종료하되 승인 접수된 READY/IN_PROGRESS는 대체 불가. DONE 결제 존재 시 새 준비 불가.
 - 실패 구분: REJECTED(PG_REJECTED/AMOUNT_MISMATCH/INVALID_AUTH_TOKEN), UNAVAILABLE(PG_UNAVAILABLE/PG_BUSY/PG_UNRESOLVED), EXPIRED(EXPIRED), NOT_APPROVED(NOT_APPROVED/CANCELED_AT_PG), CLOSED(SUPERSEDED/ABANDONED/READY_FAILED).
 - 환불은 전액. READY→FAILED(ABANDONED), FAILED는 NOT_REQUIRED(환불 행 없음); IN_PROGRESS는 WAITING, DONE은 REQUESTED 후 PG 취소, CANCELED는 기존 환불. 접수와 PG 취소 완료는 다르다.
+- 기존 환불 행이 있으면 최초 사유와 상태를 먼저 재현한다. NOT_REQUIRED의 refundAmount는 0이다.
 
 ## 서비스 내부 모듈 계약
 
