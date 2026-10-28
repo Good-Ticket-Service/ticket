@@ -45,4 +45,10 @@ public interface PaymentRepository {
     LocalDateTime oldestDueReconcile(LocalDateTime now);
 
     LocalDateTime oldestUnknownReconcile();
+
+    List<Payment> lockNextRefund(LocalDateTime now, Collection<Long> excludedIds);
+
+    List<Payment> lockNextRefundInModes(LocalDateTime now, Collection<Long> excludedIds, Collection<String> modes);
+
+    LocalDateTime oldestDueRefund(LocalDateTime now);
 }

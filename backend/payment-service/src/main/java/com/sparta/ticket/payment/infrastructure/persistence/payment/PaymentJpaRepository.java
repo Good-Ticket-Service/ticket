@@ -96,4 +96,33 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
                     + " AND next_reconcile_at IS NOT NULL AND deleted_at IS NULL",
             nativeQuery = true)
     LocalDateTime oldestUnknownReconcile();
+
+    @Override
+    @Query(
+            value = "SELECT p.* FROM p_payments p JOIN p_refunds r ON r.payment_id = p.id"
+                    + " WHERE r.status IN ('REQUESTED','FAILED') AND r.recovery_mode <> 'PAUSED' AND r.recovery_blocked = FALSE AND r.next_attempt_at <= :now"
+                    + " AND p.deleted_at IS NULL AND r.deleted_at IS NULL AND p.id NOT IN (:excludedIds)"
+                    + " ORDER BY r.next_attempt_at, p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED",
+            nativeQuery = true)
+    List<Payment> lockNextRefund(@Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
+
+    @Override
+    @Query(
+            value =
+                    "SELECT min(next_attempt_at) FROM p_refunds WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED'"
+                            + " AND recovery_blocked = FALSE AND next_attempt_at <= :now AND deleted_at IS NULL",
+            nativeQuery = true)
+    LocalDateTime oldestDueRefund(@Param("now") LocalDateTime now);
+
+    @Override
+    @Query(
+            value = "SELECT p.* FROM p_payments p JOIN p_refunds r ON r.payment_id = p.id"
+                    + " WHERE r.status IN ('REQUESTED','FAILED') AND r.recovery_mode IN (:modes) AND r.recovery_blocked = FALSE"
+                    + " AND r.next_attempt_at <= :now AND p.deleted_at IS NULL AND r.deleted_at IS NULL AND p.id NOT IN (:excludedIds)"
+                    + " ORDER BY r.next_attempt_at, p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED",
+            nativeQuery = true)
+    List<Payment> lockNextRefundInModes(
+            @Param("now") LocalDateTime now,
+            @Param("excludedIds") Collection<Long> excludedIds,
+            @Param("modes") Collection<String> modes);
 }

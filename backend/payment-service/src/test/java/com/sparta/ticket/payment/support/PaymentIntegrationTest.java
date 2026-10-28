@@ -33,7 +33,8 @@ import org.springframework.test.context.TestPropertySource;
         properties = {
             "spring.jpa.open-in-view=false",
             "payment.recovery.enabled=false",
-            "payment.reconcile.enabled=false"
+            "payment.reconcile.enabled=false",
+            "payment.recovery.refund.enabled=false"
         })
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
@@ -104,6 +105,8 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
         }
 
         @Override
-        public void refundFinalized(Payment payment, Refund refund) {}
+        public void refundFinalized(Payment payment, Refund refund) {
+            if (fail) throw new IllegalStateException("저장 실패 주입");
+        }
     }
 }
