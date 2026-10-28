@@ -217,4 +217,36 @@ class ScheduleSeatTest {
             assertRejected(() -> available().release(RESERVATION), CommonErrorCode.INVALID_STATUS_TRANSITION);
         }
     }
+
+    @Nested
+    @DisplayName("선택 가능 판정")
+    class Selectability {
+
+        @Test
+        @DisplayName("판매 대상 AVAILABLE은 선택할 수 있다")
+        void availableSeat() {
+            assertThat(available().selectabilityAt(NOW)).isEqualTo(SeatSelectability.SELECTABLE);
+        }
+
+        @Test
+        @DisplayName("판매 제외 좌석은 AVAILABLE이어도 선택할 수 없다")
+        void unsellable() {
+            ScheduleSeat seat = ScheduleSeat.create(1L, 100L, 7L, "VIP", null, "A", "1", 1, false, 1L);
+
+            assertThat(seat.selectabilityAt(NOW)).isEqualTo(SeatSelectability.NOT_SELECTABLE);
+        }
+
+        @Test
+        @DisplayName("만료 1초 전 HOLD는 선택할 수 없고, 만료 시각 정각부터는 예약 결제 여부를 확인해야 한다")
+        void holdExpiryBoundary() {
+            assertThat(heldUntil(NOW.plusSeconds(1)).selectabilityAt(NOW)).isEqualTo(SeatSelectability.NOT_SELECTABLE);
+            assertThat(heldUntil(NOW).selectabilityAt(NOW)).isEqualTo(SeatSelectability.EXPIRED_HOLD);
+        }
+
+        @Test
+        @DisplayName("SOLD는 선택할 수 없다")
+        void soldSeat() {
+            assertThat(sold().selectabilityAt(NOW)).isEqualTo(SeatSelectability.NOT_SELECTABLE);
+        }
+    }
 }
