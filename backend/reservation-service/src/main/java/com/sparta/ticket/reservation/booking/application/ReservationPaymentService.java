@@ -36,7 +36,7 @@ public class ReservationPaymentService {
 
     /** 결제를 준비한다. 상태는 HOLD 그대로이고, 새 orderId와 결제 금액을 기록한다. */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
-        // TODO(#75): 쿠폰 할인을 연결하면 이 거절을 지우고 CouponUsage에서 받은 할인액을 넘긴다.
+        // 결제 준비에 쿠폰 할인을 반영하지 않는다. 할인 없이 결제를 준비하면 사용자가 고른 쿠폰이 무시되므로 쿠폰이 오면 거절한다.
         if (command.userCouponId() != null) {
             throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE, "쿠폰 적용은 아직 지원하지 않습니다.");
         }
