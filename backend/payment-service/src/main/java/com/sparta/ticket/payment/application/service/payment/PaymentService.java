@@ -3,12 +3,16 @@ package com.sparta.ticket.payment.application.service.payment;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutCommand;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutResult;
+import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
+import com.sparta.ticket.payment.application.dto.payment.ConfirmResult;
 import com.sparta.ticket.payment.application.dto.payment.PaymentDetail;
+import com.sparta.ticket.payment.application.port.payment.PaymentDispatcher;
 import com.sparta.ticket.payment.application.port.pg.PgClient.PgReadyRequest;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
+import com.sparta.ticket.payment.domain.model.payment.PaymentStatus;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +32,17 @@ public class PaymentService {
 
     private final PaymentTransactions transactions;
     private final PgClientRegistry pgClients;
+    private final PaymentDispatcher dispatcher;
+
+    public ConfirmResult confirm(String orderId, ConfirmCommand command) {
+        Payment payment = transactions.requestConfirm(orderId, command);
+        if (payment.getStatus() == PaymentStatus.READY) {
+            dispatcher.dispatch(payment.getId(), command.pgAuthToken());
+        }
+        return ConfirmResult.from(transactions
+                .findByOrderId(orderId)
+                .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND)));
+    }
 
     /**
      * 1) 같은 orderId가 있으면 재현한다(내용이 다르면 409). 2) 없으면 READY를 만든다. 3) 카카오면 트랜잭션 밖에서 PG 준비를
