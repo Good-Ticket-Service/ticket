@@ -13,7 +13,7 @@ import org.springframework.core.io.FileSystemResource;
 
 class BookingSchedulerPropertiesTest {
 
-    /** 승인 호출의 최대 대기. connect 5초 + read 15초(orchestration.md P6). */
+    /** 승인 호출의 최대 대기. connect 5초 + read 15초. */
     private static final Duration MAX_CONFIRM_WAIT = Duration.ofSeconds(5 + 15);
 
     private static BookingSchedulerProperties loadFromConfigRepo() throws IOException {

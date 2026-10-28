@@ -3,7 +3,7 @@ package com.sparta.ticket.reservation.booking.application.port;
 import java.util.List;
 
 /**
- * booking이 seat 모듈에 바라는 좌석 연산(설계서 3.1 SeatFacade, 합의 전 S3). 모두 호출한 쪽의 트랜잭션 안에서 실행된다.
+ * booking이 seat 모듈에 바라는 좌석 연산(SeatFacade, #34). 모두 호출한 쪽의 트랜잭션 안에서 실행된다.
  * seat 담당의 구현이 오면 어댑터가 그것을 부른다.
  */
 public interface SeatPort {

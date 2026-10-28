@@ -7,7 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * 시간이 지난 HOLD를 만료하고 좌석을 돌려준다(F1). 후보는 잠그지 않고 고르고, 건마다 트랜잭션 하나로 처리한다.
+ * 시간이 지난 HOLD를 만료하고 좌석을 돌려준다. 후보는 잠그지 않고 고르고, 건마다 트랜잭션 하나로 처리한다.
  * 인스턴스가 여러 개여도 조건부 UPDATE가 한 번만 성공하므로 분산 락을 두지 않는다.
  */
 @Slf4j
