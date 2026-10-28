@@ -9,15 +9,12 @@ import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailRes
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 일반 사용자용 공연 조회 API. 로그인 없이 누구나 호출한다. Swagger 문서와 page·size 범위 제약은 {@link PublicPerformanceApiSpec}에 있다.
+ * 일반 사용자용 공연 조회 API. 로그인 없이 누구나 호출한다. 경로·HTTP 메서드만 여기 두고, Swagger 문서와 파라미터 바인딩·검증은 {@link PublicPerformanceApiSpec}에 있다.
  * Note: 페이지 규칙(size 1~100, 기본 20)이 공통 SearchPageableArgumentResolver(10·30·50)와 달라 Pageable 대신 page·size를 직접 받는다.
  */
 @RestController
@@ -31,14 +28,14 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
     @Override
     @GetMapping
     public ApiResponse<PublicPerformanceListResponse> search(
-            @RequestParam(required = false) Genre genre,
-            @RequestParam(required = false) String region,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "LATEST") PublicPerformanceSort sort,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            Genre genre,
+            String region,
+            LocalDate from,
+            LocalDate to,
+            String keyword,
+            PublicPerformanceSort sort,
+            int page,
+            int size) {
         PublicPerformanceSearchCondition condition = new PublicPerformanceSearchCondition(
                 genre, blankToNull(region), from, to, blankToNull(keyword), sort, page, size);
         return ApiResponse.ok(PublicPerformanceListResponse.from(publicPerformanceService.search(condition)));
@@ -47,7 +44,7 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
     /** 공개 공연 상세. 취소된 공개 공연도 취소 안내를 위해 돌려준다. 초안·삭제 공연은 404다. */
     @Override
     @GetMapping("/{performanceId}")
-    public ApiResponse<PublicPerformanceDetailResponse> getDetail(@PathVariable Long performanceId) {
+    public ApiResponse<PublicPerformanceDetailResponse> getDetail(Long performanceId) {
         return ApiResponse.ok(PublicPerformanceDetailResponse.from(publicPerformanceService.getDetail(performanceId)));
     }
 
