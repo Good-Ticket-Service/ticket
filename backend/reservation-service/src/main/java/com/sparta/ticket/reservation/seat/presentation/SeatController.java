@@ -15,13 +15,13 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "좌석")
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/schedules/{scheduleId}")
+@RequestMapping("/api/seats/schedules/{scheduleId}")
 public class SeatController {
 
     private final SelectableSeatQueryService selectableSeatQueryService;
 
     @Operation(summary = "선택 가능 좌석 조회", description = "좌석 배치도에 회차 좌석과 선택 가능 여부를 보여 준다. 조회 결과가 선점 성공을 보장하지는 않는다.")
-    @GetMapping("/seats")
+    @GetMapping
     public ApiResponse<SelectableSeatsResponse> getSelectableSeats(@PathVariable Long scheduleId) {
         return ApiResponse.ok(SelectableSeatsResponse.from(selectableSeatQueryService.getSelectableSeats(scheduleId)));
     }
