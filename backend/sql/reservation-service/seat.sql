@@ -1,9 +1,9 @@
 -- reservation-service 스키마(reservation_schema)에서 seat가 소유한 테이블의 현재 DDL. 좌석 Entity를 추가·변경하면 이 파일도 같이 고친다.
--- booking.sql처럼 테이블 소유대로 파일을 나눴다(docs/architecture.md 13절의 #57 합의).
+-- seat와 booking이 같은 파일을 고치며 충돌하지 않도록 테이블 소유대로 파일을 나눴다(#57).
 -- schema.sql, booking.sql 다음에 적용한다. 통합 테스트는 ReservationIntegrationTest가 이 순서로 실행한 뒤 Entity와 대조한다(ddl-auto=validate). dev DB에도 같은 순서로 적용한다.
 -- 테이블 이름에 스키마를 붙이지 않는다. 서비스 계정(reservation_app)으로 적용하면 계정 기본 search_path인 reservation_schema에 만들어진다.
 
--- 회차 좌석. 공연장 좌석·등급·가격을 회차마다 복사한 판매 데이터다(docs/tables.md p_schedule_seats, 상세는 Notion 테이블 명세서 schedule_seat 절).
+-- 회차 좌석. 공연장 좌석·등급·가격을 회차마다 복사한 판매 데이터다.
 -- schedule_id·venue_seat_id·venue_seat_grade_id는 공연 서비스 ID라 FK가 없다. reservation_id는 booking의 예약이지만 모듈 경계를 지키려고 FK를 두지 않는다
 CREATE TABLE p_schedule_seats
 (
@@ -37,7 +37,7 @@ CREATE TABLE p_schedule_seats
         CHECK ((base_price IS NULL OR base_price > 0) AND (NOT is_sellable OR base_price IS NOT NULL)),
     CONSTRAINT ck_p_schedule_seats_seat_number CHECK (seat_number > 0),
     CONSTRAINT ck_p_schedule_seats_config_version CHECK (config_version >= 1),
-    -- 상태마다 점유 예약과 만료 시각이 있어야 하는지가 정해져 있다(Notion 테이블 명세서 schedule_seat "상태와 정합성")
+    -- AVAILABLE은 점유 예약·만료 시각이 없고, HOLD는 둘 다 있고, SOLD는 점유 예약만 있다
     CONSTRAINT ck_p_schedule_seats_holder CHECK (
         (status = 'AVAILABLE' AND reservation_id IS NULL AND hold_expires_at IS NULL)
             OR (status = 'HOLD' AND reservation_id IS NOT NULL AND hold_expires_at IS NOT NULL)

@@ -20,7 +20,7 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 회차 좌석. 공연장 좌석의 위치·등급·가격을 회차마다 복사해 두고, 이 회차의 선점·판매 상태를 따로 관리한다.
- * 상태는 아래 전이 메서드로만 바뀐다. 허용 전이는 Notion 테이블 명세서 schedule_seat 절의 "컬럼이 바뀌는 시점" 표를 따른다.
+ * 상태는 아래 전이 메서드로만 바뀐다. 선점은 AVAILABLE이거나 만료된 HOLD에서만, 판매는 이 예약의 HOLD에서만, 반환은 이 예약의 HOLD·SOLD에서만 허용한다.
  *
  * Note: 전이 메서드는 좌석 행을 FOR UPDATE로 잠근 뒤 부른다. 잠그지 않고 읽은 상태로 판단하면 그 사이 다른 트랜잭션이 바꿨을 수 있다.
  * booking이 부르는 SeatFacade.sell·release는 잠금 없이 조건부 UPDATE로 바꾸지만, 바뀌는 값은 이 메서드와 같다.
