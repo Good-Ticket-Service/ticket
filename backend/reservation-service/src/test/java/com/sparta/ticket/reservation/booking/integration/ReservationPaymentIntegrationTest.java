@@ -109,7 +109,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
 
     private ResultActions checkout(Long reservationId, Long user) throws Exception {
         return mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), user)
-                .content("{}"));
+                .content("{\"pgProvider\": \"TOSS\"}"));
     }
 
     private String checkoutOrderId(Long reservationId) throws Exception {
@@ -314,6 +314,39 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         assertThat(payment.prepared).isEmpty();
+    }
+
+    @Test
+    @DisplayName("결제 준비는 PG를 반드시 받고 TOSS·KAKAO만 허용한다")
+    void checkoutRequiresPgProvider() throws Exception {
+        Long reservationId = hold();
+
+        for (String body : List.of("{}", "{\"pgProvider\": \"NAVER\"}", "{\"userCouponId\": 1}")) {
+            mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        assertThat(payment.prepared).isEmpty();
+
+        mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)
+                        .content("{\"userCouponId\": 7, \"pgProvider\": \"KAKAO\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.paymentWindowUrl").doesNotExist());
+        assertThat(payment.prepared.get(0).couponId()).isEqualTo(7L);
+        assertThat(payment.prepared.get(0).pgProvider()).isEqualTo("KAKAO");
+    }
+
+    @Test
+    @DisplayName("예약 응답은 좌석을 scheduleSeatIds로 돌려준다")
+    void reservationResponseFields() throws Exception {
+        Long reservationId = hold();
+
+        mockMvc.perform(as(get("/api/reservations/{id}", reservationId), userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.scheduleSeatIds[0]").value(seatA))
+                .andExpect(jsonPath("$.data.scheduleSeatIds[1]").value(seatB))
+                .andExpect(jsonPath("$.data.seatIds").doesNotExist());
     }
 
     @Test

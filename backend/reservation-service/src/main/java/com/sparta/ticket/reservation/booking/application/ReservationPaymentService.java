@@ -38,11 +38,11 @@ public class ReservationPaymentService {
                 target.reservationId(),
                 target.userId(),
                 target.baseAmount(),
-                command.couponId(),
+                command.userCouponId(),
                 command.pgProvider(),
                 target.holdExpiresAt()));
         transactions.recordCheckout(target, orderId, prepared.amount());
-        return new CheckoutResult(orderId, prepared.amount(), prepared.paymentWindowUrl());
+        return new CheckoutResult(orderId, prepared.amount(), prepared.checkoutUrl());
     }
 
     /**

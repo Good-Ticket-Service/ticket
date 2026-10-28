@@ -9,7 +9,7 @@ import java.util.List;
 public record ReservationResult(
         Long reservationId,
         Long scheduleId,
-        List<Long> seatIds,
+        List<Long> scheduleSeatIds,
         ReservationStatus status,
         LocalDateTime holdExpiresAt,
         String orderId,

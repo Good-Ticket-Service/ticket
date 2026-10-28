@@ -362,18 +362,17 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 예매 — reservation-service / booking
 
-상태: 단건 조회·checkout·confirm의 현행 Controller는 구현됨. checkout/confirm은 결제 미연동이며 목표 필드와 현행 DTO는 아래처럼 다르다. 목록·취소는 초안이다.
+상태: 단건 조회·checkout·confirm의 현행 Controller는 구현됨. DTO 필드는 아래 표와 같고, checkout/confirm은 결제 미연동이라 503이다. 목록·취소는 초안이다.
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/reservations/{reservationId} | 본인 USER 또는 MASTER | 200 | 없음 | Reservation | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
-| POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
+| POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
 | POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION |
 | GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC | PageC<ReservationSummary>(항목 필드 미정) | 구현 전 |
 | POST /api/reservations/{reservationId}/cancel | 본인 USER | 200 | reason?:string | Reservation(CANCELING/CANCELED) | 취소 정책/세부 오류 미정; 구현 전 |
 
-- Reservation 현행 DTO = `{reservationId:long,scheduleId:long,seatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,paymentAmount:long|null}`.
-- checkout 현행 DTO는 `couponId`, `paymentWindowUrl`, 선택 pgProvider. 합의 목표는 위 표의 `userCouponId`, `checkoutUrl`, 필수 pgProvider. 응답 좌석명 목표는 `scheduleSeatIds`(MVP 길이 1). 현재 미연동 포트는 503이며 문서 개정만으로 구현된 것으로 보지 않는다.
+- Reservation = `{reservationId:long,scheduleId:long,scheduleSeatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,paymentAmount:long|null}`.
 
 - 공통: checkout·confirm·cancel도 없는 예매면 404 RESERVATION_NOT_FOUND, 본인 예매가 아니면 403 FORBIDDEN이다. (원본 복원: reservation/api.md:42-43, 담당 확인 필요)
 - 공통: 지금 상태에서 할 수 없는 요청은 409 INVALID_STATUS_TRANSITION이다. (원본 복원: reservation/api.md:44, reservation/orchestration.md:353, 담당 확인 필요)
