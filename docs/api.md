@@ -428,7 +428,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 쿠폰 — reservation-service / coupon
 
-상태: 생성·수정·발급 중단·삭제는 구현됨. 목록·상세 조회, 발급, 내 쿠폰 조회는 초안(구현 전). 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
+상태: 생성·수정·발급 중단·삭제·발급은 구현됨. 목록·상세 조회, 내 쿠폰 조회는 초안(구현 전). 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
 
 로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:형식 미정}`. page=0,size=10(10/30/50).
 
@@ -449,6 +449,9 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - UserCoupon = `{userCouponId:long,couponId:long,name:string,discountAmount:int,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
 - 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=issuedQuantity). 삭제는 issuedQuantity=0일 때만. 발급은 1인 1장.
 - 발급이 끝난(ENDED) 쿠폰의 issueEndAt은 바꿀 수 없고 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리기 때문이다. 다시 발급하려면 새 쿠폰을 만든다.
+- 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
+- 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
+- 발급 기간은 요청 시각으로 판단한다. 관리자가 발급을 중단하는 동안 먼저 도착해 기다리던 요청은 중단 뒤에도 발급될 수 있다.
 
 - 모든 쿠폰 API는 토큰이 없거나 유효하지 않으면 401 UNAUTHORIZED다. (원본 복원: coupon/api.md:90,125,145,178,202,219,246,283, 담당 확인 필요)
 - MASTER 전용 API(생성·수정·발급 중단·삭제)는 MASTER가 아니면 403 FORBIDDEN이다. (원본 복원: coupon/api.md:91,126,146,179, 담당 확인 필요)
