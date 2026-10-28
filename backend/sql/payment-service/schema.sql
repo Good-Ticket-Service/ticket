@@ -25,7 +25,12 @@ CREATE TABLE p_payments
     confirm_requested_at TIMESTAMP,
     approve_requested_at TIMESTAMP,
     approved_at          TIMESTAMP,
-    reconciled_at        TIMESTAMP,
+    failed_at            TIMESTAMP,
+    reconcile_count      INT          NOT NULL DEFAULT 0,
+    next_reconcile_at    TIMESTAMP,
+    reconcile_checkpoints_minutes VARCHAR(1024),
+    reconcile_retry_count INT NOT NULL DEFAULT 0,
+    reconcile_unknown_since TIMESTAMP,
     next_attempt_at      TIMESTAMP,
     recovery_started_at  TIMESTAMP,
     recovery_attempts    INT          NOT NULL DEFAULT 0,
@@ -40,6 +45,16 @@ CREATE TABLE p_payments
     CONSTRAINT uk_p_payments_order_id UNIQUE (order_id),
     -- 토스 paymentKey·카카오 tid는 한 결제에만 쓰인다. 재사용·조작된 인증값을 DB가 한 번 더 막는다
     CONSTRAINT uk_p_payments_pg_transaction UNIQUE (pg_provider, pg_transaction_id),
+    CONSTRAINT ck_p_payments_reconcile_count CHECK (reconcile_count >= 0 AND
+        ((reconcile_checkpoints_minutes IS NULL AND reconcile_count = 0) OR
+         (reconcile_checkpoints_minutes IS NOT NULL AND reconcile_count <= cardinality(string_to_array(reconcile_checkpoints_minutes, ','))))),
+    CONSTRAINT ck_p_payments_reconcile_state CHECK (next_reconcile_at IS NULL OR
+        (status = 'FAILED' AND approve_requested_at IS NOT NULL AND failed_at IS NOT NULL
+            AND reconcile_checkpoints_minutes IS NOT NULL
+            AND reconcile_count < cardinality(string_to_array(reconcile_checkpoints_minutes, ',')))),
+    CONSTRAINT ck_p_payments_reconcile_retry CHECK (reconcile_retry_count >= 0 AND
+        ((reconcile_retry_count = 0 AND reconcile_unknown_since IS NULL) OR
+         (reconcile_retry_count > 0 AND reconcile_unknown_since IS NOT NULL))),
     CONSTRAINT ck_p_payments_status CHECK (status IN ('READY', 'IN_PROGRESS', 'DONE', 'FAILED', 'CANCELED')),
     CONSTRAINT ck_p_payments_pg_provider CHECK (pg_provider IN ('TOSS', 'KAKAO')),
     CONSTRAINT ck_p_payments_amount CHECK (
@@ -63,8 +78,8 @@ CREATE INDEX ix_p_payments_in_progress_next_attempt
 
 -- 최소 대사: PG 승인을 불렀는데 FAILED로 끝나 아직 확인하지 않은 결제
 CREATE INDEX ix_p_payments_reconcile
-    ON p_payments (updated_at)
-    WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND reconciled_at IS NULL;
+    ON p_payments (next_reconcile_at, id)
+    WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND next_reconcile_at IS NOT NULL;
 
 CREATE TABLE p_refunds
 (

@@ -96,7 +96,21 @@ public class Payment extends BaseEntity {
 
     private LocalDateTime approvedAt;
 
-    private LocalDateTime reconciledAt;
+    /** 최초 실패 확정 시각. 후속 조회·환불 반영으로 변경하지 않는다. */
+    private LocalDateTime failedAt;
+
+    @Column(nullable = false)
+    private int reconcileCount;
+
+    private LocalDateTime nextReconcileAt;
+
+    @Column(length = 1024)
+    private String reconcileCheckpointsMinutes;
+
+    @Column(nullable = false)
+    private int reconcileRetryCount;
+
+    private LocalDateTime reconcileUnknownSince;
 
     /** 바깥에 그대로 내주지 않는다. 바꾸는 일은 상태를 함께 검사하는 이 클래스의 메서드로만 한다. */
     @Getter(AccessLevel.NONE)
@@ -294,16 +308,49 @@ public class Payment extends BaseEntity {
         return approveRequestedAt != null && !now.isBefore(approveRequestedAt.plus(grace));
     }
 
-    /** 최소 대사 대상: PG 승인을 실제로 불렀는데 FAILED로 끝났고 아직 확인하지 않은 결제. */
-    public boolean needsReconciliation() {
-        return status == PaymentStatus.FAILED && approveRequestedAt != null && reconciledAt == null;
+    /** 실패 전이와 같은 트랜잭션에서 최초 기준과 첫 체크포인트를 저장한다. */
+    public void recordFailure(LocalDateTime now, ReconcileSchedule schedule) {
+        require(PaymentStatus.FAILED);
+        if (failedAt == null) {
+            failedAt = toDbPrecision(now);
+            if (approveRequestedAt != null) {
+                reconcileCheckpointsMinutes = schedule.encode();
+                nextReconcileAt = failedAt.plus(schedule.checkpoint(0));
+            }
+        }
     }
 
-    public void markReconciled(LocalDateTime now) {
+    public boolean needsReconciliation() {
+        return status == PaymentStatus.FAILED && approveRequestedAt != null && nextReconcileAt != null;
+    }
+
+    public void claimReconciliation(LocalDateTime until) {
         if (!needsReconciliation()) {
             throw invalidTransition();
         }
-        this.reconciledAt = now;
+        nextReconcileAt = toDbPrecision(until);
+    }
+
+    /** 조회 불명 횟수·최초 시각을 재점유와 별개로 영속 보존한다. */
+    public void deferReconciliation(LocalDateTime now, LocalDateTime until) {
+        if (!needsReconciliation()) throw invalidTransition();
+        if (reconcileRetryCount < Integer.MAX_VALUE) reconcileRetryCount++;
+        if (reconcileUnknownSince == null) reconcileUnknownSince = toDbPrecision(now);
+        nextReconcileAt = toDbPrecision(until);
+    }
+
+    /** 확인된 조회 한 번에 현재 단계만 완료한다. 다음 일정은 최초 실패 시각 기준이다. */
+    public void advanceReconciliation() {
+        if (!needsReconciliation()) {
+            throw invalidTransition();
+        }
+        ReconcileSchedule schedule = ReconcileSchedule.decode(reconcileCheckpointsMinutes);
+        if (reconcileCount >= schedule.minutes().size()) throw invalidTransition();
+        reconcileCount++;
+        nextReconcileAt =
+                reconcileCount == schedule.minutes().size() ? null : failedAt.plus(schedule.checkpoint(reconcileCount));
+        reconcileRetryCount = 0;
+        reconcileUnknownSince = null;
     }
 
     /** failure_message는 VARCHAR(255)다. PG 오류 설명이 길어도 실패 확정이 저장 오류로 롤백되지 않게 자른다. */

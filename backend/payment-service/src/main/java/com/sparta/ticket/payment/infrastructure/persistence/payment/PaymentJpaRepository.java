@@ -73,4 +73,27 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
                     + " AND next_attempt_at <= :now AND deleted_at IS NULL) candidates",
             nativeQuery = true)
     LocalDateTime oldestDueRecovery(@Param("now") LocalDateTime now);
+
+    @Override
+    @Query(
+            value = "SELECT * FROM p_payments WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL"
+                    + " AND next_reconcile_at <= :now AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
+                    + " ORDER BY next_reconcile_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+            nativeQuery = true)
+    List<Payment> lockNextReconcile(
+            @Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
+
+    @Override
+    @Query(
+            value = "SELECT min(next_reconcile_at) FROM p_payments WHERE status = 'FAILED'"
+                    + " AND approve_requested_at IS NOT NULL AND next_reconcile_at <= :now AND deleted_at IS NULL",
+            nativeQuery = true)
+    LocalDateTime oldestDueReconcile(@Param("now") LocalDateTime now);
+
+    @Override
+    @Query(
+            value = "SELECT min(reconcile_unknown_since) FROM p_payments WHERE status = 'FAILED'"
+                    + " AND next_reconcile_at IS NOT NULL AND deleted_at IS NULL",
+            nativeQuery = true)
+    LocalDateTime oldestUnknownReconcile();
 }
