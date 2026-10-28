@@ -20,20 +20,28 @@ public class ReservationTransitionExecutor {
 
     private final SeatPort seatPort;
 
-    /** 전이가 반영됐으면 true. 조건부 UPDATE가 0행이면 좌석을 건드리지 않고 false. */
+    /**
+     * 전이가 반영됐으면 true. 조건부 UPDATE가 0행이면 좌석을 건드리지 않고 false.
+     * 판매 전이는 잠근 좌석이 모두 이 예약의 HOLD일 때만 예약을 바꾼다. 아니면 예약도 좌석도 바꾸지 않고 false다.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean execute(
             ReservationTransition transition, Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
         if (transition.seatEffect() != SeatEffect.NONE) {
-            seatPort.lockSeats(seatIds);
+            boolean heldByThis = seatPort.lockSeats(seatIds, reservationId);
+            if (transition.seatEffect() == SeatEffect.SELL && !heldByThis) {
+                // Note: 좌석이 이 예약의 HOLD가 아니면 확정할 수 없으므로 예약도 좌석도 바꾸지 않는다. 같은 성공이 두 번 와서
+                // 앞선 반영이 이미 SOLD로 바꾼 경우도 여기로 오므로, 문제인지는 예약을 다시 읽은 호출한 쪽이 가린다.
+                return false;
+            }
         }
         if (conditionalUpdate.getAsInt() == 0) {
             return false;
         }
         Runnable seatChange = switch (transition.seatEffect()) {
             case NONE -> () -> {};
-            case SELL -> () -> seatPort.sell(reservationId, seatIds);
-            case RELEASE -> () -> seatPort.release(reservationId, seatIds);
+            case SELL -> () -> seatPort.sell(seatIds, reservationId);
+            case RELEASE -> () -> seatPort.release(seatIds, reservationId);
         };
         seatChange.run();
         return true;

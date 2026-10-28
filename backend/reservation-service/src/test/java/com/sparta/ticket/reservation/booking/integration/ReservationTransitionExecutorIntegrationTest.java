@@ -63,6 +63,16 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
     }
 
     @Test
+    @DisplayName("판매 전이는 좌석이 이 예약의 선점이 아니면 예약도 좌석도 바꾸지 않는다")
+    void doesNotSellSeatsHeldByOthers() {
+        seats.notHeld(seatIds.get(0));
+
+        assertThat(execute(ReservationTransition.CONFIRM, 1)).isFalse();
+
+        assertThat(seats.events).containsExactly("lock");
+    }
+
+    @Test
     @DisplayName("좌석을 바꾸지 않는 전이는 좌석을 잠그지 않는다")
     void skipsSeatLockWithoutSeatEffect() {
         assertThat(execute(ReservationTransition.START_PAYMENT, 1)).isTrue();
