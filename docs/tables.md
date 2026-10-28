@@ -85,6 +85,30 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
 - `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
 
+### p_user_coupons — reservation-service/coupon.sql + A
+
+| 필드 | 타입 | 제약·설명 |
+|---|---|---|
+| user_coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 회원 쿠폰 ID. 예매 checkout에 넣는 값 |
+| user_id | BIGINT | UK①; NOT NULL; 발급받은 회원. user_schema에 있어 FK 없음 |
+| coupon_id | BIGINT | FK, UK①; NOT NULL; 쿠폰 정의 (p_coupons.coupon_id) |
+| discount_amount | INT | NOT NULL; 발급 시점 할인액 복사본 |
+| status | VARCHAR(20) | NOT NULL; AVAILABLE / RESERVED / USED / EXPIRED |
+| issued_at | TIMESTAMP | NOT NULL; 발급 시각. 공용 Clock(Asia/Seoul) 기준이며 응답의 issuedAt이다. created_at은 시스템 시계라 쓰지 않는다 |
+| expires_at | TIMESTAMP | NOT NULL; 만료 시각 = issued_at + valid_days |
+| reservation_id | BIGINT | UK②; NULL 허용; 쿠폰을 잡은 예매. 모듈 소유자가 달라 FK 없음 |
+| used_at | TIMESTAMP | NULL 허용; 사용 확정 시각 |
+
+제약·인덱스:
+
+- `uk_p_user_coupons_user_coupon ; UNIQUE ① ; (user_id, coupon_id)`
+- `uk_p_user_coupons_reservation ; 부분 UNIQUE ② ; (reservation_id) WHERE reservation_id IS NOT NULL`
+- `ck_p_user_coupons_discount ; CHECK ; discount_amount > 0`
+- `ck_p_user_coupons_status ; CHECK ; status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED')`
+- `ck_p_user_coupons_reservation ; CHECK ; (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL)`
+- `ck_p_user_coupons_used ; CHECK ; (status = 'USED') = (used_at IS NOT NULL)`
+- `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
+
 ### p_schedule_seats — reservation-service/seat.sql + A
 
 | 필드 | 타입 | 제약·설명 |
@@ -355,29 +379,6 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 | performance_id | BIGINT | FK → p_performances.id, NOT NULL; 제외 정책이 적용될 공연. |
 | venue_seat_id | BIGINT | FK → p_venue_seats.id, NOT NULL; 반드시 해당 공연장의 좌석이어야 한다. |
 | exclusion_reason | VARCHAR(255) | NOT NULL, 빈 문자열 불가; 예: 운영석, 시야 제한석.; 관리용이며 공개 응답에 내부 사유를 노출하지 않는다. |
-
-### p_user_coupons — 설계 + A
-
-| 필드 | 타입 | 제약·설명 |
-|---|---|---|
-| user_coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 회원 쿠폰 ID. 예매 checkout에 넣는 값 |
-| user_id | BIGINT | UK①; NOT NULL; 발급받은 회원. user_schema에 있어 FK 없음 |
-| coupon_id | BIGINT | FK, UK①; NOT NULL; 쿠폰 정의 (p_coupons.coupon_id) |
-| discount_amount | INT | NOT NULL; 발급 시점 할인액 복사본 |
-| status | VARCHAR(20) | NOT NULL; AVAILABLE / RESERVED / USED / EXPIRED |
-| expires_at | TIMESTAMP | NOT NULL; 만료 시각 = 발급 시각 + valid_days |
-| reservation_id | BIGINT | UK②; NULL 허용; 쿠폰을 잡은 예매. 모듈 소유자가 달라 FK 없음 |
-| used_at | TIMESTAMP | NULL 허용; 사용 확정 시각 |
-
-제약·인덱스:
-
-- `uk_p_user_coupons_user_coupon ; UNIQUE ① ; (user_id, coupon_id)`
-- `uk_p_user_coupons_reservation ; 부분 UNIQUE ② ; (reservation_id) WHERE reservation_id IS NOT NULL`
-- `ck_p_user_coupons_discount ; CHECK ; discount_amount > 0`
-- `ck_p_user_coupons_status ; CHECK ; status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED')`
-- `ck_p_user_coupons_reservation ; CHECK ; (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL)`
-- `ck_p_user_coupons_used ; CHECK ; (status = 'USED') = (used_at IS NOT NULL)`
-- `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
 
 ### 공연 테이블의 관계·계산 제약 복원
 
