@@ -3,6 +3,7 @@ package com.sparta.ticket.gateway.security;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.web.reactive.function.server.RequestPredicates.path;
 
@@ -66,6 +67,111 @@ class GatewaySecurityTest {
 
     @MockitoBean
     private UserLookup userLookup;
+
+    @MockitoBean
+    private UserServiceClient userServiceClient;
+
+    @Test
+    @DisplayName("결제 관리자 요청은 매번 원본 사용자를 확인하고 검증된 헤더를 주입한다")
+    void adminBypassesCache() throws Exception {
+        given(userServiceClient.fetch(USER_ID))
+                .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "master@ticket.com", "MASTER"))));
+        for (int i = 0; i < 2; i++) {
+            client.get()
+                    .uri("/api/admin/payments/refunds")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                    .header(UserHeaders.USER_ID, "999")
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody()
+                    .jsonPath("$['X-User-Id']")
+                    .isEqualTo("1")
+                    .jsonPath("$['X-User-Role']")
+                    .isEqualTo("MASTER");
+        }
+        verify(userServiceClient, times(2)).fetch(USER_ID);
+        verify(userLookup, never()).find(any());
+    }
+
+    @Test
+    @DisplayName("결제 관리자 경로는 USER와 SELLER를 403으로 거절한다")
+    void adminRejectsNonMaster() throws Exception {
+        for (String role : new String[] {"USER", "SELLER"}) {
+            given(userServiceClient.fetch(USER_ID))
+                    .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "user@ticket.com", role))));
+            client.post()
+                    .uri("/api/admin/payments/order/refund/retry")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken(role))
+                    .header(UserHeaders.ROLE, "MASTER")
+                    .exchange()
+                    .expectStatus()
+                    .isForbidden()
+                    .expectBody()
+                    .jsonPath("$.code")
+                    .isEqualTo("FORBIDDEN");
+        }
+    }
+
+    @Test
+    @DisplayName("일반 경로에 MASTER 캐시가 있어도 비활성 사용자는 관리자 명령을 실행하지 못한다")
+    void adminDoesNotUseStaleMaster() throws Exception {
+        given(userLookup.find(USER_ID))
+                .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "master@ticket.com", "MASTER"))));
+        client.get()
+                .uri("/api/users/me")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                .exchange()
+                .expectStatus()
+                .isOk();
+        given(userServiceClient.fetch(USER_ID)).willReturn(Mono.just(Optional.empty()));
+        client.post()
+                .uri("/api/admin/payments/order/refund/resume")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+        verify(userLookup, times(1)).find(USER_ID);
+    }
+
+    @Test
+    @DisplayName("사용자 조회 장애 시 캐시로 관리자 권한을 대체하지 않고 503으로 거절한다")
+    void adminLookupUnavailable() throws Exception {
+        given(userServiceClient.fetch(USER_ID)).willReturn(Mono.error(new IllegalStateException("down")));
+        client.post()
+                .uri("/api/admin/payments/order/refund/retry")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(503)
+                .expectBody()
+                .jsonPath("$.code")
+                .isEqualTo("SERVICE_UNAVAILABLE");
+        verify(userLookup, never()).find(any());
+    }
+
+    @Test
+    void adminRequiresSignedToken() throws Exception {
+        client.get()
+                .uri("/api/admin/payments/refunds")
+                .header(UserHeaders.ROLE, "MASTER")
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+        client.get()
+                .uri("/api/admin/payments/refunds")
+                .header(
+                        HttpHeaders.AUTHORIZATION,
+                        "Bearer "
+                                + token(
+                                        "attacker-secret-key-0123456789abcdefghij",
+                                        "MASTER",
+                                        Instant.now().plusSeconds(3600)))
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+        verify(userServiceClient, never()).fetch(any());
+    }
 
     @TestConfiguration
     static class EchoConfig {

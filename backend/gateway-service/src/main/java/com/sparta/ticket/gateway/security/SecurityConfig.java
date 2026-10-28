@@ -8,6 +8,7 @@ import java.util.Objects;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -37,32 +38,50 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
+    /** 결제 운영은 매 요청 현재 사용자를 조회한다. 일반 요청의 60초 캐시를 사용하지 않는다. */
+    @Bean
+    @Order(0)
+    public SecurityWebFilterChain paymentAdminSecurityWebFilterChain(
+            ServerHttpSecurity http, UserServiceClient users, ErrorResponseWriter errorWriter) {
+        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers("/api/admin/payments", "/api/admin/payments/**"))
+                .authorizeExchange(exchanges -> exchanges.anyExchange().hasRole("MASTER"));
+        return authenticatedChain(http, users::fetch, errorWriter);
+    }
+
     /**
      * Note: Gateway는 토큰만 보는 무상태 API 서버라서 세션, CSRF, 폼 로그인, Basic 인증을 모두 끈다.
      * 화이트리스트는 permitAll이 아니라 securityMatcher에서 아예 제외한다. permitAll이면 만료된 토큰을 붙인 로그인 요청도
      * 토큰 검증에 걸려 401이 되기 때문이다.
      */
     @Bean
+    @Order(1)
     public SecurityWebFilterChain securityWebFilterChain(
             ServerHttpSecurity http,
             AuthProperties properties,
             UserLookup userLookup,
             ErrorResponseWriter errorWriter) {
-        JsonAuthenticationEntryPoint entryPoint = new JsonAuthenticationEntryPoint(errorWriter);
-        return http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
+        http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
                         properties.whitelist().toArray(String[]::new))))
-                .csrf(CsrfSpec::disable)
+                .authorizeExchange(exchanges -> exchanges.anyExchange().authenticated());
+        return authenticatedChain(http, userLookup, errorWriter);
+    }
+
+    private SecurityWebFilterChain authenticatedChain(
+            ServerHttpSecurity http, UserLookup userLookup, ErrorResponseWriter errorWriter) {
+        JsonAuthenticationEntryPoint entryPoint = new JsonAuthenticationEntryPoint(errorWriter);
+        return http.csrf(CsrfSpec::disable)
                 .formLogin(FormLoginSpec::disable)
                 .httpBasic(HttpBasicSpec::disable)
                 .logout(LogoutSpec::disable)
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
-                .authorizeExchange(exchanges -> exchanges.anyExchange().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(
                                 jwt -> jwt.jwtAuthenticationConverter(new UserVerifyingJwtConverter(userLookup)))
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(
                                 (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
-                .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint))
+                .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(
+                                (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
                 .addFilterAfter(new UserHeaderInjectionFilter(), SecurityWebFiltersOrder.AUTHORIZATION)
                 .build();
     }
