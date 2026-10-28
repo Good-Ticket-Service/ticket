@@ -31,6 +31,17 @@ public class PgClientFixture {
     private volatile Function<PgClient.PgApproveRequest, PgResult> approveResponse;
     private volatile boolean approvalAllowed = true;
     private volatile Function<PgClient.PgInquireRequest, PgInquiry> inquiryResponse;
+    private volatile Function<PgClient.PgCancelRequest, PgResult> cancelResponse;
+    private final AtomicInteger cancelCalls = new AtomicInteger();
+
+    public void cancelReturns(Function<PgClient.PgCancelRequest, PgResult> response) {
+        cancelResponse = response;
+    }
+
+    public int cancelCalls() {
+        return cancelCalls.get();
+    }
+
     private final AtomicInteger inquiryCalls = new AtomicInteger();
 
     public synchronized void reset() {
@@ -43,6 +54,8 @@ public class PgClientFixture {
         approvalAllowed = true;
         inquiryResponse = null;
         inquiryCalls.set(0);
+        cancelResponse = null;
+        cancelCalls.set(0);
     }
 
     public void inquireReturns(Function<PgClient.PgInquireRequest, PgInquiry> response) {
@@ -128,7 +141,10 @@ public class PgClientFixture {
 
         @Override
         public PgResult cancel(PgCancelRequest request) {
-            throw new UnsupportedOperationException("Task 10에서 쓴다");
+            cancelCalls.incrementAndGet();
+            return cancelResponse == null
+                    ? new PgResult.Approved("cancel-" + request.orderId(), request.amount(), LocalDateTime.now())
+                    : cancelResponse.apply(request);
         }
     };
 
