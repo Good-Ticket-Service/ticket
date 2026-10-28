@@ -10,8 +10,8 @@ import org.springframework.test.context.TestPropertySource;
  * reservation-service 통합 테스트의 공통 부모. booking·seat·coupon 등 모든 모듈의 통합 테스트가 이 클래스를 상속해 같은 설정을 쓴다.
  * 모듈이 DDL 파일을 더하면 아래 schema-locations에 한 줄 추가한다. 모듈 테스트가 따로 @Import나 @TestPropertySource를 붙이지 않는다.
  *
- * 스키마는 seat와 함께 쓰는 schema.sql 다음에 booking이 소유한 booking.sql을 실행해 만든다(booking-decisions.md B27).
- * PostgresIntegrationTest는 schema.sql 하나만 실행하므로 여기서 두 파일로 바꾼다. @TestPropertySource 값이 @SpringBootTest의 properties보다 우선한다.
+ * 스키마는 모듈이 함께 쓰는 schema.sql 다음에 booking이 소유한 booking.sql, seat가 소유한 seat.sql을 실행해 만든다
+ * (docs/architecture.md 13절의 #57 합의, docs/tables.md). PostgresIntegrationTest는 schema.sql 하나만 실행하므로 여기서 바꾼다. @TestPropertySource 값이 @SpringBootTest의 properties보다 우선한다.
  *
  * Note: PostgresIntegrationTest는 컨테이너를 하나만 띄워 공유하지만, 스키마 스크립트는 Spring 컨텍스트가 뜰 때마다 실행된다.
  * 테스트 클래스마다 @Import나 @TestPropertySource가 다르면 컨텍스트가 따로 떠서 두 번째 CREATE TABLE이 "이미 있음"으로 실패한다.
@@ -24,7 +24,8 @@ import org.springframework.test.context.TestPropertySource;
 @TestPropertySource(
         properties = {
             "spring.sql.init.schema-locations="
-                    + "file:../sql/reservation-service/schema.sql,file:../sql/reservation-service/booking.sql",
+                    + "file:../sql/reservation-service/schema.sql,file:../sql/reservation-service/booking.sql,"
+                    + "file:../sql/reservation-service/seat.sql",
             "reservation.booking.scheduler.enabled=false",
             "spring.jpa.open-in-view=false"
         })
