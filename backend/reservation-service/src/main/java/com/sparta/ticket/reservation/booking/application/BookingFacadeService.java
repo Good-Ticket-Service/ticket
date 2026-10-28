@@ -76,10 +76,14 @@ public class BookingFacadeService implements BookingFacade {
         }
         // Note: 시간이 지났는데 만료 스케줄러가 아직 돌지 않은 선점이다. 사용자에게는 어느 쪽이든 좌석이 풀린 것이므로
         // 오류 대신 EXPIRED로 정리한다. 시간 초과와 사용자 해제를 따로 세려고 RELEASED로 바꾸지 않는다.
-        if (reservationRepository.expireHold(reservationId, stamp) == 1) {
-            metrics.expiredHold();
+        if (expireHold(reservationId, stamp)) {
             return ReleaseResult.EXPIRED;
         }
+        return closedOrNotReleasable(reservationId);
+    }
+
+    /** 해제도 만료도 0행이었을 때, 다시 읽은 지금 상태로 이미 끝난 선점인지 해제할 수 없는 예약인지 가른다. */
+    private ReleaseResult closedOrNotReleasable(Long reservationId) {
         ReservationStatus status =
                 reservationRepository.reload(reservationId).orElseThrow().getStatus();
         if (status == ReservationStatus.RELEASED || status == ReservationStatus.EXPIRED) {
@@ -109,7 +113,12 @@ public class BookingFacadeService implements BookingFacade {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean expireIfDue(Long reservationId) {
-        if (reservationRepository.expireHold(reservationId, changeStamps.stamp()) == 1) {
+        return expireHold(reservationId, changeStamps.stamp());
+    }
+
+    /** HOLD → EXPIRED가 1행일 때만 만료로 센다. 해제 경로와 seat 정리 경로가 같은 기준으로 세게 한 곳에 둔다. */
+    private boolean expireHold(Long reservationId, ChangeStamp stamp) {
+        if (reservationRepository.expireHold(reservationId, stamp) == 1) {
             metrics.expiredHold();
             return true;
         }
