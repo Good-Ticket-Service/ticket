@@ -23,7 +23,7 @@ spring:
             - id: reservation-service
               uri: lb://reservation-service
               predicates:
-                - Path=/api/reservations/**, /api/coupons/**
+                - Path=/api/reservations/**, /api/coupons/**, /api/seats/**
             - id: payment-service
               uri: lb://payment-service
               predicates:
@@ -65,6 +65,8 @@ auth:
     - /api/auth/login
     # 공개 공연 조회(목록·상세·회차·좌석 배치). 모두 GET이고, 공연 쓰기 API는 /api/seller/**·/api/admin/** 에 있다
     - /api/performances/**
+    # 공개 잔여석 조회(GET만 있음). 좌석 조회·선점은 인증이 필요하므로 /api/seats/** 전체를 넣지 않는다
+    - /api/seats/schedules/*/remaining
     - /swagger-ui.html
     - /swagger-ui/**
     - /webjars/**
