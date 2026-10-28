@@ -23,6 +23,11 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
 
+    /** 회차별 조회는 ix_p_schedule_seats_selectable(schedule_id, is_sellable, status)의 앞 컬럼을 탄다. */
+    @Override
+    @Query("SELECT s FROM ScheduleSeat s WHERE s.scheduleId = :scheduleId ORDER BY s.id")
+    List<ScheduleSeat> findAllBySchedule(@Param("scheduleId") Long scheduleId);
+
     /**
      * Note: reservation_id 조건이 있어 이미 다른 예약에 넘어간 좌석은 바뀌지 않는다. 늦게 도착한 결제 결과가 새 선점을 SOLD로 만들지 못한다.
      * 조건부 UPDATE는 JPA 감사를 거치지 않으므로 updated_at·updated_by를 쿼리가 채운다. 아직 쓰지 않은 변경이 UPDATE보다 늦게
