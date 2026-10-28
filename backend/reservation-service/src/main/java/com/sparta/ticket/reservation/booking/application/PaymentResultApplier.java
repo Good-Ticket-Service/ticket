@@ -43,27 +43,46 @@ public class PaymentResultApplier {
 
     /** 지금 시도의 결제 중 예약일 때만 좌석을 잠그고 확정한다. 그 밖의 성공은 좌석을 건드리지 않고 가린다. */
     private boolean applySuccess(Reservation reservation, String orderId, ChangeStamp stamp) {
-        Long id = reservation.getId();
-        Reservation current = reservation;
-        if (isCurrentPayment(reservation, orderId)) {
-            if (transitionExecutor.execute(
-                    ReservationTransition.CONFIRM,
-                    id,
-                    reservation.getSeatIds(),
-                    () -> reservationRepository.confirm(id, orderId, stamp))) {
-                reservation.issueTicketCodes();
-                return true;
-            }
-            current = reservationRepository.reload(id).orElseThrow();
-        }
-        if (current.isAttempt(orderId) && current.getStatus() == ReservationStatus.CONFIRMED) {
+        if (!isCurrentPayment(reservation, orderId)) {
+            recordUnconfirmedSuccess(reservation, orderId, stamp);
             return false;
+        }
+        if (tryConfirm(reservation, orderId, stamp)) {
+            return true;
+        }
+        recordUnconfirmedSuccess(
+                reservationRepository.reload(reservation.getId()).orElseThrow(), orderId, stamp);
+        return false;
+    }
+
+    /** 좌석을 잠그고 확정한다. 확정됐을 때만 티켓 코드를 발급하고 true. */
+    private boolean tryConfirm(Reservation reservation, String orderId, ChangeStamp stamp) {
+        Long id = reservation.getId();
+        if (transitionExecutor.execute(
+                ReservationTransition.CONFIRM,
+                id,
+                reservation.getSeatIds(),
+                () -> reservationRepository.confirm(id, orderId, stamp))) {
+            reservation.issueTicketCodes();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 확정하지 않은 성공을 지금 상태로 가린다. 같은 시도로 이미 확정됐으면 같은 성공이 다시 온 것이라 무시하고,
+     * 그 밖에는 자동 환불 대상으로 센다.
+     */
+    private void recordUnconfirmedSuccess(Reservation current, String orderId, ChangeStamp stamp) {
+        Long id = current.getId();
+        if (current.isAttempt(orderId) && current.getStatus() == ReservationStatus.CONFIRMED) {
+            return;
         }
         // Note: 확정하지 못한 지금 시도는 결제 중으로 남아 결과 확인이 같은 성공을 계속 다시 받는다.
         // 처음 한 번만 환불 대상으로 세야 환불할 결제 수가 부풀지 않는다.
         if (isCurrentPayment(current, orderId)
                 && reservationRepository.markRefundRequired(id, orderId, stamp.at()) == 0) {
-            return false;
+            return;
         }
         metrics.lateSuccess();
         log.warn(
@@ -72,7 +91,6 @@ public class PaymentResultApplier {
                 orderId,
                 current.getStatus(),
                 current.getOrderId());
-        return false;
     }
 
     /** 같은 실패가 다시 왔거나 지난 시도의 실패면 아무것도 바꾸지 않는다. */
