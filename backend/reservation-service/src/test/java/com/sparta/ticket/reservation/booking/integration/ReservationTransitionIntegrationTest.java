@@ -260,6 +260,48 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("선점 해제와 결제 시작이 동시에 와도 한쪽만 성공하고, 상태는 이긴 쪽을 따른다")
+    void releaseAndPaymentStartRace() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 20; round++) {
+                Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
+                String orderId = "order-race-" + round;
+                inTransaction(() -> reservationRepository.recordCheckout(
+                        reservationId, userId, null, orderId, 10_000L, changeStamps.stamp()));
+                CyclicBarrier bothInTransaction = new CyclicBarrier(2);
+
+                Future<ReleaseResult> released = executor.submit(() -> transactionTemplate.execute(status -> {
+                    await(bothInTransaction);
+                    return bookingFacade.release(userId, reservationId);
+                }));
+                Future<Integer> started = executor.submit(() -> inTransaction(() -> {
+                    await(bothInTransaction);
+                    return reservationRepository.startPayment(
+                            reservationId, userId, orderId, "pg-token", changeStamps.stamp());
+                }));
+
+                boolean releaseWon = released.get(5, TimeUnit.SECONDS) == ReleaseResult.RELEASED;
+                boolean paymentWon = started.get(5, TimeUnit.SECONDS) == 1;
+                assertThat(releaseWon ^ paymentWon)
+                        .as("round %d: 해제 %s, 결제 시작 %s", round, releaseWon, paymentWon)
+                        .isTrue();
+                assertThat(statusOf(reservationId)).isEqualTo(releaseWon ? "RELEASED" : "PAYMENT_IN_PROGRESS");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
     @DisplayName("조건부 UPDATE가 updated_at을 주입한 시각으로, 요청 밖에서는 updated_by를 SYSTEM으로 남긴다")
     void auditColumns() {
         Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
