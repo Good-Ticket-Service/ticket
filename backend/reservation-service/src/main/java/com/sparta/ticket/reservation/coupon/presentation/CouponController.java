@@ -5,8 +5,10 @@ import com.sparta.ticket.common.auth.RequireRole;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.reservation.coupon.application.CouponIssueService;
 import com.sparta.ticket.reservation.coupon.application.CouponService;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponResult;
+import com.sparta.ticket.reservation.coupon.application.dto.IssuedCouponResult;
 import com.sparta.ticket.reservation.coupon.presentation.dto.CreateCouponRequest;
 import com.sparta.ticket.reservation.coupon.presentation.dto.UpdateCouponRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,7 +26,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 쿠폰 관리자 API. 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 CouponService에 넘긴다.
+ * 쿠폰 API. 관리자의 생성·수정·발급 중단·삭제와 회원의 발급을 받는다.
+ * 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 관리자 기능은 CouponService, 발급은 CouponIssueService에 넘긴다.
  * Gateway가 /api/coupons/**를 reservation-service로 보낸다. 명세는 docs/api.md 쿠폰 절이다.
  */
 @Tag(name = "쿠폰")
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class CouponController {
 
     private final CouponService couponService;
+    private final CouponIssueService couponIssueService;
 
     /** 쿠폰 생성. 201과 만든 쿠폰을 돌려준다. */
     @Operation(summary = "쿠폰 생성")
@@ -68,5 +72,18 @@ public class CouponController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long couponId, @CurrentUser UserContext user) {
         couponService.delete(couponId, user.username());
+    }
+
+    /**
+     * 선착순 쿠폰 발급. 201과 발급한 회원 쿠폰을 돌려준다.
+     * 받는 회원은 요청 본문이 아니라 Gateway가 넘긴 사용자 헤더(@CurrentUser)로 정한다. 다른 회원 이름으로 받을 수 없다.
+     * Note: @RequireRole은 역할이 정확히 같은지만 보므로 MASTER·SELLER도 403이다(docs/api.md 쿠폰 절).
+     */
+    @Operation(summary = "쿠폰 발급", description = "회원 1인당 1장, 발급 기간 안에서 수량이 남았을 때만 받을 수 있다.")
+    @RequireRole(Role.USER)
+    @PostMapping("/{couponId}/issue")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<IssuedCouponResult> issue(@PathVariable Long couponId, @CurrentUser UserContext user) {
+        return ApiResponse.created("쿠폰이 발급되었습니다.", couponIssueService.issue(couponId, user.userId(), user.username()));
     }
 }
