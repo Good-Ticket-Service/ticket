@@ -1,6 +1,8 @@
 package com.sparta.ticket.reservation.booking.application;
 
 import com.sparta.ticket.common.auth.UserContext;
+import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.ReservationTransactions.CheckoutTarget;
 import com.sparta.ticket.reservation.booking.application.ReservationTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
@@ -11,6 +13,8 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
+import com.sparta.ticket.reservation.booking.application.port.ScheduleInfoPort;
+import com.sparta.ticket.reservation.booking.application.port.ScheduleInfoPort.ScheduleInfo;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,17 +32,26 @@ public class ReservationPaymentService {
     private final ReservationTransactions transactions;
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
+    private final ScheduleInfoPort scheduleInfoPort;
 
     /** 결제를 준비한다. 상태는 HOLD 그대로이고, 새 orderId와 결제 금액을 기록한다. */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
+        // TODO(#75): 쿠폰 할인을 연결하면 이 거절을 지우고 CouponUsage에서 받은 할인액을 넘긴다.
+        if (command.userCouponId() != null) {
+            throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE, "쿠폰 적용은 아직 지원하지 않습니다.");
+        }
         CheckoutTarget target = transactions.loadCheckoutTarget(user.userId(), reservationId);
+        ScheduleInfo schedule = scheduleInfoPort.find(target.scheduleId());
         String orderId = UUID.randomUUID().toString();
         PreparedPayment prepared = paymentPort.prepare(new PaymentPrepareRequest(
                 orderId,
                 target.reservationId(),
                 target.userId(),
+                schedule.sellerId(),
+                schedule.performanceId(),
+                target.scheduleId(),
                 target.baseAmount(),
-                command.userCouponId(),
+                0L,
                 command.pgProvider(),
                 target.holdExpiresAt()));
         transactions.recordCheckout(target, orderId, prepared.amount());

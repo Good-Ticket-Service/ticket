@@ -26,6 +26,12 @@ public class BookingTestConfig {
 
     @Bean
     @Primary
+    public FakeScheduleInfoPort fakeScheduleInfoPort() {
+        return new FakeScheduleInfoPort();
+    }
+
+    @Bean
+    @Primary
     public FakePaymentPort fakePaymentPort(DataSource dataSource) throws SQLException {
         FakePaymentPort payment = new FakePaymentPort();
         HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);
