@@ -1,14 +1,14 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.payment;
 
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.CheckoutTarget;
-import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutResult;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
+import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.CheckoutTarget;
+import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;

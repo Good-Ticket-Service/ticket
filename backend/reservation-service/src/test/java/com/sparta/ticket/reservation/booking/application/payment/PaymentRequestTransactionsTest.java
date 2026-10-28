@@ -1,4 +1,4 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -12,8 +12,10 @@ import static org.mockito.Mockito.when;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.common.exception.ErrorCode;
-import com.sparta.ticket.reservation.booking.application.PaymentRequestTransactions.PaymentStart;
+import com.sparta.ticket.reservation.booking.application.ChangeStamps;
+import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
+import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;

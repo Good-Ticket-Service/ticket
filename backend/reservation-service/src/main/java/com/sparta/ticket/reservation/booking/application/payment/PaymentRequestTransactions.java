@@ -1,7 +1,9 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.payment;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.reservation.booking.application.ChangeStamps;
+import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;

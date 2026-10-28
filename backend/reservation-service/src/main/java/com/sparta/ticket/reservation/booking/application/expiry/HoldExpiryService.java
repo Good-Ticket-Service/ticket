@@ -1,5 +1,6 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.expiry;
 
+import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,7 @@ import org.springframework.stereotype.Service;
 public class HoldExpiryService {
 
     private final ReservationRepository reservationRepository;
-    private final HoldExpiryTransaction transaction;
+    private final HoldExpiryTransactions transaction;
     private final ChangeStamps changeStamps;
 
     /** 한 묶음을 처리하고 만료한 건수를 돌려준다. timeBudget을 넘기면 남은 건은 다음 실행에 넘긴다. */

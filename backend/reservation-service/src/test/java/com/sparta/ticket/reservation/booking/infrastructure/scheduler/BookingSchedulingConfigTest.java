@@ -10,8 +10,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
-import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
-import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
+import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

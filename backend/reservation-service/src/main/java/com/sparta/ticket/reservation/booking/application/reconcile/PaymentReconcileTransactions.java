@@ -1,5 +1,6 @@
-package com.sparta.ticket.reservation.booking.application;
+package com.sparta.ticket.reservation.booking.application.reconcile;
 
+import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import java.util.Optional;
