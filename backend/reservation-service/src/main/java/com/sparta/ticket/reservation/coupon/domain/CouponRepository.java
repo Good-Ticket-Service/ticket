@@ -27,4 +27,11 @@ public interface CouponRepository {
      * 삭제와 첫 발급이 동시에 들어와도 둘 중 하나만 성공한다.
      */
     int softDeleteIfNotIssued(Long id, String deletedBy, LocalDateTime deletedAt);
+
+    /**
+     * 선착순 발급. 발급 기간 안이고 수량이 남은 삭제되지 않은 쿠폰만 발급 수량을 1 올린다. 바뀐 행 수(0 또는 1)를 돌려준다.
+     * 조건 확인과 증가가 UPDATE 한 번이라 동시 요청이 몰려도 총 수량을 넘지 않는다. 0행이면 호출자가 쿠폰을 다시 읽어 이유를 가른다.
+     * 발급 기간은 Coupon.issueStatus와 같은 경계다(시작 시각 이상, 종료 시각 미만).
+     */
+    int increaseIssuedQuantity(Long id, LocalDateTime now, String updatedBy);
 }
