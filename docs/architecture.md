@@ -54,7 +54,7 @@ flowchart LR
 | 흐름 | 현재 기준 | 상태 |
 |---|---|---|
 | 클라이언트 → 서비스 | Gateway → Eureka lb 라우팅. 실 라우트 차이는 infra 10절 | 기반 구현됨 |
-| gateway → user | WebClient GET /internal/users/{userId}, 권한 재확인 캐시60초 | 구현됨 |
+| gateway → user | WebClient GET /internal/users/{userId}, 일반 요청 캐시60초. 결제 관리자 요청은 캐시 우회·MASTER 검사 | 일반 인증 구현됨. 관리자 예외는 #88 브랜치 구현 |
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. URI·응답 미합의(#54) | 공연 방향과 좌석 소비안 조율 필요 |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
@@ -265,7 +265,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | Feign timeout | 현행 예매15초와 결제20초 제안의 실행 예산 조율 | 예매·결제 |
 | 조회404·취소 오류 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409; NOT_CANCELLABLE의 HTTP/기간 정책 확정 필요 | 예매·결제 |
 | 금액 타입 | payment_amount 및 원본 discount_amount BIGINT에서 공통 INT 목표로 DDL·DTO 이행 범위·시점 | 예매·결제 |
-| 내부 보안·운영 | 서비스/관리자 인증·감사 주체·이력 스키마·재처리 승인·미완료 경보 합의 | 플랫폼·각 도메인 |
+| 내부 보안·운영 | 결제 관리자 JWT·MASTER·캐시 우회는 #88 브랜치 구현(api/infra 참조). 서비스 인증 전반·직접 접근 통제·공통 감사 주체·미완료 경보는 별도 확인 | 플랫폼·각 도메인 |
 | 추가 API | 티켓 조회/관리자 예매 목록은 현행 계약 없음. 전체 공연 취소 API는 제공하지 않고 회차별 취소 | 예매·공연 |
 | 좌석 준비 통신 | #54 공연 MVP Feign과 좌석 원본 Kafka 차이. URI·응답·timeout·자동 재시도·영구 실패 운영·전환 일정 확정 | 공연·좌석 |
 | 공연 복원 검토 | 등급/좌석 미존재 오류, 공개 정적배치 권한, 취소 목록 포함, 공개검증, salesStatus/period 대상 회차 확인. 공개 wrapper/숫자ID/UNAUTHORIZED는 공통 기준 유지 | 공연·좌석 |

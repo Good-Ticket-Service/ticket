@@ -76,7 +76,7 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 | 시간 | 업무 기준 Asia/Seoul. API 목표 ISO 8601 +09:00. 현행 ErrorResponse·회원·예매 LocalDateTime은 오프셋 없음; 일괄 적용은 미합의(architecture 14절). Fake PG 시각은 해당 호환 계약 |
 | 페이징 | page는0부터. 공연 PageP(items), 예매·쿠폰 PageC(content)는 api의 현행 계약 유지. 공통 Page DTO·size 통일은 미합의(architecture 14절) |
 | 재시도 | Feign IdempotentRetryConfig는 조회/명시된 멱등 API에만 적용. 응답 유실을 성공/실패로 단정하지 않고 같은 업무 키 조회 |
-| 내부 보호 | Gateway는 /internal 접근 차단. 서비스 포트 외부 비노출. 서비스 간/관리자 인증 방식은 미합의(architecture 14절)이며 내부망만으로 운영 권한 보장으로 간주하지 않음 |
+| 내부 보호 | Gateway는 /internal 접근 차단. 서비스 포트 외부 비노출. 서비스 간 인증 방식은 미합의(architecture 14절)이며 내부망만으로 운영 권한 보장으로 간주하지 않음. 결제 관리자 경로의 인증·접근 경계는 api·infra 참조 |
 
 ## 코드·영속성
 
