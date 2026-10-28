@@ -63,7 +63,7 @@ flowchart LR
 | booking → payment 환불 | MVP HTTP 인수. Phase 2 Kafka 명령은 P3 가안 | 접수 확인·토픽 미합의 |
 | payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
 | payment → fake-pg | RestClient + JDK HttpClient HTTP/1.1. 연결2초·읽기10초(D17) | PG 어댑터 구현됨 |
-| 잔여석 조회 | seat가 GET /api/schedules/{scheduleId}/remaining 제공. 공연 카운터 갱신 이벤트는 보류 | 좌석 API 초안 |
+| 잔여석 조회 | seat가 GET /api/seats/schedules/{scheduleId}/remaining 제공. 공연 카운터 갱신 이벤트는 보류 | 좌석 API 초안 |
 | 쿠폰 발급 | POST /api/coupons/{couponId}/issue 동기201 | 구현됨(동기201). Kafka202 전환 미합의 |
 
 - /internal 경로는 Gateway 외부 접근을 차단한다. 내부 API 명세는 api.md에 유지하되 공개 Swagger 노출 여부는 따로 점검한다.
