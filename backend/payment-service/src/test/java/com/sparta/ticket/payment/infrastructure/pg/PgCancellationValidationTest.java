@@ -55,17 +55,36 @@ class PgCancellationValidationTest {
                 new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         List<String> headers = new ArrayList<>();
         int contentLength = 0;
+        boolean chunked = false;
         reader.readLine();
         for (String line = reader.readLine(); line != null && !line.isEmpty(); line = reader.readLine()) {
             String name = line.substring(0, line.indexOf(':'));
             headers.add(name);
+            if (name.equalsIgnoreCase("Transfer-Encoding")) {
+                chunked = line.substring(line.indexOf(':') + 1).trim().equalsIgnoreCase("chunked");
+            }
             if (name.equalsIgnoreCase("Content-Length")) {
                 contentLength =
                         Integer.parseInt(line.substring(line.indexOf(':') + 1).trim());
             }
         }
-        for (int i = 0; i < contentLength; i++) {
-            reader.read();
+        // Note: JDK HTTP 클라이언트의 청크 요청도 끝까지 소비한다.
+        // 읽지 않은 요청이 남으면 소켓 종료 시 응답 본문 전달 전에 연결이 초기화될 수 있다.
+        if (chunked) {
+            int size;
+            while ((size = Integer.parseInt(reader.readLine().split(";", 2)[0], 16)) != 0) {
+                for (int i = 0; i < size; i++) {
+                    reader.read();
+                }
+                reader.readLine();
+            }
+            while (!reader.readLine().isEmpty()) {
+                // Note: 마지막 청크 뒤의 trailer도 소비한다.
+            }
+        } else {
+            for (int i = 0; i < contentLength; i++) {
+                reader.read();
+            }
         }
         requestHeaders.add(headers);
         byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
