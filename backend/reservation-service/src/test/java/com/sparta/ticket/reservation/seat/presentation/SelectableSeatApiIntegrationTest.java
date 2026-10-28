@@ -21,7 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** GET /api/schedules/{scheduleId}/seats를 실제 DB와 BookingFacade로 확인한다. */
+/** GET /api/seats/schedules/{scheduleId}를 실제 DB와 BookingFacade로 확인한다. */
 class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
@@ -93,7 +93,7 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         setHold(expiredAbandoned, 9002L, NOW);
         jdbcTemplate.update("UPDATE p_schedule_seats SET status = 'SOLD', reservation_id = 9003 WHERE id = ?", sold);
 
-        mockMvc.perform(get("/api/schedules/{scheduleId}/seats", SCHEDULE))
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scheduleId").value(SCHEDULE))
                 .andExpect(jsonPath("$.data.configVersion").value(2))
@@ -127,7 +127,7 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         jdbcTemplate.update(
                 "UPDATE p_schedule_seats SET deleted_at = ?, deleted_by = 'SYSTEM' WHERE id = ?", NOW, deleted);
 
-        mockMvc.perform(get("/api/schedules/{scheduleId}/seats", SCHEDULE))
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.seats.length()").value(1))
                 .andExpect(jsonPath("$.data.seats[0].scheduleSeatId").value(mine));
@@ -136,7 +136,7 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     @Test
     @DisplayName("좌석이 하나도 없는 회차는 404 SEAT_NOT_FOUND다")
     void noSeats() throws Exception {
-        mockMvc.perform(get("/api/schedules/{scheduleId}/seats", 999L))
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", 999L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SEAT_NOT_FOUND"));
     }
