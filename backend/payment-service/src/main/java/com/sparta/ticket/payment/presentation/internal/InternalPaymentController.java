@@ -1,11 +1,14 @@
 package com.sparta.ticket.payment.presentation.internal;
 
 import com.sparta.ticket.payment.application.service.payment.PaymentService;
+import com.sparta.ticket.payment.application.service.refund.RefundService;
 import com.sparta.ticket.payment.presentation.dto.internal.CheckoutRequest;
 import com.sparta.ticket.payment.presentation.dto.internal.CheckoutResponse;
 import com.sparta.ticket.payment.presentation.dto.internal.ConfirmRequest;
 import com.sparta.ticket.payment.presentation.dto.internal.ConfirmResponse;
 import com.sparta.ticket.payment.presentation.dto.internal.PaymentResponse;
+import com.sparta.ticket.payment.presentation.dto.internal.RefundRequest;
+import com.sparta.ticket.payment.presentation.dto.internal.RefundResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalPaymentController {
 
     private final PaymentService paymentService;
+    private final RefundService refundService;
+
+    @PostMapping("/{orderId}/refund")
+    public RefundResponse refund(@PathVariable String orderId, @Valid @RequestBody RefundRequest request) {
+        return RefundResponse.from(refundService.refund(orderId, request.reason()));
+    }
 
     /** 결제 준비. 같은 orderId·같은 내용이면 처음 응답을 그대로 돌려준다. */
     @PostMapping
