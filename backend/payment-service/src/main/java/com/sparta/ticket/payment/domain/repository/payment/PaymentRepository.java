@@ -39,4 +39,10 @@ public interface PaymentRepository {
     List<Payment> lockNextRecovery(LocalDateTime now, Collection<Long> excludedIds);
 
     LocalDateTime oldestDueRecovery(LocalDateTime now);
+
+    List<Payment> lockNextReconcile(LocalDateTime now, Collection<Long> excludedIds);
+
+    LocalDateTime oldestDueReconcile(LocalDateTime now);
+
+    LocalDateTime oldestUnknownReconcile();
 }

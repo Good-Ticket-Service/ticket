@@ -41,6 +41,7 @@ public class PaymentTransactions {
     private final PaymentResultPublisher resultPublisher;
     private final PgApprovalGate approvalGate;
     private final Clock clock;
+    private final PaymentReconcileProperties reconcileProperties;
 
     @Value("${payment.recovery.check-interval-seconds:10}")
     private long checkIntervalSeconds;
@@ -141,6 +142,7 @@ public class PaymentTransactions {
                 log.error("종료된 결제의 늦은 승인. 자동 취소가 필요하다. paymentId={}", paymentId);
             } else if (approved.amount() != payment.getAmount()) {
                 payment.fail(PaymentFailureCode.AMOUNT_MISMATCH, "PG_APPROVED_AMOUNT_MISMATCH");
+                payment.recordFailure(now, reconcileProperties.schedule());
                 ensureRefund(payment, approved.amount(), now);
                 resultPublisher.paymentFinalized(payment);
             } else {
@@ -160,6 +162,7 @@ public class PaymentTransactions {
                     return;
                 }
                 payment.fail(code, "PG_APPROVAL_REJECTED");
+                payment.recordFailure(now, reconcileProperties.schedule());
                 skipWaitingRefund(payment);
                 resultPublisher.paymentFinalized(payment);
             } else {
@@ -179,6 +182,7 @@ public class PaymentTransactions {
 
     private void fail(Payment payment, PaymentFailureCode code) {
         payment.fail(code, code.name());
+        payment.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
         skipWaitingRefund(payment);
         resultPublisher.paymentFinalized(payment);
     }
@@ -222,6 +226,7 @@ public class PaymentTransactions {
         paymentRepository.lockLiveByReservationId(order.reservationId()).ifPresent(live -> {
             rejectIfInProgressOrDone(live);
             live.supersede();
+            live.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
             paymentRepository.saveAndFlush(live);
         });
         return paymentRepository.saveAndFlush(payment);
@@ -234,6 +239,9 @@ public class PaymentTransactions {
                 .lockById(paymentId)
                 .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
         payment.applyPgReady(result);
+        if (payment.getStatus() == PaymentStatus.FAILED) {
+            payment.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
+        }
         return payment;
     }
 
