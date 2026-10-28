@@ -1,5 +1,7 @@
 package com.sparta.ticket.reservation.seat.presentation;
 
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -107,7 +109,9 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.seats[4].selectable").value(false))
                 .andExpect(jsonPath("$.data.seats[5].scheduleSeatId").value(unsellable))
                 .andExpect(jsonPath("$.data.seats[5].selectable").value(false))
-                .andExpect(jsonPath("$.data.seats[5].basePrice").doesNotExist())
+                // 가격 없는 등급의 판매 제외 좌석: 키는 남기고 값만 null (doesNotExist는 null 값도 통과해 구분하지 못한다)
+                .andExpect(jsonPath("$.data.seats[5]", hasKey("basePrice")))
+                .andExpect(jsonPath("$.data.seats[5].basePrice").value(nullValue()))
                 .andExpect(jsonPath("$.data.seats[1].reservationId").doesNotExist())
                 .andExpect(jsonPath("$.data.seats[1].holdExpiresAt").doesNotExist())
                 .andExpect(jsonPath("$.data.seats[0].section").value("A"))
