@@ -1,0 +1,35 @@
+package com.sparta.ticket.reservation.queue.presentation;
+
+import com.sparta.ticket.common.auth.CurrentUser;
+import com.sparta.ticket.common.auth.UserContext;
+import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.reservation.queue.application.QueueService;
+import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 대기열 API. 대기열은 예매 앞의 독립된 관문이라 공연 경로 아래가 아니라 자기 영역(/api/queues)에 둔다.
+ * 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더(@CurrentUser)로 정한다.
+ * Gateway가 /api/queues/**를 reservation-service로 보낸다. 명세는 docs/api.md 대기열 절이다.
+ */
+@Tag(name = "대기열")
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/queues")
+public class QueueController {
+
+    private final QueueService queueService;
+
+    /** 공연 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다. */
+    @Operation(summary = "대기열 진입")
+    @PostMapping("/performances/{performanceId}")
+    public ApiResponse<QueueEntryResult> enter(@PathVariable Long performanceId, @CurrentUser UserContext user) {
+        return ApiResponse.ok(queueService.enter(performanceId, user.userId()));
+    }
+}
