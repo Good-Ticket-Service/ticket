@@ -328,12 +328,17 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.
 - P20 = `performanceId:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; seats:LayoutSeat[]; seats[].id:long; seats[].section:string; seats[].rowLabel:string; seats[].seatNumber:integer; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].isSellable:boolean; seats[].basePrice:integer|null`.
-- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; configVersion:integer; policyVersion:integer; performanceTitle:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
+- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; performanceId:long; sellerId:long; configVersion:integer; policyVersion:integer; performanceTitle:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
 
 
 공연 공통 업무 오류: 400 INVALID_TIME_RANGE/VENUE_GRADE_MISMATCH/GRADE_PRICE_MISSING;404 PERFORMANCE_NOT_FOUND/SCHEDULE_NOT_FOUND/VENUE_NOT_FOUND;409 PUBLICATION_REQUIREMENTS_NOT_MET/PERFORMANCE_CONFIGURATION_LOCKED/VENUE_LAYOUT_IN_USE/DUPLICATE_SCHEDULE/DUPLICATE_VENUE_SEAT/DELETE_NOT_ALLOWED/RESERVATION_EXISTS/DUPLICATE_VENUE_GRADE/VENUE_GRADE_IN_USE/SEAT_CONFIG_VERSION_MISMATCH;503 DEPENDENCY_UNAVAILABLE. 각 리소스 명령의 조건에만 적용한다. 등급/좌석 미존재 코드는 미정.
 
 판매 검증 P21.reasonCode: 허용 시 null; 거절 시 PERFORMANCE_NOT_PUBLISHED/PERFORMANCE_CANCELED/SCHEDULE_CANCELED/SALES_SUSPENDED/SEAT_SETUP_NOT_READY/BEFORE_OPEN/SALES_CLOSED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH. 업무 거절은 HTTP200,allowed=false,seats=[]; 삭제/미존재는 HTTP404. success HTTP200,allowed=true이면 요청 좌석 가격을 반환한다.
+
+판매 검증 P21.performanceId·sellerId (합의 #86):
+- performanceId는 회차가 속한 공연의 ID, sellerId는 그 공연의 판매자 ID다.
+- 좌석은 두 값을 BookingFacade.hold의 HoldTarget으로 그대로 넘긴다. 클라이언트 입력에서 받지 않는다.
+- 예매는 두 값을 예약에 저장하고 결제 준비(POST /internal/payments)에 선점 시점 값으로 넘긴다. 결제는 같은 orderId의 재요청에서 값이 다르면 409 PAYMENT_ORDER_CONFLICT로 거절하기 때문이다.
 
 ## 좌석 — reservation-service / seat
 
@@ -492,17 +497,18 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
-| booking → seat | 합의 #34 | hold(Long userId,Long scheduleId,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
+| booking → seat | 합의 #34 | hold(Long userId,HoldTarget target,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
 | seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
 | coupon → booking | 초안 #27 | reserve(Long userCouponId,Long userId,Long reservationId):할인액; use(Long reservationId); release(Long reservationId). 반환 타입/인자 최종 합의 대기 |
 
-- SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
+- HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long}` (#86); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
 - ReleaseResult=RELEASED/EXPIRED/ALREADY_CLOSED/NOT_RELEASABLE; facade 전용 enum은 domain enum을 노출하지 않는다. 트랜잭션 규칙은 architecture 참조.
 - CouponUsage 초안: reserve는 소유자/AVAILABLE/유효기간 위반 시 COUPON_NOT_AVAILABLE, 같은 예매·같은 RESERVED 쿠폰이면 기존 할인액 반환. use는 동일 예약 RESERVED라면 만료 후에도 USED, release는 대상 없음도 성공하는 멱등 호출이다. 해당 오류는 예매 checkout에서 전달한다.
 - 좌석 준비(공연→seat): MVP Feign 계약의 URI·응답·타임아웃 미합의. 요청 초안=`{requestId:string,scheduleId:long,configVersion:long,seats:[{venueSeatId:long,venueSeatGradeId:long,gradeName:string,basePrice:int|null,isSellable:boolean,section:string,rowLabel:string,seatNumber:int}]}`. Kafka 전환 후 Requested/Completed/Failed의 토픽·스키마·버전은 별도 합의. 미확정 HTTP 경로나 메시지 계약을 생성하지 않는다.
 
 - BookingFacade 공통: 상태를 바꾸지 못한 경우(0행)는 예외가 아니라 반환값으로 알린다. 다음 행동은 호출자가 고른다. (원본 복원: shared/modules/booking-facade.md:17, 담당 확인 필요)
+- hold: HoldTarget의 세 값 중 하나라도 null이면 INVALID_REQUEST다. performanceId·sellerId는 판매 검증(P21) 응답 값이다. (#86)
 - hold: HOLD 예매와 좌석마다 티켓을 만든다. 티켓 가격은 넘겨받은 선점 시점 가격이다. (원본 복원: shared/modules/booking-facade.md:40, 담당 확인 필요)
 - hold: 1차는 좌석 목록 길이1이다. 같은 좌석이 두 번 들어오거나 가격이 음수면 INVALID_REQUEST이다. (원본 복원: shared/modules/booking-facade.md:41, 담당 확인 필요)
 - hold: 활성 예매(HOLD·PAYMENT_IN_PROGRESS·CONFIRMED·CANCELING)가 이미 있으면 부분 UNIQUE 위반을 잡지 않고 그대로 던진다. 이 예외는 호출 안에서 드러난다. (원본 복원: shared/modules/booking-facade.md:42, 담당 확인 필요)
