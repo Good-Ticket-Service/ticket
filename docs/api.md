@@ -337,14 +337,14 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 
 ## 좌석 — reservation-service / seat
 
-상태: GET seats는 구현됨(#84, Gateway 라우트는 미반영). 나머지 외부 API는 초안(구현 전). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: 선택 가능 좌석 조회는 구현됨(#84, Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
-| GET /api/schedules/{scheduleId}/seats | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(회차에 좌석이 없음: 없는 회차·좌석 준비 전을 나누지 않음) |
-| GET /api/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
-| POST /api/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 404 SEAT_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
-| DELETE /api/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
+| GET /api/seats/schedules/{scheduleId} | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(회차에 좌석이 없음: 없는 회차·좌석 준비 전을 나누지 않음) |
+| GET /api/seats/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
+| POST /api/seats/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 404 SEAT_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
+| DELETE /api/seats/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
 
 - SelectableSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null,selectable:boolean}`. 다른 사용자의 예약 ID/만료 시각 제외.
 - 선점 판매 거절은 sale-validations의 reasonCode를 외부 code로 반환: 기본 400, SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH만 409. 삭제·미존재는 404. 연령 미달 오류는 미합의이며 architecture 14절을 따른다.
@@ -425,7 +425,7 @@ If-Match는 큰따옴표로 감싼 대상 version. 누락 428 PRECONDITION_REQUI
 - 입장 토큰 X-Queue-Token은 공연(performanceId) 단위이고 TTL은 10분이다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - 좌석 선점 여부에 따라 입장 토큰 TTL을 늘리거나 없애지 않는다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - Gateway는 토큰의 회원과 공연 범위를 검증하고, 공연 범위는 경로의 scheduleId로 확인한다. (원본 복원: seat/api.md:17, seat/plan.md:109, 담당 확인 필요)
-- 입장 토큰은 좌석 조회(GET /api/schedules/{scheduleId}/seats)와 선점(POST /api/schedules/{scheduleId}/holds)에만 적용한다. (원본 복원: seat/api.md:23-25,93,207, 담당 확인 필요)
+- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId})와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다. (원본 복원: seat/api.md:23-25,93,207, 담당 확인 필요)
 
 ## 쿠폰 — reservation-service / coupon
 
