@@ -29,7 +29,7 @@ import org.springframework.test.context.TestPropertySource;
  */
 @AutoConfigureMockMvc
 @Import(PaymentIntegrationTest.PgFixtureConfig.class)
-@TestPropertySource(properties = "spring.jpa.open-in-view=false")
+@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "payment.recovery.enabled=false"})
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
@@ -38,14 +38,24 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
     @Autowired
     protected PublisherFixture publisher;
 
+    @Autowired
+    protected MutablePaymentClock paymentClock;
+
     @BeforeEach
     void resetPg() {
         pg.reset();
         publisher.fail = false;
+        paymentClock.reset();
     }
 
     @TestConfiguration
     static class PgFixtureConfig {
+
+        @Bean
+        @Primary
+        MutablePaymentClock fixturePaymentClock() {
+            return new MutablePaymentClock();
+        }
 
         @Bean
         @Primary

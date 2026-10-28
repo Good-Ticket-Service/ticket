@@ -30,6 +30,8 @@ public class PgClientFixture {
     private final AtomicInteger approveCalls = new AtomicInteger();
     private volatile Function<PgClient.PgApproveRequest, PgResult> approveResponse;
     private volatile boolean approvalAllowed = true;
+    private volatile Function<PgClient.PgInquireRequest, PgInquiry> inquiryResponse;
+    private final AtomicInteger inquiryCalls = new AtomicInteger();
 
     public synchronized void reset() {
         readyResponses.clear();
@@ -39,6 +41,16 @@ public class PgClientFixture {
         approveCalls.set(0);
         approveResponse = null;
         approvalAllowed = true;
+        inquiryResponse = null;
+        inquiryCalls.set(0);
+    }
+
+    public void inquireReturns(Function<PgClient.PgInquireRequest, PgInquiry> response) {
+        inquiryResponse = response;
+    }
+
+    public int inquiryCalls() {
+        return inquiryCalls.get();
     }
 
     public void approveReturns(Function<PgClient.PgApproveRequest, PgResult> response) {
@@ -109,7 +121,9 @@ public class PgClientFixture {
 
         @Override
         public PgInquiry inquire(PgInquireRequest request) {
-            throw new UnsupportedOperationException("Task 9에서 쓴다");
+            inquiryCalls.incrementAndGet();
+            Function<PgInquireRequest, PgInquiry> response = inquiryResponse;
+            return response == null ? new PgInquiry.Unknown("TEST_UNKNOWN") : response.apply(request);
         }
 
         @Override
