@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.reservation.booking.application.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.ReservationPaymentService;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.infrastructure.seat.SeatFacadeAdapter;
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
@@ -46,6 +48,9 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private HoldExpiryService holdExpiryService;
+
+    @Autowired
+    private PaymentReconcileService paymentReconcileService;
 
     @Autowired
     private SeatFacadeAdapter seatFacadeAdapter;
@@ -222,6 +227,28 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
         assertThat(seatRow(seatId).get("status")).as("다른 예약의 선점은 그대로다").isEqualTo("HOLD");
         assertThat(seats.sold).isEmpty();
         assertThat(lateSuccessCount()).isEqualTo(lateBefore + 1);
+    }
+
+    @Test
+    @DisplayName("확정하지 못한 결제 성공은 결과 확인이 여러 번 돌아도 자동 환불 대상으로 한 번만 센다")
+    void countsUnconfirmableSuccessOnce() {
+        Long seatId = seat();
+        Long reservationId = holdWithSeats(List.of(seatId));
+        String orderId = paymentService
+                .checkout(user, reservationId, new CheckoutCommand(null, "TOSS"))
+                .orderId();
+        holdSeats(TestIds.next(), List.of(seatId));
+        double lateBefore = lateSuccessCount();
+        paymentService.confirm(user, reservationId, new ConfirmCommand(orderId, "pk-1"));
+        payment.lookupReturns(orderId, PaymentLookup.of(PaymentLookup.Status.SUCCEEDED));
+
+        for (int run = 1; run <= 3; run++) {
+            clock.set(NOW.plusMinutes(run * 2L));
+            paymentReconcileService.reconcile(Duration.ofMinutes(1), Duration.ofMinutes(30), 10, Duration.ofSeconds(5));
+        }
+
+        assertThat(lateSuccessCount()).as("환불할 결제는 하나다").isEqualTo(lateBefore + 1);
+        assertThat(payment.lookedUpOrderIds).as("환불 대상은 결과 확인이 다시 고르지 않는다").isEmpty();
     }
 
     @Test
