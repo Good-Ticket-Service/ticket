@@ -85,6 +85,43 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
 - `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
 
+### p_schedule_seats — reservation-service/seat.sql + A
+
+| 필드 | 타입 | 제약·설명 |
+|---|---|---|
+| id | BIGINT | PK, NOT NULL, IDENTITY; 예매 서비스가 만드는 ID. 물리 좌석 ID와 다르다. |
+| schedule_id | BIGINT | NOT NULL, 외부 참조 ID; 공연 서비스 schedule.id. FK 없음. |
+| venue_seat_id | BIGINT | NOT NULL, 외부 참조 ID; 공연 서비스 venue_seat.id. 회차 안에서 같은 물리 좌석은 한 번만 만든다. |
+| venue_seat_grade_id | BIGINT | NOT NULL, 외부 ID 스냅샷; 물리 좌석의 고정 등급을 복사한다. 회차에서 바꾸지 않는다. |
+| grade_name | VARCHAR(20) | NOT NULL; VIP, R 등. 좌석 준비에 쓴 등급명. |
+| base_price | INT | 판매 대상은 NOT NULL, 0 초과. 판매 제외 좌석은 NULL 허용; 해당 공연의 등급 가격을 복사한다. 쿠폰·할인·수수료 반영 전 금액. 가격 미입력을 0원으로 보지 않는다. |
+| section | VARCHAR(20) | NOT NULL; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
+| row_label | VARCHAR(10) | NOT NULL; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
+| seat_number | INT | NOT NULL, 0 초과; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
+| is_sellable | BOOLEAN | NOT NULL; 공연 공통 제외 정책을 반영해 서버가 만든다. false 좌석은 AVAILABLE이어도 선점할 수 없다. 클라이언트가 바꿀 수 없다. |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'AVAILABLE'; AVAILABLE / HOLD / SOLD. 좌석 준비 때 AVAILABLE로 만든다. |
+| reservation_id | BIGINT | NULL 허용, FK 없음; HOLD·SOLD에서는 현재 소유 예약 ID, AVAILABLE에서는 NULL. |
+| hold_expires_at | TIMESTAMP | NULL 허용; HOLD에서는 필수(선점 시각 + 10분, 공용 Clock 기준). seat가 선점 트랜잭션에서 한 번 계산해 BookingFacade.hold()에 넘긴 값과 같다. AVAILABLE·SOLD에서는 NULL. 예약의 p_reservations.hold_expires_at과 같은 값이며 결제 중에도 바꾸지 않는다. |
+| config_version | BIGINT | NOT NULL, 1 이상; 공연 서비스 schedule.seat_config_version과 대응한다. 오래된 생성 요청이 최신 데이터를 덮어쓰지 못하게 한다. |
+
+- 업무 의미·상태 전이·컬럼이 바뀌는 시점은 Notion 테이블 명세서 schedule_seat 절을 따른다. 잠금 순서·만료 경계는 [architecture.md](architecture.md) 11절.
+
+- `CONSTRAINT uk_p_schedule_seats_schedule_venue_seat UNIQUE (schedule_id, venue_seat_id)`.
+
+- `CONSTRAINT ck_p_schedule_seats_status CHECK (status IN ('AVAILABLE', 'HOLD', 'SOLD'))`.
+
+- `CONSTRAINT ck_p_schedule_seats_base_price CHECK ((base_price IS NULL OR base_price > 0) AND (NOT is_sellable OR base_price IS NOT NULL))`.
+
+- `CONSTRAINT ck_p_schedule_seats_seat_number CHECK (seat_number > 0)`, `CONSTRAINT ck_p_schedule_seats_config_version CHECK (config_version >= 1)`.
+
+- `CONSTRAINT ck_p_schedule_seats_holder CHECK ((status = 'AVAILABLE' AND reservation_id IS NULL AND hold_expires_at IS NULL) OR (status = 'HOLD' AND reservation_id IS NOT NULL AND hold_expires_at IS NOT NULL) OR (status = 'SOLD' AND reservation_id IS NOT NULL AND hold_expires_at IS NULL))`.
+
+- `CREATE INDEX ix_p_schedule_seats_selectable ON p_schedule_seats (schedule_id, is_sellable, status);`
+
+- `CREATE INDEX ix_p_schedule_seats_hold_expiry ON p_schedule_seats (status, hold_expires_at);`
+
+- `CREATE INDEX ix_p_schedule_seats_reservation ON p_schedule_seats (reservation_id);`
+
 ### p_payments — payment-service/schema.sql + A
 
 | 필드 | 타입·제약·기본값 |
@@ -308,25 +345,6 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 | venue_seat_id | BIGINT | FK → p_venue_seats.id, NOT NULL; 반드시 해당 공연장의 좌석이어야 한다. |
 | exclusion_reason | VARCHAR(255) | NOT NULL, 빈 문자열 불가; 예: 운영석, 시야 제한석.; 관리용이며 공개 응답에 내부 사유를 노출하지 않는다. |
 
-### p_schedule_seats — 설계 + A
-
-| 필드 | 타입 | 제약·설명 |
-|---|---|---|
-| id | BIGINT | PK, NOT NULL, IDENTITY; 예매 서비스가 만드는 ID. 물리 좌석 ID와 다르다. |
-| schedule_id | BIGINT | NOT NULL, 외부 참조 ID; 공연 서비스 schedule.id. FK 없음. |
-| venue_seat_id | BIGINT | NOT NULL, 외부 참조 ID; 공연 서비스 venue_seat.id. 회차 안에서 같은 물리 좌석은 한 번만 만든다. |
-| venue_seat_grade_id | BIGINT | NOT NULL, 외부 ID 스냅샷; 물리 좌석의 고정 등급을 복사한다. 회차에서 바꾸지 않는다. |
-| grade_name | VARCHAR(20) | NOT NULL; VIP, R 등. 좌석 준비에 쓴 등급명. |
-| base_price | INT | 판매 대상은 NOT NULL, 0 초과. 판매 제외 좌석은 NULL 허용; 해당 공연의 등급 가격을 복사한다. 쿠폰·할인·수수료 반영 전 금액. 가격 미입력을 0원으로 보지 않는다. |
-| section | VARCHAR(20) | NOT NULL; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
-| row_label | VARCHAR(10) | NOT NULL; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
-| seat_number | INT | NOT NULL, 0 초과; 좌석 조회용 위치 복제. 공개 후 바꾸지 않는다. |
-| is_sellable | BOOLEAN | NOT NULL; 공연 공통 제외 정책을 반영해 서버가 만든다. false 좌석은 AVAILABLE이어도 선점할 수 없다. 클라이언트가 바꿀 수 없다. |
-| status | VARCHAR(20) | NOT NULL, DEFAULT 'AVAILABLE'; AVAILABLE / HOLD / SOLD. 좌석 준비 때 AVAILABLE로 만든다. |
-| reservation_id | BIGINT | NULL 허용, FK 없음; HOLD·SOLD에서는 현재 소유 예약 ID, AVAILABLE에서는 NULL. |
-| hold_expires_at | TIMESTAMP | NULL 허용; HOLD에서는 필수(선점 시각 + 10분, 공용 Clock 기준). seat가 선점 트랜잭션에서 한 번 계산해 BookingFacade.hold()에 넘긴 값과 같다. AVAILABLE·SOLD에서는 NULL. 예약의 p_reservations.hold_expires_at과 같은 값이며 결제 중에도 바꾸지 않는다. |
-| config_version | BIGINT | NOT NULL, 1 이상; 공연 서비스 schedule.seat_config_version과 대응한다. 오래된 생성 요청이 최신 데이터를 덮어쓰지 못하게 한다. |
-
 ### p_user_coupons — 설계 + A
 
 | 필드 | 타입 | 제약·설명 |
@@ -349,8 +367,6 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 - `ck_p_user_coupons_reservation ; CHECK ; (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL)`
 - `ck_p_user_coupons_used ; CHECK ; (status = 'USED') = (used_at IS NOT NULL)`
 - `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
-
-
 
 ### 공연 테이블의 관계·계산 제약 복원
 
@@ -377,7 +393,6 @@ performance-service/schema.sql은 현재 초기 자리표시자다. reservation-
 | 공연 조회 인덱스 | p_venue_seats(venue_id,venue_seat_grade_id);p_performances(seller_id,deleted_at),(publication_status,genre,id);p_schedules(performance_id,booking_open_at) |
 | 공연 FK | 같은 performance_schema 내 venue/grade/seat/performance/schedule 관계만. schedule_seat은 외부 참조 |
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
-| 회차 좌석 설계 | UNIQUE(schedule_id,venue_seat_id); INDEX(schedule_id,is_sellable,status), INDEX(status,hold_expires_at), INDEX(reservation_id). AVAILABLE이면 예약/만료 NULL, HOLD이면 예약/만료 필수, SOLD이면 예약 필수·만료 NULL. 해당 CHECK 추가는 미합의이며 architecture 14절 참조 |
 | 예매 쿠폰(추가 설계) | user_coupon_id BIGINT NULL, discount_amount 원본 초안 BIGINT NULL. DDL 미반영. 예매 할인액은 min(쿠폰액,max(0,정가-100)) 원본안을 복원하며 결제는 보정 없이 검증한다. 타입 이행·경계는 architecture 14절 |
 | 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
 | 예매 CANCELING | 활성 UNIQUE에는 포함되지만 현행 domain enum/CHECK에는 미반영(facade enum에는 포함). 취소 구현 시 enum/CHECK/집계 추가 |
