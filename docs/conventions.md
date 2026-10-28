@@ -85,7 +85,7 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 - domain은 application/infrastructure/presentation에 의존하지 않는다. 다른 서비스 스키마 직접 조회 금지. Feign은 infrastructure/client, PG는 별도 어댑터. 모듈 간 Entity/Repository 접근 금지, 합의한 facade 패키지만 사용.
 - 모듈 경계 검사는 `SEAT_USES_BOOKING_ONLY_THROUGH_FACADE`, `BOOKING_USES_SEAT_ONLY_THROUGH_FACADE`를 따른다. `booking.application.facade`, `seat.application.facade`의 요청·응답 타입으로만 교차 의존한다.
 - 업무 Entity는 BaseEntity 상속, 소프트 삭제 대상에 `@SQLRestriction("deleted_at IS NULL")`. Fake PG는 독립 모의 시스템으로 공통 Entity 예외. 금융 기록은 임의 삭제/재계산하지 않는다.
-- Entity 변경 시 DDL과 tables를 같은 PR에서 수정한다. reservation-service는 booking.sql을 사용하고 seat 소유 테이블은 seat.sql에 둔다(#57 리뷰 합의). 통합 테스트는 ReservationIntegrationTest가 schema.sql→booking.sql→seat.sql 순서로 실행한다. 공유 schema.sql에 모듈 테이블을 임의 추가하지 않는다. 다른 서비스는 backend/sql/{서비스}/schema.sql을 따른다. local은 ddl-auto:create, 나머지 validate이며 부분 UNIQUE는 SQL 적용 DB에서 검증한다.
+- Entity 변경 시 DDL과 tables를 같은 PR에서 수정한다. reservation-service는 booking.sql을 사용하고 seat 소유 테이블은 seat.sql에 둔다(#57 리뷰 합의). coupon 소유 테이블은 같은 방식으로 coupon.sql에 둔다(#77). 통합 테스트는 ReservationIntegrationTest가 schema.sql→booking.sql→seat.sql→coupon.sql 순서로 실행한다. 공유 schema.sql에 모듈 테이블을 임의 추가하지 않는다. 다른 서비스는 backend/sql/{서비스}/schema.sql을 따른다. local은 ddl-auto:create, 나머지 validate이며 부분 UNIQUE는 SQL 적용 DB에서 검증한다.
 - 상태 전이는 Entity 메서드, 조건부 UPDATE/잠금으로 동시성 보호. bulk UPDATE는 감사 컬럼을 직접 갱신한다. 네트워크 호출 중 DB 트랜잭션/잠금 유지 금지.
 - 통합 시험은 `PostgresIntegrationTest`(PostgreSQL16 Testcontainers). H2 사용 금지. common의 LayeredArchitectureRules와 모듈 ArchUnit 규칙을 준수한다.
 - 주석·문서·커밋은 한국어 평서체. 필요한 설명 주석은 `Note: `. 포맷은 손으로 맞추지 않고 Spotless를 사용한다.
