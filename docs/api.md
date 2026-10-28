@@ -303,13 +303,22 @@
 
 ## 대기열 — reservation-service / queue
 
-상태: 외부 응답 상세는 초안(구현 전). 공연 단위 입장 토큰 정책과 구현 완료를 구분한다.
+상태: 진입은 구현(#100). 순번 조회와 대기 취소는 초안(구현 전). 공연 단위 입장 토큰 정책과 구현 완료를 구분한다.
 
-| Method URI | 권한 | 성공 | B | R |
-|---|---|---|---|---|
-| POST /api/schedules/{id}/queue | JWT | 200 | 미기재 | position:int,aheadCount:int,estimatedWaitSeconds:int |
-| GET /api/schedules/{id}/queue/me | JWT | 200 | 없음 | 미정 |
-| DELETE /api/schedules/{id}/queue/me | JWT | 204 | 없음 | 없음 |
+| Method URI | 권한 | 성공 | B | R | 추가 오류 |
+|---|---|---|---|---|---|
+| POST /api/queues/performances/{performanceId} | JWT | 200 | 없음 | position:long,aheadCount:long,estimatedWaitSeconds:long | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
+| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | 미정 | 404 NOT_IN_QUEUE |
+| DELETE /api/queues/performances/{performanceId}/me | JWT | 204 | 없음 | 없음 | 없음 |
+
+- 줄은 공연 단위로 하나다. 입장 토큰 범위가 공연이고, 회차들이 같은 서버 자원을 쓰기 때문이다.
+- 대기열 경로는 공연 경로(/api/performances) 아래가 아니라 대기열 영역(/api/queues)에 둔다. 대기열은 reservation-service 소유라 공연 담당과 경로를 조율하지 않기 위해서다.
+- 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더로 정한다.
+- 진입은 이미 서 있으면 원래 순번을 돌려준다. 새로 만들지 않으므로 201이 아니라 200이다.
+- position은 1부터 센다. aheadCount는 내 앞 인원이다. estimatedWaitSeconds는 aheadCount ÷ 초당 입장 인원을 올림한 초다.
+- 대기열이 꺼져 있으면(reservation.queue.enabled=false) 503 QUEUE_DISABLED다.
+- Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
+- 오픈 전 진입과 판매 중지 공연의 진입은 아직 막지 않는다. 공연 서비스 확인 방식이 architecture 14절 미합의 항목이기 때문이다.
 
 입장 토큰 조회/전달 응답과 세부 오류는 미합의이며 architecture 14절을 따른다. 존재하지 않는 발급 API를 추가하지 않는다.
 
