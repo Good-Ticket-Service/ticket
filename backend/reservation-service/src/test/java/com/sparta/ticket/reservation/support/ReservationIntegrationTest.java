@@ -3,8 +3,11 @@ package com.sparta.ticket.reservation.support;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.BookingTestConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * reservation-service 통합 테스트의 공통 부모. booking·seat·coupon 등 모든 모듈의 통합 테스트가 이 클래스를 상속해 같은 설정을 쓴다.
@@ -18,6 +21,9 @@ import org.springframework.test.context.TestPropertySource;
  * 설정을 한곳에 모아 컨텍스트를 하나로 유지한다.
  * open-in-view는 운영(config-repo/application.yml)과 같이 끈다. 켜 두면 요청 내내 DB 연결을 잡아
  * "원격 호출은 트랜잭션 밖" 검사가 운영과 다른 조건에서 통과한다.
+ *
+ * 대기열(queue)은 Redis를 쓰므로 Redis 7.4 컨테이너도 여기서 한 번만 띄운다. 운영 Compose와 같은 버전이다.
+ * 대기열 테스트용 부모를 따로 두면 컨텍스트가 둘로 갈려 위의 스키마 문제가 생기므로, 같은 부모에 둔다.
  */
 @AutoConfigureMockMvc
 @Import(BookingTestConfig.class)
@@ -29,4 +35,14 @@ import org.springframework.test.context.TestPropertySource;
             "reservation.booking.scheduler.enabled=false",
             "spring.jpa.open-in-view=false"
         })
-public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {}
+public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {
+
+    /** {@code @ServiceConnection}이 컨테이너 주소를 spring.data.redis.* 대신 넣어 준다. */
+    @ServiceConnection(name = "redis")
+    protected static final GenericContainer<?> REDIS =
+            new GenericContainer<>(DockerImageName.parse("redis:7.4")).withExposedPorts(6379);
+
+    static {
+        REDIS.start();
+    }
+}
