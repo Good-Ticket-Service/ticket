@@ -33,7 +33,12 @@ public class ReservationTransactions {
 
     /** 결제 준비 대상. currentOrderId는 기록할 때 조건으로 쓴다. */
     public record CheckoutTarget(
-            Long reservationId, Long userId, String currentOrderId, LocalDateTime holdExpiresAt, long baseAmount) {}
+            Long reservationId,
+            Long userId,
+            Long scheduleId,
+            String currentOrderId,
+            LocalDateTime holdExpiresAt,
+            long baseAmount) {}
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
@@ -54,6 +59,7 @@ public class ReservationTransactions {
         return new CheckoutTarget(
                 reservation.getId(),
                 reservation.getUserId(),
+                reservation.getScheduleId(),
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
                 reservation.baseAmount());

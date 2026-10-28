@@ -16,7 +16,9 @@ import com.sparta.ticket.reservation.booking.application.ReservationTransactions
 import com.sparta.ticket.reservation.booking.application.ReservationTransactions.CheckoutTarget;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
+import com.sparta.ticket.reservation.booking.support.FakeScheduleInfoPort;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.TestIds;
@@ -80,6 +82,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     private final Long userId = TestIds.next();
+    private final Long scheduleId = TestIds.next();
     private final Long seatA = 10L;
     private final Long seatB = 11L;
 
@@ -94,10 +97,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
 
     private Long hold() {
         return transactionTemplate.execute(status -> bookingFacade.hold(
-                userId,
-                TestIds.next(),
-                TestSeats.priced(seatB, seatA),
-                clock.now().plusMinutes(10)));
+                userId, scheduleId, TestSeats.priced(seatB, seatA), clock.now().plusMinutes(10)));
     }
 
     private MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Long user) {
@@ -150,7 +150,13 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.data.paymentAmount").value(17_000));
 
-        assertThat(payment.prepared.get(0).baseAmount()).isEqualTo(20_000L);
+        PaymentPrepareRequest request = payment.prepared.get(0);
+        assertThat(request.totalPrice()).isEqualTo(20_000L);
+        assertThat(request.discountAmount()).isZero();
+        assertThat(request.scheduleId()).isEqualTo(scheduleId);
+        assertThat(request.performanceId()).isEqualTo(FakeScheduleInfoPort.PERFORMANCE_ID);
+        assertThat(request.sellerId()).isEqualTo(FakeScheduleInfoPort.SELLER_ID);
+        assertThat(request.pgProvider()).isEqualTo("TOSS");
         assertThat(payment.prepared.get(0).expiresAt()).isEqualTo(clock.now().plusMinutes(10));
         assertThat(payment.confirmedAmounts).as("승인 금액은 준비 응답의 값이다").containsExactly(17_000L);
         assertThat(seats.locked).containsExactly(List.of(seatA, seatB));
@@ -317,7 +323,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("결제 준비는 PG를 반드시 받고 TOSS·KAKAO만 허용한다")
+    @DisplayName("결제 준비는 PG를 반드시 받고 TOSS·KAKAO만 허용하며, 쿠폰은 연결 전이라 503으로 거절한다")
     void checkoutRequiresPgProvider() throws Exception {
         Long reservationId = hold();
 
@@ -331,9 +337,13 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
 
         mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)
                         .content("{\"userCouponId\": 7, \"pgProvider\": \"KAKAO\"}"))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(payment.prepared).isEmpty();
+
+        mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)
+                        .content("{\"pgProvider\": \"KAKAO\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.paymentWindowUrl").doesNotExist());
-        assertThat(payment.prepared.get(0).couponId()).isEqualTo(7L);
         assertThat(payment.prepared.get(0).pgProvider()).isEqualTo("KAKAO");
     }
 

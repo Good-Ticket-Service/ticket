@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * 결제 대역. 테스트가 준비 할인액, 승인 결과, 조회 결과, 응답 지연을 정한다.
+ * 결제 대역. 테스트가 준비 응답 금액, 승인 결과, 조회 결과, 응답 지연을 정한다.
  * 호출될 때 트랜잭션이 열려 있었는지 기록해 "원격 호출은 트랜잭션 밖" 규칙을 확인한다.
  */
 public class FakePaymentPort implements PaymentPort {
@@ -51,6 +51,7 @@ public class FakePaymentPort implements PaymentPort {
         this.activeConnections = activeConnections;
     }
 
+    /** 준비 응답 금액을 요청 금액(totalPrice - discountAmount)보다 이만큼 낮춘다. booking이 응답 금액을 기록하는지 본다. */
     public void discount(long amount) {
         this.discount = amount;
     }
@@ -81,7 +82,7 @@ public class FakePaymentPort implements PaymentPort {
     public PreparedPayment prepare(PaymentPrepareRequest request) {
         record();
         prepared.add(request);
-        return new PreparedPayment(request.baseAmount() - discount, null);
+        return new PreparedPayment(request.totalPrice() - request.discountAmount() - discount, null);
     }
 
     @Override
