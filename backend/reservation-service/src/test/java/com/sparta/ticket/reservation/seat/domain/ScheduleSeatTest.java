@@ -11,7 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-/** 상태 전이 표(Notion 테이블 명세서 schedule_seat 절 "컬럼이 바뀌는 시점")대로 바뀌고, 표에 없는 전이는 막는다. */
+/** 허용한 전이만 일어나고, 그 밖의 전이는 막는다. */
 class ScheduleSeatTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
