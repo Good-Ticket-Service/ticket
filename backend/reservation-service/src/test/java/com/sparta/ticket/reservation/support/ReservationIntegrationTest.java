@@ -33,6 +33,8 @@ import org.testcontainers.utility.DockerImageName;
                     + "file:../sql/reservation-service/schema.sql,file:../sql/reservation-service/booking.sql,"
                     + "file:../sql/reservation-service/seat.sql,file:../sql/reservation-service/coupon.sql",
             "reservation.booking.scheduler.enabled=false",
+            "reservation.queue.enabled=true",
+            "reservation.queue.admit-per-second=10",
             "spring.jpa.open-in-view=false"
         })
 public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {
