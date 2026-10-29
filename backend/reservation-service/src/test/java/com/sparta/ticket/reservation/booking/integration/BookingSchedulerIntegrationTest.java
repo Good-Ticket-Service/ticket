@@ -222,7 +222,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         Long inProgress = hold(Duration.ofMinutes(10), TestIds.next());
         Long unknown = hold(Duration.ofMinutes(10), TestIds.next());
         payment.lookupReturns(paymentInProgress(succeeded), PaymentLookup.of(Status.SUCCEEDED));
-        payment.lookupReturns(paymentInProgress(failed), PaymentLookup.failed("DECLINED"));
+        payment.lookupReturns(paymentInProgress(failed), PaymentLookup.of(PaymentLookup.Status.FAILED));
         payment.lookupReturns(paymentInProgress(inProgress), PaymentLookup.of(Status.IN_PROGRESS));
         payment.lookupReturns(paymentInProgress(unknown), PaymentLookup.of(Status.UNKNOWN_ORDER));
         clock.advance(Duration.ofMinutes(2));

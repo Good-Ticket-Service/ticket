@@ -206,7 +206,7 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
         Long reservationId = holdWithSeats(List.of(seatId));
         payment.confirmAnswers(() -> {
             clock.advance(Duration.ofMinutes(11));
-            return ConfirmOutcome.failed("EXPIRED");
+            return ConfirmOutcome.failed();
         });
 
         assertThat(confirm(reservationId)).isEqualTo(ReservationStatus.EXPIRED);

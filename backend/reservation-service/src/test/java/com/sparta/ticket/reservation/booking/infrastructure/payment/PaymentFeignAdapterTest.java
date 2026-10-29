@@ -159,7 +159,7 @@ class PaymentFeignAdapterTest {
 
         STUB.respond(path, 200, """
                 {"paymentId": 9, "status": "FAILED", "failureType": "REJECTED", "failureCode": "PG_REJECTED"}""");
-        assertThat(adapter.confirm("order-1", "pk-1", 20_000L)).isEqualTo(ConfirmOutcome.failed("PG_REJECTED"));
+        assertThat(adapter.confirm("order-1", "pk-1", 20_000L)).isEqualTo(ConfirmOutcome.failed());
 
         STUB.respond(path, 200, """
                 {"paymentId": 9, "status": "IN_PROGRESS", "failureType": null, "failureCode": null}""");
@@ -172,8 +172,7 @@ class PaymentFeignAdapterTest {
         STUB.respond("POST /internal/payments/order-1/confirm", 400, """
                 {"status": 400, "code": "PAYMENT_AMOUNT_MISMATCH", "message": "결제 금액이 다릅니다."}""");
 
-        assertThat(adapter.confirm("order-1", "pk-1", 20_000L))
-                .isEqualTo(ConfirmOutcome.failed("PAYMENT_AMOUNT_MISMATCH"));
+        assertThat(adapter.confirm("order-1", "pk-1", 20_000L)).isEqualTo(ConfirmOutcome.failed());
     }
 
     @Test
@@ -194,14 +193,14 @@ class PaymentFeignAdapterTest {
                 "READY", PaymentLookup.of(PaymentLookup.Status.NOT_RECEIVED),
                 "IN_PROGRESS", PaymentLookup.of(PaymentLookup.Status.IN_PROGRESS),
                 "DONE", PaymentLookup.of(PaymentLookup.Status.SUCCEEDED),
-                "CANCELED", PaymentLookup.failed("CANCELED"));
+                "CANCELED", PaymentLookup.of(PaymentLookup.Status.FAILED));
         cases.forEach((status, expected) -> {
             STUB.respond(path, 200, detail(status, null));
             assertThat(adapter.find("order-1")).as(status).isEqualTo(expected);
         });
 
         STUB.respond(path, 200, detail("FAILED", "PG_UNRESOLVED"));
-        assertThat(adapter.find("order-1")).isEqualTo(PaymentLookup.failed("PG_UNRESOLVED"));
+        assertThat(adapter.find("order-1")).isEqualTo(PaymentLookup.of(PaymentLookup.Status.FAILED));
 
         STUB.respond(path, 404, """
                 {"status": 404, "code": "PAYMENT_NOT_FOUND", "message": "결제를 찾을 수 없습니다."}""");

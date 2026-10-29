@@ -1,7 +1,7 @@
 package com.sparta.ticket.reservation.booking.application.port;
 
 /** 결제 조회 결과. 다루는 쪽은 Status를 default 없는 switch 식으로 받는다. */
-public record PaymentLookup(Status status, String failureReason) {
+public record PaymentLookup(Status status) {
 
     public enum Status {
         /** 승인 확정. */
@@ -17,17 +17,13 @@ public record PaymentLookup(Status status, String failureReason) {
     }
 
     public static PaymentLookup of(Status status) {
-        return new PaymentLookup(status, null);
-    }
-
-    public static PaymentLookup failed(String reason) {
-        return new PaymentLookup(Status.FAILED, reason);
+        return new PaymentLookup(status);
     }
 
     public ConfirmOutcome toOutcome() {
         return switch (status) {
             case SUCCEEDED -> ConfirmOutcome.succeeded();
-            case FAILED -> ConfirmOutcome.failed(failureReason);
+            case FAILED -> ConfirmOutcome.failed();
             case NOT_RECEIVED, IN_PROGRESS, UNKNOWN_ORDER -> ConfirmOutcome.unknown();
         };
     }
