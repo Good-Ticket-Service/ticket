@@ -8,6 +8,8 @@ public enum PgTransactionStatus {
     DONE,
     /** 전액 취소. */
     CANCELED,
+    /** 일부 금액만 취소됐다. 우리 API는 부분 취소를 받지 않으므로 관리 API의 외부 취소로만 생긴다. */
+    PARTIAL_CANCELED,
     /** 승인이 거절됐다. */
     ABORTED,
     /** 인증 유효 시간 안에 승인 요청이 오지 않았다. */

@@ -1,7 +1,6 @@
 package com.sparta.ticket.fakepg.presentation.dto.toss;
 
 import com.sparta.ticket.fakepg.domain.model.transaction.PgTransaction;
-import com.sparta.ticket.fakepg.domain.model.transaction.PgTransactionStatus;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -29,10 +28,10 @@ public record TossPaymentResponse(
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
     public static TossPaymentResponse from(PgTransaction transaction) {
-        boolean canceled = transaction.getStatus() == PgTransactionStatus.CANCELED;
-        List<Cancel> cancels = canceled
+        int canceledAmount = transaction.canceledAmountOrZero();
+        List<Cancel> cancels = canceledAmount > 0
                 ? List.of(new Cancel(
-                        transaction.getAmount(),
+                        canceledAmount,
                         transaction.getCancelReason(),
                         offset(transaction.getCanceledAt()),
                         transaction.getCancelTransactionKey()))
@@ -47,7 +46,7 @@ public record TossPaymentResponse(
                 "KRW",
                 "카드",
                 transaction.getAmount(),
-                canceled ? 0 : transaction.getAmount(),
+                transaction.getAmount() - canceledAmount,
                 transaction.getStatus().name(),
                 offset(transaction.getRequestedAt()),
                 offset(transaction.getApprovedAt()),

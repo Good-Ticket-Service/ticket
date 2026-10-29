@@ -72,6 +72,9 @@ public class PgTransaction {
     @Column(length = 200)
     private String cancelTransactionKey;
 
+    /** 취소된 금액. 전액 취소면 amount와 같고, 외부 부분 취소면 그보다 작다. 이 컬럼 전의 취소 기록은 NULL이다. */
+    private Integer canceledAmount;
+
     @Column(length = 80)
     private String failureCode;
 
@@ -249,10 +252,38 @@ public class PgTransaction {
 
     public void cancel(String reason, LocalDateTime now) {
         this.status = PgTransactionStatus.CANCELED;
+        this.canceledAmount = amount;
         this.cancelReason = reason;
         this.cancelTransactionKey = newKey("tcancel_");
         this.canceledAt = now;
         this.updatedAt = now;
+    }
+
+    /**
+     * 우리 API를 거치지 않은 취소. 가맹점 관리자 화면이나 PG 고객센터에서 취소된 상황을 만든다. 금액이 승인액보다 작으면
+     * 부분 취소(PARTIAL_CANCELED)다. 승인 완료(DONE) 거래만 바꿀 수 있다.
+     */
+    public void cancelExternally(Integer cancelAmount, String reason, LocalDateTime now) {
+        if (status != PgTransactionStatus.DONE) {
+            throw new PgException(PgErrorCode.NOT_CANCELABLE_PAYMENT);
+        }
+        int canceled = cancelAmount == null ? amount : cancelAmount;
+        if (canceled <= 0 || canceled > amount) {
+            throw new PgException(PgErrorCode.INVALID_REQUEST, "취소 금액은 0보다 크고 승인 금액 이하여야 합니다.");
+        }
+        cancel(reason, now);
+        if (canceled < amount) {
+            this.status = PgTransactionStatus.PARTIAL_CANCELED;
+            this.canceledAmount = canceled;
+        }
+    }
+
+    /** 취소된 금액. 취소 전이면 0이다. 컬럼을 추가하기 전에 전액 취소된 기록은 승인액으로 본다. */
+    public int canceledAmountOrZero() {
+        if (canceledAmount != null) {
+            return canceledAmount;
+        }
+        return status == PgTransactionStatus.CANCELED ? amount : 0;
     }
 
     private static String newKey(String prefix) {

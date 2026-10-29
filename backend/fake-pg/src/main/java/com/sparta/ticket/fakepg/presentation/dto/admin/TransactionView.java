@@ -13,6 +13,7 @@ public record TransactionView(
         LocalDateTime requestedAt,
         LocalDateTime approvedAt,
         LocalDateTime canceledAt,
+        int canceledAmount,
         String cancelTransactionKey,
         String failureCode) {
 
@@ -26,6 +27,7 @@ public record TransactionView(
                 transaction.getRequestedAt(),
                 transaction.getApprovedAt(),
                 transaction.getCanceledAt(),
+                transaction.canceledAmountOrZero(),
                 transaction.getCancelTransactionKey(),
                 transaction.getFailureCode());
     }

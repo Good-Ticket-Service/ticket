@@ -3,6 +3,7 @@ package com.sparta.ticket.fakepg.presentation.controller.kakao;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -158,5 +159,22 @@ class KakaoFaultInjectionTest extends KakaoApiTestBase {
 
         mockMvc.perform(get("/v1/payments/orders/none").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("외부 부분 취소: PART_CANCEL_PAYMENT, 취소액과 취소 가능 금액이 나뉜다")
+    void externalPartialCancel() throws Exception {
+        ready(10_000);
+        approve(userApprove()).andExpect(status().isOk());
+
+        mockMvc.perform(post("/fake/admin/transactions/KAKAO/" + orderId + "/external-cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cancelAmount\":4000}"))
+                .andExpect(status().isOk());
+
+        order(tid)
+                .andExpect(jsonPath("$.status").value("PART_CANCEL_PAYMENT"))
+                .andExpect(jsonPath("$.canceled_amount.total").value(4000))
+                .andExpect(jsonPath("$.cancel_available_amount.total").value(6000));
     }
 }

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS pg_transaction
     canceled_at            TIMESTAMP,
     cancel_reason          VARCHAR(200),
     cancel_transaction_key VARCHAR(200),
+    -- 취소된 금액. 전액 취소면 amount, 관리 API의 외부 부분 취소면 그보다 작다
+    canceled_amount        INT,
     failure_code           VARCHAR(80),
     -- 카카오 전용. 토스 거래는 NULL
     partner_user_id        VARCHAR(100),
@@ -28,13 +30,19 @@ CREATE TABLE IF NOT EXISTS pg_transaction
     CONSTRAINT uk_pg_transaction_payment_key UNIQUE (payment_key),
     -- 실제 PG처럼 주문번호 하나에 거래 하나
     CONSTRAINT uk_pg_transaction_order UNIQUE (provider, order_id),
-    CONSTRAINT ck_pg_transaction_status CHECK (status IN ('READY', 'DONE', 'CANCELED', 'ABORTED', 'EXPIRED')),
+    CONSTRAINT ck_pg_transaction_status CHECK (status IN ('READY', 'DONE', 'CANCELED', 'PARTIAL_CANCELED', 'ABORTED', 'EXPIRED')),
     CONSTRAINT ck_pg_transaction_amount CHECK (amount > 0)
 );
 
 -- 카카오 호환 API(#30) 전에 만든 테이블에 컬럼을 더한다. CREATE TABLE IF NOT EXISTS는 이미 있는 테이블을 바꾸지 않는다.
 ALTER TABLE pg_transaction ADD COLUMN IF NOT EXISTS partner_user_id VARCHAR(100);
 ALTER TABLE pg_transaction ADD COLUMN IF NOT EXISTS pg_token VARCHAR(100);
+
+-- 외부 취소 재현(Task 12) 전에 만든 테이블에 부분 취소 상태와 취소 금액을 더한다. 기존 취소 기록의 canceled_amount는 NULL이며 승인액으로 본다.
+ALTER TABLE pg_transaction ADD COLUMN IF NOT EXISTS canceled_amount INT;
+ALTER TABLE pg_transaction DROP CONSTRAINT IF EXISTS ck_pg_transaction_status;
+ALTER TABLE pg_transaction ADD CONSTRAINT ck_pg_transaction_status
+    CHECK (status IN ('READY', 'DONE', 'CANCELED', 'PARTIAL_CANCELED', 'ABORTED', 'EXPIRED'));
 
 -- 멱등 키 응답 저장. 같은 키로 다시 오면 저장한 응답(성공·업무 거절)을 그대로 돌려준다. 5xx·429는 저장하지 않는다.
 CREATE TABLE IF NOT EXISTS pg_idempotency_record

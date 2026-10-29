@@ -424,6 +424,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | canceled_at | TIMESTAMP |
 | cancel_reason | VARCHAR(200) |
 | cancel_transaction_key | VARCHAR(200) |
+| canceled_amount | INT |
 | failure_code | VARCHAR(80) |
 | partner_user_id | VARCHAR(100) |
 | pg_token | VARCHAR(100) |
@@ -433,7 +434,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT uk_pg_transaction_order UNIQUE (provider, order_id)`.
 
-- `CONSTRAINT ck_pg_transaction_status CHECK (status IN ('READY', 'DONE', 'CANCELED', 'ABORTED', 'EXPIRED'))`.
+- `CONSTRAINT ck_pg_transaction_status CHECK (status IN ('READY', 'DONE', 'CANCELED', 'PARTIAL_CANCELED', 'ABORTED', 'EXPIRED'))`.
 
 - `CONSTRAINT ck_pg_transaction_amount CHECK (amount > 0)`.
 
@@ -507,4 +508,4 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
 | PG provider / payment / refund | 현행 각 테이블 CHECK 참조. NOT_REQUIRED는 응답 전용, 환불 행 없음 |
-| Fake Toss / Kakao status | READY,DONE,CANCELED,ABORTED,EXPIRED / READY,AUTH_PASSWORD,SUCCESS_PAYMENT,CANCEL_PAYMENT,FAIL_PAYMENT,QUIT_PAYMENT |
+| Fake Toss / Kakao status | READY,DONE,CANCELED,PARTIAL_CANCELED,ABORTED,EXPIRED / READY,AUTH_PASSWORD,SUCCESS_PAYMENT,CANCEL_PAYMENT,PART_CANCEL_PAYMENT,FAIL_PAYMENT,QUIT_PAYMENT. 부분 취소는 관리 API의 외부 취소로만 생긴다 |
