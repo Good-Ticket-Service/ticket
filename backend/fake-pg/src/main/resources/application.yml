@@ -31,6 +31,9 @@ management:
         include: health,info,prometheus
 
 fake-pg:
+  # 장애 확률 판단 난수의 seed. 정하면(환경 변수 FAKE_PG_FAULT_SEED) 같은 순서의 판단이 같은 결과를 낸다.
+  # 비우면 실행마다 다르다. 실행 중에는 PUT /fake/admin/faults/seed로 바꾼다.
+  # fault-seed: 42
   toss:
     # 토스 시크릿 키 흉내. payment-service는 Basic 인증(base64("시크릿 키:"))으로 보낸다. 로컬 전용 값이다.
     secret-key: ${FAKE_PG_TOSS_SECRET_KEY:test_sk_fake_toss}

@@ -1,9 +1,9 @@
 package com.sparta.ticket.fakepg.infrastructure.config;
 
+import com.sparta.ticket.fakepg.application.service.fault.FaultRandom;
 import java.time.Clock;
 import java.time.ZoneId;
-import java.util.Random;
-import java.util.random.RandomGenerator;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.TaskScheduler;
@@ -18,10 +18,10 @@ public class FakePgConfig {
         return Clock.system(ZoneId.of("Asia/Seoul"));
     }
 
-    /** 장애 확률 판단용. 여러 요청 스레드가 함께 쓰므로 스레드 안전한 Random을 쓴다. */
+    /** 장애 확률 판단용. fake-pg.fault-seed를 정하면 같은 순서의 판단이 같은 결과를 낸다. 비우면 실행마다 다르다. */
     @Bean
-    public RandomGenerator faultRandom() {
-        return new Random();
+    public FaultRandom faultRandom(@Value("${fake-pg.fault-seed:#{null}}") Long seed) {
+        return new FaultRandom(seed);
     }
 
     /** 지연 승인(늦은 승인)을 나중에 기록하는 스케줄러. */

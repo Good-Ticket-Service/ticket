@@ -56,6 +56,8 @@ public abstract class FakePgIntegrationTest {
     @BeforeEach
     void resetState() {
         faults.reset();
+        faults.resetStats();
+        faults.reseed(null);
         idempotencyRecords.deleteAllRecords();
         transactions.deleteAllTransactions();
     }
