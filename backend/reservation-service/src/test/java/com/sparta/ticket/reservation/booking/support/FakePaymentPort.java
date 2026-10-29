@@ -36,6 +36,7 @@ public class FakePaymentPort implements PaymentPort {
     private volatile Duration lookupDelay = Duration.ZERO;
     private volatile Runnable beforePrepare = () -> {};
     private volatile Supplier<RefundOutcome> refundResult = RefundOutcome::accepted;
+    private volatile boolean crashBeforeConfirmArrives;
 
     public void reset() {
         prepared.clear();
@@ -51,6 +52,7 @@ public class FakePaymentPort implements PaymentPort {
         lookupDelay = Duration.ZERO;
         beforePrepare = () -> {};
         refundResult = RefundOutcome::accepted;
+        crashBeforeConfirmArrives = false;
     }
 
     /** 호출될 때 커넥션 풀에서 빌려 간 연결 수를 함께 기록한다. 원격 호출 중에 DB 연결을 잡고 있지 않은지 본다. */
@@ -74,6 +76,18 @@ public class FakePaymentPort implements PaymentPort {
 
     public void confirmAnswers(Supplier<ConfirmOutcome> answer) {
         this.confirmResult = answer;
+    }
+
+    /** 승인 요청이 payment에 닿기 전에 서버가 꺼진다. payment는 승인 요청을 받지 못한다. */
+    public void crashBeforeConfirmArrives() {
+        this.crashBeforeConfirmArrives = true;
+    }
+
+    /** payment가 승인을 마친 뒤, 그 응답을 받아 예약에 반영하기 전에 서버가 꺼진다. */
+    public void crashAfterConfirmApproved() {
+        this.confirmResult = () -> {
+            throw new ProcessCrash("승인 응답을 받은 직후");
+        };
     }
 
     public void confirmTimesOut() {
@@ -116,6 +130,10 @@ public class FakePaymentPort implements PaymentPort {
 
     @Override
     public ConfirmOutcome confirm(String orderId, String pgAuthToken, long amount) {
+        if (crashBeforeConfirmArrives) {
+            crashBeforeConfirmArrives = false;
+            throw new ProcessCrash("승인 요청을 보내기 직전");
+        }
         record();
         confirmedOrderIds.add(orderId);
         confirmedAmounts.add(amount);

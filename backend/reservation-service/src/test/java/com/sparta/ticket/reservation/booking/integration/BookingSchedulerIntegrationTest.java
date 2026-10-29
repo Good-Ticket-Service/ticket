@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.booking.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
@@ -14,6 +15,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Status;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
+import com.sparta.ticket.reservation.booking.support.ProcessCrash;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
@@ -58,11 +60,9 @@ class BookingSchedulerIntegrationTest extends BookingIntegrationTest {
 
     /** 승인 결과를 모르는 채로 결제 중이 된 예약. 결제 중이 된 시각은 지금 clock이다. */
     private String paymentInProgress(Long reservationId) {
-        String orderId = paymentService
-                .checkout(user, reservationId, new CheckoutCommand(null, "TOSS"))
-                .orderId();
+        String orderId = checkout(reservationId);
         payment.confirmTimesOut();
-        paymentService.confirm(user, reservationId, new ConfirmCommand(orderId, "pk-" + orderId));
+        confirm(reservationId, orderId);
         payment.confirmReturns(ConfirmOutcome.succeeded());
         payment.confirmedOrderIds.clear();
         payment.calledInTransaction.clear();
@@ -191,6 +191,71 @@ class BookingSchedulerIntegrationTest extends BookingIntegrationTest {
         assertThat(statusOf(inProgress)).isEqualTo("PAYMENT_IN_PROGRESS");
         assertThat(statusOf(unknown)).isEqualTo("PAYMENT_IN_PROGRESS");
         assertThat(payment.confirmedOrderIds).as("끝난 결과가 있으면 다시 보내지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("결제 중으로 커밋한 뒤 승인 요청을 보내기 전에 서버가 꺼지면, 결과 확인이 같은 승인을 한 번 보내 확정한다")
+    void recoversWhenRestartedBeforeConfirmRequest() {
+        Long seatId = TestIds.next();
+        Long reservationId = hold(Duration.ofMinutes(10), seatId);
+        String orderId = checkout(reservationId);
+        payment.crashBeforeConfirmArrives();
+
+        assertThatThrownBy(() -> confirm(reservationId, orderId)).isInstanceOf(ProcessCrash.class);
+        assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).as("payment는 승인 요청을 받지 못했다").isEmpty();
+
+        payment.lookupReturns(orderId, PaymentLookup.of(Status.NOT_RECEIVED));
+        clock.advance(Duration.ofMinutes(2));
+        assertThat(reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET))
+                .isEqualTo(1);
+
+        assertThat(statusOf(reservationId)).isEqualTo("CONFIRMED");
+        assertThat(payment.confirmedOrderIds).as("다시 보낸 승인 한 번").containsExactly(orderId);
+        assertThat(seats.sold).containsExactly(List.of(seatId));
+        assertThat(issuedTicketCodes(reservationId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("payment가 승인한 뒤 결과를 반영하기 전에 서버가 꺼지면, 결과 확인이 조회한 성공을 반영하고 승인을 다시 보내지 않는다")
+    void recoversWhenRestartedAfterConfirmApproved() {
+        Long seatId = TestIds.next();
+        Long reservationId = hold(Duration.ofMinutes(10), seatId);
+        String orderId = checkout(reservationId);
+        payment.crashAfterConfirmApproved();
+        double lateSuccessBefore = lateSuccessCount();
+
+        assertThatThrownBy(() -> confirm(reservationId, orderId)).isInstanceOf(ProcessCrash.class);
+        assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(seats.sold).as("반영 전에 꺼져 좌석은 아직 팔리지 않았다").isEmpty();
+
+        payment.lookupReturns(orderId, PaymentLookup.of(Status.SUCCEEDED));
+        clock.advance(Duration.ofMinutes(2));
+        assertThat(reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET))
+                .isEqualTo(1);
+
+        assertThat(statusOf(reservationId)).isEqualTo("CONFIRMED");
+        assertThat(payment.confirmedOrderIds).as("꺼지기 전 승인 한 번뿐이다").containsExactly(orderId);
+        assertThat(seats.sold).containsExactly(List.of(seatId));
+        assertThat(issuedTicketCodes(reservationId)).isEqualTo(1);
+        assertThat(lateSuccessCount()).as("확정했으므로 환불 대상이 아니다").isEqualTo(lateSuccessBefore);
+    }
+
+    private String checkout(Long reservationId) {
+        return paymentService
+                .checkout(user, reservationId, new CheckoutCommand(null, "TOSS"))
+                .orderId();
+    }
+
+    private void confirm(Long reservationId, String orderId) {
+        paymentService.confirm(user, reservationId, new ConfirmCommand(orderId, "pk-" + orderId));
+    }
+
+    private Integer issuedTicketCodes(Long reservationId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM p_tickets WHERE reservation_id = ? AND ticket_code IS NOT NULL",
+                Integer.class,
+                reservationId);
     }
 
     @Test
