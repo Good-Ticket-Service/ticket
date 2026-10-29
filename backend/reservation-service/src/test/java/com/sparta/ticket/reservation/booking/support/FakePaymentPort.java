@@ -5,6 +5,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
+import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,7 @@ import java.util.function.Supplier;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * 결제 대역. 테스트가 준비 응답 금액, 승인 결과, 조회 결과, 응답 지연을 정한다.
+ * 결제 대역. 테스트가 준비 응답 금액, 승인 결과, 조회 결과, 환불 결과, 응답 지연을 정한다.
  * 호출될 때 트랜잭션이 열려 있었는지 기록해 "원격 호출은 트랜잭션 밖" 규칙을 확인한다.
  */
 public class FakePaymentPort implements PaymentPort {
@@ -25,6 +26,7 @@ public class FakePaymentPort implements PaymentPort {
     public final List<Long> confirmedAmounts = new CopyOnWriteArrayList<>();
     public final List<Boolean> calledInTransaction = new CopyOnWriteArrayList<>();
     public final List<String> lookedUpOrderIds = new CopyOnWriteArrayList<>();
+    public final List<String> refundedOrderIds = new CopyOnWriteArrayList<>();
     public final List<Integer> activeConnectionsAtCall = new CopyOnWriteArrayList<>();
     private volatile IntSupplier activeConnections = () -> 0;
     private final Map<String, PaymentLookup> lookups = new ConcurrentHashMap<>();
@@ -33,6 +35,7 @@ public class FakePaymentPort implements PaymentPort {
     private volatile Supplier<ConfirmOutcome> confirmResult = ConfirmOutcome::succeeded;
     private volatile Duration lookupDelay = Duration.ZERO;
     private volatile Runnable beforePrepare = () -> {};
+    private volatile Supplier<RefundOutcome> refundResult = RefundOutcome::accepted;
 
     public void reset() {
         prepared.clear();
@@ -40,12 +43,14 @@ public class FakePaymentPort implements PaymentPort {
         confirmedAmounts.clear();
         calledInTransaction.clear();
         lookedUpOrderIds.clear();
+        refundedOrderIds.clear();
         activeConnectionsAtCall.clear();
         lookups.clear();
         discount = 0;
         confirmResult = ConfirmOutcome::succeeded;
         lookupDelay = Duration.ZERO;
         beforePrepare = () -> {};
+        refundResult = RefundOutcome::accepted;
     }
 
     /** 호출될 때 커넥션 풀에서 빌려 간 연결 수를 함께 기록한다. 원격 호출 중에 DB 연결을 잡고 있지 않은지 본다. */
@@ -81,6 +86,20 @@ public class FakePaymentPort implements PaymentPort {
         lookups.put(orderId, lookup);
     }
 
+    public void refundReturns(RefundOutcome outcome) {
+        this.refundResult = () -> outcome;
+    }
+
+    public void refundAnswers(Supplier<RefundOutcome> answer) {
+        this.refundResult = answer;
+    }
+
+    public void refundTimesOut() {
+        this.refundResult = () -> {
+            throw new IllegalStateException("read timeout");
+        };
+    }
+
     public void lookupDelay(Duration delay) {
         this.lookupDelay = delay;
     }
@@ -109,6 +128,13 @@ public class FakePaymentPort implements PaymentPort {
         lookedUpOrderIds.add(orderId);
         sleep(lookupDelay);
         return lookups.getOrDefault(orderId, PaymentLookup.of(PaymentLookup.Status.IN_PROGRESS));
+    }
+
+    @Override
+    public RefundOutcome refund(String orderId) {
+        record();
+        refundedOrderIds.add(orderId);
+        return refundResult.get();
     }
 
     private void record() {

@@ -29,12 +29,15 @@ class ReservationTest {
 
     @ParameterizedTest
     @EnumSource(ReservationStatus.class)
-    @DisplayName("isConfirmedBy: 같은 orderId로 확정됐을 때만 참이다")
-    void isConfirmedBy(ReservationStatus status) {
+    @DisplayName("wasConfirmedBy: 같은 orderId로 확정된 적이 있을 때만 참이다. 확정 뒤 취소 중이거나 취소돼도 참이다")
+    void wasConfirmedBy(ReservationStatus status) {
         Reservation reservation = reservation(status, ORDER_ID);
 
-        assertThat(reservation.isConfirmedBy(ORDER_ID)).isEqualTo(status == ReservationStatus.CONFIRMED);
-        assertThat(reservation.isConfirmedBy("order-2")).isFalse();
+        assertThat(reservation.wasConfirmedBy(ORDER_ID))
+                .isEqualTo(status == ReservationStatus.CONFIRMED
+                        || status == ReservationStatus.CANCELING
+                        || status == ReservationStatus.CANCELED);
+        assertThat(reservation.wasConfirmedBy("order-2")).isFalse();
     }
 
     @ParameterizedTest

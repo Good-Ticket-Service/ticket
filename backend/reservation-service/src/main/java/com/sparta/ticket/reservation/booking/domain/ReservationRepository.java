@@ -65,6 +65,12 @@ public interface ReservationRepository {
     /** HOLD → RELEASED. 본인 예약이고 선점 시간이 남았을 때만 바꾼다. */
     int releaseHold(Long id, Long userId, ChangeStamp stamp);
 
+    /** CONFIRMED → CANCELING. 본인 예약이고 회차 시작 전일 때만 바꾼다. 좌석은 판매된 그대로다. */
+    int startCancel(Long id, Long userId, ChangeStamp stamp);
+
+    /** CANCELING → CANCELED. payment가 환불 요청을 받은 뒤 부른다. 회차가 시작됐어도 바꾼다. */
+    int cancel(Long id, ChangeStamp stamp);
+
     /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약이 가진 티켓 수. */
     long countActiveTickets(Long userId, Long scheduleId);
 
@@ -90,6 +96,15 @@ public interface ReservationRepository {
     List<Long> findStalePaymentIds(LocalDateTime updatedBefore, int limit);
 
     long countPaymentsInProgress();
+
+    /**
+     * 취소 확인 스케줄러가 환불을 다시 요청한 시각을 남긴다. 아직 취소 중이고 마지막 확인(없으면 취소 시작)이 checkedBefore 이전일 때만
+     * 1행이다. 여러 인스턴스가 같은 예약을 같은 차례에 고르면 한쪽만 다시 요청한다. 상태와 감사 컬럼은 바꾸지 않는다.
+     */
+    int markCancelChecked(Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore);
+
+    /** updatedBefore보다 먼저 취소 중이 된 예약을 오래 확인하지 않은 순으로 고른다. 잠그지 않는다. */
+    List<Long> findStaleCancelIds(LocalDateTime updatedBefore, int limit);
 
     long countStalePayments(LocalDateTime updatedBefore);
 }

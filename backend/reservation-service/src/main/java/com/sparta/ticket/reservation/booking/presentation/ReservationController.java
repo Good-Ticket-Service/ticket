@@ -3,8 +3,10 @@ package com.sparta.ticket.reservation.booking.presentation;
 import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.reservation.booking.application.cancel.ReservationCancelService;
 import com.sparta.ticket.reservation.booking.application.payment.ReservationPaymentService;
 import com.sparta.ticket.reservation.booking.application.query.ReservationQueryService;
+import com.sparta.ticket.reservation.booking.presentation.dto.CancelRequest;
 import com.sparta.ticket.reservation.booking.presentation.dto.CheckoutRequest;
 import com.sparta.ticket.reservation.booking.presentation.dto.CheckoutResponse;
 import com.sparta.ticket.reservation.booking.presentation.dto.ConfirmRequest;
@@ -28,6 +30,7 @@ public class ReservationController {
 
     private final ReservationQueryService reservationQueryService;
     private final ReservationPaymentService reservationPaymentService;
+    private final ReservationCancelService reservationCancelService;
 
     @Operation(summary = "예약 상태 조회", description = "결제 승인 뒤 PAYMENT_IN_PROGRESS를 받았으면 이 API로 폴링한다.")
     @GetMapping("/{reservationId}")
@@ -55,5 +58,16 @@ public class ReservationController {
             @Valid @RequestBody ConfirmRequest request) {
         return ApiResponse.ok(
                 ReservationResponse.from(reservationPaymentService.confirm(user, reservationId, request.toCommand())));
+    }
+
+    @Operation(
+            summary = "예약 취소",
+            description = "확정한 예약을 회차 시작 전에 취소한다. 응답은 예약 상태다. 환불 요청 결과를 모르면 CANCELING이고, 조회 API로 확인한다.")
+    @PostMapping("/{reservationId}/cancel")
+    public ApiResponse<ReservationResponse> cancel(
+            @CurrentUser UserContext user,
+            @PathVariable Long reservationId,
+            @Valid @RequestBody(required = false) CancelRequest request) {
+        return ApiResponse.ok(ReservationResponse.from(reservationCancelService.cancel(user, reservationId)));
     }
 }

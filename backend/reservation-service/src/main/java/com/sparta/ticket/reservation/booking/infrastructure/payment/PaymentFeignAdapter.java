@@ -7,7 +7,9 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
+import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
 import feign.RetryableException;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,9 @@ public class PaymentFeignAdapter implements PaymentPort {
 
     private static final String PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
     private static final String PAYMENT_AMOUNT_MISMATCH = "PAYMENT_AMOUNT_MISMATCH";
+    private static final String USER_CANCEL = "USER_CANCEL";
+    private static final Set<String> REFUND_STATUSES =
+            Set.of("WAITING", "REQUESTED", "DONE", "FAILED", "SKIPPED", "NOT_REQUIRED");
 
     private final PaymentCommandClient commandClient;
     private final PaymentQueryClient queryClient;
@@ -93,6 +98,32 @@ public class PaymentFeignAdapter implements PaymentPort {
             default ->
                 throw new IllegalStateException("알 수 없는 결제 상태다. orderId=" + orderId + ", status=" + response.status());
         };
+    }
+
+    /**
+     * 200에 아는 refundStatus가 오면 값과 관계없이 환불 요청을 받은 것이다. FAILED도 payment가 환불을 맡았다는 뜻이고,
+     * 끝까지 처리하는 책임은 payment에 있다(#127). 본문을 읽지 못했거나 모르는 상태면 받았다고 단정하지 않는다.
+     */
+    @Override
+    public RefundOutcome refund(String orderId) {
+        PaymentRefundResponse response;
+        try {
+            response = commandClient.refund(orderId, new PaymentRefundRequest(USER_CANCEL));
+        } catch (BusinessException e) {
+            if (PAYMENT_NOT_FOUND.equals(e.getErrorCode().code())) {
+                return RefundOutcome.unknownOrder();
+            }
+            throw e;
+        }
+        // Note: Set.of는 null을 물으면 예외를 던진다. 본문에 상태가 없는 응답도 결과 모름으로 받으려고 null을 먼저 거른다.
+        if (response == null || response.refundStatus() == null || !REFUND_STATUSES.contains(response.refundStatus())) {
+            log.error(
+                    "알 수 없는 환불 응답이다. 받았다고 보지 않는다. orderId={}, refundStatus={}",
+                    orderId,
+                    response == null ? null : response.refundStatus());
+            return RefundOutcome.unknown();
+        }
+        return RefundOutcome.accepted();
     }
 
     private static BusinessException unavailable(RetryableException cause) {

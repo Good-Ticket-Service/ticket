@@ -78,6 +78,8 @@ public class Reservation extends BaseEntity {
 
     private LocalDateTime refundRequiredAt;
 
+    private LocalDateTime cancelCheckedAt;
+
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
     private List<Ticket> tickets = new ArrayList<>();
@@ -147,9 +149,12 @@ public class Reservation extends BaseEntity {
         return status == ReservationStatus.PAYMENT_IN_PROGRESS && isAttempt(orderId);
     }
 
-    /** 이 orderId의 결제 시도로 이미 확정됐다. 같은 성공이나 승인이 다시 온 것이다. */
-    public boolean isConfirmedBy(String orderId) {
-        return status == ReservationStatus.CONFIRMED && isAttempt(orderId);
+    /** 이 orderId의 결제 시도로 확정된 적이 있다. 같은 성공이 다시 온 것이다. 확정 뒤 취소 중이거나 취소됐어도 같다. */
+    public boolean wasConfirmedBy(String orderId) {
+        return (status == ReservationStatus.CONFIRMED
+                        || status == ReservationStatus.CANCELING
+                        || status == ReservationStatus.CANCELED)
+                && isAttempt(orderId);
     }
 
     /** 사용자 해제나 시간 초과로 이미 끝난 선점이다. */

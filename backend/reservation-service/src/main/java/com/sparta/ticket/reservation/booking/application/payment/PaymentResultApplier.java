@@ -69,11 +69,11 @@ public class PaymentResultApplier {
 
     /**
      * 확정하지 않은 성공을 지금 상태로 가린다. 같은 시도로 이미 확정됐으면 같은 성공이 다시 온 것이라 무시하고,
-     * 그 밖에는 자동 환불 대상으로 센다.
+     * 그 밖에는 자동 환불 대상으로 센다. 확정 뒤 사용자가 취소했어도 같은 성공이다. 환불은 취소가 이미 요청했다.
      */
     private void recordUnconfirmedSuccess(Reservation current, String orderId, ChangeStamp stamp) {
         Long id = current.getId();
-        if (current.isConfirmedBy(orderId)) {
+        if (current.wasConfirmedBy(orderId)) {
             return;
         }
         // Note: 확정하지 못한 지금 시도는 결제 중으로 남아 결과 확인이 같은 성공을 계속 다시 받는다.

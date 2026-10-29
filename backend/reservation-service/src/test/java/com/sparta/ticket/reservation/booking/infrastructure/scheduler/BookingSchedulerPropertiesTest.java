@@ -40,12 +40,16 @@ class BookingSchedulerPropertiesTest {
         assertThat(expiry.timeBudget()).as("한 번 실행은 다음 주기 전에 끝난다").isLessThan(expiry.interval());
         assertThat(reconcile.timeBudget()).as("한 번 실행은 다음 주기 전에 끝난다").isLessThan(reconcile.interval());
         assertThat(reconcile.stuckAfter()).isGreaterThan(reconcile.threshold());
+        BookingSchedulerProperties.CancelReconcile cancel = properties.cancelReconcile();
+        assertThat(cancel.timeBudget()).as("한 번 실행은 다음 주기 전에 끝난다").isLessThan(cancel.interval());
     }
 
     @Test
-    @DisplayName("결과 확인 기준 시간은 config-repo의 어떤 Feign 클라이언트의 최대 대기(connect + read)보다도 길다")
+    @DisplayName("결과 확인·취소 확인 기준 시간은 config-repo의 어떤 Feign 클라이언트의 최대 대기(connect + read)보다도 길다")
     void thresholdOutlastsEveryFeignClient() throws IOException {
-        Duration threshold = loadFromConfigRepo().paymentReconcile().threshold();
+        BookingSchedulerProperties properties = loadFromConfigRepo();
+        Duration threshold = properties.paymentReconcile().threshold();
+        Duration cancelThreshold = properties.cancelReconcile().threshold();
         Map<String, Object> feign = loadFeignTimeouts();
 
         Set<String> clients = new TreeSet<>();
@@ -56,6 +60,9 @@ class BookingSchedulerPropertiesTest {
                     timeout(feign, client, "connect-timeout") + timeout(feign, client, "read-timeout"));
             assertThat(threshold)
                     .as("처리 중인 승인을 또 보내지 않도록 %s의 최대 대기 %s보다 길다", client, maxWait)
+                    .isGreaterThan(maxWait);
+            assertThat(cancelThreshold)
+                    .as("사용자 요청이 아직 기다리는 환불을 또 보내지 않도록 %s의 최대 대기 %s보다 길다", client, maxWait)
                     .isGreaterThan(maxWait);
         }
     }
