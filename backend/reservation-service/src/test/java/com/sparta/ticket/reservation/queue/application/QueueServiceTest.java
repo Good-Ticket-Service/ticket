@@ -44,6 +44,11 @@ class QueueServiceTest {
             calls.incrementAndGet();
             return inQueue ? Optional.of(new QueuePosition(aheadCount)) : Optional.empty();
         }
+
+        @Override
+        public void leave(long performanceId, long userId) {
+            calls.incrementAndGet();
+        }
     }
 
     @Test

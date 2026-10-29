@@ -27,6 +27,7 @@ public class RedisWaitingQueue implements WaitingQueue {
 
     private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua");
     private static final RedisScript<Long> POSITION_SCRIPT = loadScript("queue/position.lua");
+    private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua");
 
     /** position.lua가 줄에 없을 때 돌려주는 값. */
     private static final long NOT_IN_QUEUE = -1;
@@ -51,6 +52,16 @@ public class RedisWaitingQueue implements WaitingQueue {
         List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
         Long rank = execute(POSITION_SCRIPT, keys, String.valueOf(userId));
         return rank == NOT_IN_QUEUE ? Optional.empty() : Optional.of(new QueuePosition(rank));
+    }
+
+    /**
+     * 대기 줄과 조회 시각을 Lua 하나로 함께 지운다. 따로 지우면 그 사이 순번 조회가 끼어들 때 줄에는 없는데 조회 시각만 남거나,
+     * 조회 시각이 지워진 회원이 줄에 남아 이탈자로 잘못 정리될 수 있다.
+     */
+    @Override
+    public void leave(long performanceId, long userId) {
+        List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
+        execute(LEAVE_SCRIPT, keys, String.valueOf(userId));
     }
 
     /** Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503으로 거절한다(fail-closed). 통과시키면 막으려던 요청이 예매 서버로 몰린다. */

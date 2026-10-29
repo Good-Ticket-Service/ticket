@@ -116,6 +116,46 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("대기를 취소하면 줄과 조회 시각에서 함께 빠지고, 뒤 회원의 순번이 당겨진다")
+    void leave() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        waitingQueue.enter(performanceId, 3L);
+        waitingQueue.findPosition(performanceId, 7L);
+
+        waitingQueue.leave(performanceId, 7L);
+
+        assertThat(waitingQueue.findPosition(performanceId, 7L)).isEmpty();
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "7")).isNull();
+        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(0));
+    }
+
+    @Test
+    @DisplayName("줄에 없는 회원이 취소해도 오류 없이 끝나고 다른 회원은 그대로다")
+    void leaveNotInQueue() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+
+        waitingQueue.leave(performanceId, 3L);
+        waitingQueue.leave(performanceId, 3L);
+
+        assertThat(waitingQueue.findPosition(performanceId, 7L)).contains(new QueuePosition(0));
+    }
+
+    @Test
+    @DisplayName("취소한 뒤 다시 진입하면 원래 자리가 아니라 맨 뒤에 선다")
+    void reenterAfterLeave() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        waitingQueue.enter(performanceId, 3L);
+
+        waitingQueue.leave(performanceId, 7L);
+        QueuePosition again = waitingQueue.enter(performanceId, 7L);
+
+        assertThat(again.position()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("같은 회원이 동시에 50번 진입해도 줄에는 한 번만 서고, 번호도 하나만 쓴다")
     void sameUserConcurrently() throws Exception {
         long performanceId = newPerformanceId();
