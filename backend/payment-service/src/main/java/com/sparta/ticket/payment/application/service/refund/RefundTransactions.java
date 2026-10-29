@@ -145,7 +145,11 @@ public class RefundTransactions {
     }
 
     private LocalDateTime nextAttempt(Refund refund, LocalDateTime now) {
-        long seconds = refund.getRecoveryMode() == RefundRecoveryMode.ACTIVE
+        // Note: 조회 전용으로 바뀐 직후의 첫 재조회는 기본 백오프로 한다. 응답만 틀렸고 취소는 끝난 경우가 많아,
+        // 저빈도 첫 간격(600초)을 기다리면 완료 확정이 늦어진다(#164 I1).
+        boolean firstVerification =
+                refund.getRecoveryMode() == RefundRecoveryMode.VERIFY_ONLY && refund.getSlowAttempts() == 0;
+        long seconds = refund.getRecoveryMode() == RefundRecoveryMode.ACTIVE || firstVerification
                 ? properties.claimSeconds(refund.getRecoveryAttempts())
                 : properties.slowSeconds(
                         refund.getSlowAttempts(),

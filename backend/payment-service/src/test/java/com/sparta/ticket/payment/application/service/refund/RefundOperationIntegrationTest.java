@@ -389,6 +389,31 @@ class RefundOperationIntegrationTest extends PaymentIntegrationTest {
         assertThat(refund(p).getCancelAttempt()).isZero();
     }
 
+    /** #164: 업무 거절은 원인 해결 확인 + PG 승인 전액 그대로일 때만 새 키로 재시도하고, 부분 취소면 거절한다. */
+    @Test
+    void businessRejectionRetriesWithNewKeyOnlyWhenPgApprovalIsUntouched() {
+        Payment p = rejected("CANCEL_DENIED");
+        var retried = operations.execute(
+                request(p, RefundOperation.Action.RETRY, RefundOperation.Reason.ROOT_CAUSE_FIXED), "operator");
+        assertThat(retried.result()).isEqualTo(RefundOperation.Result.APPLIED);
+        pg.cancelReturns(r -> {
+            assertThat(r.idempotencyKey()).endsWith(":cancel:1");
+            return new PgResult.Approved("c", r.amount(), now());
+        });
+        job.runOnce();
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.DONE);
+
+        Payment partial = rejected("NOT_CANCELABLE_PAYMENT");
+        pg.inquireReturns(r -> new PgInquiry.Inconsistent("PG_PARTIAL_CANCELLATION"));
+        assertThat(operations
+                        .execute(
+                                request(partial, RefundOperation.Action.RETRY, RefundOperation.Reason.ROOT_CAUSE_FIXED),
+                                "operator")
+                        .result())
+                .isEqualTo(RefundOperation.Result.DENIED);
+        assertThat(refund(partial).getCancelAttempt()).isZero();
+    }
+
     @Test
     void expiredKeyAndNonRetryableRejectionCannotCreateNewKey() {
         Payment p = rejected("UNAUTHORIZED_KEY");

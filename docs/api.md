@@ -427,6 +427,7 @@
 - OperationHistory: commandId/action/actor/reason/result/explanation/expectedState/beforeState/afterState/inquiry:string,processedAt:datetime.
 - 목록은 미완료 환불만 반환하며 after/nextCursor는 refund ID다. 상세의 refresh=true만 PG 읽기 전용 조회를 수행한다. pgObservation=NOT_QUERIED/APPROVED/CANCELED_REQUIRES_VALIDATION/INCONSISTENT/NOT_FOUND/UNKNOWN.
 - 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는409 REFUND_COMMAND_CONFLICT. STALE/DENIED는409,PG_UNKNOWN은503이며 명령 결과는 저장한다. 동일 명령의 결과 불명은 같은 commandId로 확인한다.
+- retry 허용: AUTH_CONFIGURATION_FIXED는 인증 거절(TOSS UNAUTHORIZED_KEY, KAKAO -401), ROOT_CAUSE_FIXED는 조회 전용의 거래·금액 불일치와 업무 거절(FAILED·PAUSED, #164). 모두 PG 조회로 같은 거래의 승인 전액이 그대로이고 자동 쓰기 기간 안일 때만 APPLIED, 결과 불명·부분 취소·기간 초과는 거절.
 - resume는 조회 전용 재개, retry의 APPLIED는 기존 Recovery에 실행을 예약한 상태다. PG 취소·고객 계좌 반영 완료를 뜻하지 않는다. 실행자·명령 종류는 본문에서 받지 않는다.
 
 ## 서비스 내부 모듈 계약
