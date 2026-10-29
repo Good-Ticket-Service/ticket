@@ -108,4 +108,28 @@ class QueueServiceTest {
                 .isEqualTo(QueueErrorCode.QUEUE_DISABLED);
         assertThat(waitingQueue.calls).hasValue(0);
     }
+
+    @Test
+    @DisplayName("대기 취소는 줄에서 빼는 일을 저장소에 넘긴다")
+    void leave() {
+        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(0);
+        QueueService service = new QueueService(waitingQueue, new QueueProperties(true, 10));
+
+        service.leave(1L, 7L);
+
+        assertThat(waitingQueue.calls).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("대기열이 꺼져 있으면 대기 취소도 503 QUEUE_DISABLED")
+    void leaveDisabled() {
+        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(0);
+        QueueService service = new QueueService(waitingQueue, new QueueProperties(false, 10));
+
+        assertThatThrownBy(() -> service.leave(1L, 7L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(QueueErrorCode.QUEUE_DISABLED);
+        assertThat(waitingQueue.calls).hasValue(0);
+    }
 }
