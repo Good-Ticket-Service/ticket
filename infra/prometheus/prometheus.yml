@@ -1,6 +1,19 @@
 # Prometheus 수집 설정. docker-compose.yml의 prometheus 서비스가 마운트한다.
 global:
   scrape_interval: 5s
+  evaluation_interval: 15s
+  # 경보를 환경별로 묶는 라벨. 서버 배포에서는 이 값을 dev 등으로 바꾼다.
+  external_labels:
+    environment: local
+
+# payment 중복 제거 지표와 위험 경보(Task 11-B). 시험은 infra/prometheus/tests/에 있다.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: prometheus
@@ -21,3 +34,10 @@ scrape_configs:
         action: lowercase
       - source_labels: [__meta_eureka_app_instance_id]
         target_label: instance
+
+  # Alertmanager 자체 지표. Slack 전송 실패(alertmanager_notifications_failed_total)를 경보로 본다.
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels:
+          application: alertmanager
