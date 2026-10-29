@@ -113,6 +113,8 @@ public class Coupon extends BaseEntity {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
         // 2) 발급이 시작됐으면 할인액·시작 시각·유효 일수는 바꿀 수 없다
+        // 발급이 시작됐고(&&) 세 항목 중 하나라도 changes가 true(지금 값과 다른 값으로 바꾸려 함)면 예외다.
+        // 보내지 않았거나 같은 값이면 changes가 false라 통과하고, 이름·총 수량·종료 시각은 시작 뒤에도 바꿀 수 있다
         if (isIssueStarted(now)
                 && (changes(discountAmount, this.discountAmount)
                         || changes(issueStartAt, this.issueStartAt)
@@ -135,6 +137,7 @@ public class Coupon extends BaseEntity {
         // 4) 바뀐 뒤의 발급 기간을 만들어 순서와 종료 시각을 다시 확인한다. 한쪽만 보내도 다른 쪽은 지금 값과 비교한다
         LocalDateTime nextStart = issueStartAt != null ? issueStartAt : this.issueStartAt;
         LocalDateTime nextEnd = issueEndAt != null ? issueEndAt : this.issueEndAt;
+        // 기간을 보냈을 때만 검증한다. 끝난 쿠폰은 종료 시각이 과거라, 항상 검증하면 이름·수량만 고쳐도 400이 된다
         if (issueStartAt != null || issueEndAt != null) {
             requireValidEnd(nextStart, nextEnd, now);
         }
