@@ -19,7 +19,6 @@ import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSummary;
 import com.sparta.ticket.performance.application.dto.VenueSummary;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
-import com.sparta.ticket.performance.domain.performance.PublicationStatus;
 import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.performance.QPerformanceGradePrice;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
@@ -134,7 +133,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .join(VENUE)
                 .on(VENUE.id.eq(PERFORMANCE.venueId))
                 // 상세는 취소된 공연도 보여 준다(취소 안내). 운영 상태 조건을 걸지 않는다.
-                .where(PERFORMANCE.id.eq(performanceId), publishedAndNotDeleted())
+                .where(PERFORMANCE.id.eq(performanceId), PublicPerformanceCondition.publishedAndNotDeleted())
                 .fetchOne();
         if (row == null) {
             return Optional.empty();
@@ -186,17 +185,10 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .toList();
     }
 
-    /** 공개됐고 공연·공연장이 삭제되지 않은 공연. 삭제 조건은 @SQLRestriction과 겹치지만 조회 기준을 쿼리에서 바로 읽히게 적는다. */
-    private BooleanBuilder publishedAndNotDeleted() {
-        return new BooleanBuilder()
-                .and(PERFORMANCE.publicationStatus.eq(PublicationStatus.PUBLISHED))
-                .and(PERFORMANCE.deletedAt.isNull())
-                .and(VENUE.deletedAt.isNull());
-    }
-
     /** 목록 대상. 명세의 "공개·미삭제·정상 공연"이므로 취소된 공연은 뺀다. */
     private BooleanBuilder listablePerformance() {
-        return publishedAndNotDeleted().and(PERFORMANCE.operationStatus.eq(OperationStatus.ACTIVE));
+        return PublicPerformanceCondition.publishedAndNotDeleted()
+                .and(PERFORMANCE.operationStatus.eq(OperationStatus.ACTIVE));
     }
 
     private BooleanBuilder filters(PublicPerformanceSearchCondition condition) {

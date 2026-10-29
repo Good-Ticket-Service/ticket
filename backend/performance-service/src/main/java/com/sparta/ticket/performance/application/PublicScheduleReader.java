@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.application;
 
 import com.sparta.ticket.performance.application.dto.PublicScheduleRow;
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import java.util.List;
 import java.util.Optional;
 
@@ -10,12 +11,12 @@ import java.util.Optional;
  */
 public interface PublicScheduleReader {
 
-    /** 공개 공연이 있으면 true. 없거나 초안·삭제된 공연, 삭제된 공연장의 공연은 false다. */
-    boolean existsPublicPerformance(Long performanceId);
+    /** 공개 공연의 운영 상태. 없거나 초안·삭제된 공연, 삭제된 공연장의 공연은 empty다. */
+    Optional<OperationStatus> findPublicPerformanceStatus(Long performanceId);
 
-    /** 공개 공연의 회차. 삭제 회차는 빼고 취소 회차는 넣는다. 시작 시각 순, 같으면 ID 순이다. */
+    /** 공연의 회차. 부모 공연이 공개 공연인지는 보지 않는다. 삭제 회차는 빼고 취소 회차는 넣는다. 시작 시각 순, 같으면 ID 순이다. */
     List<PublicScheduleRow> findSchedules(Long performanceId);
 
-    /** 공개 공연에 속한 회차 하나. 회차가 삭제됐거나 부모 공연이 공개 공연이 아니면 empty다. 취소 회차는 돌려준다. */
+    /** 삭제되지 않은 회차 하나. 부모 공연이 공개 공연인지는 보지 않는다. 취소 회차는 돌려준다. */
     Optional<PublicScheduleRow> findSchedule(Long scheduleId);
 }

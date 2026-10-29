@@ -18,10 +18,14 @@ public record PublicSchedule(
         SalesStatus salesStatus,
         LocalDateTime canceledAt) {
 
-    /** now 기준으로 판매 상태를 계산해 붙인다. */
-    public static PublicSchedule of(PublicScheduleRow row, LocalDateTime now) {
+    /**
+     * now 기준으로 판매 상태를 계산해 붙인다.
+     *
+     * @param performanceStatus 부모 공연의 운영 상태. 공연이 취소되면 회차도 CANCELED다. 응답에는 넣지 않는다.
+     */
+    public static PublicSchedule of(PublicScheduleRow row, OperationStatus performanceStatus, LocalDateTime now) {
         SalesStatus salesStatus = SalesStatus.of(
-                row.performanceStatus(),
+                performanceStatus,
                 row.operationStatus(),
                 row.bookingOpenAt(),
                 row.bookingCloseAt(),
