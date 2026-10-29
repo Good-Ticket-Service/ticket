@@ -7,7 +7,6 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -60,11 +59,8 @@ public class PaymentResultApplier {
     /** 좌석을 잠그고 확정한다. 확정됐을 때만 티켓 코드를 발급하고 true. */
     private boolean tryConfirm(Reservation reservation, String orderId, ChangeStamp stamp) {
         Long id = reservation.getId();
-        if (transitionExecutor.execute(
-                ReservationTransition.CONFIRM,
-                id,
-                reservation.getSeatIds(),
-                () -> reservationRepository.confirm(id, orderId, stamp))) {
+        if (transitionExecutor.confirmAndSell(
+                id, reservation.getSeatIds(), () -> reservationRepository.confirm(id, orderId, stamp))) {
             reservation.issueTicketCodes();
             return true;
         }
@@ -102,16 +98,9 @@ public class PaymentResultApplier {
         }
         Long id = reservation.getId();
         if (reservation.isHoldExpiredAt(stamp.at())) {
-            return transitionExecutor.execute(
-                    ReservationTransition.EXPIRE_AFTER_FAILURE,
-                    id,
-                    reservation.getSeatIds(),
-                    () -> reservationRepository.expireAfterFailure(id, orderId, stamp));
+            return transitionExecutor.expireAndRelease(
+                    id, reservation.getSeatIds(), () -> reservationRepository.expireAfterFailure(id, orderId, stamp));
         }
-        return transitionExecutor.execute(
-                ReservationTransition.RETURN_TO_HOLD,
-                id,
-                reservation.getSeatIds(),
-                () -> reservationRepository.returnToHold(id, orderId, stamp));
+        return reservationRepository.returnToHold(id, orderId, stamp) == 1;
     }
 }

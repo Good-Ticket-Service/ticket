@@ -6,7 +6,6 @@ import com.sparta.ticket.reservation.booking.application.ReservationTransitionEx
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,11 +32,8 @@ public class HoldExpiryTransactions {
         if (reservation == null || !reservation.isExpirableAt(stamp.at())) {
             return false;
         }
-        boolean expired = transitionExecutor.execute(
-                ReservationTransition.EXPIRE_HOLD,
-                reservationId,
-                reservation.getSeatIds(),
-                () -> reservationRepository.expireHold(reservationId, stamp));
+        boolean expired = transitionExecutor.expireAndRelease(
+                reservationId, reservation.getSeatIds(), () -> reservationRepository.expireHold(reservationId, stamp));
         if (expired) {
             metrics.expiredHold();
         }
