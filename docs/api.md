@@ -484,11 +484,15 @@
 | GET /fake/admin/faults/{provider}/{operation} | 없음 | 200 Fault |
 | PUT /fake/admin/faults/{provider}/{operation} | Fault | 200 Fault |
 | DELETE /fake/admin/faults | 없음 | 204 |
+| GET /fake/admin/faults/stats | 없음 | 200 장애 적용 횟수 맵(provider.operation→FaultStats); 장애 설정 초기화로 비워지지 않음 |
+| DELETE /fake/admin/faults/stats | 없음 | 204 |
+| GET /fake/admin/faults/seed | 없음 | 200 `{seed:long|null}` |
+| PUT /fake/admin/faults/seed | seed?:long(생략=실행마다 다른 난수) | 200 `{seed:long|null}`; 확률 판단 순서를 처음부터 다시 시작. 기동 시 기본값은 `FAKE_PG_FAULT_SEED` |
 | GET /fake/admin/transactions | Q orderId?:string,status?:string,limit?:int=100(1~1000 보정) | 200 `TransactionView[]`; 최신순 |
 | POST /fake/admin/transactions/{provider}/{orderId}/external-cancel | cancelAmount?:int(생략=전액),reason?:string | 200 TransactionView; 우리 API를 거치지 않은 취소. 승인액 미만이면 PARTIAL_CANCELED. E 404 NOT_FOUND_PAYMENT, 403 NOT_CANCELABLE_PAYMENT(DONE 아님), 400 INVALID_REQUEST(금액 범위) |
 | DELETE /fake/admin/transactions | 없음 | 204 거래/멱등 기록 초기화 |
 
 - provider=TOSS/KAKAO; operation=READY(KAKAO만)/CONFIRM/INQUIRE/CANCEL.
-- Fault=`{latencyMs?:long>=0,serverErrorRate?:double[0,1],failRate?:double[0,1],responseLossRate?:double[0,1],delayedApprovalRate?:double[0,1],delayedApprovalMs?:long>=0,holdMs?:long>=0(기본15000),rateLimitPerSecond?:int>=0(0=무제한),tamperRate?:double[0,1],tamperMode?:MISSING_FIELDS|OTHER_TRANSACTION|WRONG_AMOUNT}`. 생략은 장애 없음. tamper는 처리·저장은 정상이고 내보내는 2xx 본문만 바꾼다(거래 키·금액·시각 제거, 다른 거래 키·주문번호, 금액+1000). tamperRate>0이면 tamperMode 필수.
+- Fault=`{latencyMs?:long>=0,serverErrorRate?:double[0,1],failRate?:double[0,1],responseLossRate?:double[0,1],delayedApprovalRate?:double[0,1],delayedApprovalMs?:long>=0,holdMs?:long>=0(기본15000),rateLimitPerSecond?:int>=0(0=무제한),tamperRate?:double[0,1],tamperMode?:MISSING_FIELDS|OTHER_TRANSACTION|WRONG_AMOUNT}`. 생략은 장애 없음. tamper는 처리·저장은 정상이고 내보내는 2xx 본문만 바꾼다(거래 키·금액·시각 제거, 다른 거래 키·주문번호, 금액+1000). tamperRate>0이면 tamperMode 필수. FaultStats=`{requests,latencyApplied,rateLimited,serverErrors,rejections,delayedApprovals,responseLosses,tampered:long}`; requests는 429·멱등 재현 포함, rejections는 거절을 정한 횟수. 같은 seed라도 동시 요청은 도착 순서에 따라 거래별 장애가 달라질 수 있다.
 
 - TransactionView=`{provider:string,paymentKey:string,orderId:string,amount:int,status:string,requestedAt:datetime,approvedAt:datetime|null,canceledAt:datetime|null,canceledAmount:int,cancelTransactionKey:string|null,failureCode:string|null}`.
