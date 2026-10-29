@@ -23,3 +23,24 @@ pg:
     base-url: ${PG_BASE_URL:http://localhost:8090}
     secret-key: ${PG_KAKAO_SECRET_KEY:DEV_fake_kakao}
     cid: ${PG_KAKAO_CID:TC0ONETIME}
+
+
+# DB 집계는 별도 관측 스레드에서 수행한다. scrape는 메모리 스냅샷만 읽는다.
+payment:
+  observation:
+    enabled: true
+    interval-ms: 15000
+
+management:
+  metrics:
+    distribution:
+      slo:
+        http.server.requests: 100ms,500ms,1s,2s,5s,10s,30s
+        payment.pg.http.duration: 50ms,200ms,1s,3s,10s,15s
+        payment.refund.accept.duration: 10ms,50ms,100ms,500ms,1s
+        payment.refund.request.duration: 100ms,500ms,1s,5s,15s,30s
+        payment.refund.completion.duration: 1s,10s,60s,300s,900s,3600s,86400s
+        payment.refund.record.completion.duration: 1s,10s,60s,300s,900s,3600s,86400s
+        payment.approval.completion.duration: 100ms,1s,5s,10s,60s,300s
+        payment.compensation.discovery.duration: 1s,10s,60s,300s,900s,3600s,86400s
+        payment.execution.claim.delay: 100ms,1s,10s,60s,300s,900s,3600s
