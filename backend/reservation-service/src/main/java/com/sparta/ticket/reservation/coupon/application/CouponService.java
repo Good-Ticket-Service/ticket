@@ -88,7 +88,11 @@ public class CouponService {
         }
     }
 
-    /** 쿠폰 행을 잠그고 읽는다. 없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND. */
+    /**
+     * 쿠폰 행을 잠그고 읽는다. 없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND.
+     * Note: 비관적 락(PESSIMISTIC_WRITE, SELECT ... FOR UPDATE)이다. 커밋할 때까지 같은 행을 바꾸려는
+     * 발급 수량 UPDATE·삭제·다른 수정은 기다리므로, 읽은 값으로 판단하는 동안 값이 바뀌지 않는다.
+     */
     private Coupon lockCoupon(Long couponId) {
         return couponRepository
                 .lockById(couponId)
