@@ -161,6 +161,27 @@ class SaleValidationFeignAdapterTest {
         assertThat(STUB.count(PATH)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("계약과 다른 응답은 503이다: allowed 없음, 사유 없는 거절, 요청과 다른 좌석, 판매자 없음")
+    void contractViolations() {
+        List<String> bodies = List.of("{}", """
+                {"allowed": false, "reasonCode": null, "scheduleId": 201, "seats": []}""", """
+                {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
+                 "configVersion": 2, "policyVersion": 3,
+                 "seats": [{"venueSeatId": 1002, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""", """
+                {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11,
+                 "configVersion": 2, "policyVersion": 3,
+                 "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""");
+
+        for (String body : bodies) {
+            STUB.respond(PATH, 200, body);
+            assertThatThrownBy(() -> adapter.validate(201L, 2L, List.of(1001L)))
+                    .as(body)
+                    .extracting(e -> ((BusinessException) e).getErrorCode().code())
+                    .isEqualTo("SERVICE_UNAVAILABLE");
+        }
+    }
+
     /**
      * "메서드 경로"마다 정해 둔 응답을 돌려주고, 받은 요청 본문과 횟수를 기록하는 HTTP 스텁.
      * 요청 한 건마다 연결을 닫는 HTTP/1.1만 다룬다. Feign 기본 클라이언트의 요청에는 이것으로 충분하다.
