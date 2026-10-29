@@ -255,6 +255,21 @@ public class PaymentTransactions {
         return paymentRepository.saveAndFlush(payment);
     }
 
+    /** 같은 결제의 PG 준비를 한 요청만 부르게 점유한다. 커밋한 뒤 PG를 부른다(Payment.claimPgReady). */
+    @Transactional
+    public boolean claimPgReady(Long paymentId, Duration lease) {
+        Payment payment = paymentRepository
+                .lockById(paymentId)
+                .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
+        LocalDateTime now = LocalDateTime.now(clock);
+        return payment.claimPgReady(now, now.plus(lease));
+    }
+
+    @Transactional
+    public void releasePgReady(Long paymentId) {
+        paymentRepository.lockById(paymentId).ifPresent(Payment::releasePgReady);
+    }
+
     /** PG 준비 결과를 반영한다. 잠근 뒤 아직 준비를 기다리는 결제일 때만 바꾼다(Payment.applyPgReady). */
     @Transactional
     public Payment applyPgReady(Long paymentId, PgReadyResult result) {
