@@ -1,0 +1,143 @@
+# Task 12 결제·환불 장애 주입 정합성 시험(#141) 전용 단독 환경.
+# 실행: docker compose -p ticket-t12 -f script/task12/compose.yml up -d --build
+#   (실행기 script/task12/run.py가 같은 명령으로 띄운다)
+#
+# - 사용자 개발 스택(docker-compose.yml)과 프로젝트 이름·네트워크·볼륨·포트가 겹치지 않는다. 기존 컨테이너를 건드리지 않는다.
+# - payment는 local이 아닌 task12 프로필로 띄운다. local 프로필은 ddl-auto: create라 재시작할 때마다 테이블을 지우므로
+#   재시작 시나리오가 의미 없어진다. 테이블은 backend/sql/payment-service/schema.sql로 한 번 만들고 Hibernate는 검사만 한다.
+# - payment에는 Kafka·Redis·Eureka가 필요 없다. Config Server만 함께 띄우고 Eureka 등록은 끈다.
+# - 시간 단축 시험(대사 체크포인트·SLOW 전환)은 T12_* 환경 변수로만 바꾼다. 기본값은 운영 기본값과 같다.
+# - 관리용 포트는 이 PC(127.0.0.1)에만 연다. 비밀번호는 시험 전용 값이다.
+
+x-payment: &payment
+  build:
+    context: ../../backend
+    args: { MODULE: payment-service }
+  environment: &payment-env
+    SPRING_PROFILES_ACTIVE: task12
+    CONFIG_SERVER_URL: http://config-server:8888
+    EUREKA_CLIENT_ENABLED: "false"
+    DB_HOST: postgres
+    PAYMENT_DB_PASSWORD: t12_payment_pw
+    PG_BASE_URL: http://fake-pg:8090
+    # 인증 설정 오류 시나리오(B5b)에서만 잘못된 키로 바꿔 재기동한다
+    PG_TOSS_SECRET_KEY: ${T12_PG_TOSS_SECRET_KEY:-test_sk_fake_toss}
+    PG_KAKAO_SECRET_KEY: ${T12_PG_KAKAO_SECRET_KEY:-DEV_fake_kakao}
+    PAYMENT_RECONCILE_CHECKPOINTSMINUTES: ${T12_RECONCILE_CHECKPOINTS:-1,5,15,60,1440}
+    PAYMENT_RECOVERY_REFUND_SLOWAFTERMINUTES: ${T12_REFUND_SLOW_AFTER_MINUTES:-60}
+    PAYMENT_RECOVERY_REFUND_SLOWINITIALSECONDS: ${T12_REFUND_SLOW_INITIAL_SECONDS:-600}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    config-server:
+      condition: service_healthy
+    fake-pg:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fs localhost:8084/actuator/health || exit 1"]
+    interval: 3s
+    retries: 40
+  networks: [t12-net]
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ticket
+      POSTGRES_USER: t12_admin
+      POSTGRES_PASSWORD: t12_admin_pw
+      USER_DB_PASSWORD: t12_unused_pw
+      PERFORMANCE_DB_PASSWORD: t12_unused_pw
+      RESERVATION_DB_PASSWORD: t12_unused_pw
+      PAYMENT_DB_PASSWORD: t12_payment_pw
+      FAKE_PG_DB_PASSWORD: t12_fake_pg_pw
+    volumes:
+      - t12-pgdata:/var/lib/postgresql/data
+      - ../../infra/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ./init-payment-schema.sh:/docker-entrypoint-initdb.d/20-payment-schema.sh:ro
+      - ../../backend/sql/payment-service/schema.sql:/t12/payment-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U t12_admin -d ticket"]
+      interval: 3s
+      retries: 20
+    networks: [t12-net]
+
+  config-server:
+    build:
+      context: ../../backend
+      args: { MODULE: config-server }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:8888/actuator/health || exit 1"]
+      interval: 3s
+      retries: 40
+    networks: [t12-net]
+
+  fake-pg:
+    build:
+      context: ../../backend
+      args: { MODULE: fake-pg }
+    ports:
+      - "127.0.0.1:${T12_FAKE_PG_PORT:-18090}:8090"
+    environment:
+      DB_HOST: postgres
+      FAKE_PG_DB_PASSWORD: t12_fake_pg_pw
+      FAKE_PG_FAULT_SEED: ${T12_FAULT_SEED:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:8090/actuator/health || exit 1"]
+      interval: 3s
+      retries: 40
+    networks: [t12-net]
+
+  payment-service:
+    <<: *payment
+    ports:
+      - "127.0.0.1:${T12_PAYMENT_PORT:-18084}:8084"
+
+  # 2대 시나리오(C4·C9)에서만 띄운다: --profile multi
+  payment-service-2:
+    <<: *payment
+    profiles: [multi]
+    ports:
+      - "127.0.0.1:${T12_PAYMENT2_PORT:-18085}:8084"
+
+  # 경보 확인 시나리오(E 그룹)에서만 띄운다: --profile obs. Eureka가 없으므로 정적 대상을 긁는다.
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    profiles: [obs]
+    ports:
+      - "127.0.0.1:${T12_PROMETHEUS_PORT:-19090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../infra/prometheus/rules:/etc/prometheus/rules:ro
+    networks: [t12-net]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: [obs]
+    ports:
+      - "127.0.0.1:${T12_ALERTMANAGER_PORT:-19093}:9093"
+    volumes:
+      - ../../infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../../infra/alertmanager/templates:/etc/alertmanager/templates:ro
+      # 시험 경보는 항상 모의 수신기로 보낸다. 실제 Slack URL 파일을 마운트하지 않는다(E6).
+      - ./alert-mock-url:/etc/alertmanager/secrets/slack_webhook_url:ro
+    networks: [t12-net]
+
+  alert-mock:
+    image: python:3.12-alpine
+    profiles: [obs]
+    command: ["python", "-u", "/app/alert_mock.py"]
+    ports:
+      - "127.0.0.1:${T12_ALERT_MOCK_PORT:-19094}:8080"
+    volumes:
+      - ../alert-mock:/app:ro
+    networks: [t12-net]
+
+networks:
+  t12-net:
+
+volumes:
+  t12-pgdata:
