@@ -21,9 +21,28 @@ public interface ReservationRepository {
     /** 같은 트랜잭션에서 조건부 UPDATE를 한 뒤 DB의 지금 값을 다시 읽는다. */
     Optional<Reservation> reload(Long id);
 
-    /** 결제 준비 결과를 기록한다. 상태는 바꾸지 않는다. order_id가 처음 읽은 값 그대로일 때만 쓴다. */
+    /**
+     * 결제 준비 결과를 기록한다. 상태는 바꾸지 않는다. order_id와 user_coupon_id가 이 준비가 본 값 그대로일 때만 쓴다.
+     * 쿠폰을 바꾸면 order_id가 비므로 order_id만 보면, 그사이 다른 준비가 쿠폰을 또 바꿔도 바뀌기 전 할인액으로 만든 금액이 기록된다.
+     */
     int recordCheckout(
-            Long id, Long userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp);
+            Long id,
+            Long userId,
+            String expectedOrderId,
+            Long expectedUserCouponId,
+            String orderId,
+            long paymentAmount,
+            ChangeStamp stamp);
+
+    /**
+     * 결제 준비에서 예약에 잡은 쿠폰을 바꾼다. 상태는 바꾸지 않는다. HOLD, 본인, 만료 전이고 user_coupon_id가 처음 읽은 값
+     * 그대로일 때만 쓴다. 할인액과 지난 준비의 orderId·결제 금액을 지운다. 지난 준비는 바뀌기 전 할인액으로 만든 주문이라
+     * 그 orderId로 승인하면 예약에 잡힌 쿠폰과 다른 금액이 결제된다.
+     */
+    int changeCoupon(Long id, Long userId, Long expectedUserCouponId, Long userCouponId, ChangeStamp stamp);
+
+    /** 바꾼 쿠폰의 할인액을 기록한다. 같은 트랜잭션에서 changeCoupon이 1행을 바꾼 뒤에만 부른다. */
+    int recordDiscount(Long id, long discountAmount);
 
     /** HOLD → PAYMENT_IN_PROGRESS. 본인, 만료 전, 마지막 준비의 orderId일 때만 바꾼다. */
     int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp);

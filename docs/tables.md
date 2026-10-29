@@ -169,11 +169,19 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | hold_expires_at | TIMESTAMP NOT NULL |
 | order_id | VARCHAR(64) |
 | payment_amount | BIGINT |
+| user_coupon_id | BIGINT |
+| discount_amount | BIGINT |
 | pg_auth_token | VARCHAR(255) |
 | payment_checked_at | TIMESTAMP |
 | refund_required_at | TIMESTAMP |
 
 - performance_id·seller_id는 선점 때 판매 검증(P21)이 돌려준 값이다. 결제 준비에 그대로 넘기며 바꾸지 않는다(#86).
+
+- user_coupon_id는 결제 준비에서 이 예약에 잡은 회원 쿠폰이고, discount_amount는 최소 결제 금액에 맞춰 자른 할인액이다. 쿠폰을 쓰지 않으면 둘 다 NULL이다(#125, #143).
+
+- 쿠폰을 바꾸거나 빼면 지난 준비의 order_id·payment_amount를 지운다. 지난 준비는 바뀌기 전 할인액으로 만든 주문이기 때문이다(#143).
+
+- 쿠폰 상태는 coupon 모듈이 관리하므로 user_coupon_id에 FK를 두지 않는다.
 
 - `CONSTRAINT uk_p_reservations_order_id UNIQUE (order_id)`.
 
@@ -484,7 +492,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | 공연 조회 인덱스 | p_venue_seats(venue_id,venue_seat_grade_id);p_performances(seller_id,deleted_at),(publication_status,genre,id);p_schedules(performance_id,booking_open_at). 현재 DDL에 없다. 조회 성능 기준선을 측정한 뒤 추가한다. |
 | 공연 FK | 같은 performance_schema 내 venue/grade/seat/performance/schedule 관계만. schedule_seat은 외부 참조 |
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
-| 예매 쿠폰(추가 설계) | user_coupon_id BIGINT NULL, discount_amount 원본 초안 BIGINT NULL. DDL 미반영. 예매 할인액은 min(쿠폰액,max(0,정가-100)) 원본안을 복원하며 결제는 보정 없이 검증한다. 타입 이행·경계는 architecture 14절 |
+| 예매 쿠폰 | user_coupon_id BIGINT NULL, discount_amount BIGINT NULL을 booking.sql에 반영했다(#143). 할인액은 min(쿠폰액, 정가-100)이고 결제는 보정 없이 검증한다 |
 | 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
 | 예매 CANCELING | #126 합의, DDL 미반영. ck_p_reservations_status에 'CANCELING'을 더하고 domain enum·countActiveSeats 집계에 넣는다. 활성 UNIQUE와 facade enum에는 이미 있다 |
 | 예매 회차 스냅샷 | #126 합의, DDL 미반영. p_reservations에 schedule_start_at TIMESTAMP NOT NULL, performance_title VARCHAR(200) NOT NULL을 더한다. 선점 때 판매 검증(P21) 값을 저장하고 다시 조회하지 않는다. 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다 |

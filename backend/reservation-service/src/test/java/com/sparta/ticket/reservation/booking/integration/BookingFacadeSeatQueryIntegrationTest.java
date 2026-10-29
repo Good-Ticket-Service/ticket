@@ -50,7 +50,7 @@ class BookingFacadeSeatQueryIntegrationTest extends BookingIntegrationTest {
 
     private void checkout(Long reservationId) {
         transactionTemplate.execute(status -> reservationRepository.recordCheckout(
-                reservationId, userId, null, orderId(reservationId), 10_000L, changeStamps.stamp()));
+                reservationId, userId, null, null, orderId(reservationId), 10_000L, changeStamps.stamp()));
     }
 
     private int startPayment(Long reservationId) {

@@ -5,12 +5,15 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
+import com.sparta.ticket.reservation.booking.application.port.CouponPort;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
+import com.sparta.ticket.reservation.booking.domain.DiscountCap;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,8 +30,9 @@ public class PaymentRequestTransactions {
 
     private final ReservationRepository reservationRepository;
     private final ChangeStamps changeStamps;
+    private final CouponPort couponPort;
 
-    /** 결제 준비 대상. currentOrderId는 기록할 때 조건으로 쓴다. */
+    /** 결제 준비 대상. currentOrderId는 기록할 때, userCouponId는 쿠폰을 바꿀 때 조건으로 쓴다. */
     public record CheckoutTarget(
             Long reservationId,
             Long userId,
@@ -37,7 +41,25 @@ public class PaymentRequestTransactions {
             Long sellerId,
             String currentOrderId,
             LocalDateTime holdExpiresAt,
-            long baseAmount) {}
+            long baseAmount,
+            Long userCouponId,
+            long discountAmount) {
+
+        /** 쿠폰을 바꾼 뒤의 대상. 쿠폰을 바꾸면 지난 준비의 orderId를 지우므로 기록 조건도 null이 된다. */
+        CheckoutTarget withCoupon(Long newUserCouponId, long newDiscountAmount) {
+            return new CheckoutTarget(
+                    reservationId,
+                    userId,
+                    scheduleId,
+                    performanceId,
+                    sellerId,
+                    null,
+                    holdExpiresAt,
+                    baseAmount,
+                    newUserCouponId,
+                    newDiscountAmount);
+        }
+    }
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
@@ -60,22 +82,66 @@ public class PaymentRequestTransactions {
                 reservation.getSellerId(),
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
-                reservation.baseAmount());
+                reservation.baseAmount(),
+                reservation.getUserCouponId(),
+                reservation.getDiscountAmount() == null ? 0 : reservation.getDiscountAmount());
     }
 
-    /** 준비 결과를 기록한다. 그사이 다른 준비나 승인이 먼저 반영됐으면 0행이라 실패한다. */
+    /**
+     * 요청한 쿠폰을 예약에 반영하고, 결제 준비에 넘길 대상을 돌려준다. 쿠폰이 지난 준비와 같으면 다시 잡지 않는다.
+     * 잡힌 뒤에는 유효 기간이 지나도 쓸 수 있으므로 다시 확인할 이유가 없다. 쿠폰을 보내지 않으면 잡은 쿠폰을 뺀다.
+     * 쿠폰을 쓸 수 없으면 COUPON_NOT_AVAILABLE이고, 트랜잭션 전체가 롤백돼 예약과 쿠폰 모두 그대로다.
+     */
+    @Transactional
+    public CheckoutTarget applyCoupon(CheckoutTarget target, Long userCouponId) {
+        if (Objects.equals(target.userCouponId(), userCouponId)) {
+            return target;
+        }
+        // Note: 예약 행을 쿠폰보다 먼저 바꾼다. 이 UPDATE가 행을 잡아 다른 탭의 준비는 0행으로 CHECKOUT_CONFLICT가 된다.
+        // 쿠폰부터 잡으면 두 준비가 예약 하나에 쿠폰 하나라는 쿠폰 쪽 UK에 부딪혀 예외로 끝난다.
+        ChangeStamp stamp = changeStamps.stamp();
+        Long reservationId = target.reservationId();
+        if (reservationRepository.changeCoupon(
+                        reservationId, target.userId(), target.userCouponId(), userCouponId, stamp)
+                == 0) {
+            throw checkoutConflict(reservationId, stamp);
+        }
+        if (target.userCouponId() != null) {
+            couponPort.release(reservationId);
+        }
+        if (userCouponId == null) {
+            return target.withCoupon(null, 0);
+        }
+        long couponAmount = couponPort.reserve(userCouponId, target.userId(), reservationId);
+        long discountAmount = DiscountCap.of(target.baseAmount(), couponAmount);
+        reservationRepository.recordDiscount(reservationId, discountAmount);
+        return target.withCoupon(userCouponId, discountAmount);
+    }
+
+    /** 준비 결과를 기록한다. 그사이 다른 준비나 승인이 먼저 반영됐거나 쿠폰이 바뀌었으면 0행이라 실패한다. */
     @Transactional
     public void recordCheckout(CheckoutTarget target, String orderId, long paymentAmount) {
         ChangeStamp stamp = changeStamps.stamp();
         int updated = reservationRepository.recordCheckout(
-                target.reservationId(), target.userId(), target.currentOrderId(), orderId, paymentAmount, stamp);
+                target.reservationId(),
+                target.userId(),
+                target.currentOrderId(),
+                target.userCouponId(),
+                orderId,
+                paymentAmount,
+                stamp);
         if (updated == 1) {
             return;
         }
-        if (reload(target.reservationId()).isHoldExpiredAt(stamp.at())) {
-            throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
+        throw checkoutConflict(target.reservationId(), stamp);
+    }
+
+    /** 준비를 반영하는 UPDATE가 0행이었을 때의 오류. 그사이 만료됐는지, 다른 준비나 승인이 먼저 반영됐는지 가린다. */
+    private BusinessException checkoutConflict(Long reservationId, ChangeStamp stamp) {
+        if (reload(reservationId).isHoldExpiredAt(stamp.at())) {
+            return new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
         }
-        throw new BusinessException(ReservationErrorCode.CHECKOUT_CONFLICT);
+        return new BusinessException(ReservationErrorCode.CHECKOUT_CONFLICT);
     }
 
     /**

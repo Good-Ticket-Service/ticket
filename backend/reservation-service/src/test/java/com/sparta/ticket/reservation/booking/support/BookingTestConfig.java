@@ -7,8 +7,9 @@ import javax.sql.DataSource;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 통합 테스트용 대역. 시각은 테스트가 정하고, 좌석과 결제는 기록하는 가짜로 바꾼다. */
+/** 통합 테스트용 대역. 시각은 테스트가 정하고, 좌석과 결제는 기록하는 가짜로, 쿠폰은 계약대로 쿠폰 테이블을 바꾸는 대역으로 바꾼다. */
 @TestConfiguration
 public class BookingTestConfig {
 
@@ -25,6 +26,12 @@ public class BookingTestConfig {
     @Primary
     public FakeSeatPort fakeSeatPort() {
         return new FakeSeatPort();
+    }
+
+    @Bean
+    @Primary
+    public TableCouponPort tableCouponPort(JdbcTemplate jdbcTemplate, MutableClock clock) {
+        return new TableCouponPort(jdbcTemplate, clock);
     }
 
     @Bean

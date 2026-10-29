@@ -13,6 +13,7 @@ import com.sparta.ticket.common.exception.ErrorCode;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.PaymentStart;
+import com.sparta.ticket.reservation.booking.application.port.CouponPort;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -46,7 +47,7 @@ class PaymentRequestTransactionsTest {
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
     private final ChangeStamps changeStamps = mock(ChangeStamps.class);
     private final PaymentRequestTransactions transactions =
-            new PaymentRequestTransactions(reservationRepository, changeStamps);
+            new PaymentRequestTransactions(reservationRepository, changeStamps, mock(CouponPort.class));
 
     @BeforeEach
     void setUp() {
