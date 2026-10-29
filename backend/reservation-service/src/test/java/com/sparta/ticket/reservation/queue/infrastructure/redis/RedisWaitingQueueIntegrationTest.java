@@ -16,6 +16,7 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
@@ -73,6 +74,45 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
 
         assertThat(redis.opsForSet().isMember(QueueKeys.PERFORMANCES, String.valueOf(performanceId)))
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("순번을 조회하면 지금 위치를 돌려주고, 앞사람이 빠지면 순번이 줄어든다")
+    void findPosition() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        waitingQueue.enter(performanceId, 3L);
+
+        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(1));
+
+        redis.opsForZSet().remove(QueueKeys.waiting(performanceId), "7");
+
+        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(0));
+    }
+
+    @Test
+    @DisplayName("순번을 조회하면 마지막 조회 시각이 Redis 시각으로 갱신된다")
+    void findPositionRecordsSeen() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        long before = redis.execute(
+                (RedisCallback<Long>) connection -> connection.serverCommands().time());
+
+        waitingQueue.findPosition(performanceId, 7L);
+
+        Double seen = redis.opsForZSet().score(QueueKeys.seen(performanceId), "7");
+        assertThat(seen).isNotNull();
+        assertThat(seen.longValue()).isGreaterThanOrEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("줄에 없으면 비어 있고, 조회 시각도 남기지 않는다")
+    void findPositionNotInQueue() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+
+        assertThat(waitingQueue.findPosition(performanceId, 3L)).isEmpty();
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "3")).isNull();
     }
 
     @Test

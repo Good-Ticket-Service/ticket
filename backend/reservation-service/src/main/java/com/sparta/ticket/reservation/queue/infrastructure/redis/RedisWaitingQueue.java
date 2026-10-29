@@ -5,6 +5,7 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -25,6 +26,10 @@ import org.springframework.stereotype.Component;
 public class RedisWaitingQueue implements WaitingQueue {
 
     private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua");
+    private static final RedisScript<Long> POSITION_SCRIPT = loadScript("queue/position.lua");
+
+    /** position.lua가 줄에 없을 때 돌려주는 값. */
+    private static final long NOT_IN_QUEUE = -1;
 
     private final StringRedisTemplate redis;
 
@@ -38,6 +43,14 @@ public class RedisWaitingQueue implements WaitingQueue {
                 List.of(QueueKeys.waiting(performanceId), QueueKeys.seq(performanceId), QueueKeys.PERFORMANCES);
         Long rank = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(performanceId));
         return new QueuePosition(rank);
+    }
+
+    /** 위치 확인과 조회 시각 기록을 Lua 하나로 묶는다. 따로 하면 그 사이 줄에서 빠진 회원의 조회 시각이 남는다. */
+    @Override
+    public Optional<QueuePosition> findPosition(long performanceId, long userId) {
+        List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
+        Long rank = execute(POSITION_SCRIPT, keys, String.valueOf(userId));
+        return rank == NOT_IN_QUEUE ? Optional.empty() : Optional.of(new QueuePosition(rank));
     }
 
     /** Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503으로 거절한다(fail-closed). 통과시키면 막으려던 요청이 예매 서버로 몰린다. */
