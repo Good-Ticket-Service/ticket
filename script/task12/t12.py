@@ -306,7 +306,8 @@ def unresolved(provider='ALL'):
                  WHERE status = 'IN_PROGRESS' AND (:'provider' = 'ALL' OR pg_provider = :'provider')),
                (SELECT count(*) FROM payment_schema.p_refunds r
                   JOIN payment_schema.p_payments p ON p.id = r.payment_id
-                 WHERE r.status IN ('WAITING', 'REQUESTED') AND r.recovery_mode IN ('ACTIVE', 'SLOW')
+                 WHERE ((r.status IN ('WAITING', 'REQUESTED') AND r.recovery_mode IN ('ACTIVE', 'SLOW'))
+                        OR r.verification_reason = 'VOID_CANCEL_REJECTED')
                    AND (:'provider' = 'ALL' OR p.pg_provider = :'provider'))""", provider=provider)
     payments, refunds = map(int, rows[0])
     return {'inProgressPayments': payments, 'activeRefunds': refunds}

@@ -240,7 +240,8 @@ def wait_refund(order_id, statuses=('DONE',), timeout=240):
     row = None
     while time.time() < end:
         row = t12.payment_row(order_id)
-        if row and row['refundStatus'] in statuses:
+        # 실패 결제 자동 취소의 금액 재확인(FAILED·VOID_CANCEL_REJECTED)은 끝난 상태가 아니다(#162).
+        if row and row['refundStatus'] in statuses and row.get('verificationReason') != 'VOID_CANCEL_REJECTED':
             return row
         time.sleep(2)
     return row
@@ -760,24 +761,22 @@ def _paused_refund(provider):
 
 
 def b5a_business_rejection(provider):
+    """업무 거절로 멈춘 환불을, 거절 원인을 해결한 뒤(장애 해제) 관리자 retry(ROOT_CAUSE_FIXED)로 새 키 세대에서 끝낸다(#164)."""
     order_id, refund, state = _paused_refund(provider)
     pay = t12.Payment()
     retry = pay.admin_command(order_id, 'retry', t12.admin_body(order_id, 'ROOT_CAUSE_FIXED'))
-    resume = pay.admin_command(order_id, 'resume', t12.admin_body(order_id, 'RESUME_OBSERVATION'))
-    after = t12.refund_state(order_id)
+    done = wait_refund_state(order_id, lambda s: s['status'] == 'DONE', timeout=90)
     commands = t12.psql("SELECT action, result FROM payment_schema.p_refund_operation_commands c "
                         "JOIN payment_schema.p_payments p ON p.id = c.payment_id WHERE p.order_id = :'o' "
                         "ORDER BY c.processed_at", o=order_id)
     return {
         'orderId': order_id, 'refundResponse': refund, 'commands': commands, 'faultConfig': {'CANCEL': {'failRate': 1}},
-        'f3': '업무 거절 환불은 retry가 허용되지 않고 resume은 조회만 한다. PG 과금이 남은 채 운영 인수로 남는다',
         'checks': [
             check('업무 거절 → FAILED·PAUSED', state and state['status'] == 'FAILED' and state['mode'] == 'PAUSED', state),
-            check('관리자 retry 거부(409)', retry[0] == 409, retry),
-            check('관리자 resume 적용 → VERIFY_ONLY', resume[0] == 200 and after['mode'] == 'VERIFY_ONLY', {'resume': resume, 'after': after}),
-            check('운영 명령 2건 기록(DENIED·APPLIED)', [c[1] for c in commands] == ['DENIED', 'APPLIED'], commands),
-            check('결제 DONE·PG DONE 일치(운영 인수 상태)', t12.payment_row(order_id)['status'] == 'DONE' and pg_status(order_id) == 'DONE',
-                  pg_status(order_id)),
+            check('원인 해결 후 관리자 retry 적용(200)', retry[0] == 200, retry),
+            check('새 키 세대(cancelAttempt 1)로 DONE', done and done['status'] == 'DONE' and done['attempt'] == '1', done),
+            check('운영 명령 1건 기록(APPLIED)', [c[1] for c in commands] == ['APPLIED'], commands),
+            check('PG CANCELED', pg_status(order_id) == 'CANCELED', pg_status(order_id)),
         ],
     }
 
