@@ -8,6 +8,9 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -20,6 +23,8 @@ public class TableCouponPort implements CouponPort {
 
     private final JdbcTemplate jdbc;
     private final MutableClock clock;
+    private volatile CyclicBarrier reserveBarrier;
+    private volatile boolean failNextReserveWithLock;
 
     public TableCouponPort(JdbcTemplate jdbc, MutableClock clock) {
         this.jdbc = jdbc;
@@ -27,6 +32,8 @@ public class TableCouponPort implements CouponPort {
     }
 
     public void reset() {
+        reserveBarrier = null;
+        failNextReserveWithLock = false;
         jdbc.update("DELETE FROM p_user_coupons");
         jdbc.update("DELETE FROM p_coupons");
     }
@@ -68,8 +75,23 @@ public class TableCouponPort implements CouponPort {
                 "SELECT reservation_id FROM p_user_coupons WHERE user_coupon_id = ?", Long.class, userCouponId);
     }
 
+    /** 여러 요청이 모두 reserve 직전에 도착한 뒤에 함께 진행한다. 앞선 release의 잠금을 쥔 채 겹치게 만든다. */
+    public void syncReservesWith(CyclicBarrier barrier) {
+        this.reserveBarrier = barrier;
+    }
+
+    /** 다음 reserve가 DB 교착으로 중단된 것처럼 잠금 실패 예외를 던진다. 쿠폰 행 잠금이 엇갈렸을 때를 흉내 낸다. */
+    public void failNextReserveWithLock() {
+        this.failNextReserveWithLock = true;
+    }
+
     @Override
     public long reserve(Long userCouponId, Long userId, Long reservationId) {
+        awaitBarrier();
+        if (failNextReserveWithLock) {
+            failNextReserveWithLock = false;
+            throw new CannotAcquireLockException("deadlock detected");
+        }
         LocalDateTime now = clock.now();
         int updated = jdbc.update(
                 "UPDATE p_user_coupons SET status = 'RESERVED', reservation_id = ?, updated_at = ?, updated_by = 'test'"
@@ -115,6 +137,18 @@ public class TableCouponPort implements CouponPort {
                 now,
                 now,
                 reservationId);
+    }
+
+    private void awaitBarrier() {
+        CyclicBarrier barrier = reserveBarrier;
+        if (barrier == null) {
+            return;
+        }
+        try {
+            barrier.await(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("다른 요청이 reserve에 오지 않았다", e);
+        }
     }
 
     private Long insert(String sql, String keyColumn, Object... args) {

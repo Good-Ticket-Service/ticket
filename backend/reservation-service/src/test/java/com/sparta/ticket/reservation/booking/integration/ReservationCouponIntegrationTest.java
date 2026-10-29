@@ -26,6 +26,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -60,6 +65,13 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
     /** 좌석 두 장, 정가 20,000원. */
     private Long hold() {
         return holdPriced(TestSeats.PRICE, TestSeats.PRICE);
+    }
+
+    /** 같은 회원의 다른 회차 예약. 좌석 두 장, 정가 20,000원. */
+    private Long holdOnOtherSchedule() {
+        List<SeatLine> lines = TestSeats.priced(30L, 31L);
+        return transactionTemplate.execute(status -> bookingFacade.hold(
+                userId, TestHoldTargets.of(TestIds.next()), lines, clock.now().plusMinutes(10)));
     }
 
     private Long holdPriced(int... prices) {
@@ -281,6 +293,56 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
         assertThat(((Number) row.get("user_coupon_id")).longValue()).isEqualTo(second);
     }
 
+    @Test
+    @DisplayName("같은 회원의 두 예약이 서로의 쿠폰으로 동시에 바꾸면 둘 다 500 없이 거절되고, 예약과 쿠폰은 그대로다")
+    void crossSwapIsRejectedWithoutServerError() throws Exception {
+        Long first = hold();
+        Long second = holdOnOtherSchedule();
+        Long couponX = coupons.issue(userId, 3_000);
+        Long couponY = coupons.issue(userId, 5_000);
+        checkoutOrderId(first, couponX);
+        checkoutOrderId(second, couponY);
+        coupons.syncReservesWith(new CyclicBarrier(2));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<String> firstSwap = executor.submit(() -> errorCode(checkout(first, couponY)));
+            Future<String> secondSwap = executor.submit(() -> errorCode(checkout(second, couponX)));
+
+            // Note: 상대 쿠폰은 상대 트랜잭션이 돌려주는 중이라 아직 이 예약이 잡을 수 없다. 쿠폰 쪽 구현이 그 행을 기다리면
+            // 교착으로 한쪽이 CHECKOUT_CONFLICT, 기다리지 않으면 둘 다 COUPON_NOT_AVAILABLE이다. 어느 쪽이든 500은 아니다.
+            assertThat(List.of(firstSwap.get(10, TimeUnit.SECONDS), secondSwap.get(10, TimeUnit.SECONDS)))
+                    .allSatisfy(result -> assertThat(result).isIn("409 CHECKOUT_CONFLICT", "400 COUPON_NOT_AVAILABLE"));
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(coupons.reservationOf(couponX)).isEqualTo(first);
+        assertThat(coupons.reservationOf(couponY)).isEqualTo(second);
+        assertThat(((Number) couponColumns(first).get("user_coupon_id")).longValue())
+                .isEqualTo(couponX);
+        assertThat(((Number) couponColumns(second).get("user_coupon_id")).longValue())
+                .isEqualTo(couponY);
+    }
+
+    @Test
+    @DisplayName("쿠폰을 잡다가 DB 교착·잠금 실패가 나면 500이 아니라 409 CHECKOUT_CONFLICT이고, 예약과 쿠폰은 그대로다")
+    void lockFailureIsCheckoutConflict() throws Exception {
+        Long reservationId = hold();
+        Long first = coupons.issue(userId, 3_000);
+        Long second = coupons.issue(userId, 5_000);
+        checkoutOrderId(reservationId, first);
+        coupons.failNextReserveWithLock();
+
+        checkout(reservationId, second)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CHECKOUT_CONFLICT"));
+
+        assertThat(coupons.statusOf(first)).isEqualTo("RESERVED");
+        assertThat(coupons.statusOf(second)).isEqualTo("AVAILABLE");
+        assertThat(((Number) couponColumns(reservationId).get("user_coupon_id")).longValue())
+                .isEqualTo(first);
+    }
+
     @Nested
     @DisplayName("예약이 끝날 때 쿠폰 처리")
     class Closing {
@@ -380,6 +442,15 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
             assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
             assertThat(coupons.statusOf(coupon)).isEqualTo("RESERVED");
         }
+    }
+
+    private String errorCode(ResultActions result) throws Exception {
+        var response = result.andReturn().getResponse();
+        String code = objectMapper
+                .readTree(response.getContentAsString())
+                .path("code")
+                .asText();
+        return response.getStatus() + " " + code;
     }
 
     private Map<String, Object> couponColumns(Long reservationId) {
