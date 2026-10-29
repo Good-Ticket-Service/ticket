@@ -17,6 +17,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -106,6 +107,8 @@ class SaleValidationFeignAdapterTest {
                         1001L,
                         2L,
                         3L,
+                        LocalDateTime.of(2026, 11, 30, 19, 0),
+                        "오페라의 유령",
                         List.of(new SaleValidationSeat(1001L, 101L, "VIP", 150_000))));
         JsonNode body = JSON.readTree(STUB.lastBody(PATH));
         assertThat(body.get("configVersion").asLong()).isEqualTo(2L);
@@ -162,14 +165,32 @@ class SaleValidationFeignAdapterTest {
     }
 
     @Test
-    @DisplayName("계약과 다른 응답은 503이다: allowed 없음, 사유 없는 거절, 요청과 다른 좌석, 판매자 없음")
+    @DisplayName("회차 시작 시각은 오프셋과 관계없이 KST 벽시계로 바꾼다")
+    void scheduleStartAtInSeoul() {
+        STUB.respond(PATH, 200, """
+                {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
+                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령",
+                 "scheduleStartAt": "2026-11-30T10:00:00Z",
+                 "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""");
+
+        assertThat(adapter.validate(201L, 2L, List.of(1001L)).scheduleStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 11, 30, 19, 0));
+    }
+
+    @Test
+    @DisplayName("계약과 다른 응답은 503이다: allowed 없음, 사유 없는 거절, 요청과 다른 좌석, 판매자 없음, 회차 시작 시각·공연명 없음")
     void contractViolations() {
         List<String> bodies = List.of("{}", """
                 {"allowed": false, "reasonCode": null, "scheduleId": 201, "seats": []}""", """
                 {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
-                 "configVersion": 2, "policyVersion": 3,
+                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령",
+                 "scheduleStartAt": "2026-11-30T19:00:00+09:00",
                  "seats": [{"venueSeatId": 1002, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""", """
                 {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11,
+                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령",
+                 "scheduleStartAt": "2026-11-30T19:00:00+09:00",
+                 "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""", """
+                {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
                  "configVersion": 2, "policyVersion": 3,
                  "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""");
 

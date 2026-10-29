@@ -6,6 +6,7 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
 import feign.RetryableException;
+import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,9 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class SaleValidationFeignAdapter implements SaleValidationPort {
+
+    /** DB와 공용 Clock이 쓰는 벽시계 시간대. 응답 시각을 이 시간대의 LocalDateTime으로 바꿔 예약에 저장한다. */
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
     private final SaleValidationClient client;
 
@@ -58,6 +62,10 @@ public class SaleValidationFeignAdapter implements SaleValidationPort {
                 response.sellerId(),
                 response.configVersion(),
                 response.policyVersion(),
+                response.scheduleStartAt() == null
+                        ? null
+                        : response.scheduleStartAt().atZoneSameInstant(SEOUL).toLocalDateTime(),
+                response.performanceTitle(),
                 seats);
     }
 
@@ -73,6 +81,12 @@ public class SaleValidationFeignAdapter implements SaleValidationPort {
         // 결제 준비에 꼭 넘겨야 하는 값이다(#86)
         if (response.performanceId() == null || response.sellerId() == null) {
             return "허용인데 performanceId·sellerId가 없다";
+        }
+        // 예약에 스냅샷으로 저장해 취소 기한과 목록 표시에 쓰는 값이다(#126). 없으면 예약을 만들 수 없다
+        if (response.scheduleStartAt() == null
+                || response.performanceTitle() == null
+                || response.performanceTitle().isBlank()) {
+            return "허용인데 scheduleStartAt·performanceTitle이 없다";
         }
         List<Long> answered =
                 seats.stream().map(SaleValidationSeat::venueSeatId).toList();
