@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.application;
+package com.sparta.ticket.performance.application.port;
 
 import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
 import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
