@@ -174,8 +174,13 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | pg_auth_token | VARCHAR(255) |
 | payment_checked_at | TIMESTAMP |
 | refund_required_at | TIMESTAMP |
+| schedule_start_at | TIMESTAMP NOT NULL |
+| performance_title | VARCHAR(200) NOT NULL |
+| cancel_checked_at | TIMESTAMP |
 
 - performance_id·seller_id는 선점 때 판매 검증(P21)이 돌려준 값이다. 결제 준비에 그대로 넘기며 바꾸지 않는다(#86).
+- schedule_start_at·performance_title도 선점 때 판매 검증(P21)이 돌려준 값이다. 다시 조회하지 않고 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다(#126).
+- cancel_checked_at은 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각이다. 끝나지 않는 취소가 다음 차례의 앞자리를 막지 않게 한다.
 
 - user_coupon_id는 결제 준비에서 이 예약에 잡은 회원 쿠폰이고, discount_amount는 최소 결제 금액에 맞춰 자른 할인액이다. 쿠폰을 쓰지 않으면 둘 다 NULL이다(#125, #143).
 
@@ -185,11 +190,13 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT uk_p_reservations_order_id UNIQUE (order_id)`.
 
-- `CONSTRAINT ck_p_reservations_status CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'EXPIRED', 'RELEASED', 'CANCELED'))`.
+- `CONSTRAINT ck_p_reservations_status CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING', 'EXPIRED', 'RELEASED', 'CANCELED'))`.
 
 - `CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) WHERE status = 'HOLD';`
 
 - `CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';`
+
+- `CREATE INDEX ix_p_reservations_cancel_stale ON p_reservations (updated_at) WHERE status = 'CANCELING';`
 
 - `CREATE UNIQUE INDEX uk_p_reservations_active_user_schedule ON p_reservations (user_id, schedule_id) WHERE status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING');`
 
@@ -494,8 +501,6 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
 | 예매 쿠폰 | user_coupon_id BIGINT NULL, discount_amount BIGINT NULL을 booking.sql에 반영했다(#143). 할인액은 min(쿠폰액, 정가-100)이고 결제는 보정 없이 검증한다 |
 | 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
-| 예매 CANCELING | #126 합의, DDL 미반영. ck_p_reservations_status에 'CANCELING'을 더하고 domain enum·countActiveSeats 집계에 넣는다. 활성 UNIQUE와 facade enum에는 이미 있다 |
-| 예매 회차 스냅샷 | #126 합의, DDL 미반영. p_reservations에 schedule_start_at TIMESTAMP NOT NULL, performance_title VARCHAR(200) NOT NULL을 더한다. 선점 때 판매 검증(P21) 값을 저장하고 다시 조회하지 않는다. 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다 |
 | 티켓 가격 | 현행 CHECK(price>=0), 판매 정책 목표>0. 무료 결제 경로 없음 |
 | 최소 Reconcile 이행 | 워킹트리 SQL/Entity는 일정 스냅샷·단계·영속 불명 재시도를 지원한다. 기존 DB는 모든 결제 실행을 중지하고 `backend/sql/payment-service/migrations/001-reconcile-checkpoints.sql` 적용 후 새 코드만 기동. 새 DB는 schema.sql만 적용. 기존 reconciled_at은 재확인, 2단계 완료만 5단계 완료로 매핑하며 진행 중인 옛 단계는 첫 단계부터 보수적으로 재확인한다 |
 | 고도화(설계 전) | Outbox/Inbox/영속 작업/전이 이력의 물리 테이블·컬럼·보존 기간은 미정. Kafka 도입 때 스키마 확정 |
@@ -512,7 +517,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE(원본: performance/api.md:463-467; 담당 확인 필요) |
 | Performance.period(비저장) | 구현 제안: 미삭제·미취소 회차 start_at의 최소/최대 KST 날짜, 대상 없으면 null(원본: performance/tables.md:206,298; 담당 확인 필요) |
 | SeatState | AVAILABLE,HOLD,SOLD |
-| ReservationState(facade) / ReservationStatus(domain) | facade에는 CANCELING 포함. domain/CHECK 반영은 #126 합의, 구현 전. 나머지는 HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/EXPIRED/RELEASED/CANCELED |
+| ReservationState(facade) / ReservationStatus(domain) | HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/EXPIRED/RELEASED/CANCELED. CANCELING은 활성 UNIQUE와 countActiveSeats 집계에 든다(#126) |
 | Coupon.issueStatus(비저장) | now<start:UPCOMING;start<=now<end:ISSUING;그 밖 ENDED. 수량0이어도 ISSUING 가능 |
 | Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
