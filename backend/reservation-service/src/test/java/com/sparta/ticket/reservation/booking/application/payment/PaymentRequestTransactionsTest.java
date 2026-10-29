@@ -3,7 +3,6 @@ package com.sparta.ticket.reservation.booking.application.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -12,21 +11,18 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.common.exception.ErrorCode;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
-import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import com.sparta.ticket.reservation.booking.domain.SaleTarget;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.IntSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,10 +44,9 @@ class PaymentRequestTransactionsTest {
     private static final ChangeStamp STAMP = new ChangeStamp(LocalDateTime.of(2026, 10, 29, 12, 0), "1");
 
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
-    private final ReservationTransitionExecutor transitionExecutor = mock(ReservationTransitionExecutor.class);
     private final ChangeStamps changeStamps = mock(ChangeStamps.class);
     private final PaymentRequestTransactions transactions =
-            new PaymentRequestTransactions(reservationRepository, transitionExecutor, changeStamps);
+            new PaymentRequestTransactions(reservationRepository, changeStamps);
 
     @BeforeEach
     void setUp() {
@@ -147,9 +142,8 @@ class PaymentRequestTransactionsTest {
     }
 
     private void givenStarted(boolean started) {
-        when(transitionExecutor.execute(
-                        eq(ReservationTransition.START_PAYMENT), eq(RESERVATION_ID), anyList(), any(IntSupplier.class)))
-                .thenReturn(started);
+        when(reservationRepository.startPayment(eq(RESERVATION_ID), eq(USER_ID), eq(ORDER_ID), any(), eq(STAMP)))
+                .thenReturn(started ? 1 : 0);
     }
 
     /** 본인 여부, 같은 시도, 만료는 Reservation이 판단하므로 mock 대신 그 값을 넣은 실제 예약을 쓴다. */

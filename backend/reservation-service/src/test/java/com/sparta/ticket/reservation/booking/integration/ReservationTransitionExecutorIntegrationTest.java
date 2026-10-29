@@ -4,11 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.util.List;
+import java.util.function.IntSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,31 +35,44 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
         seats.reset();
     }
 
-    private boolean execute(ReservationTransition transition, int updatedRows) {
-        return transactionTemplate.execute(status -> executor.execute(transition, reservationId, seatIds, () -> {
+    private boolean confirmAndSell(int updatedRows) {
+        return transactionTemplate.execute(
+                status -> executor.confirmAndSell(reservationId, seatIds, recordingUpdate(updatedRows)));
+    }
+
+    private boolean expireAndRelease(int updatedRows) {
+        return transactionTemplate.execute(
+                status -> executor.expireAndRelease(reservationId, seatIds, recordingUpdate(updatedRows)));
+    }
+
+    private IntSupplier recordingUpdate(int updatedRows) {
+        return () -> {
             seats.events.add("update");
             return updatedRows;
-        }));
+        };
     }
 
     @Test
     @DisplayName("좌석을 바꾸는 전이는 좌석 잠금, 조건부 UPDATE, 좌석 반영 순서로 실행한다")
     void locksSeatsBeforeUpdate() {
-        assertThat(execute(ReservationTransition.CONFIRM, 1)).isTrue();
+        assertThat(confirmAndSell(1)).isTrue();
         assertThat(seats.events).containsExactly("lock", "update", "sell");
 
         seats.reset();
-        assertThat(execute(ReservationTransition.EXPIRE_HOLD, 1)).isTrue();
+        assertThat(expireAndRelease(1)).isTrue();
         assertThat(seats.events).containsExactly("lock", "update", "release");
     }
 
     @Test
     @DisplayName("조건부 UPDATE가 0행이면 좌석을 반영하지 않는다")
     void doesNotTouchSeatsWhenNotUpdated() {
-        assertThat(execute(ReservationTransition.CONFIRM, 0)).isFalse();
-
+        assertThat(confirmAndSell(0)).isFalse();
         assertThat(seats.events).containsExactly("lock", "update");
         assertThat(seats.sold).isEmpty();
+
+        seats.reset();
+        assertThat(expireAndRelease(0)).isFalse();
+        assertThat(seats.events).containsExactly("lock", "update");
     }
 
     @Test
@@ -67,23 +80,15 @@ class ReservationTransitionExecutorIntegrationTest extends ReservationIntegratio
     void doesNotSellSeatsHeldByOthers() {
         seats.notHeld(seatIds.get(0));
 
-        assertThat(execute(ReservationTransition.CONFIRM, 1)).isFalse();
+        assertThat(confirmAndSell(1)).isFalse();
 
         assertThat(seats.events).containsExactly("lock");
     }
 
     @Test
-    @DisplayName("좌석을 바꾸지 않는 전이는 좌석을 잠그지 않는다")
-    void skipsSeatLockWithoutSeatEffect() {
-        assertThat(execute(ReservationTransition.START_PAYMENT, 1)).isTrue();
-
-        assertThat(seats.events).containsExactly("update");
-    }
-
-    @Test
     @DisplayName("트랜잭션 밖에서 부르면 막는다. 좌석과 예약은 한 트랜잭션에서 바뀌어야 한다")
     void requiresTransaction() {
-        assertThatThrownBy(() -> executor.execute(ReservationTransition.CONFIRM, reservationId, seatIds, () -> 1))
+        assertThatThrownBy(() -> executor.confirmAndSell(reservationId, seatIds, () -> 1))
                 .isInstanceOf(IllegalTransactionStateException.class);
         assertThat(seats.events).isEmpty();
     }

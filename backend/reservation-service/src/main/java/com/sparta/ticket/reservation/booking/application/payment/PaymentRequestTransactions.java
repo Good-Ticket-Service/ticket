@@ -3,17 +3,14 @@ package com.sparta.ticket.reservation.booking.application.payment;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
-import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentRequestTransactions {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationTransitionExecutor transitionExecutor;
     private final ChangeStamps changeStamps;
 
     /** 결제 준비 대상. currentOrderId는 기록할 때 조건으로 쓴다. */
@@ -90,12 +86,9 @@ public class PaymentRequestTransactions {
     @Transactional
     public PaymentStart startPayment(Long userId, Long reservationId, ConfirmCommand command) {
         ChangeStamp stamp = changeStamps.stamp();
-        boolean started = transitionExecutor.execute(
-                ReservationTransition.START_PAYMENT,
-                reservationId,
-                List.of(),
-                () -> reservationRepository.startPayment(
-                        reservationId, userId, command.orderId(), command.pgAuthToken(), stamp));
+        boolean started = reservationRepository.startPayment(
+                        reservationId, userId, command.orderId(), command.pgAuthToken(), stamp)
+                == 1;
         Reservation reservation = reload(reservationId);
         if (started) {
             return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));

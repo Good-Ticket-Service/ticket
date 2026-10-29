@@ -21,7 +21,6 @@ import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
-import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import com.sparta.ticket.reservation.booking.domain.SaleTarget;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import java.time.LocalDateTime;
@@ -165,8 +164,7 @@ class PaymentResultApplierTest {
     }
 
     private void givenConfirmed(boolean confirmed) {
-        when(transitionExecutor.execute(
-                        eq(ReservationTransition.CONFIRM), eq(RESERVATION_ID), anyList(), any(IntSupplier.class)))
+        when(transitionExecutor.confirmAndSell(eq(RESERVATION_ID), anyList(), any(IntSupplier.class)))
                 .thenReturn(confirmed);
     }
 
