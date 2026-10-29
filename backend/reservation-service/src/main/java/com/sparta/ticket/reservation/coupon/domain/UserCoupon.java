@@ -35,6 +35,11 @@ public class UserCoupon extends BaseEntity {
     @Column(nullable = false)
     private Long userId;
 
+    /**
+     * 받은 쿠폰의 종류(Coupon). 회원 쿠폰 여러 장이 쿠폰 하나를 가리키는 N:1이지만 @ManyToOne 없이 ID만 둔다.
+     * Note: 받을 때 할인액·만료 시각을 복사해 쿠폰 정의 없이 동작하고, 발급 락이 몰리는 쿠폰 행을 무심코 불러오지 않게 한다.
+     * 쿠폰 정의가 필요하면 한 페이지 단위로 따로 조회한다(N+1 방지). 존재 여부는 DB 외래 키가 지킨다.
+     */
     @Column(nullable = false)
     private Long couponId;
 

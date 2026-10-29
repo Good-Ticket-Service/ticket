@@ -46,15 +46,17 @@ public class CouponIssueService {
         // 2) 발급 기간·수량·삭제 여부를 확인하며 발급 수량을 1 올린다.
         //    Note: UPDATE는 바꾸는 행에 자동으로 쓰기 락을 걸고 커밋까지 유지한다(SELECT ... FOR UPDATE 불필요).
         //    같은 쿠폰의 다른 발급·수정은 이 락이 풀릴 때까지 기다린 뒤 최신 값으로 조건을 다시 확인한다
-        //    Note: 기간 조건은 락을 기다리기 전에 정한 now로 본다. 그래서 관리자가 발급을 중단하는 동안 줄 서 있던 요청은
-        //    중단 커밋 뒤에도 발급될 수 있다. 중단 전에 도착한 요청으로 보고 허용한다(issued_at < issue_end_at은 지켜진다).
-        //    DB 시계로 바꾸면 막을 수 있지만 공용 Clock 기준(#34)과 테스트의 시각 고정이 깨진다
+        //    Note: 기간 조건의 :now는 메서드 시작에 정한 요청 시각이다(DB의 현재 시각이 아님). 락을 기다려도 바뀌지 않는다.
+        //    예) 요청 10:00:00 → 관리자가 먼저 락을 잡고 10:00:01에 중단 → 락이 풀린 뒤 이 요청의 UPDATE는
+        //    issue_end_at(10:00:01) > now(10:00:00)라 발급된다. 중단 전에 도착한 요청으로 보고 허용한다(issued_at < issue_end_at 유지).
+        //    DB 시계로 비교하면 막을 수 있지만 공용 Clock 기준(#34)과 테스트의 시각 고정이 깨진다
         int increased = couponRepository.increaseIssuedQuantity(couponId, now, username);
         if (increased == 0) {
             throw new BusinessException(rejectReason(couponId, now));
         }
 
-        // 3) 할인액·유효 일수를 복사하려고 쿠폰을 읽는다. 행을 잠그고 있어 관리자 수정이 끼어들지 않는다
+        // 3) 할인액·유효 일수를 복사하려고 쿠폰을 읽는다(일반 SELECT). 2)의 UPDATE가 잡은 행 락이 커밋까지 유지되므로
+        //    그사이 관리자 수정은 기다리고, 읽은 값이 저장 때까지 바뀌지 않는다
         Coupon coupon = couponRepository
                 .findById(couponId)
                 .orElseThrow(() -> new BusinessException(CouponErrorCode.COUPON_NOT_FOUND));
