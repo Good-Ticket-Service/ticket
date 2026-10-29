@@ -2,8 +2,10 @@ package com.sparta.ticket.reservation.queue.application;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
+import com.sparta.ticket.reservation.queue.application.dto.QueueStatusResult;
 import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
+import com.sparta.ticket.reservation.queue.domain.QueueStatus;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,19 @@ public class QueueService {
         QueuePosition position = waitingQueue.enter(performanceId, userId);
         return new QueueEntryResult(
                 position.position(), position.aheadCount(), estimatedWaitSeconds(position.aheadCount()));
+    }
+
+    /** 내 순번을 확인한다. 조회할 때마다 마지막 조회 시각이 남아 이탈자 판단에 쓰인다. */
+    public QueueStatusResult findMyStatus(long performanceId, long userId) {
+        requireEnabled();
+        QueuePosition position = waitingQueue
+                .findPosition(performanceId, userId)
+                .orElseThrow(() -> new BusinessException(QueueErrorCode.NOT_IN_QUEUE));
+        return new QueueStatusResult(
+                QueueStatus.WAITING,
+                position.position(),
+                position.aheadCount(),
+                estimatedWaitSeconds(position.aheadCount()));
     }
 
     private void requireEnabled() {
