@@ -3,10 +3,12 @@ package com.sparta.ticket.fakepg.application.service.fault;
 import com.sparta.ticket.fakepg.domain.exception.PgErrorCode;
 import com.sparta.ticket.fakepg.domain.exception.PgException;
 import com.sparta.ticket.fakepg.domain.model.fault.FaultConfig;
+import com.sparta.ticket.fakepg.domain.model.fault.TamperMode;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
 import com.sparta.ticket.fakepg.domain.model.pg.PgProvider;
 import java.time.Clock;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.random.RandomGenerator;
@@ -82,6 +84,12 @@ public class FaultInjector {
 
     public boolean shouldLoseResponse(PgProvider provider, PgOperation operation) {
         return hit(get(provider, operation).responseLossRate());
+    }
+
+    /** 확률에 따라 성공 응답을 망가뜨릴 방식을 돌려준다. 처리 결과는 바꾸지 않는다. */
+    public Optional<TamperMode> tamper(PgProvider provider, PgOperation operation) {
+        FaultConfig config = get(provider, operation);
+        return hit(config.tamperRate()) ? Optional.of(config.tamperMode()) : Optional.empty();
     }
 
     /** 응답을 붙잡아 클라이언트의 읽기 타임아웃을 일으킨다. */

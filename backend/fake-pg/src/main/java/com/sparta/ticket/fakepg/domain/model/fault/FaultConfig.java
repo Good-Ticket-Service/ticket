@@ -13,6 +13,8 @@ package com.sparta.ticket.fakepg.domain.model.fault;
  * @param delayedApprovalMs 지연 승인을 기록하기까지의 시간
  * @param holdMs 응답 유실·지연 승인 때 응답을 붙잡는 시간. 클라이언트 읽기 타임아웃보다 길게 둔다
  * @param rateLimitPerSecond 초당 처리 한도. 넘으면 처리하지 않고 429. 0은 무제한
+ * @param tamperRate 처리와 기록을 정상으로 끝낸 뒤 성공 응답 본문을 tamperMode대로 망가뜨릴 확률
+ * @param tamperMode 성공 응답을 망가뜨리는 방식. tamperRate가 0보다 크면 필요하다
  */
 public record FaultConfig(
         long latencyMs,
@@ -22,12 +24,14 @@ public record FaultConfig(
         double delayedApprovalRate,
         long delayedApprovalMs,
         long holdMs,
-        int rateLimitPerSecond) {
+        int rateLimitPerSecond,
+        double tamperRate,
+        TamperMode tamperMode) {
 
     public static final long DEFAULT_HOLD_MS = 15_000;
 
     public static FaultConfig none() {
-        return new FaultConfig(0, 0, 0, 0, 0, 0, DEFAULT_HOLD_MS, 0);
+        return new FaultConfig(0, 0, 0, 0, 0, 0, DEFAULT_HOLD_MS, 0, 0, null);
     }
 
     public FaultConfig {
@@ -39,6 +43,10 @@ public record FaultConfig(
         requireRate(failRate, "failRate");
         requireRate(responseLossRate, "responseLossRate");
         requireRate(delayedApprovalRate, "delayedApprovalRate");
+        requireRate(tamperRate, "tamperRate");
+        if (tamperRate > 0 && tamperMode == null) {
+            throw new IllegalArgumentException("tamperRate를 쓰려면 tamperMode가 필요하다");
+        }
     }
 
     private static void requireNotNegative(long value, String name) {

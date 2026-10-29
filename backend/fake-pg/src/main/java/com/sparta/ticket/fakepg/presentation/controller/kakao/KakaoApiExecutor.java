@@ -6,6 +6,7 @@ import com.sparta.ticket.fakepg.domain.exception.PgErrorCode;
 import com.sparta.ticket.fakepg.domain.exception.PgException;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
 import com.sparta.ticket.fakepg.domain.model.pg.PgProvider;
+import com.sparta.ticket.fakepg.presentation.controller.ResponseTamper;
 import com.sparta.ticket.fakepg.presentation.dto.kakao.KakaoErrorResponse;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
  *   <li>지연 → 확률에 따라 처리하지 않은 500</li>
  *   <li>업무 처리</li>
  *   <li>확률에 따라 응답 유실: 처리는 끝났는데 응답을 붙잡았다가 500</li>
+ *   <li>확률에 따라 성공 응답 변조: 처리는 정상이고 내보내는 본문만 망가뜨린다</li>
  * </ol>
  *
  * Note: 멱등 키가 없으므로 응답 유실 뒤 같은 요청을 다시 보내면 재현이 아니라 새 처리로 간다. 승인은 "이미 처리된 결제",
@@ -32,6 +34,7 @@ public class KakaoApiExecutor {
     private static final PgProvider PROVIDER = PgProvider.KAKAO;
 
     private final FaultInjector faults;
+    private final ResponseTamper tamper;
 
     public ResponseEntity<Object> execute(PgOperation operation, Supplier<Object> action) {
         faults.checkRateLimit(PROVIDER, operation);
@@ -52,7 +55,17 @@ public class KakaoApiExecutor {
         if (faults.shouldLoseResponse(PROVIDER, operation)) {
             return hold(operation);
         }
-        return response;
+        return tampered(operation, response);
+    }
+
+    private ResponseEntity<Object> tampered(PgOperation operation, ResponseEntity<Object> response) {
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        return faults.tamper(PROVIDER, operation)
+                .<ResponseEntity<Object>>map(
+                        mode -> ResponseEntity.ok(tamper.apply(PROVIDER, mode, response.getBody())))
+                .orElse(response);
     }
 
     private ResponseEntity<Object> hold(PgOperation operation) {

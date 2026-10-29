@@ -489,6 +489,6 @@
 | DELETE /fake/admin/transactions | 없음 | 204 거래/멱등 기록 초기화 |
 
 - provider=TOSS/KAKAO; operation=READY(KAKAO만)/CONFIRM/INQUIRE/CANCEL.
-- Fault=`{latencyMs?:long>=0,serverErrorRate?:double[0,1],failRate?:double[0,1],responseLossRate?:double[0,1],delayedApprovalRate?:double[0,1],delayedApprovalMs?:long>=0,holdMs?:long>=0(기본15000),rateLimitPerSecond?:int>=0(0=무제한)}`. 생략은 장애 없음.
+- Fault=`{latencyMs?:long>=0,serverErrorRate?:double[0,1],failRate?:double[0,1],responseLossRate?:double[0,1],delayedApprovalRate?:double[0,1],delayedApprovalMs?:long>=0,holdMs?:long>=0(기본15000),rateLimitPerSecond?:int>=0(0=무제한),tamperRate?:double[0,1],tamperMode?:MISSING_FIELDS|OTHER_TRANSACTION|WRONG_AMOUNT}`. 생략은 장애 없음. tamper는 처리·저장은 정상이고 내보내는 2xx 본문만 바꾼다(거래 키·금액·시각 제거, 다른 거래 키·주문번호, 금액+1000). tamperRate>0이면 tamperMode 필수.
 
 - TransactionView=`{provider:string,paymentKey:string,orderId:string,amount:int,status:string,requestedAt:datetime,approvedAt:datetime|null,canceledAt:datetime|null,canceledAmount:int,cancelTransactionKey:string|null,failureCode:string|null}`.
