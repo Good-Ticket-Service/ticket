@@ -53,10 +53,11 @@ public interface ReservationRepository {
     /**
      * PAYMENT_IN_PROGRESS → HOLD. 결제 실패이고 선점 시간이 남았을 때만 바꾼다.
      * 실패한 시도의 orderId와 금액을 지워, 같은 orderId로 다시 승인하지 못하고 새로 준비하게 한다.
+     * 환불이 필요하다고 기록된 예약은 바꾸지 않는다.
      */
     int returnToHold(Long id, String orderId, ChangeStamp stamp);
 
-    /** PAYMENT_IN_PROGRESS → EXPIRED. 결제 실패이고 선점 시간이 지났을 때만 바꾼다. */
+    /** PAYMENT_IN_PROGRESS → EXPIRED. 결제 실패이고 선점 시간이 지났을 때만 바꾼다. 환불이 필요하다고 기록된 예약은 바꾸지 않는다. */
     int expireAfterFailure(Long id, String orderId, ChangeStamp stamp);
 
     /** HOLD → EXPIRED. 선점 시간이 지났을 때만 바꾼다. */
@@ -70,6 +71,12 @@ public interface ReservationRepository {
 
     /** CANCELING → CANCELED. payment가 환불 요청을 받은 뒤 부른다. 회차가 시작됐어도 바꾼다. */
     int cancel(Long id, ChangeStamp stamp);
+
+    /**
+     * PAYMENT_IN_PROGRESS → CANCELED. 확정하지 못한 성공으로 기록된 지금 시도의 환불을 payment가 받은 뒤 부른다.
+     * 확정한 적이 없으므로 취소 중을 거치지 않는다.
+     */
+    int cancelUnconfirmed(Long id, String orderId, ChangeStamp stamp);
 
     /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약이 가진 티켓 수. */
     long countActiveTickets(Long userId, Long scheduleId);
@@ -96,6 +103,16 @@ public interface ReservationRepository {
     List<Long> findStalePaymentIds(LocalDateTime updatedBefore, int limit);
 
     long countPaymentsInProgress();
+
+    /** 환불이 필요하다고 기록된 결제 중 예약을, 마지막 환불 요청(없으면 기록 시각)이 checkedBefore 이전인 것부터 고른다. 잠그지 않는다. */
+    List<Long> findRefundRequiredIds(LocalDateTime checkedBefore, int limit);
+
+    /**
+     * 확정하지 못한 결제의 환불을 요청한 시각을 남긴다. 결과 확인이 쓰는 확인 시각 컬럼을 같이 쓴다. 환불이 필요하다고 기록된 예약은
+     * 결과 확인이 고르지 않으므로 겹치지 않는다. 마지막 요청(없으면 기록 시각)이 checkedBefore 이전일 때만 1행이라, 여러 인스턴스가
+     * 같은 예약을 같은 차례에 고르면 한쪽만 요청한다. 상태와 감사 컬럼은 바꾸지 않는다.
+     */
+    int markRefundChecked(Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore);
 
     /**
      * 취소 확인 스케줄러가 환불을 다시 요청한 시각을 남긴다. 아직 취소 중이고 마지막 확인(없으면 취소 시작)이 checkedBefore 이전일 때만

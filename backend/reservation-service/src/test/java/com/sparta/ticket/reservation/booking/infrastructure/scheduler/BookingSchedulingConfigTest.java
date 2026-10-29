@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileService;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
+import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -27,6 +29,7 @@ class BookingSchedulingConfigTest {
 
     private final HoldExpiryService holdExpiryService = mock(HoldExpiryService.class);
     private final PaymentReconcileService reconcileService = mock(PaymentReconcileService.class);
+    private final UnconfirmedRefundService unconfirmedRefundService = mock(UnconfirmedRefundService.class);
     private final CancelReconcileService cancelReconcileService = mock(CancelReconcileService.class);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
@@ -34,6 +37,7 @@ class BookingSchedulingConfigTest {
             .withUserConfiguration(BookingSchedulingConfig.class)
             .withBean(HoldExpiryService.class, () -> holdExpiryService)
             .withBean(PaymentReconcileService.class, () -> reconcileService)
+            .withBean(UnconfirmedRefundService.class, () -> unconfirmedRefundService)
             .withBean(CancelReconcileService.class, () -> cancelReconcileService)
             .withPropertyValues(
                     "reservation.booking.scheduler.hold-expiry.interval=50ms",
@@ -50,7 +54,7 @@ class BookingSchedulingConfigTest {
                     "reservation.booking.scheduler.cancel-reconcile.time-budget=40ms");
 
     @Test
-    @DisplayName("컨텍스트가 뜨면 만료, 결과 확인, 취소 확인을 설정값으로 돌린다")
+    @DisplayName("컨텍스트가 뜨면 만료, 결과 확인과 확정 못 한 결제의 환불, 취소 확인을 설정값으로 돌린다")
     void runsBothTasks() {
         runner.run(context -> {
             assertThat(context).hasSingleBean(BookingScheduleRunner.class);
@@ -58,9 +62,20 @@ class BookingSchedulingConfigTest {
             verify(reconcileService, timeout(2_000).atLeastOnce())
                     .reconcile(
                             eq(Duration.ofMinutes(1)), eq(Duration.ofMinutes(30)), anyInt(), eq(Duration.ofMillis(40)));
+            verify(unconfirmedRefundService, timeout(2_000).atLeastOnce())
+                    .refund(eq(Duration.ofMinutes(1)), anyInt(), eq(Duration.ofMillis(40)));
             verify(cancelReconcileService, timeout(2_000).atLeastOnce())
                     .reconcile(Duration.ofMinutes(2), 20, Duration.ofMillis(40));
         });
+    }
+
+    @Test
+    @DisplayName("결과 확인이 실패해도 같은 주기의 확정 못 한 결제 환불은 돈다")
+    void refundRunsWhenReconcileFails() {
+        doThrow(new IllegalStateException("db down")).when(reconcileService).reconcile(any(), any(), anyInt(), any());
+
+        runner.run(context ->
+                verify(unconfirmedRefundService, timeout(2_000).atLeastOnce()).refund(any(), anyInt(), any()));
     }
 
     @Test
