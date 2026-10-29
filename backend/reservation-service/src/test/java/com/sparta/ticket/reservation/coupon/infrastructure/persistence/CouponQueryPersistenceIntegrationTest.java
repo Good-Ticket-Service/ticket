@@ -10,7 +10,10 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -106,6 +109,33 @@ class CouponQueryPersistenceIntegrationTest extends ReservationIntegrationTest {
             // 종료가 이른 쿠폰이 먼저 온다
             assertThat(result.indexOf(sooner.getId())).isLessThan(result.indexOf(later.getId()));
         }
+
+        @Test
+        @DisplayName("정렬 값이 같으면 ID로 순서를 정하고, 응답 페이지의 정렬은 요청한 정렬 그대로다")
+        void tieBreaksById() {
+            // 종료 시각이 모두 같은 쿠폰 세 개. 다른 테스트와 겹치지 않는 종료 시각을 쓴다
+            LocalDateTime sameEnd = NOW.plusDays(17);
+            List<Long> created = List.of(
+                    saveCoupon(NOW.minusDays(1), sameEnd).getId(),
+                    saveCoupon(NOW.minusDays(1), sameEnd).getId(),
+                    saveCoupon(NOW.minusDays(1), sameEnd).getId());
+
+            for (Sort.Direction direction : Sort.Direction.values()) {
+                Sort byEnd = Sort.by(direction, "issueEndAt");
+                Page<Coupon> page = couponRepository.searchByIssueStatus(
+                        CouponIssueStatus.ISSUING, NOW, PageRequest.of(0, 10_000, byEnd));
+                List<Long> ours = ids(page).stream().filter(created::contains).toList();
+
+                // 같은 종료 시각끼리는 정렬 방향과 같은 방향의 ID 순서다
+                List<Long> expected = new ArrayList<>(created);
+                if (direction.isDescending()) {
+                    Collections.reverse(expected);
+                }
+                assertThat(ours).isEqualTo(expected);
+                // 보조 키는 조회에만 쓰고 응답 정렬(PageResponse.sort)에는 드러내지 않는다
+                assertThat(page.getSort()).isEqualTo(byEnd);
+            }
+        }
     }
 
     @Nested
@@ -184,6 +214,27 @@ class CouponQueryPersistenceIntegrationTest extends ReservationIntegrationTest {
                     .containsExactlyInAnyOrder(
                             active.getId(), expiresNow.getId(), storedExpired.getId(), reserved.getId(), used.getId())
                     .doesNotContain(others.getId());
+        }
+
+        @Test
+        @DisplayName("만료 시각이 같은 쿠폰도 페이지를 넘길 때 겹치거나 빠지지 않는다")
+        void stablePages() {
+            long userId = 930_004L;
+            // 같은 시각에 받아 만료 시각이 모두 같은 쿠폰 세 개
+            List<Long> issued = List.of(
+                    issueAt(userId, NOW.minusDays(1)).getId(),
+                    issueAt(userId, NOW.minusDays(1)).getId(),
+                    issueAt(userId, NOW.minusDays(1)).getId());
+            Sort byExpiry = Sort.by(Sort.Direction.ASC, "expiresAt");
+
+            // 두 장씩 두 페이지로 나눠 읽는다
+            Page<UserCoupon> first = userCouponRepository.findMine(userId, null, NOW, PageRequest.of(0, 2, byExpiry));
+            Page<UserCoupon> second = userCouponRepository.findMine(userId, null, NOW, PageRequest.of(1, 2, byExpiry));
+
+            // 두 페이지를 이으면 ID 오름차순으로 세 장이 한 번씩 나온다
+            assertThat(Stream.concat(ids(first).stream(), ids(second).stream()).toList())
+                    .isEqualTo(issued);
+            assertThat(first.getSort()).isEqualTo(byExpiry);
         }
 
         @Test

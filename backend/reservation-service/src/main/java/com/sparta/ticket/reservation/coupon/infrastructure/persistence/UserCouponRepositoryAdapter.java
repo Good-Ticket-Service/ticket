@@ -42,20 +42,25 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
         return new HashSet<>(jpaRepository.findIssuedCouponIds(userId, couponIds));
     }
 
-    /** 상태 필터에 맞는 쿼리를 고른다. AVAILABLE·EXPIRED는 만료 시각까지 보아야 해서 저장된 상태만으로 찾지 않는다. */
+    /**
+     * 상태 필터에 맞는 쿼리를 고른다. AVAILABLE·EXPIRED는 만료 시각까지 보아야 해서 저장된 상태만으로 찾지 않는다.
+     * 같은 만료 시각이 많아도 페이지마다 순서가 같도록 정렬 끝에 ID 보조 키를 붙인다(StableSort).
+     */
     @Override
     public Page<UserCoupon> findMine(Long userId, UserCouponStatus status, LocalDateTime now, Pageable pageable) {
-        if (status == null) {
-            return jpaRepository.findByUserId(userId, pageable);
-        }
-        return switch (status) {
-            // 쓸 수 있는 쿠폰: 만료 시각이 지난 AVAILABLE은 뺀다
-            case AVAILABLE -> jpaRepository.findAvailable(userId, now, pageable);
-            // 만료된 쿠폰: 배치가 아직 처리하지 않은 AVAILABLE도 넣는다
-            case EXPIRED -> jpaRepository.findExpired(userId, now, pageable);
-            // 예매에 잡혔거나 사용한 쿠폰은 저장된 상태 그대로다
-            case RESERVED, USED -> jpaRepository.findByUserIdAndStatus(userId, status, pageable);
-        };
+        return StableSort.query(pageable, stable -> {
+            if (status == null) {
+                return jpaRepository.findByUserId(userId, stable);
+            }
+            return switch (status) {
+                // 쓸 수 있는 쿠폰: 만료 시각이 지난 AVAILABLE은 뺀다
+                case AVAILABLE -> jpaRepository.findAvailable(userId, now, stable);
+                // 만료된 쿠폰: 배치가 아직 처리하지 않은 AVAILABLE도 넣는다
+                case EXPIRED -> jpaRepository.findExpired(userId, now, stable);
+                // 예매에 잡혔거나 사용한 쿠폰은 저장된 상태 그대로다
+                case RESERVED, USED -> jpaRepository.findByUserIdAndStatus(userId, status, stable);
+            };
+        });
     }
 
     /**

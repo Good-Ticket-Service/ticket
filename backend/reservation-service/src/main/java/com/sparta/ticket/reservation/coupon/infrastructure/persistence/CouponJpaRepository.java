@@ -56,16 +56,17 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
             @Param("id") Long id, @Param("now") LocalDateTime now, @Param("updatedBy") String updatedBy);
 
     /**
-     * 발급 상태에 맞는 쿼리를 골라 부른다. 정렬·페이지는 Pageable을 그대로 쓴다(허용 필드 검사는 application이 한다).
+     * 발급 상태에 맞는 쿼리를 골라 부른다. 정렬·페이지는 Pageable을 쓰고 끝에 ID 보조 키를 붙인다(허용 필드 검사는 application이 한다).
      * Note: Spring Data는 인터페이스의 default 메서드를 쿼리로 만들지 않고 그대로 실행한다.
      */
     @Override
     default Page<Coupon> searchByIssueStatus(CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable) {
-        return switch (issueStatus) {
-            case UPCOMING -> findUpcoming(now, pageable);
-            case ISSUING -> findIssuing(now, pageable);
-            case ENDED -> findEnded(now, pageable);
-        };
+        // 같은 발급 시작·종료 시각이 많아도 페이지마다 순서가 같도록 ID까지 정렬한다
+        return StableSort.query(pageable, stable -> switch (issueStatus) {
+            case UPCOMING -> findUpcoming(now, stable);
+            case ISSUING -> findIssuing(now, stable);
+            case ENDED -> findEnded(now, stable);
+        });
     }
 
     /** 발급 시작 전 쿠폰. */
