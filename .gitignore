@@ -45,3 +45,10 @@ CLAUDE.local.md
 ### Alertmanager 실제 Slack webhook (infra/alertmanager/secrets/에 두고 SLACK_WEBHOOK_URL_FILE로 지정) ###
 /infra/alertmanager/secrets/*
 !/infra/alertmanager/secrets/.gitkeep
+
+### Task 12 시험 원본 결과(요약은 이슈·PR에 남긴다) ###
+/script/task12/results/
+/script/task12/k6/out/
+
+### Python 캐시 ###
+__pycache__/
