@@ -37,7 +37,8 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
             @Param("id") Long id, @Param("deletedBy") String deletedBy, @Param("deletedAt") LocalDateTime deletedAt);
 
     /**
-     * 조건을 모두 만족할 때만 발급 수량을 1 올린다. bulk UPDATE라 감사 컬럼(updated_at, updated_by)을 직접 쓴다.
+     * 조건을 모두 만족할 때만 발급 수량을 1 올린다. 엔티티를 거치지 않고 쿼리로 바로 UPDATE하므로(변경 감지가 아님)
+     * JPA 감사 리스너가 동작하지 않아 감사 컬럼(updated_at, updated_by)을 직접 쓴다.
      * Note: issued_quantity는 Entity에서 updatable = false라 JPQL이 아니라 SQL로 쓴다. 같은 행을 잠그는 관리자 수정·삭제와는 차례로 실행되고,
      * PostgreSQL은 잠금을 기다린 뒤 WHERE를 다시 평가하므로 그사이 삭제·중단·수량 변경이 반영된다.
      * 영속성 컨텍스트에 남은 옛 쿠폰 값을 읽지 않도록 실행 뒤 비운다.
