@@ -212,6 +212,8 @@ services:
     environment:
       <<: *service-env
       RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD}
+      # 대기열 켜고 끄기(config-repo/reservation-service.yml의 reservation.queue.enabled). 켜려면 QUEUE_ENABLED=true로 띄운다
+      QUEUE_ENABLED: ${QUEUE_ENABLED:-false}
 
   payment-service:
     <<: *db-service
