@@ -15,7 +15,7 @@ public interface BookingFacade {
 
     /**
      * HOLD 예약과 좌석마다 티켓을 만들고 예약 id를 돌려준다. 가격은 선점 시점의 좌석 가격이다.
-     * target의 공연·판매자도 선점 시점 값으로 저장해 결제 준비에 쓴다. 셋 중 하나라도 없으면 INVALID_REQUEST다.
+     * target의 공연·판매자·회차 시작 시각·공연명도 선점 시점 값으로 저장한다. 하나라도 없으면 INVALID_REQUEST다.
      * 같은 회원이 같은 회차에 진행 중인 예약을 또 만들면 부분 UNIQUE(uk_p_reservations_active_user_schedule) 위반을
      * 잡지 않고 그대로 던진다. 트랜잭션이 롤백 전용이 되므로 seat는 트랜잭션 밖에서 이 제약 이름을 보고 409로 바꾼다.
      */
@@ -34,8 +34,8 @@ public interface BookingFacade {
     ReleaseResult release(Long userId, Long reservationId);
 
     /**
-     * 이 회원이 이 회차에 진행 중인(HOLD·결제 중·확정) 예약의 좌석 수. 1인 매수 제한에 쓴다.
-     * 만료·해제·취소된 예약은 세지 않는다.
+     * 이 회원이 이 회차에 진행 중인(HOLD·결제 중·확정·취소 중) 예약의 좌석 수. 1인 매수 제한에 쓴다.
+     * 취소 중에도 좌석은 판매된 그대로라 센다. 만료·해제·취소된 예약은 세지 않는다.
      */
     int countActiveSeats(Long userId, Long scheduleId);
 

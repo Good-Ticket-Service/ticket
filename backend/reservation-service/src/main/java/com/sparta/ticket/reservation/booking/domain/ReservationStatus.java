@@ -5,6 +5,7 @@ public enum ReservationStatus {
     HOLD,
     PAYMENT_IN_PROGRESS,
     CONFIRMED,
+    CANCELING,
     EXPIRED,
     RELEASED,
     CANCELED

@@ -14,6 +14,10 @@ CREATE TABLE p_reservations
     -- payment가 같은 orderId의 재요청에서 값이 바뀌면 거절하므로 checkout 때 다시 조회하지 않는다
     performance_id  BIGINT       NOT NULL,
     seller_id       BIGINT       NOT NULL,
+    -- 회차 시작 시각과 공연명. 선점 때 판매 검증 응답에서 받은 값이며 다시 조회하지 않는다.
+    -- 시작 시각으로 취소 기한을 판정한다. 취소가 공연 서비스 가용성에 묶이지 않게 예약에 둔다
+    schedule_start_at TIMESTAMP  NOT NULL,
+    performance_title VARCHAR(200) NOT NULL,
     status          VARCHAR(30)  NOT NULL,
     hold_expires_at TIMESTAMP    NOT NULL,
     -- 마지막 결제 준비의 주문 번호와 할인 후 금액. 결제 시도마다 새로 쓴다
@@ -38,7 +42,7 @@ CREATE TABLE p_reservations
 
     CONSTRAINT uk_p_reservations_order_id UNIQUE (order_id),
     CONSTRAINT ck_p_reservations_status
-        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'EXPIRED', 'RELEASED', 'CANCELED'))
+        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING', 'EXPIRED', 'RELEASED', 'CANCELED'))
 );
 
 -- 만료 스케줄러가 시간이 지난 HOLD를 고른다
@@ -46,7 +50,7 @@ CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) W
 -- 결과 확인 스케줄러가 결제 중으로 오래 머문 예약을 고른다
 CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';
 -- 한 회원은 한 회차에 진행 중인 예약을 하나만 가진다. 1인 매수 제한의 마지막 방어선이다.
--- seat가 이 이름의 위반을 보고 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다. CANCELING은 취소를 구현할 때 status CHECK에 더한다
+-- seat가 이 이름의 위반을 보고 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다. 취소 중에도 좌석은 판매된 그대로라 진행 중으로 센다
 CREATE UNIQUE INDEX uk_p_reservations_active_user_schedule
     ON p_reservations (user_id, schedule_id)
     WHERE status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING');

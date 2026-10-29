@@ -65,7 +65,7 @@ public interface ReservationRepository {
     /** HOLD → RELEASED. 본인 예약이고 선점 시간이 남았을 때만 바꾼다. */
     int releaseHold(Long id, Long userId, ChangeStamp stamp);
 
-    /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정) 예약이 가진 티켓 수. */
+    /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약이 가진 티켓 수. */
     long countActiveTickets(Long userId, Long scheduleId);
 
     /** 이 회원·회차의 HOLD 예약. 진행 중인 예약은 부분 UNIQUE로 하나뿐이므로 많아야 하나다. 만료 여부는 보지 않는다. */

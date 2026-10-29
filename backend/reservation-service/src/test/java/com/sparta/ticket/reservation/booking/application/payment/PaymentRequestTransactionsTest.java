@@ -151,7 +151,7 @@ class PaymentRequestTransactionsTest {
     private Reservation givenReloaded(ReservationStatus status, boolean owned, boolean sameAttempt, boolean expired) {
         Reservation reservation = Reservation.hold(
                 owned ? USER_ID : OTHER_USER_ID,
-                new SaleTarget(1L, 2L, 3L),
+                new SaleTarget(1L, 2L, 3L, LocalDateTime.of(2026, 12, 1, 19, 0), "공연"),
                 List.of(new SeatPrice(100L, 10_000)),
                 expired ? STAMP.at().minusMinutes(1) : STAMP.at().plusMinutes(10));
         ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
