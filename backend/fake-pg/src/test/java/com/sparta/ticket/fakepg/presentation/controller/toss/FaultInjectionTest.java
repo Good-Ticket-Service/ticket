@@ -229,4 +229,64 @@ class FaultInjectionTest extends FakePgIntegrationTest {
                 .andExpect(jsonPath("$['TOSS.CONFIRM'].latencyMs").value(10))
                 .andExpect(jsonPath("$['TOSS.CONFIRM'].holdMs").value(15_000));
     }
+
+    private ResultActions inquire() throws Exception {
+        return mockMvc.perform(get("/v1/payments/orders/" + orderId).header(HttpHeaders.AUTHORIZATION, AUTHORIZATION));
+    }
+
+    private ResultActions cancelExternally(String json) throws Exception {
+        return mockMvc.perform(post("/fake/admin/transactions/TOSS/" + orderId + "/external-cancel")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json));
+    }
+
+    @Test
+    @DisplayName("외부 부분 취소: PARTIAL_CANCELED, 남은 금액이 줄고 우리 API로는 더 취소할 수 없다")
+    void externalPartialCancel() throws Exception {
+        prepare(10_000);
+        confirm(null).andExpect(status().isOk());
+
+        cancelExternally("{\"cancelAmount\":3000}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PARTIAL_CANCELED"))
+                .andExpect(jsonPath("$.canceledAmount").value(3000));
+
+        inquire()
+                .andExpect(jsonPath("$.status").value("PARTIAL_CANCELED"))
+                .andExpect(jsonPath("$.balanceAmount").value(7000))
+                .andExpect(jsonPath("$.cancels[0].cancelAmount").value(3000));
+        cancel("key-after-partial")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_CANCELABLE_PAYMENT"));
+    }
+
+    @Test
+    @DisplayName("외부 전액 취소: CANCELED가 되고, 우리 API로 다시 취소하면 이미 취소됨이다")
+    void externalFullCancel() throws Exception {
+        prepare(10_000);
+        confirm(null).andExpect(status().isOk());
+
+        cancelExternally("{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"));
+
+        inquire()
+                .andExpect(jsonPath("$.balanceAmount").value(0))
+                .andExpect(jsonPath("$.cancels[0].cancelAmount").value(10_000));
+        cancel("key-after-external")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ALREADY_CANCELED_PAYMENT"));
+    }
+
+    @Test
+    @DisplayName("외부 취소는 승인 완료 거래만, 승인액 이하 금액만 받는다")
+    void externalCancelValidation() throws Exception {
+        prepare(10_000);
+        cancelExternally("{}").andExpect(status().isForbidden());
+
+        confirm(null).andExpect(status().isOk());
+        cancelExternally("{\"cancelAmount\":10001}").andExpect(status().isBadRequest());
+        mockMvc.perform(post("/fake/admin/transactions/TOSS/no-such-order/external-cancel"))
+                .andExpect(status().isNotFound());
+    }
 }

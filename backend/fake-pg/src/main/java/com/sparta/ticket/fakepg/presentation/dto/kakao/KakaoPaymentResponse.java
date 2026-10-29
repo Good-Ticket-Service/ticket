@@ -29,8 +29,10 @@ public record KakaoPaymentResponse(
         LocalDateTime canceledAt) {
 
     public static KakaoPaymentResponse from(PgTransaction transaction, String cid) {
-        boolean canceled = transaction.getStatus() == PgTransactionStatus.CANCELED;
         int total = transaction.getAmount();
+        int canceled = transaction.canceledAmountOrZero();
+        boolean cancelable = transaction.getStatus() == PgTransactionStatus.DONE
+                || transaction.getStatus() == PgTransactionStatus.PARTIAL_CANCELED;
         return new KakaoPaymentResponse(
                 transaction.getApprovedAt() == null
                         ? null
@@ -42,8 +44,8 @@ public record KakaoPaymentResponse(
                 transaction.getPartnerUserId(),
                 "MONEY",
                 Amount.of(total),
-                Amount.of(canceled ? total : 0),
-                Amount.of(transaction.getStatus() == PgTransactionStatus.DONE ? total : 0),
+                Amount.of(canceled),
+                Amount.of(cancelable ? total - canceled : 0),
                 transaction.getOrderName(),
                 1,
                 transaction.getRequestedAt(),
@@ -60,6 +62,7 @@ public record KakaoPaymentResponse(
             case READY -> transaction.getPgToken() == null ? "READY" : "AUTH_PASSWORD";
             case DONE -> "SUCCESS_PAYMENT";
             case CANCELED -> "CANCEL_PAYMENT";
+            case PARTIAL_CANCELED -> "PART_CANCEL_PAYMENT";
             case ABORTED -> "FAIL_PAYMENT";
             case EXPIRED -> "QUIT_PAYMENT";
         };

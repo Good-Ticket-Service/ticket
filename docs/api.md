@@ -485,9 +485,10 @@
 | PUT /fake/admin/faults/{provider}/{operation} | Fault | 200 Fault |
 | DELETE /fake/admin/faults | 없음 | 204 |
 | GET /fake/admin/transactions | Q orderId?:string,status?:string,limit?:int=100(1~1000 보정) | 200 `TransactionView[]`; 최신순 |
+| POST /fake/admin/transactions/{provider}/{orderId}/external-cancel | cancelAmount?:int(생략=전액),reason?:string | 200 TransactionView; 우리 API를 거치지 않은 취소. 승인액 미만이면 PARTIAL_CANCELED. E 404 NOT_FOUND_PAYMENT, 403 NOT_CANCELABLE_PAYMENT(DONE 아님), 400 INVALID_REQUEST(금액 범위) |
 | DELETE /fake/admin/transactions | 없음 | 204 거래/멱등 기록 초기화 |
 
 - provider=TOSS/KAKAO; operation=READY(KAKAO만)/CONFIRM/INQUIRE/CANCEL.
 - Fault=`{latencyMs?:long>=0,serverErrorRate?:double[0,1],failRate?:double[0,1],responseLossRate?:double[0,1],delayedApprovalRate?:double[0,1],delayedApprovalMs?:long>=0,holdMs?:long>=0(기본15000),rateLimitPerSecond?:int>=0(0=무제한)}`. 생략은 장애 없음.
 
-- TransactionView=`{provider:string,paymentKey:string,orderId:string,amount:int,status:string,requestedAt:datetime,approvedAt:datetime|null,canceledAt:datetime|null,cancelTransactionKey:string|null,failureCode:string|null}`.
+- TransactionView=`{provider:string,paymentKey:string,orderId:string,amount:int,status:string,requestedAt:datetime,approvedAt:datetime|null,canceledAt:datetime|null,canceledAmount:int,cancelTransactionKey:string|null,failureCode:string|null}`.
