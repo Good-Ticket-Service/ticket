@@ -2,6 +2,7 @@ package com.sparta.ticket.payment.application.service.payment;
 
 import com.sparta.ticket.payment.application.dto.payment.RecoveryClaim;
 import com.sparta.ticket.payment.application.port.pg.PgClient.PgInquireRequest;
+import com.sparta.ticket.payment.application.service.observation.JobObservation;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.model.pg.PgInquiry;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -21,6 +22,7 @@ public class PaymentRecoveryJob {
     private final PgClientRegistry clients;
     private final PaymentRecoveryProperties properties;
     private final MeterRegistry meters;
+    private final JobObservation observation;
     private final AtomicReference<Double> oldestDueAge = new AtomicReference<>(0.0);
 
     public PaymentRecoveryJob(
@@ -32,11 +34,16 @@ public class PaymentRecoveryJob {
         this.clients = clients;
         this.properties = properties;
         this.meters = meters;
+        this.observation = new JobObservation(meters, "recovery");
         meters.gauge("payment.recovery.oldest.due.age.seconds", oldestDueAge, AtomicReference::get);
     }
 
     /** 실행 예산이 지나면 새 조회를 시작하지 않는다. 이미 시작한 HTTP 호출은 해당 타임아웃까지 걸릴 수 있다. */
     public void runOnce() {
+        observation.run(this::executeOnce);
+    }
+
+    private void executeOnce() {
         long started = System.nanoTime();
         long budget = TimeUnit.SECONDS.toNanos(properties.maxRunSeconds());
         List<Long> attemptedReady = new ArrayList<>(List.of(0L));
@@ -54,6 +61,7 @@ public class PaymentRecoveryJob {
                 Optional<RecoveryClaim> next = transactions.claimOne(attemptedRecovery);
                 if (next.isEmpty()) break;
                 claim = next.get();
+                observation.claimed();
             } catch (RuntimeException e) {
                 failure("claim");
                 break;
@@ -85,6 +93,7 @@ public class PaymentRecoveryJob {
     }
 
     private void failure(String phase) {
+        observation.failed();
         meters.counter("payment.recovery.errors", "phase", phase).increment();
         log.warn("Recovery 단계 실패. phase={}", phase);
     }

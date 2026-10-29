@@ -41,6 +41,22 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry meters;
+
+    private double approvedCount(PgProvider provider) {
+        var count =
+                meters.find("payment.approved").tag("provider", provider.name()).counter();
+        return count == null ? 0 : count.count();
+    }
+
+    private double compensationCount() {
+        var count = meters.find("payment.compensation.intent")
+                .tag("provider", "TOSS")
+                .counter();
+        return count == null ? 0 : count.count();
+    }
+
     private static final AtomicLong IDS = new AtomicLong(4_000_000);
 
     @Autowired
@@ -100,6 +116,7 @@ class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
     @ParameterizedTest
     @EnumSource(PgProvider.class)
     void approvedOutsideTransactionAndReplayed(PgProvider provider) {
+        double before = approvedCount(provider);
         Payment payment = ready(provider);
         pg.approveReturns(request -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive())
@@ -118,6 +135,7 @@ class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
                         .status())
                 .isEqualTo(PaymentStatus.DONE);
         assertThat(pg.approveCalls()).isEqualTo(1);
+        assertThat(approvedCount(provider)).isEqualTo(before + 1);
     }
 
     @Test
@@ -292,13 +310,18 @@ class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
 
     @Test
     void resultPersistenceFailureRollsBackPaymentAndRefundAndCanBeRecovered() {
+        double before = compensationCount();
         Payment payment = ready(PgProvider.TOSS);
         pg.approveReturns(request -> new PgResult.Approved(request.transactionId(), 46_000, LocalDateTime.now(clock)));
         publisher.fail = true;
         assertThat(confirm(payment, "rollback-key").status()).isEqualTo(PaymentStatus.IN_PROGRESS);
         assertThat(refunds.findByPaymentId(payment.getId())).isEmpty();
+        assertThat(compensationCount()).isEqualTo(before);
         publisher.fail = false;
         transactions.complete(payment.getId(), new PgResult.Approved("rollback-key", 46_000, LocalDateTime.now(clock)));
+        assertThat(compensationCount()).isEqualTo(before + 1);
+        transactions.complete(payment.getId(), new PgResult.Approved("rollback-key", 46_000, LocalDateTime.now(clock)));
+        assertThat(compensationCount()).isEqualTo(before + 1);
         assertThat(load(payment.getOrderId()).getFailureCode()).isEqualTo("AMOUNT_MISMATCH");
         assertThat(refunds.findByPaymentId(payment.getId())).isPresent();
         assertThat(pg.approveCalls()).isEqualTo(1);

@@ -30,6 +30,7 @@ public class PaymentReconcileTransactions {
     private final Clock clock;
     private final MeterRegistry meters;
     private final ReconcileRetryDelay retryDelay;
+    private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
 
     @Transactional
     public Optional<ReconcileClaim> claimOne(Collection<Long> attemptedIds) {
@@ -38,6 +39,8 @@ public class PaymentReconcileTransactions {
                 .findFirst()
                 .map(payment -> {
                     attemptedIds.add(payment.getId());
+                    observation.duration(
+                            "payment.execution.claim.delay", payment.getNextReconcileAt(), "task", "reconcile");
                     LocalDateTime until =
                             now.plusSeconds(properties.leaseSeconds()).truncatedTo(ChronoUnit.MICROS);
                     payment.claimReconciliation(until);
@@ -121,7 +124,11 @@ public class PaymentReconcileTransactions {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                action.run();
+                try {
+                    action.run();
+                } catch (RuntimeException e) {
+                    log.warn("커밋된 Reconcile 결과의 계측 실패");
+                }
             }
         });
     }

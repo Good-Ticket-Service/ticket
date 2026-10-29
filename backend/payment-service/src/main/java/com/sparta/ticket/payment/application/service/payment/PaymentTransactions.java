@@ -41,6 +41,7 @@ public class PaymentTransactions {
     private final PaymentResultPublisher resultPublisher;
     private final PgApprovalGate approvalGate;
     private final Clock clock;
+    private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
     private final PaymentReconcileProperties reconcileProperties;
 
     @Value("${payment.recovery.check-interval-seconds:10}")
@@ -138,15 +139,23 @@ public class PaymentTransactions {
                 return;
             }
             if (payment.getStatus() == PaymentStatus.FAILED) {
-                ensureRefund(payment, approved.amount(), now);
+                ensureRefund(payment, approved.amount(), now, approved.at());
                 log.error("종료된 결제의 늦은 승인. 자동 취소가 필요하다. paymentId={}", paymentId);
             } else if (approved.amount() != payment.getAmount()) {
                 payment.fail(PaymentFailureCode.AMOUNT_MISMATCH, "PG_APPROVED_AMOUNT_MISMATCH");
                 payment.recordFailure(now, reconcileProperties.schedule());
-                ensureRefund(payment, approved.amount(), now);
+                ensureRefund(payment, approved.amount(), now, approved.at());
                 resultPublisher.paymentFinalized(payment);
             } else {
                 payment.approve(approved.transactionId(), approved.at());
+                observation.counter(
+                        "payment.approved", "provider", payment.getPgProvider().name());
+                if (payment.getConfirmRequestedAt() != null)
+                    observation.duration(
+                            "payment.approval.completion.duration",
+                            payment.getConfirmRequestedAt(),
+                            "provider",
+                            payment.getPgProvider().name());
                 refundRepository
                         .lockByPaymentId(paymentId)
                         .filter(refund -> refund.getStatus() == RefundStatus.WAITING)
@@ -171,12 +180,26 @@ public class PaymentTransactions {
         }
     }
 
-    private void ensureRefund(Payment payment, int amount, LocalDateTime now) {
+    private void ensureRefund(Payment payment, int amount, LocalDateTime now, LocalDateTime approvedAt) {
         Optional<Refund> existing = refundRepository.lockByPaymentId(payment.getId());
+        boolean newIntent = existing.isEmpty()
+                || existing.get().getStatus() == RefundStatus.WAITING
+                || existing.get().getStatus() == RefundStatus.SKIPPED;
         if (existing.isPresent()) {
             existing.get().ensureRequested(amount, now, now);
         } else {
             refundRepository.saveAndFlush(Refund.requested(payment, RefundReason.AUTO_VOID, amount, now, now));
+        }
+        if (newIntent) {
+            observation.duration(
+                    "payment.compensation.discovery.duration",
+                    approvedAt,
+                    "provider",
+                    payment.getPgProvider().name());
+            observation.counter(
+                    "payment.compensation.intent",
+                    "provider",
+                    payment.getPgProvider().name());
         }
     }
 

@@ -29,7 +29,14 @@ public class RefundService {
                         .record(System.nanoTime() - acceptStarted, TimeUnit.NANOSECONDS);
             }
             transactions.claim(orderId).ifPresent(this::execute);
-            return transactions.find(orderId);
+            RefundResult result = transactions.find(orderId);
+            try {
+                meters.counter("payment.api.results", "operation", "refund", "status", result.refundStatus())
+                        .increment();
+            } catch (RuntimeException ignored) {
+                // Note: 환불 결과를 계측 실패로 바꾸지 않는다.
+            }
+            return result;
         } finally {
             meters.timer("payment.refund.request.duration").record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
         }
