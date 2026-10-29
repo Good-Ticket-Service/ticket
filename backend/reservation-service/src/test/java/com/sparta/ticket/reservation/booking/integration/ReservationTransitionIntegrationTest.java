@@ -147,8 +147,8 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
     void releaseHold() {
         Long released = hold(Duration.ofMinutes(10), TestIds.next());
         Long stale = hold(Duration.ofMinutes(1), TestIds.next());
-        inTransaction(() ->
-                reservationRepository.recordCheckout(released, userId, null, "order-r", 10_000L, changeStamps.stamp()));
+        inTransaction(() -> reservationRepository.recordCheckout(
+                released, userId, null, null, "order-r", 10_000L, changeStamps.stamp()));
         clock.advance(Duration.ofMinutes(5));
 
         assertThat(release(userId, released)).isEqualTo(ReleaseResult.RELEASED);
@@ -192,8 +192,8 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
     @DisplayName("결제 중이거나 끝난 예약은 NOT_RELEASABLE이고 상태를 바꾸지 않는다. 다른 사용자의 예약은 FORBIDDEN이다")
     void releaseRejected() {
         Long paying = hold(Duration.ofMinutes(10), TestIds.next());
-        inTransaction(() ->
-                reservationRepository.recordCheckout(paying, userId, null, "order-1", 10_000L, changeStamps.stamp()));
+        inTransaction(() -> reservationRepository.recordCheckout(
+                paying, userId, null, null, "order-1", 10_000L, changeStamps.stamp()));
         inTransaction(
                 () -> reservationRepository.startPayment(paying, userId, "order-1", "pg-token", changeStamps.stamp()));
         Long other = hold(Duration.ofMinutes(10), TestIds.next());
@@ -212,7 +212,7 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
     void concurrentTransition() throws Exception {
         Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         inTransaction(() -> reservationRepository.recordCheckout(
-                reservationId, userId, null, "order-1", 10_000L, changeStamps.stamp()));
+                reservationId, userId, null, null, "order-1", 10_000L, changeStamps.stamp()));
 
         int threads = 8;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
@@ -244,7 +244,7 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
                 Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
                 String orderId = "order-race-" + round;
                 inTransaction(() -> reservationRepository.recordCheckout(
-                        reservationId, userId, null, orderId, 10_000L, changeStamps.stamp()));
+                        reservationId, userId, null, null, orderId, 10_000L, changeStamps.stamp()));
                 CyclicBarrier bothInTransaction = new CyclicBarrier(2);
 
                 Future<ReleaseResult> released = executor.submit(() -> transactionTemplate.execute(status -> {
@@ -301,10 +301,10 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
         assertThat(inTransaction(() -> reservationRepository.expireHold(reservationId, changeStamps.stamp())))
                 .isZero();
         assertThat(inTransaction(() -> reservationRepository.recordCheckout(
-                        reservationId, userId, null, "order-1", 10_000L, changeStamps.stamp())))
+                        reservationId, userId, null, null, "order-1", 10_000L, changeStamps.stamp())))
                 .isEqualTo(1);
         assertThat(inTransaction(() -> reservationRepository.recordCheckout(
-                        reservationId, userId, null, "order-2", 10_000L, changeStamps.stamp())))
+                        reservationId, userId, null, null, "order-2", 10_000L, changeStamps.stamp())))
                 .as("처음 읽은 order_id(null)가 이미 바뀌었다")
                 .isZero();
         assertThat(inTransaction(() -> reservationRepository.startPayment(
@@ -331,7 +331,7 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
     void paymentFailureDependsOnHoldTime() {
         Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
         inTransaction(() -> reservationRepository.recordCheckout(
-                reservationId, userId, null, "order-1", 10_000L, changeStamps.stamp()));
+                reservationId, userId, null, null, "order-1", 10_000L, changeStamps.stamp()));
         inTransaction(() ->
                 reservationRepository.startPayment(reservationId, userId, "order-1", "pg-token", changeStamps.stamp()));
 
@@ -352,8 +352,8 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
         Long expired = hold(Duration.ofMinutes(1), TestIds.next());
         Long alive = hold(Duration.ofMinutes(30), TestIds.next());
         Long paying = hold(Duration.ofMinutes(1), TestIds.next());
-        inTransaction(() ->
-                reservationRepository.recordCheckout(paying, userId, null, "order-p", 10_000L, changeStamps.stamp()));
+        inTransaction(() -> reservationRepository.recordCheckout(
+                paying, userId, null, null, "order-p", 10_000L, changeStamps.stamp()));
         inTransaction(
                 () -> reservationRepository.startPayment(paying, userId, "order-p", "pg-token", changeStamps.stamp()));
 

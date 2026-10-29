@@ -61,6 +61,10 @@ public class Reservation extends BaseEntity {
 
     private Long paymentAmount;
 
+    private Long userCouponId;
+
+    private Long discountAmount;
+
     @Column(length = 255)
     private String pgAuthToken;
 

@@ -28,9 +28,29 @@ public interface ReservationJpaRepository
 
     @Override
     default int recordCheckout(
-            Long id, Long userId, String expectedOrderId, String orderId, long paymentAmount, ChangeStamp stamp) {
+            Long id,
+            Long userId,
+            String expectedOrderId,
+            Long expectedUserCouponId,
+            String orderId,
+            long paymentAmount,
+            ChangeStamp stamp) {
         return updateCheckout(
-                id, ReservationStatus.HOLD, userId, expectedOrderId, orderId, paymentAmount, stamp.at(), stamp.by());
+                id,
+                ReservationStatus.HOLD,
+                userId,
+                expectedOrderId,
+                expectedUserCouponId,
+                orderId,
+                paymentAmount,
+                stamp.at(),
+                stamp.by());
+    }
+
+    @Override
+    default int changeCoupon(Long id, Long userId, Long expectedUserCouponId, Long userCouponId, ChangeStamp stamp) {
+        return updateCoupon(
+                id, ReservationStatus.HOLD, userId, expectedUserCouponId, userCouponId, stamp.at(), stamp.by());
     }
 
     @Override
@@ -79,19 +99,44 @@ public interface ReservationJpaRepository
         return selectStalePaymentIds(updatedBefore, PageRequest.of(0, limit));
     }
 
-    /** order_id를 처음 읽은 값과 비교한다. 처음 준비라 둘 다 null인 경우도 같다고 본다. */
+    /** user_coupon_id를 처음 읽은 값과 비교한다. 쿠폰을 쓰지 않아 둘 다 null인 경우도 같다고 본다. 회원 쿠폰 ID는 1부터다. */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.userCouponId = :userCouponId, r.discountAmount = NULL, r.orderId = NULL, r.paymentAmount = NULL,
+                   r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :status AND r.userId = :userId AND r.holdExpiresAt > :at
+               AND COALESCE(r.userCouponId, 0) = COALESCE(:expectedUserCouponId, 0)
+            """)
+    int updateCoupon(
+            @Param("id") Long id,
+            @Param("status") ReservationStatus status,
+            @Param("userId") Long userId,
+            @Param("expectedUserCouponId") Long expectedUserCouponId,
+            @Param("userCouponId") Long userCouponId,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE Reservation r SET r.discountAmount = :discountAmount WHERE r.id = :id")
+    int recordDiscount(@Param("id") Long id, @Param("discountAmount") long discountAmount);
+
+    /** order_id와 user_coupon_id를 이 준비가 본 값과 비교한다. 처음 준비이거나 쿠폰을 쓰지 않아 둘 다 null인 경우도 같다고 본다. */
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.orderId = :orderId, r.paymentAmount = :paymentAmount, r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :status AND r.userId = :userId AND r.holdExpiresAt > :at
                AND COALESCE(r.orderId, '') = COALESCE(:expectedOrderId, '')
+               AND COALESCE(r.userCouponId, 0) = COALESCE(:expectedUserCouponId, 0)
             """)
     int updateCheckout(
             @Param("id") Long id,
             @Param("status") ReservationStatus status,
             @Param("userId") Long userId,
             @Param("expectedOrderId") String expectedOrderId,
+            @Param("expectedUserCouponId") Long expectedUserCouponId,
             @Param("orderId") String orderId,
             @Param("paymentAmount") long paymentAmount,
             @Param("at") LocalDateTime at,

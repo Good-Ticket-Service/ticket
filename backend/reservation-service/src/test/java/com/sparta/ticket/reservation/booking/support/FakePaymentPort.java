@@ -32,6 +32,7 @@ public class FakePaymentPort implements PaymentPort {
     private volatile long discount;
     private volatile Supplier<ConfirmOutcome> confirmResult = ConfirmOutcome::succeeded;
     private volatile Duration lookupDelay = Duration.ZERO;
+    private volatile Runnable beforePrepare = () -> {};
 
     public void reset() {
         prepared.clear();
@@ -44,6 +45,7 @@ public class FakePaymentPort implements PaymentPort {
         discount = 0;
         confirmResult = ConfirmOutcome::succeeded;
         lookupDelay = Duration.ZERO;
+        beforePrepare = () -> {};
     }
 
     /** 호출될 때 커넥션 풀에서 빌려 간 연결 수를 함께 기록한다. 원격 호출 중에 DB 연결을 잡고 있지 않은지 본다. */
@@ -54,6 +56,11 @@ public class FakePaymentPort implements PaymentPort {
     /** 준비 응답 금액을 요청 금액(totalPrice - discountAmount)보다 이만큼 낮춘다. booking이 응답 금액을 기록하는지 본다. */
     public void discount(long amount) {
         this.discount = amount;
+    }
+
+    /** 다음 준비 요청을 받기 직전에 한 번 실행한다. 준비 호출과 겹쳐 들어온 다른 요청을 흉내 낸다. */
+    public void beforeNextPrepare(Runnable action) {
+        this.beforePrepare = action;
     }
 
     public void confirmReturns(ConfirmOutcome outcome) {
@@ -80,6 +87,9 @@ public class FakePaymentPort implements PaymentPort {
 
     @Override
     public PreparedPayment prepare(PaymentPrepareRequest request) {
+        Runnable action = beforePrepare;
+        beforePrepare = () -> {};
+        action.run();
         record();
         prepared.add(request);
         return new PreparedPayment(request.totalPrice() - request.discountAmount() - discount, null);

@@ -259,7 +259,7 @@
 
 ## 예매 — reservation-service / booking
 
-상태: 단건 조회·checkout·confirm의 현행 Controller는 구현됨. DTO 필드는 아래 표와 같고, checkout/confirm은 결제 미연동이라 503이다. 취소는 #127로 합의했고 구현 전이다. 목록은 초안이다.
+상태: 단건 조회·checkout·confirm은 구현됨. DTO 필드는 아래 표와 같다. checkout의 쿠폰 반영은 구현됐지만(#143), coupon 모듈의 CouponUsage와 연결하기 전에는 쿠폰을 고르면 503이다. 취소는 #127로 합의했고 구현 전이다. 목록은 초안이다.
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|

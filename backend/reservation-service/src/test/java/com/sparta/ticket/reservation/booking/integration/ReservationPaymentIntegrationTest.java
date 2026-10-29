@@ -293,7 +293,7 @@ class ReservationPaymentIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
-    @DisplayName("결제 준비는 PG를 반드시 받고 TOSS·KAKAO만 허용하며, 쿠폰은 연결 전이라 503으로 거절한다")
+    @DisplayName("결제 준비는 PG를 반드시 받고 TOSS·KAKAO만 허용한다")
     void checkoutRequiresPgProvider() throws Exception {
         Long reservationId = hold();
 
@@ -303,11 +303,6 @@ class ReservationPaymentIntegrationTest extends BookingIntegrationTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         }
-        assertThat(payment.prepared).isEmpty();
-
-        mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)
-                        .content("{\"userCouponId\": 7, \"pgProvider\": \"KAKAO\"}"))
-                .andExpect(status().isServiceUnavailable());
         assertThat(payment.prepared).isEmpty();
 
         mockMvc.perform(as(post("/api/reservations/{id}/payments/checkout", reservationId), userId)

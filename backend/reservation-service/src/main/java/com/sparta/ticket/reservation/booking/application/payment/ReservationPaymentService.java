@@ -1,8 +1,6 @@
 package com.sparta.ticket.reservation.booking.application.payment;
 
 import com.sparta.ticket.common.auth.UserContext;
-import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutResult;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
@@ -31,13 +29,13 @@ public class ReservationPaymentService {
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
 
-    /** 결제를 준비한다. 상태는 HOLD 그대로이고, 새 orderId와 결제 금액을 기록한다. */
+    /**
+     * 결제를 준비한다. 상태는 HOLD 그대로이고, 고른 쿠폰을 예약에 잡은 뒤 새 orderId와 결제 금액을 기록한다.
+     * 결제 호출이 실패하거나 결과를 몰라도 잡은 쿠폰은 그대로 둔다. 같은 쿠폰으로 다시 준비하면 된다.
+     */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
-        // 결제 준비에 쿠폰 할인을 반영하지 않는다. 할인 없이 결제를 준비하면 사용자가 고른 쿠폰이 무시되므로 쿠폰이 오면 거절한다.
-        if (command.userCouponId() != null) {
-            throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE, "쿠폰 적용은 아직 지원하지 않습니다.");
-        }
-        CheckoutTarget target = transactions.loadCheckoutTarget(user.userId(), reservationId);
+        CheckoutTarget target = transactions.applyCoupon(
+                transactions.loadCheckoutTarget(user.userId(), reservationId), command.userCouponId());
         String orderId = UUID.randomUUID().toString();
         PreparedPayment prepared = paymentPort.prepare(new PaymentPrepareRequest(
                 orderId,
@@ -47,7 +45,7 @@ public class ReservationPaymentService {
                 target.performanceId(),
                 target.scheduleId(),
                 target.baseAmount(),
-                0L,
+                target.discountAmount(),
                 command.pgProvider(),
                 target.holdExpiresAt()));
         transactions.recordCheckout(target, orderId, prepared.amount());

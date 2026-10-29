@@ -19,6 +19,10 @@ CREATE TABLE p_reservations
     -- 마지막 결제 준비의 주문 번호와 할인 후 금액. 결제 시도마다 새로 쓴다
     order_id        VARCHAR(64),
     payment_amount  BIGINT,
+    -- 결제 준비에서 이 예약에 잡은 회원 쿠폰과, 최소 결제 금액에 맞춰 자른 할인액. 쿠폰을 바꾸거나 빼면 같이 바뀐다.
+    -- 쿠폰 상태는 coupon 모듈이 관리하므로 FK를 두지 않는다. 다음 준비에서 쿠폰이 바뀌었는지 이 값으로 비교한다
+    user_coupon_id  BIGINT,
+    discount_amount BIGINT,
     -- 결제 중에만 둔다. 승인 요청이 payment에 닿지 않았을 때 같은 요청을 다시 보내는 데 쓴다
     pg_auth_token   VARCHAR(255),
     -- 결과 확인 스케줄러가 마지막으로 확인한 시각. 확인한 예약을 다음 차례에서 뒤로 보내 같은 행만 고르지 않게 한다
