@@ -30,6 +30,7 @@ public class PaymentRecoveryTransactions {
     private final PaymentRecoveryProperties properties;
     private final Clock clock;
     private final MeterRegistry meters;
+    private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
 
     /** Note: ID는 먼저 기록해 저장 실패 때도 같은 실행에서 동일 후보만 반복하지 않는다. */
     @Transactional
@@ -41,6 +42,7 @@ public class PaymentRecoveryTransactions {
         Payment payment = candidate.get();
         attemptedIds.add(payment.getId());
         if (payment.getStatus() == PaymentStatus.READY && payment.isExpired(LocalDateTime.now(clock))) {
+            observation.duration("payment.execution.claim.delay", payment.getExpiresAt(), "task", "ready_expiry");
             transactions.failForRecovery(payment, PaymentFailureCode.EXPIRED);
         }
         return true;
@@ -56,6 +58,7 @@ public class PaymentRecoveryTransactions {
         LocalDateTime now = LocalDateTime.now(clock);
         return payments.lockNextRecovery(now, attemptedIds).stream().findFirst().map(payment -> {
             attemptedIds.add(payment.getId());
+            observation.duration("payment.execution.claim.delay", payment.getNextAttemptAt(), "task", "recovery");
             LocalDateTime until = now.plus(properties.interval()).truncatedTo(ChronoUnit.MICROS);
             payment.claimRecovery(until);
             return new RecoveryClaim(

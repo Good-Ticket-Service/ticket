@@ -33,8 +33,15 @@ public class PaymentService {
     private final PaymentTransactions transactions;
     private final PgClientRegistry pgClients;
     private final PaymentDispatcher dispatcher;
+    private final io.micrometer.core.instrument.MeterRegistry meters;
 
     public ConfirmResult confirm(String orderId, ConfirmCommand command) {
+        ConfirmResult result = confirmOnce(orderId, command);
+        response("confirm", result.status().name());
+        return result;
+    }
+
+    private ConfirmResult confirmOnce(String orderId, ConfirmCommand command) {
         Payment payment = transactions.requestConfirm(orderId, command);
         if (payment.getStatus() == PaymentStatus.READY) {
             dispatcher.dispatch(payment.getId(), command.pgAuthToken());
@@ -52,6 +59,21 @@ public class PaymentService {
      * 이긴 것이라 재현하고, 없으면 같은 예매의 다른 준비가 동시에 이긴 것이라 409 PAYMENT_CHECKOUT_CONFLICT다.
      */
     public CheckoutResult checkout(CheckoutCommand command) {
+        CheckoutResult result = checkoutOnce(command);
+        response("checkout", result.status().name());
+        return result;
+    }
+
+    private void response(String operation, String status) {
+        try {
+            meters.counter("payment.api.results", "operation", operation, "status", status)
+                    .increment();
+        } catch (RuntimeException ignored) {
+            // Note: 업무 결과를 계측 실패로 바꾸지 않는다.
+        }
+    }
+
+    private CheckoutResult checkoutOnce(CheckoutCommand command) {
         PaymentOrder order = command.toOrder();
         Optional<Payment> existing = transactions.findByOrderId(order.orderId());
         if (existing.isPresent()) {

@@ -43,6 +43,7 @@ public class RefundTransactions {
     private final RefundRecoveryProperties properties;
     private final Clock clock;
     private final MeterRegistry meters;
+    private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
 
     @Transactional
     public RefundResult accept(String orderId, RefundReason reason) {
@@ -109,6 +110,7 @@ public class RefundTransactions {
         refreshPolicy(payment, refund, now);
         boolean inquireFirst =
                 refund.getExecutionVersion() > 0 || refund.getRecoveryMode() != RefundRecoveryMode.ACTIVE;
+        observation.duration("payment.execution.claim.delay", refund.getNextAttemptAt(), "task", "refund");
         refund.claimRecovery(nextAttempt(refund, now));
         return Optional.of(new RefundClaim(
                 payment.getId(),
@@ -288,15 +290,14 @@ public class RefundTransactions {
         if (payment.getStatus() == PaymentStatus.DONE) payment.cancel();
         publisher.refundFinalized(payment, refund);
         committedCounter("payment.refund.completed", payment.getId());
+        if (refund.getCreatedAt() != null)
+            observation.duration(
+                    "payment.refund.record.completion.duration",
+                    refund.getCreatedAt(),
+                    "provider",
+                    payment.getPgProvider().name());
         if (refund.getRequestedAt() != null) {
-            Duration elapsed = Duration.between(refund.getRequestedAt(), LocalDateTime.now(clock));
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    meters.timer("payment.refund.completion.duration")
-                            .record(elapsed.isNegative() ? Duration.ZERO : elapsed);
-                }
-            });
+            observation.duration("payment.refund.completion.duration", refund.getRequestedAt());
         }
     }
 
@@ -318,7 +319,11 @@ public class RefundTransactions {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                meters.counter(name).increment();
+                try {
+                    meters.counter(name).increment();
+                } catch (RuntimeException e) {
+                    log.warn("커밋된 환불 결과의 계측 실패");
+                }
                 if (!name.equals("payment.refund.completed")) {
                     log.warn("환불 후속 확인 필요. paymentId={}, event={}", paymentId, name);
                 }

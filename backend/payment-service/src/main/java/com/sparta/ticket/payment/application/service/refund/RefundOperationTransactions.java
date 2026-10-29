@@ -36,6 +36,7 @@ public class RefundOperationTransactions {
     private final RefundRecoveryProperties properties;
     private final RefundTransactions refundTransactions;
     private final Clock clock;
+    private final com.sparta.ticket.payment.application.service.observation.CommittedObservation committedObservation;
 
     /** 외부 조회에 사용할 내부 스냅샷이다. 출력 DTO로 사용하지 않는다. */
     public record Snapshot(
@@ -141,6 +142,8 @@ public class RefundOperationTransactions {
                 observation(inquiry),
                 now);
         commands.saveAndFlush(command);
+        committedObservation.counter(
+                "payment.refund.operations", "action", request.action().name(), "result", result.name());
         return outcome(command);
     }
 

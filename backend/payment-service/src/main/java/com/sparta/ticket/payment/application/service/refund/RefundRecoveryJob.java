@@ -1,5 +1,6 @@
 package com.sparta.ticket.payment.application.service.refund;
 
+import com.sparta.ticket.payment.application.service.observation.JobObservation;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +16,7 @@ public class RefundRecoveryJob {
     private final RefundService service;
     private final RefundRecoveryProperties properties;
     private final MeterRegistry meters;
+    private final JobObservation observation;
     private final java.util.concurrent.atomic.AtomicLong runs = new java.util.concurrent.atomic.AtomicLong();
     private final AtomicReference<Double> oldestDue = new AtomicReference<>(0.0);
 
@@ -27,10 +29,15 @@ public class RefundRecoveryJob {
         this.service = service;
         this.properties = properties;
         this.meters = meters;
+        this.observation = new JobObservation(meters, "refund");
         meters.gauge("payment.refund.oldest.due.age.seconds", oldestDue, AtomicReference::get);
     }
 
     public void runOnce() {
+        observation.run(this::executeOnce);
+    }
+
+    private void executeOnce() {
         long started = System.nanoTime();
         boolean followUpFirst = runs.getAndIncrement() % 2 != 0;
         List<Long> attempted = new ArrayList<>(List.of(0L));
@@ -47,8 +54,10 @@ public class RefundRecoveryJob {
                     if (attempted.size() > previous) continue;
                     break;
                 }
+                observation.claimed();
                 service.execute(next.get());
             } catch (RuntimeException e) {
+                observation.failed();
                 meters.counter("payment.refund.errors", "phase", "recovery").increment();
                 log.warn("환불 Recovery 실패. 미완료 기록으로 재개한다");
                 if (attempted.size() == previous) break;
@@ -57,6 +66,7 @@ public class RefundRecoveryJob {
         try {
             oldestDue.set(transactions.oldestDueAgeSeconds());
         } catch (RuntimeException e) {
+            observation.failed();
             meters.counter("payment.refund.errors", "phase", "observe").increment();
         }
         meters.timer("payment.recovery.refund.run.duration").record(System.nanoTime() - started, TimeUnit.NANOSECONDS);

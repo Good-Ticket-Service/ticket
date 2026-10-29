@@ -2,6 +2,7 @@ package com.sparta.ticket.payment.application.service.payment;
 
 import com.sparta.ticket.payment.application.dto.payment.ReconcileClaim;
 import com.sparta.ticket.payment.application.port.pg.PgClient.PgInquireRequest;
+import com.sparta.ticket.payment.application.service.observation.JobObservation;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.model.pg.PgInquiry;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -20,6 +21,7 @@ public class PaymentReconcileJob {
     private final PgClientRegistry clients;
     private final PaymentReconcileProperties properties;
     private final MeterRegistry meters;
+    private final JobObservation observation;
     private final AtomicReference<Double> oldestDueAge = new AtomicReference<>(0.0);
     private final AtomicReference<Double> oldestUnknownAge = new AtomicReference<>(0.0);
 
@@ -32,11 +34,16 @@ public class PaymentReconcileJob {
         this.clients = clients;
         this.properties = properties;
         this.meters = meters;
+        this.observation = new JobObservation(meters, "reconcile");
         meters.gauge("payment.reconcile.oldest.due.age.seconds", oldestDueAge, AtomicReference::get);
         meters.gauge("payment.reconcile.oldest.unknown.age.seconds", oldestUnknownAge, AtomicReference::get);
     }
 
     public void runOnce() {
+        observation.run(this::executeOnce);
+    }
+
+    private void executeOnce() {
         long started = System.nanoTime();
         long budget = TimeUnit.SECONDS.toNanos(properties.maxRunSeconds());
         List<Long> attemptedIds = new ArrayList<>(List.of(0L));
@@ -46,6 +53,7 @@ public class PaymentReconcileJob {
                 Optional<ReconcileClaim> candidate = transactions.claimOne(attemptedIds);
                 if (candidate.isEmpty()) break;
                 claim = candidate.get();
+                observation.claimed();
             } catch (RuntimeException e) {
                 failure("claim");
                 break;
@@ -78,6 +86,7 @@ public class PaymentReconcileJob {
     }
 
     private void failure(String phase) {
+        observation.failed();
         meters.counter("payment.reconcile.errors", "phase", phase).increment();
         log.warn("Reconcile 단계 실패. phase={}", phase);
     }
