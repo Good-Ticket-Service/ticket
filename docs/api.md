@@ -27,7 +27,7 @@
 
 ## 공연 — performance-service
 
-상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout는 구현됨(#83, #107, #108). 나머지 10개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
+상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations는 구현됨(#83, #107, #108, #109). 나머지 9개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
 
 33개 계약 중 이번 프로젝트 기간에는 아래 표의 15개를 구현한다. 나머지 18개는 「추후 구현 예정 API」에 경로만 남긴다.
 
@@ -158,6 +158,9 @@
 
 - 이 값은 오류 코드가 아니라 판매 검증 200 응답의 값이다. 좌석 서비스는 이 값을 외부 선점 API의 오류 code로 그대로 쓴다.
 - 다른 도메인이 이 값에 의존하므로 이름을 바꾸지 않는다.
+- 거절 사유가 여럿이면 다음 순서로 먼저 맞는 하나를 준다: PERFORMANCE_NOT_PUBLISHED → PERFORMANCE_CANCELED → SCHEDULE_CANCELED → SALES_CLOSED → BEFORE_OPEN → SALES_SUSPENDED → SEAT_SETUP_NOT_READY → SEAT_CONFIG_VERSION_MISMATCH → SEAT_NOT_SELLABLE (#109).
+- 예매 마감 시각과 같으면 SALES_CLOSED이고, 예매 오픈 시각과 같으면 열린 것으로 본다.
+- 거절 응답도 seats만 비우고 나머지 필드는 채운다. configVersion은 회차의 현재 좌석 구성 버전이다.
 - 공연 API는 SEAT_NOT_SELLABLE과 SEAT_CONFIG_VERSION_MISMATCH를 HTTP 오류로 내지 않는다. 409는 좌석 외부 API의 응답이다.
 
 ### 업무 규칙
