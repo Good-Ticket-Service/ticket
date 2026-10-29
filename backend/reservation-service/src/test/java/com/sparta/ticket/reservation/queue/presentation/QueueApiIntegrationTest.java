@@ -1,6 +1,8 @@
 package com.sparta.ticket.reservation.queue.presentation;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -59,9 +62,45 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.position").value(1));
     }
 
+    /** 사용자 헤더를 붙여 내 순번을 조회한다. */
+    private ResultActions findMyStatus(long performanceId, long userId) throws Exception {
+        return mockMvc.perform(get("/api/queues/performances/{performanceId}/me", performanceId)
+                .header(UserHeaders.USER_ID, String.valueOf(userId))
+                .header(UserHeaders.USERNAME, "user" + userId + "@ticket.com")
+                .header(UserHeaders.ROLE, Role.USER.name()));
+    }
+
+    @Test
+    @DisplayName("순번을 조회하면 200과 WAITING, 순번을 돌려주고 응답을 캐시하지 않게 한다")
+    void findMyStatus() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+        enter(performanceId, 1L);
+        enter(performanceId, 2L);
+
+        findMyStatus(performanceId, 2L)
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.data.status").value("WAITING"))
+                .andExpect(jsonPath("$.data.position").value(2))
+                .andExpect(jsonPath("$.data.aheadCount").value(1))
+                .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(1));
+    }
+
+    @Test
+    @DisplayName("줄에 없는 회원이 순번을 조회하면 404 NOT_IN_QUEUE")
+    void findMyStatusNotInQueue() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+        enter(performanceId, 1L);
+
+        findMyStatus(performanceId, 2L)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_IN_QUEUE"));
+    }
+
     @Test
     @DisplayName("사용자 헤더가 없으면 401")
     void unauthenticated() throws Exception {
         mockMvc.perform(post("/api/queues/performances/{performanceId}", 1L)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/queues/performances/{performanceId}/me", 1L)).andExpect(status().isUnauthorized());
     }
 }
