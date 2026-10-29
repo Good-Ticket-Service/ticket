@@ -1,13 +1,11 @@
 package com.sparta.ticket.reservation.booking.application.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -28,17 +26,15 @@ import com.sparta.ticket.reservation.booking.domain.SaleTarget;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.function.IntSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * 결제 성공 반영의 갈래마다 전이, 다시 읽기, 환불 대상 표시, 메트릭을 어떤 순서로 몇 번 부르는지 본다.
+ * 결제 성공 반영의 갈래마다 결과, 좌석 전이, 티켓 발급, 환불 대상 표시, 메트릭을 본다. 다시 읽는지나 부르는 순서는 보지 않는다.
  * 상태가 실제로 바뀌는지는 ReservationPaymentIntegrationTest와 BookingSeatIntegrationTest가 본다.
  */
 class PaymentResultApplierTest {
@@ -61,7 +57,7 @@ class PaymentResultApplierTest {
     }
 
     @Test
-    @DisplayName("지금 시도의 결제 중 예약이 확정되면 true이고 티켓 코드를 발급한다. 다시 읽지 않고 세지 않는다")
+    @DisplayName("지금 시도의 결제 중 예약이 확정되면 true이고 티켓 코드를 발급한다. 환불 대상으로 표시하거나 세지 않는다")
     void confirmsCurrentPayment() {
         Reservation reservation = givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
         givenConfirmed(true);
@@ -70,7 +66,6 @@ class PaymentResultApplierTest {
                 .isTrue();
 
         verify(reservation).issueTicketCodes();
-        verify(reservationRepository, never()).reload(anyLong());
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verifyNoInteractions(metrics);
     }
@@ -86,13 +81,12 @@ class PaymentResultApplierTest {
                 .isFalse();
 
         verify(reservation, never()).issueTicketCodes();
-        verify(reservationRepository).reload(RESERVATION_ID);
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verifyNoInteractions(metrics);
     }
 
     @Test
-    @DisplayName("확정하지 못해 결제 중으로 남은 지금 시도는 전이, 다시 읽기, 환불 대상 표시 순서로 처리하고 표시가 1행일 때 한 번 센다")
+    @DisplayName("확정하지 못해 결제 중으로 남은 지금 시도는 환불 대상으로 표시하고, 표시가 1행일 때 한 번 센다")
     void unconfirmableCurrentPaymentIsMarkedThenCounted() {
         givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
         givenConfirmed(false);
@@ -103,12 +97,8 @@ class PaymentResultApplierTest {
         assertThat(applier.apply(RESERVATION_ID, ORDER_ID, ConfirmOutcome.succeeded()))
                 .isFalse();
 
-        InOrder order = inOrder(transitionExecutor, reservationRepository, metrics);
-        order.verify(transitionExecutor)
-                .execute(eq(ReservationTransition.CONFIRM), eq(RESERVATION_ID), eq(SEAT_IDS), any());
-        order.verify(reservationRepository).reload(RESERVATION_ID);
-        order.verify(reservationRepository).markRefundRequired(RESERVATION_ID, ORDER_ID, STAMP.at());
-        order.verify(metrics).lateSuccess();
+        verify(reservationRepository).markRefundRequired(RESERVATION_ID, ORDER_ID, STAMP.at());
+        verify(metrics).lateSuccess();
     }
 
     @Test
@@ -127,7 +117,7 @@ class PaymentResultApplierTest {
     }
 
     @Test
-    @DisplayName("끝난 예약에 온 성공은 전이도 다시 읽기도 환불 대상 표시도 없이 한 번 센다")
+    @DisplayName("끝난 예약에 온 성공은 좌석을 건드리지 않고 환불 대상 표시 없이 한 번 센다")
     void successOnClosedReservationIsCounted() {
         givenFound(ReservationStatus.EXPIRED, true);
 
@@ -135,7 +125,6 @@ class PaymentResultApplierTest {
                 .isFalse();
 
         verifyNoInteractions(transitionExecutor);
-        verify(reservationRepository, never()).reload(anyLong());
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verify(metrics).lateSuccess();
     }
@@ -162,19 +151,6 @@ class PaymentResultApplierTest {
                 .isFalse();
 
         verifyNoInteractions(transitionExecutor, metrics);
-        verify(reservationRepository, never()).reload(anyLong());
-    }
-
-    @Test
-    @DisplayName("확정이 0행인데 다시 읽을 예약이 없으면 NoSuchElementException이다")
-    void reloadMissingThrows() {
-        givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
-        givenConfirmed(false);
-        when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> applier.apply(RESERVATION_ID, ORDER_ID, ConfirmOutcome.succeeded()))
-                .isInstanceOf(NoSuchElementException.class);
-        verifyNoInteractions(metrics);
     }
 
     private Reservation givenFound(ReservationStatus status, boolean sameAttempt) {
