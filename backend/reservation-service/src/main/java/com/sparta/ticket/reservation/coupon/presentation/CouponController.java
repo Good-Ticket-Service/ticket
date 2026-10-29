@@ -111,4 +111,14 @@ public class CouponController {
         return ApiResponse.ok(
                 PageResponse.from(couponQueryService.searchCoupons(issueStatus, user.userId(), pageable)));
     }
+
+    /**
+     * 쿠폰 상세. 200과 쿠폰 정보에 issuedByMe(요청한 사용자가 이미 받았는지)를 붙여 돌려준다.
+     * 목록과 같이 로그인한 모든 사용자가 볼 수 있다.
+     */
+    @Operation(summary = "쿠폰 상세")
+    @GetMapping("/{couponId}")
+    public ApiResponse<CouponDetailResult> get(@PathVariable Long couponId, @CurrentUser UserContext user) {
+        return ApiResponse.ok(couponQueryService.getCoupon(couponId, user.userId()));
+    }
 }

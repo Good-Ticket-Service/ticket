@@ -11,10 +11,12 @@ import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.coupon.application.CouponIssueService;
+import com.sparta.ticket.reservation.coupon.application.CouponService;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -31,6 +33,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
 
+    private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -42,6 +46,9 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private CouponIssueService couponIssueService;
+
+    @Autowired
+    private CouponService couponService;
 
     /** 서비스와 같이 초 단위로 자른 현재 시각. */
     private LocalDateTime now() {
@@ -130,6 +137,64 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("사용자 헤더가 없으면 401 UNAUTHORIZED")
         void noUser() throws Exception {
             mockMvc.perform(get("/api/coupons"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/coupons/{couponId}")
+    class GetCoupon {
+
+        @Test
+        @DisplayName("200과 쿠폰 정보를 돌려주고, 받은 회원에게만 issuedByMe가 true다")
+        void detail() throws Exception {
+            Coupon coupon = issuingCoupon("상세 API 쿠폰");
+            couponIssueService.issue(coupon.getId(), 961_001L, "user@ticket.com");
+
+            perform(get("/api/coupons/{couponId}", coupon.getId()), 961_001L, Role.USER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200))
+                    .andExpect(jsonPath("$.data.couponId").value(coupon.getId()))
+                    .andExpect(jsonPath("$.data.name").value("상세 API 쿠폰"))
+                    .andExpect(jsonPath("$.data.discountAmount").value(5000))
+                    .andExpect(jsonPath("$.data.totalQuantity").value(10))
+                    .andExpect(jsonPath("$.data.remainingQuantity").value(9))
+                    .andExpect(jsonPath("$.data.issueStartAt")
+                            .value(now().minusHours(1).format(FORMAT)))
+                    .andExpect(jsonPath("$.data.issueEndAt")
+                            .value(now().plusDays(7).format(FORMAT)))
+                    .andExpect(jsonPath("$.data.validDays").value(7))
+                    .andExpect(jsonPath("$.data.issueStatus").value("ISSUING"))
+                    .andExpect(jsonPath("$.data.issuedByMe").value(true));
+
+            // 받지 않은 회원과 SELLER는 issuedByMe가 false다
+            perform(get("/api/coupons/{couponId}", coupon.getId()), 961_002L, Role.USER)
+                    .andExpect(jsonPath("$.data.issuedByMe").value(false));
+            perform(get("/api/coupons/{couponId}", coupon.getId()), 961_003L, Role.SELLER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.issuedByMe").value(false));
+        }
+
+        @Test
+        @DisplayName("없거나 삭제된 쿠폰은 404 COUPON_NOT_FOUND")
+        void notFound() throws Exception {
+            Coupon deleted = issuingCoupon("삭제된 쿠폰");
+            couponService.delete(deleted.getId(), "master@ticket.com");
+
+            for (Long couponId : new Long[] {-1L, deleted.getId()}) {
+                perform(get("/api/coupons/{couponId}", couponId), 1L, Role.USER)
+                        .andExpect(status().isNotFound())
+                        .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+            }
+        }
+
+        @Test
+        @DisplayName("사용자 헤더가 없으면 401 UNAUTHORIZED")
+        void noUser() throws Exception {
+            Coupon coupon = issuingCoupon("헤더 없는 요청");
+
+            mockMvc.perform(get("/api/coupons/{couponId}", coupon.getId()))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         }

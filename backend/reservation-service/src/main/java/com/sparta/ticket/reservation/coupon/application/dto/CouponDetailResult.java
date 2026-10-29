@@ -15,6 +15,8 @@ public record CouponDetailResult(
         LocalDateTime issueEndAt,
         int validDays,
         CouponIssueStatus issueStatus,
+        // 요청한 사용자가 이 쿠폰을 이미 받았는지. 1인 1장이라 true면 다시 받을 수 없다(화면에서 "받기" 대신 "받음" 표시).
+        // 사용·만료와 관계없이 한 번이라도 받았으면 true다. 받을 수 없는 SELLER·MASTER는 항상 false다.
         boolean issuedByMe) {
 
     /** 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다. issuedByMe는 호출자가 회원 쿠폰을 조회해 넘긴다. */
