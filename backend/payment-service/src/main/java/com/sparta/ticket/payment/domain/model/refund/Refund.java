@@ -35,6 +35,11 @@ public class Refund extends BaseEntity {
 
     private static final String CANCEL_KEY_SEPARATOR = ":cancel:";
 
+    /** 실패 결제의 자동 취소가 거절돼 금액을 다시 확인하는 중이다. */
+    public static final String VOID_CANCEL_REJECTED = "VOID_CANCEL_REJECTED";
+
+    private static final String VOID_AMOUNT_CORRECTED = "VOID_AMOUNT_CORRECTED";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -204,6 +209,60 @@ public class Refund extends BaseEntity {
     public void reject(String code, String message, LocalDateTime now) {
         reject(code, message);
         if (restrictionStartedAt == null) restrictionStartedAt = now;
+    }
+
+    /**
+     * 실패 결제의 자동 취소(AUTO_VOID)가 PG 확인 금액으로 보낸 취소를 거절당했다. 금액을 만든 응답이 틀렸을 수 있으므로
+     * 운영 중단(PAUSED) 대신 조회 전용으로 두고, 다음 조회에서 금액이 달라지면 correctVoidAmount로 다시 시작한다.
+     */
+    public void rejectForVoidRecheck(String code, LocalDateTime now) {
+        require(RefundStatus.REQUESTED);
+        this.status = RefundStatus.FAILED;
+        this.failureCode = code;
+        this.failureMessage = "PG_CANCEL_REJECTED";
+        if (restrictionStartedAt == null) restrictionStartedAt = now;
+        this.recoveryBlocked = false;
+        this.recoveryMode = RefundRecoveryMode.VERIFY_ONLY;
+        this.verificationReason = VOID_CANCEL_REJECTED;
+        if (slowStartedAt == null) slowStartedAt = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        recovery.recordError(code);
+    }
+
+    /** 실패 결제의 자동 취소이고, 금액이 PG 확인 전이거나 그 금액의 취소가 거절된 뒤라 다른 금액으로 다시 취소할 수 있는지. */
+    public boolean isVoidAmountCorrectable() {
+        boolean beforeCancel = status == RefundStatus.REQUESTED
+                && !recoveryBlocked
+                && (recoveryMode == RefundRecoveryMode.ACTIVE || recoveryMode == RefundRecoveryMode.SLOW);
+        boolean afterRejection = status == RefundStatus.FAILED
+                && !recoveryBlocked
+                && recoveryMode == RefundRecoveryMode.VERIFY_ONLY
+                && VOID_CANCEL_REJECTED.equals(verificationReason);
+        return beforeCancel || afterRejection;
+    }
+
+    /**
+     * 실패 결제의 자동 취소 금액을 PG 조회로 확인한 승인액으로 바로잡고 새 취소 키 세대로 다시 시작한다.
+     * Note: 이전 금액은 PG 승인액과 달라 PG가 받아들일 수 없는 취소다. 새 키로 보내도 이중 취소가 되지 않는다.
+     * 키 생성 시각을 새로 잡으므로 호출자가 보정 횟수를 제한한다.
+     */
+    public void correctVoidAmount(int amount, LocalDateTime now) {
+        if (amount <= 0) throw new BusinessException(PaymentErrorCode.INVALID_PAYMENT_AMOUNT);
+        if (!isVoidAmountCorrectable()) throw invalidTransition();
+        LocalDateTime at = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        this.refundAmount = amount;
+        this.status = RefundStatus.REQUESTED;
+        this.cancelAttempt = Math.incrementExact(cancelAttempt);
+        this.executionVersion = Math.incrementExact(executionVersion);
+        this.failureCode = null;
+        this.failureMessage = null;
+        this.recoveryBlocked = false;
+        this.recoveryMode = RefundRecoveryMode.ACTIVE;
+        this.slowStartedAt = null;
+        this.slowAttempts = 0;
+        this.verificationReason = null;
+        this.restrictionStartedAt = null;
+        this.cancelKeyCreatedAt = at;
+        recovery.defer(VOID_AMOUNT_CORRECTED, at);
     }
 
     /** 관리자 재시도. 토스는 같은 멱등 키의 거절을 그대로 재현하므로 키 세대를 올려 새 요청으로 보낸다. */

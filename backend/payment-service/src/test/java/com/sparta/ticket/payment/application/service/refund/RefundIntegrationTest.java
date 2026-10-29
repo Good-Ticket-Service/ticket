@@ -724,4 +724,89 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.DONE);
         assertThat(pg.cancelCalls()).isZero();
     }
+
+    /** F2(#162): 금액이 틀린 승인 응답으로 만든 자동 취소는 PG 조회 승인액으로 바로잡고 새 키로 한 번만 취소한다. */
+    @Test
+    void voidAmountFromWrongApprovalIsCorrectedByInquiryBeforeCancel() {
+        Payment p = progress();
+        paymentTransactions.complete(p.getId(), approved(p, 46_000));
+        assertThat(load(p).getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(refund(p).getRefundAmount()).isEqualTo(46_000);
+        pg.inquireReturns(r -> new PgInquiry.Approved(p.getPgTransactionId(), 45_000, now()));
+        List<String> cancels = new ArrayList<>();
+        pg.cancelReturns(r -> {
+            cancels.add(r.amount() + "@" + r.idempotencyKey());
+            return new PgResult.Approved("void-cancel", r.amount(), now());
+        });
+        job.runOnce();
+        assertThat(pg.cancelCalls()).isZero();
+        assertThat(refund(p).getRefundAmount()).isEqualTo(45_000);
+        assertThat(refund(p).getCancelAttempt()).isEqualTo(1);
+        job.runOnce();
+        assertThat(cancels).containsExactly("45000@" + p.getOrderId() + ":cancel:1");
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.DONE);
+        assertThat(load(p).getStatus()).isEqualTo(PaymentStatus.FAILED);
+    }
+
+    /** F2(#162): 조회 금액까지 틀려 취소가 거절되면 멈추지 않고 다시 조회하고, 승인액이 확인되면 새 키로 취소한다. */
+    @Test
+    void voidCancelRejectedRechecksAndRetriesWithInquiredAmount() {
+        Payment p = progress();
+        paymentTransactions.complete(p.getId(), approved(p, 46_000));
+        pg.inquireReturns(r -> new PgInquiry.Approved(p.getPgTransactionId(), 46_000, now()));
+        List<String> cancels = new ArrayList<>();
+        pg.cancelReturns(r -> {
+            cancels.add(r.amount() + "@" + r.idempotencyKey());
+            return r.amount() == 45_000
+                    ? new PgResult.Approved("void-cancel", r.amount(), now())
+                    : new PgResult.Rejected("INVALID_REQUEST", "amount");
+        });
+        job.runOnce();
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(refund(p).getRecoveryMode().name()).isEqualTo("VERIFY_ONLY");
+        assertThat(refund(p).isRecoveryBlocked()).isFalse();
+        assertThat(refund(p).getVerificationReason()).isEqualTo(Refund.VOID_CANCEL_REJECTED);
+        assertThat(refund(p).getNextAttemptAt()).isBefore(now().plusMinutes(2));
+
+        paymentClock.advance(Duration.ofSeconds(31));
+        job.runOnce();
+        assertThat(cancels).hasSize(1);
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.FAILED);
+
+        pg.inquireReturns(r -> new PgInquiry.Approved(p.getPgTransactionId(), 45_000, now()));
+        paymentClock.advance(Duration.ofMinutes(5));
+        job.runOnce();
+        job.runOnce();
+        assertThat(cancels)
+                .containsExactly("46000@" + p.getOrderId() + ":cancel:0", "45000@" + p.getOrderId() + ":cancel:1");
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.DONE);
+        assertThat(refund(p).getRefundAmount()).isEqualTo(45_000);
+    }
+
+    /** F2(#162): 자동 보정 횟수를 다 쓴 자동 취소의 거절은 기존 업무 거절처럼 운영 인수로 멈춘다. */
+    @Test
+    void voidRejectionAfterCorrectionLimitPauses() {
+        Payment p = progress();
+        paymentTransactions.complete(p.getId(), approved(p, 46_000));
+        jdbc.update(
+                "UPDATE p_refunds SET cancel_attempt = ? WHERE payment_id = ?",
+                RefundTransactions.MAX_VOID_CORRECTIONS,
+                p.getId());
+        pg.inquireReturns(r -> new PgInquiry.Approved(p.getPgTransactionId(), 46_000, now()));
+        pg.cancelReturns(r -> new PgResult.Rejected("INVALID_REQUEST", "amount"));
+        job.runOnce();
+        assertThat(refund(p).getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(refund(p).getRecoveryMode().name()).isEqualTo("PAUSED");
+        assertThat(refund(p).isRecoveryBlocked()).isTrue();
+    }
+
+    /** F2(#162): 결제가 정상 DONE인 사용자 환불의 거절은 바뀌지 않는다. */
+    @Test
+    void userRefundRejectionStillPauses() {
+        Payment p = done();
+        pg.cancelReturns(r -> new PgResult.Rejected("CANCEL_DENIED", "x"));
+        service.refund(p.getOrderId(), RefundReason.USER_CANCEL);
+        assertThat(refund(p).getRecoveryMode().name()).isEqualTo("PAUSED");
+        assertThat(refund(p).getVerificationReason()).isEqualTo("CANCEL_DENIED");
+    }
 }
