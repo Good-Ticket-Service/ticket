@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.application.performance.dto;
+package com.sparta.ticket.performance.application.dto;
 
 /** 공개 공연 목록 정렬. */
 public enum PublicPerformanceSort {

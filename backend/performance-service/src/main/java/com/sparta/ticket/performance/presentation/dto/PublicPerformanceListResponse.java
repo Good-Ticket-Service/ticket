@@ -1,9 +1,9 @@
 package com.sparta.ticket.performance.presentation.dto;
 
-import com.sparta.ticket.performance.application.performance.dto.PerformancePeriod;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformancePage;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceSummary;
-import com.sparta.ticket.performance.application.performance.dto.VenueSummary;
+import com.sparta.ticket.performance.application.dto.PerformancePeriod;
+import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSummary;
+import com.sparta.ticket.performance.application.dto.VenueSummary;
 import java.util.List;
 
 /**
