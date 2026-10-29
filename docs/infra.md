@@ -131,7 +131,7 @@ flowchart LR
 | vm-k6 | `<채우기>` | k6 (실행할 때만) | c8i.large | gp3 20GB | — |
 
 - m7i.large = 2 vCPU, 8GB. vm-edge는 JVM 5개 × 약 600MB ≈ 3GB, vm-core는 실험용으로 서비스당 힙 1GB.
-- 쿠폰 모듈은 reservation-service로 이전 예정(#27 초안)이다. 쿠폰 발급은 현재 동기201 계약이며 Kafka 소비는 미합의다. 오픈 부하가 겹치면 reservation CPU·힙·HikariCP를 함께 측정한다(I8).
+- 쿠폰 모듈은 reservation-service로 이전 예정이다. 예매와의 연결 계약은 #125에서 합의했다. 쿠폰 발급은 현재 동기201 계약이며 Kafka 소비는 미합의다. 오픈 부하가 겹치면 reservation CPU·힙·HikariCP를 함께 측정한다(I8).
 - gateway 외부 경로는 `/api/**`다. 버전(`v1`)은 붙이지 않는다.
 - OS는 Ubuntu 24.04 x86_64. 이미지는 amd64로만 만든다(Mac에서 빌드할 때는 `--platform linux/amd64`).
 - PostgreSQL은 인스턴스 하나에 서비스별 스키마와 전용 계정을 둔다. 논리 격리일 뿐 장애·IO·CPU는 공유한다. 단일 AZ·Kafka 1대·vm-data 집중은 고가용성 구성이 아니다. fake-pg와 DB·관측 도구의 CPU 경합도 측정에 포함한다.
