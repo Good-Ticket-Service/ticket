@@ -12,7 +12,9 @@ import com.sparta.ticket.reservation.coupon.application.CouponService;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponDetailResult;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponResult;
 import com.sparta.ticket.reservation.coupon.application.dto.IssuedCouponResult;
+import com.sparta.ticket.reservation.coupon.application.dto.UserCouponResult;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
+import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import com.sparta.ticket.reservation.coupon.presentation.dto.CreateCouponRequest;
 import com.sparta.ticket.reservation.coupon.presentation.dto.UpdateCouponRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -120,5 +122,21 @@ public class CouponController {
     @GetMapping("/{couponId}")
     public ApiResponse<CouponDetailResult> get(@PathVariable Long couponId, @CurrentUser UserContext user) {
         return ApiResponse.ok(couponQueryService.getCoupon(couponId, user.userId()));
+    }
+
+    /**
+     * 내 쿠폰 목록. 200과 요청한 사용자가 받은 회원 쿠폰 페이지를 돌려준다. status를 보내지 않으면 전부다.
+     * 응답 상태는 저장값이 아니라 만료 시각을 반영한 표시 상태라, 기간이 지난 AVAILABLE은 EXPIRED로 보인다.
+     * Note: 명세 권한이 로그인이라 역할을 막지 않는다. SELLER·MASTER는 받은 쿠폰이 없어 빈 목록이다.
+     * Note: 요청 /api/coupons/me는 이 /me 패턴과 상세의 /{couponId} 패턴(couponId="me")에 둘 다 맞는다.
+     * 한 요청에 맞는 패턴이 여러 개면 Spring은 변수 없는 /me를 고르므로 상세로 가지 않는다.
+     * 이 우선순위는 둘 다 맞을 때만 쓰인다. /api/coupons/3처럼 숫자 ID는 /me에 맞지 않아 그대로 상세로 간다.
+     */
+    @Operation(summary = "내 쿠폰 목록", description = "예매에 쓸 userCouponId를 여기서 얻는다.")
+    @GetMapping("/me")
+    public ApiResponse<PageResponse<UserCouponResult>> findMine(
+            @RequestParam(required = false) UserCouponStatus status, Pageable pageable, @CurrentUser UserContext user) {
+        // 받는 회원과 같이 조회 대상도 요청 값이 아니라 사용자 헤더로 정해, 다른 회원의 쿠폰을 볼 수 없다
+        return ApiResponse.ok(PageResponse.from(couponQueryService.findMyCoupons(user.userId(), status, pageable)));
     }
 }
