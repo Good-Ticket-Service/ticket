@@ -34,7 +34,8 @@ import org.springframework.test.context.TestPropertySource;
             "spring.jpa.open-in-view=false",
             "payment.recovery.enabled=false",
             "payment.reconcile.enabled=false",
-            "payment.recovery.refund.enabled=false"
+            "payment.recovery.refund.enabled=false",
+            "payment.observation.enabled=false"
         })
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
