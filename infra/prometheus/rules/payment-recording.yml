@@ -1,0 +1,80 @@
+# payment 경보가 보는 중복 제거 지표. 대시보드(infra/grafana/.../payment.json)와 같은 규칙을 쓴다.
+#
+# Note: payment 인스턴스가 여러 대면 각 인스턴스가 같은 DB 전체를 집계해 같은 값을 낸다. 그대로 sum하면 두 배가 된다.
+# 그래서 스냅샷이 45초 안에 성공한 인스턴스만 남기고, 같은 분류(provider·status 등)끼리는 max로 하나만 센다.
+# 서로 다른 시점의 스냅샷이라 근사값이며, 금융 검산은 DB·PG 대조가 기준이다.
+groups:
+  - name: payment-recording
+    interval: 15s
+    rules:
+      # 스냅샷이 신선한 인스턴스. 값은 마지막 성공 이후 지난 초다. 이 시계열이 없는 인스턴스의 게이지는 아래에서 빠진다.
+      - record: payment:observation_fresh_age_seconds
+        expr: |
+          (time() - payment_observation_last_success_timestamp_seconds{application="payment-service"}) < 45
+
+      - record: payment:refunds_pending:max
+        expr: |
+          max by (provider, status, mode, reason) (
+            payment_db_refunds_pending{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      - record: payment:refunds_exposure_won:max
+        expr: |
+          max by (provider, status, mode, reason) (
+            payment_db_refunds_exposure_won{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 미완료 환불의 최초 기록(createdAt) 이후 나이. 고객 실제 입금까지의 시간이 아니다.
+      - record: payment:refunds_oldest_record_age_seconds:max
+        expr: |
+          max by (provider, status, mode, reason) (
+            payment_db_refunds_oldest_record_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 자동 실행이 제한된 환불(VERIFY_ONLY·PAUSED). cause: inconsistent(거래·금액 충돌), verification, declined, other
+      - record: payment:refunds_restricted:max
+        expr: |
+          max by (provider, cause) (
+            payment_db_refunds_restricted{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 실행 시각(nextAttemptAt·expiresAt)이 지났는데 아직 처리하지 않은 작업. 미래 예약(SLOW 대기)은 들어가지 않는다.
+      - record: payment:jobs_due:max
+        expr: |
+          max by (task) (
+            payment_db_jobs_due{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      - record: payment:jobs_oldest_due_age_seconds:max
+        expr: |
+          max by (task) (
+            payment_db_jobs_oldest_due_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 결과를 모르는 최소 대사 대상. 알려진 미환불과 겹칠 수 있어 경보 조건에는 쓰지 않고 메시지 참고값으로만 쓴다.
+      - record: payment:reconcile_unknown:max
+        expr: |
+          max(
+            payment_db_reconcile_unknown{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # PG HTTP 호출 비율(2분). 인스턴스별 발생 카운터라 여러 인스턴스를 합산한다.
+      - record: payment:pg_http_requests:rate2m
+        expr: |
+          sum by (provider, operation) (
+            rate(payment_pg_http_duration_seconds_count{application="payment-service"}[2m])
+          )
+
+      # PG 장애로 볼 결과: 5xx, 429, 응답 유실(읽기 타임아웃 등), 연결 실패, 예외. 4xx 업무 거절은 PG 장애가 아니다.
+      - record: payment:pg_http_failures:rate2m
+        expr: |
+          sum by (provider, operation) (
+            rate(payment_pg_http_duration_seconds_count{application="payment-service",outcome=~"5xx|429|response_lost|not_sent|exception"}[2m])
+          )

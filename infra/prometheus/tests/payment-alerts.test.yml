@@ -1,0 +1,212 @@
+# payment 경보 단위 시험. 실행: promtool test rules infra/prometheus/tests/payment-alerts.test.yml
+# 시각 경계는 평가 주기(15초)에 맞춰 직전·직후를 본다. 스냅샷 성공 시각은 시험 시각과 같이 늘려 항상 신선하게 둔다.
+rule_files:
+  - ../rules/payment-recording.yml
+  - ../rules/payment-alerts.yml
+evaluation_interval: 15s
+tests:
+  # 환불 최초 기록 나이 5분 WARNING, 15분 CRITICAL. 인스턴스 2대가 같은 값을 내도 한 번만 센다.
+  - name: refund-aging-boundaries-and-dedup
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x80'
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="b"}'
+        values: '0+15x80'
+      - series: 'payment_db_refunds_oldest_record_age_seconds{application="payment-service",instance="a",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '0+15x80'
+      - series: 'payment_db_refunds_oldest_record_age_seconds{application="payment-service",instance="b",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '0+15x80'
+      - series: 'payment_db_refunds_pending{application="payment-service",instance="a",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '3+0x80'
+      - series: 'payment_db_refunds_pending{application="payment-service",instance="b",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '3+0x80'
+      - series: 'payment_db_refunds_exposure_won{application="payment-service",instance="a",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '135000+0x80'
+      - series: 'payment_db_refunds_exposure_won{application="payment-service",instance="b",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '135000+0x80'
+    promql_expr_test:
+      - expr: sum(payment:refunds_pending:max)
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 3
+    alert_rule_test:
+      - eval_time: 4m45s
+        alertname: PaymentRefundAging
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: PaymentRefundAging
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, provider: TOSS}
+            exp_annotations:
+              summary: "미완료 환불이 5분 넘게 남아 있다 (TOSS)"
+              description: "미완료 3건, 금액 135000원, 최장 5m 0s. 자동 조회·재시도는 계속된다."
+      - eval_time: 14m45s
+        alertname: PaymentRefundAging
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, provider: TOSS}
+            exp_annotations:
+              summary: "미완료 환불이 5분 넘게 남아 있다 (TOSS)"
+              description: "미완료 3건, 금액 135000원, 최장 14m 45s. 자동 조회·재시도는 계속된다."
+      - eval_time: 15m
+        alertname: PaymentRefundAging
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, provider: TOSS}
+            exp_annotations:
+              summary: "미완료 환불이 5분 넘게 남아 있다 (TOSS)"
+              description: "미완료 3건, 금액 135000원, 최장 15m 0s. 자동 조회·재시도는 계속된다."
+          - exp_labels: {severity: critical, application: payment-service, provider: TOSS}
+            exp_annotations:
+              summary: "미완료 환불이 15분 넘게 남아 있다 (TOSS)"
+              description: "미완료 3건, 금액 135000원, 최장 15m 0s. 60분이 지나면 SLOW 저빈도 조회로 바뀐다. PG 상태와 마지막 확인을 점검한다."
+
+  # 집계가 멈춘 인스턴스의 오래된 값은 경보 근거로 쓰지 않는다. 대신 관측 노후 경보가 뜬다.
+  - name: stale-snapshot-is-not-evidence
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+0x80'
+      - series: 'payment_observation_success{application="payment-service",instance="a"}'
+        values: '0+0x80'
+      - series: 'payment_db_refunds_oldest_record_age_seconds{application="payment-service",instance="a",provider="TOSS",status="REQUESTED",mode="ACTIVE",reason="USER_CANCEL"}'
+        values: '3600+0x80'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PaymentRefundAging
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: PaymentObservationStale
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, instance: a}
+            exp_annotations:
+              summary: "payment DB 집계가 실패했거나 1분 넘게 갱신되지 않았다"
+              description: "미완료 건수·금액 지표가 오래된 값이다. 0건으로 보이더라도 정상이라고 판단하지 않는다."
+
+  - name: restricted-refunds
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x20'
+      - series: 'payment_db_refunds_restricted{application="payment-service",instance="a",provider="KAKAO",cause="inconsistent"}'
+        values: '1+0x20'
+      - series: 'payment_db_refunds_restricted{application="payment-service",instance="a",provider="KAKAO",cause="declined"}'
+        values: '2+0x20'
+      - series: 'payment_db_refunds_restricted{application="payment-service",instance="a",provider="TOSS",cause="verification"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PaymentRefundInconsistent
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service, provider: KAKAO}
+            exp_annotations:
+              summary: "거래·금액이 맞지 않아 멈춘 환불이 있다 (KAKAO)"
+              description: "1건. 자동 취소를 보내지 않는다. 운영 조회로 원거래와 금액을 확인한다."
+      - eval_time: 1m
+        alertname: PaymentRefundNeedsOperator
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, provider: KAKAO}
+            exp_annotations:
+              summary: "운영 확인이 필요한 환불이 있다 (KAKAO)"
+              description: "2건이 조회 전용·운영 중단 상태다. 운영 조회 후 재개(unblock)·재시도(retry) 여부를 정한다."
+
+  # 실행 시각이 지난 작업만 센다(게이지가 이미 미래 예약을 제외한다). 1분 WARNING, 5분 CRITICAL.
+  - name: job-overdue
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x40'
+      - series: 'payment_db_jobs_oldest_due_age_seconds{application="payment-service",instance="a",task="refund"}'
+        values: '0+15x40'
+      - series: 'payment_db_jobs_due{application="payment-service",instance="a",task="refund"}'
+        values: '7+0x40'
+      - series: 'payment_db_jobs_oldest_due_age_seconds{application="payment-service",instance="a",task="recovery"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: PaymentJobOverdue
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: PaymentJobOverdue
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, task: refund}
+            exp_annotations:
+              summary: "refund 작업이 실행 시각보다 1분 넘게 밀렸다"
+              description: "대기 7건, 최장 1m 0s. PG 지연·스케줄러·DB 병목을 확인한다."
+      - eval_time: 5m
+        alertname: PaymentJobOverdue
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, task: refund}
+            exp_annotations:
+              summary: "refund 작업이 실행 시각보다 1분 넘게 밀렸다"
+              description: "대기 7건, 최장 5m 0s. PG 지연·스케줄러·DB 병목을 확인한다."
+          - exp_labels: {severity: critical, application: payment-service, task: refund}
+            exp_annotations:
+              summary: "refund 작업이 실행 시각보다 5분 넘게 밀렸다"
+              description: "대기 7건, 최장 5m 0s."
+
+  # 켜진 역할만 정지로 본다. 다른 인스턴스(b)가 refund를 맡지 않아 마지막 성공이 0이어도 경보하지 않는다.
+  - name: job-stalled-only-for-enabled-role
+    interval: 15s
+    input_series:
+      - series: 'payment_job_enabled{application="payment-service",instance="a",task="refund"}'
+        values: '1+0x60'
+      - series: 'payment_job_enabled{application="payment-service",instance="b",task="refund"}'
+        values: '0+0x60'
+      - series: 'payment_job_last_success_timestamp_seconds{application="payment-service",instance="a",task="refund"}'
+        values: '0+15x20 300+0x40'
+      - series: 'payment_job_last_success_timestamp_seconds{application="payment-service",instance="b",task="refund"}'
+        values: '0+0x60'
+      - series: 'payment_job_enabled{application="payment-service",instance="a",task="reconcile"}'
+        values: '0+0x60'
+      - series: 'payment_job_last_success_timestamp_seconds{application="payment-service",instance="a",task="reconcile"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PaymentJobStalled
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: PaymentJobStalled
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service, task: refund}
+            exp_annotations:
+              summary: "refund 잡이 5분 넘게 정상 실행되지 않았다"
+              description: "마지막 정상 실행 뒤 7m 0s. 잡 실행 실패·멈춤이나 DB 장애를 확인한다."
+
+  - name: target-missing
+    interval: 15s
+    input_series:
+      - series: 'up{application="user-service",instance="u"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: PaymentTargetMissing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: PaymentTargetMissing
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service}
+            exp_annotations:
+              summary: "payment-service 수집 대상이 없거나 모두 내려갔다"
+              description: "결제·환불 처리와 관측이 모두 멈췄을 수 있다. 다른 payment 경보는 이 경보가 풀릴 때까지 억제한다."
+
+  # 실패율 20% 초과 + 2분 최소 20건 + 2분 지속. 표본이 적으면 실패율이 높아도 경보하지 않는다.
+  - name: pg-degraded-with-minimum-samples
+    interval: 15s
+    input_series:
+      - series: 'payment_pg_http_duration_seconds_count{application="payment-service",instance="a",provider="TOSS",operation="approve",outcome="2xx"}'
+        values: '0+5x60'
+      - series: 'payment_pg_http_duration_seconds_count{application="payment-service",instance="a",provider="TOSS",operation="approve",outcome="5xx"}'
+        values: '0+5x60'
+      - series: 'payment_pg_http_duration_seconds_count{application="payment-service",instance="a",provider="KAKAO",operation="cancel",outcome="5xx"}'
+        values: '0+0x20 1+0x40'
+      - series: 'payment_pg_http_duration_seconds_count{application="payment-service",instance="a",provider="KAKAO",operation="cancel",outcome="4xx"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PaymentPgDegraded
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, provider: TOSS, operation: approve}
+            exp_annotations:
+              summary: "TOSS approve 호출의 실패율이 20%를 넘었다"
+              description: "실패율 50%(5xx·429·응답 유실·연결 실패). 결과 불명은 복구 잡이 조회로 확정한다. 업무 거절(4xx)은 포함하지 않는다."
