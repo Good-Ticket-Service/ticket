@@ -25,29 +25,32 @@ VALUES (1, 1, 'VIP', LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
        (6, 3, 'R', LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
        (7, 3, 'S', LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM');
 
--- 공연장 좌석 80석. 열마다 10석이며 등급은 열 단위로 정한다. ID는 DB가 만든다.
--- 서울: A구역 1열 VIP, A구역 2열 R, B구역 1·2열 S
-INSERT INTO p_venue_seats (venue_id, venue_seat_grade_id, section, row_label, seat_number,
+-- 공연장 좌석 80석. 열마다 10석이며 등급은 열 단위로 정한다.
+-- ID는 직접 넣는다. 좌석 서비스의 local 시드(reservation-service db/seed-local.sql)가 공연장 좌석 ID를 숫자로 적기 때문이다(#139).
+-- 순서는 좌석 번호가 바깥, 열(k)이 안쪽이다. ID를 바꾸면 좌석 시드와 SeatSeedLocalSqlIntegrationTest도 함께 고친다.
+-- 서울(1~40): id = (seat_number - 1) * 4 + k. A구역 1열 VIP(k=1), A구역 2열 R(k=2), B구역 1·2열 S(k=3, 4)
+INSERT INTO p_venue_seats (id, venue_id, venue_seat_grade_id, section, row_label, seat_number,
                            created_at, created_by, updated_at, updated_by)
-SELECT 1, layout.grade_id, layout.section, layout.row_label, seat.number,
+SELECT (seat.number - 1) * 4 + layout.k, 1, layout.grade_id, layout.section, layout.row_label, seat.number,
        LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'
-FROM (VALUES (1, 'A', '1'), (2, 'A', '2'), (3, 'B', '1'), (3, 'B', '2')) AS layout (grade_id, section, row_label)
+FROM (VALUES (1, 1, 'A', '1'), (2, 2, 'A', '2'), (3, 3, 'B', '1'), (4, 3, 'B', '2'))
+         AS layout (k, grade_id, section, row_label)
          CROSS JOIN generate_series(1, 10) AS seat (number);
 
--- 부산: A구역 1열 VIP, 2열 R
-INSERT INTO p_venue_seats (venue_id, venue_seat_grade_id, section, row_label, seat_number,
+-- 부산(41~60): id = 40 + (seat_number - 1) * 2 + k. A구역 1열 VIP(k=1), 2열 R(k=2)
+INSERT INTO p_venue_seats (id, venue_id, venue_seat_grade_id, section, row_label, seat_number,
                            created_at, created_by, updated_at, updated_by)
-SELECT 2, layout.grade_id, layout.section, layout.row_label, seat.number,
+SELECT 40 + (seat.number - 1) * 2 + layout.k, 2, layout.grade_id, layout.section, layout.row_label, seat.number,
        LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'
-FROM (VALUES (4, 'A', '1'), (5, 'A', '2')) AS layout (grade_id, section, row_label)
+FROM (VALUES (1, 4, 'A', '1'), (2, 5, 'A', '2')) AS layout (k, grade_id, section, row_label)
          CROSS JOIN generate_series(1, 10) AS seat (number);
 
--- 대구: A구역 1열 R, 2열 S
-INSERT INTO p_venue_seats (venue_id, venue_seat_grade_id, section, row_label, seat_number,
+-- 대구(61~80): id = 60 + (seat_number - 1) * 2 + k. A구역 1열 R(k=1), 2열 S(k=2)
+INSERT INTO p_venue_seats (id, venue_id, venue_seat_grade_id, section, row_label, seat_number,
                            created_at, created_by, updated_at, updated_by)
-SELECT 3, layout.grade_id, layout.section, layout.row_label, seat.number,
+SELECT 60 + (seat.number - 1) * 2 + layout.k, 3, layout.grade_id, layout.section, layout.row_label, seat.number,
        LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'
-FROM (VALUES (6, 'A', '1'), (7, 'A', '2')) AS layout (grade_id, section, row_label)
+FROM (VALUES (1, 6, 'A', '1'), (2, 7, 'A', '2')) AS layout (k, grade_id, section, row_label)
          CROSS JOIN generate_series(1, 10) AS seat (number);
 
 -- 공연. 판매자 ID 1001은 회원 서비스와 연결하지 않은 예시 값이다.
@@ -149,6 +152,7 @@ WHERE seat.venue_id = 1 AND seat.section = 'A' AND seat.row_label = '1' AND seat
 -- ID를 직접 넣은 테이블은 다음 자동 ID가 겹치지 않게 시퀀스를 맞춘다
 SELECT setval(pg_get_serial_sequence('p_venues', 'id'), (SELECT max(id) FROM p_venues));
 SELECT setval(pg_get_serial_sequence('p_venue_seat_grades', 'id'), (SELECT max(id) FROM p_venue_seat_grades));
+SELECT setval(pg_get_serial_sequence('p_venue_seats', 'id'), (SELECT max(id) FROM p_venue_seats));
 SELECT setval(pg_get_serial_sequence('p_performances', 'id'), (SELECT max(id) FROM p_performances));
 SELECT setval(pg_get_serial_sequence('p_performance_grade_prices', 'id'), (SELECT max(id) FROM p_performance_grade_prices));
 SELECT setval(pg_get_serial_sequence('p_schedules', 'id'), (SELECT max(id) FROM p_schedules));

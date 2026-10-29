@@ -57,6 +57,30 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
         assertThat(nextVenueId).isEqualTo(4L);
     }
 
+    /** 좌석 서비스의 local 시드가 이 ID를 숫자로 쓴다(#139). 좌석 번호가 바깥, 열이 안쪽인 순서다. */
+    @Test
+    @DisplayName("공연장 좌석 ID는 고정값이다: 서울 1~40, 부산 41~60, 대구 61~80이고 다음 자동 ID는 81이다")
+    void venueSeatIdsAreFixed() {
+        assertThat(venueSeatId(1, "A", "1", 1)).isEqualTo(1L);
+        assertThat(venueSeatId(1, "A", "2", 1)).isEqualTo(2L);
+        assertThat(venueSeatId(1, "B", "1", 1)).isEqualTo(3L);
+        assertThat(venueSeatId(1, "B", "2", 1)).isEqualTo(4L);
+        assertThat(venueSeatId(1, "A", "1", 2)).isEqualTo(5L);
+        assertThat(venueSeatId(1, "B", "2", 10)).isEqualTo(40L);
+        assertThat(venueSeatId(2, "A", "1", 1)).isEqualTo(41L);
+        assertThat(venueSeatId(2, "A", "2", 10)).isEqualTo(60L);
+        assertThat(venueSeatId(3, "A", "1", 1)).isEqualTo(61L);
+        assertThat(venueSeatId(3, "A", "2", 10)).isEqualTo(80L);
+
+        Long nextSeatId = jdbcTemplate.queryForObject("""
+                INSERT INTO p_venue_seats (venue_id, venue_seat_grade_id, section, row_label, seat_number,
+                                           created_at, created_by, updated_at, updated_by)
+                VALUES (1, 1, 'C', '1', 1, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM')
+                RETURNING id
+                """, Long.class);
+        assertThat(nextSeatId).isEqualTo(81L);
+    }
+
     @Test
     @DisplayName("공개 목록에는 공연 1~5만 나오고, 예매 오픈 순 정렬은 판매 중 → 오픈 전 → 오픈할 회차 없음 순이다")
     void publicListMatchesScenario() throws Exception {
@@ -85,6 +109,16 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
                 .andExpect(jsonPath("$.data.operationStatus").value("CANCELED"));
         mockMvc.perform(get("/api/performances/6")).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/performances/7")).andExpect(status().isNotFound());
+    }
+
+    private Long venueSeatId(long venueId, String section, String rowLabel, int seatNumber) {
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM p_venue_seats WHERE venue_id = ? AND section = ? AND row_label = ? AND seat_number = ?",
+                Long.class,
+                venueId,
+                section,
+                rowLabel,
+                seatNumber);
     }
 
     private int count(String table) {
