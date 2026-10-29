@@ -35,6 +35,7 @@
 
 - Path ID는 양의 long이다.
 - 공연 목록은 `PageP<T>={items:T[],page:int,size:int,totalElements:long}`이다. page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다.
+- 버전 필드(version, venueVersion, performanceVersion, policyVersion, configVersion, seatConfigVersion)는 long이다. 테이블의 BIGINT 컬럼과 같다.
 - If-Match는 대상 리소스의 version을 큰따옴표로 감싼 값이다(예: `"3"`).
 - 공연장의 등급·좌석 명령은 venue.version을 쓴다.
 - 등급별 가격 설정과 공연 공개는 performance.version을 쓴다.
@@ -83,25 +84,25 @@
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
-| POST /internal/schedules/{scheduleId}/sale-validations | 예매 서비스 | 200 | B: configVersion:int[1 이상],venueSeatIds:long[][1개 이상, 중복 불가] | P21 | 404 SCHEDULE_NOT_FOUND |
+| POST /internal/schedules/{scheduleId}/sale-validations | 예매 서비스 | 200 | B: configVersion:long[1 이상],venueSeatIds:long[][1개 이상, 중복 불가] | P21 | 404 SCHEDULE_NOT_FOUND |
 
 - 판매 검증의 서비스 인증 방식은 팀에서 정하지 않았다. 그래서 인증 실패 코드를 적지 않는다.
 
 ### 공연 응답 스키마
 
-- P1 = `id:long; name:string; address:string; region:string; version:integer; createdAt:datetime; updatedAt:datetime`.
-- P3 = `grades:Grade[]; grades[].id:long; grades[].name:string; venueVersion:integer`.
-- P5 = `createdCount:integer; createdSeatIds:long[]; venueVersion:integer`.
-- P8 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; publicationStatus:string; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; version:integer; createdAt:datetime; updatedAt:datetime; sellerId:long`.
-- P11 = `gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer; performanceVersion:integer`.
-- P13 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null; seatConfigVersion:integer; seatSetupRequestId:string; seatSetupError:string|null; suspensionReason:string|null; cancelReason:string|null; version:integer`.
-- P15 = `scheduleId:long; salesSuspended:boolean; suspensionReason:string|null; version:integer`.
-- P16 = `items:PerformanceSummary[]; items[].id:long; items[].venue:VenueSummary; items[].venue.id:long; items[].venue.name:string; items[].venue.address:string; items[].venue.region:string; items[].title:string; items[].genre:string; items[].posterUrl:string|null; items[].operationStatus:string; items[].period:Period|null; items[].period.from:date; items[].period.to:date; page:integer; size:integer; totalElements:integer`.
+- P1 = `id:long; name:string; address:string; region:string; version:long; createdAt:datetime; updatedAt:datetime`.
+- P3 = `grades:Grade[]; grades[].id:long; grades[].name:string; venueVersion:long`.
+- P5 = `createdCount:integer; createdSeatIds:long[]; venueVersion:long`.
+- P8 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; publicationStatus:string; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; version:long; createdAt:datetime; updatedAt:datetime; sellerId:long`.
+- P11 = `gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer; performanceVersion:long`.
+- P13 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null; seatConfigVersion:long; seatSetupRequestId:string; seatSetupError:string|null; suspensionReason:string|null; cancelReason:string|null; version:long`.
+- P15 = `scheduleId:long; salesSuspended:boolean; suspensionReason:string|null; version:long`.
+- P16 = `items:PerformanceSummary[]; items[].id:long; items[].venue:VenueSummary; items[].venue.id:long; items[].venue.name:string; items[].venue.address:string; items[].venue.region:string; items[].title:string; items[].genre:string; items[].posterUrl:string|null; items[].operationStatus:string; items[].period:Period|null; items[].period.from:date; items[].period.to:date; page:integer; size:integer; totalElements:long`.
 - P17 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; createdAt:datetime; updatedAt:datetime; gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer`.
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.
 - P20 = `performanceId:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; seats:LayoutSeat[]; seats[].id:long; seats[].section:string; seats[].rowLabel:string; seats[].seatNumber:integer; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].isSellable:boolean; seats[].basePrice:integer|null`.
-- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; performanceId:long; sellerId:long; configVersion:integer; policyVersion:integer; performanceTitle:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
+- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; performanceId:long; sellerId:long; configVersion:long; policyVersion:long; performanceTitle:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
 - 스키마 번호는 다른 절과 architecture가 참조하므로 바꾸지 않는다. 비어 있는 번호(P2, P4, P6, P7, P9, P10, P12, P14)는 추후 구현 예정 API의 스키마라 여기에 두지 않는다.
 
 판매 검증 P21.performanceId·sellerId (합의 #86):
