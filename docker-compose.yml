@@ -128,9 +128,34 @@ services:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
     depends_on:
       eureka-server:
         condition: service_started
+    networks: [ticket-net]
+
+  # Prometheus 경보를 묶어 Slack으로 보낸다(infra/alertmanager/alertmanager.yml).
+  # webhook URL 파일은 SLACK_WEBHOOK_URL_FILE로 바꾼다. 지정하지 않으면 모의 수신기(alert-mock)로 보낸다.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./infra/alertmanager/templates:/etc/alertmanager/templates:ro
+      - ${SLACK_WEBHOOK_URL_FILE:-./infra/alertmanager/mock-slack-url}:/etc/alertmanager/secrets/slack_webhook_url:ro
+    networks: [ticket-net]
+
+  # Slack 대신 경보를 받는 모의 수신기. MOCK_MODE: ok, 429, 500, slow. 받은 메시지는 GET /messages로 본다.
+  alert-mock:
+    image: python:3.12-alpine
+    command: ["python", "-u", "/app/alert_mock.py"]
+    environment:
+      MOCK_MODE: ${ALERT_MOCK_MODE:-ok}
+    ports:
+      - "127.0.0.1:${ALERT_MOCK_PORT:-9094}:8080"
+    volumes:
+      - ./script/alert-mock:/app:ro
     networks: [ticket-net]
 
   grafana:

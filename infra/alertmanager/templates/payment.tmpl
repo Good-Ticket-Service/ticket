@@ -1,0 +1,31 @@
+{{/*
+  payment 경보 Slack 메시지. 경보 규칙의 summary·description과 분류 라벨만 쓴다.
+  거래·회원 ID, PG 키, 오류 원문은 경보에 없으므로 여기서도 넣지 않는다. 개별 거래는 운영 조회에서 찾는다.
+  한 그룹에 경보가 많아도 메시지가 길어지지 않게 앞의 10건만 보여 준다.
+*/}}
+
+{{ define "payment.slack.title" -}}
+{{ if eq .Status "firing" }}[경보 {{ .Alerts.Firing | len }}건]{{ else }}[해제]{{ end }} {{ .CommonLabels.alertname }}{{ with .CommonLabels.provider }} · {{ . }}{{ end }} ({{ .CommonLabels.environment }})
+{{- end }}
+
+{{ define "payment.slack.color" -}}
+{{ if eq .Status "resolved" }}good{{ else if eq .CommonLabels.severity "critical" }}danger{{ else }}warning{{ end }}
+{{- end }}
+
+{{ define "payment.slack.alert" -}}
+• *{{ .Labels.severity | toUpper }}* {{ .Annotations.summary }}
+{{ with .Annotations.description }}  {{ . }}
+{{ end -}}
+{{- end }}
+
+{{ define "payment.slack.text" -}}
+{{ if .Alerts.Firing -}}
+{{ range $i, $a := .Alerts.Firing }}{{ if lt $i 10 }}{{ template "payment.slack.alert" $a }}{{ end }}{{ end -}}
+{{ if gt (len .Alerts.Firing) 10 }}… 총 {{ len .Alerts.Firing }}건 중 10건만 표시했다. 나머지는 대시보드에서 확인한다.
+{{ end -}}
+{{ end -}}
+{{ if .Alerts.Resolved -}}
+해제 {{ len .Alerts.Resolved }}건: 위험 조건이 풀렸다. 고객 환불 입금이나 전체 대사 완료를 뜻하지 않는다.
+{{ end -}}
+대시보드: http://localhost:3000/d/payment-operations
+{{- end }}

@@ -41,3 +41,7 @@ CLAUDE.local.md
 
 ### reservation-service 담당별 로컬 설계·진행 기록 ###
 /backend/reservation-service/docs-local/
+
+### Alertmanager 실제 Slack webhook (infra/alertmanager/secrets/에 두고 SLACK_WEBHOOK_URL_FILE로 지정) ###
+/infra/alertmanager/secrets/*
+!/infra/alertmanager/secrets/.gitkeep
