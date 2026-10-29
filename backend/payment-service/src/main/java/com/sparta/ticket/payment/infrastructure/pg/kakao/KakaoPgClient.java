@@ -11,12 +11,14 @@ import com.sparta.ticket.payment.infrastructure.pg.PgHttp;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp.PgCall;
 import com.sparta.ticket.payment.infrastructure.pg.PgJson;
 import com.sparta.ticket.payment.infrastructure.pg.PgProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -53,11 +55,19 @@ public class KakaoPgClient implements PgClient {
             "FAIL_PAYMENT");
 
     private final RestClient restClient;
+    private final MeterRegistry meters;
     private final ObjectMapper objectMapper;
     private final PgProperties.Kakao kakao;
     private final String authorization;
 
     public KakaoPgClient(RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper) {
+        this(builder, properties, objectMapper, null);
+    }
+
+    @Autowired
+    public KakaoPgClient(
+            RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper, MeterRegistry meters) {
+        this.meters = meters;
         this.restClient = PgHttp.restClient(builder, properties.kakao().baseUrl(), properties);
         this.objectMapper = objectMapper;
         this.kakao = properties.kakao();
@@ -193,7 +203,10 @@ public class KakaoPgClient implements PgClient {
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body),
-                restClient);
+                restClient,
+                meters,
+                "KAKAO",
+                path.substring(path.lastIndexOf('/') + 1).replace("order", "inquire"));
     }
 
     /** 승인·취소 응답 분류. 공통 규칙 → 2xx 성공 → 처리하지 않았음이 확실한 코드만 업무 거절 → 그 밖은 Unknown. */

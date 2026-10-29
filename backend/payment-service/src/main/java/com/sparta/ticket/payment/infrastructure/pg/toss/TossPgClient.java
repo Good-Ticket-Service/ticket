@@ -11,6 +11,7 @@ import com.sparta.ticket.payment.infrastructure.pg.PgHttp;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp.PgCall;
 import com.sparta.ticket.payment.infrastructure.pg.PgJson;
 import com.sparta.ticket.payment.infrastructure.pg.PgProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -45,10 +47,18 @@ public class TossPgClient implements PgClient {
             Set.of("READY", "IN_PROGRESS", "WAITING_FOR_DEPOSIT", "ABORTED", "EXPIRED");
 
     private final RestClient restClient;
+    private final MeterRegistry meters;
     private final ObjectMapper objectMapper;
     private final String authorization;
 
     public TossPgClient(RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper) {
+        this(builder, properties, objectMapper, null);
+    }
+
+    @Autowired
+    public TossPgClient(
+            RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper, MeterRegistry meters) {
+        this.meters = meters;
         this.restClient = PgHttp.restClient(builder, properties.toss().baseUrl(), properties);
         this.objectMapper = objectMapper;
         this.authorization = "Basic "
@@ -80,7 +90,10 @@ public class TossPgClient implements PgClient {
                         .header(IDEMPOTENCY_KEY, request.orderId() + ":confirm")
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body),
-                restClient);
+                restClient,
+                meters,
+                "TOSS",
+                "approve");
         return result(
                 call,
                 json -> new PgResult.Approved(
@@ -95,7 +108,10 @@ public class TossPgClient implements PgClient {
                 client -> client.get()
                         .uri("/v1/payments/orders/{orderId}", request.orderId())
                         .header(HttpHeaders.AUTHORIZATION, authorization),
-                restClient);
+                restClient,
+                meters,
+                "TOSS",
+                "inquire");
         if (!(call instanceof PgCall.Responded responded)) {
             return new PgInquiry.Unknown(call.toString());
         }
@@ -127,7 +143,10 @@ public class TossPgClient implements PgClient {
                         .header(IDEMPOTENCY_KEY, request.idempotencyKey())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body),
-                restClient);
+                restClient,
+                meters,
+                "TOSS",
+                "cancel");
         if (call instanceof PgCall.Responded responded
                 && errorCode(responded)
                         .filter("ALREADY_CANCELED_PAYMENT"::equals)
