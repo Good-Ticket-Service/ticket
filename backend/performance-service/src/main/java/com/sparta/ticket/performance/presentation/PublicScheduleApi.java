@@ -1,7 +1,7 @@
 package com.sparta.ticket.performance.presentation;
 
 import com.sparta.ticket.common.response.ApiResponse;
-import com.sparta.ticket.performance.application.PublicScheduleService;
+import com.sparta.ticket.performance.application.service.PublicScheduleService;
 import com.sparta.ticket.performance.presentation.dto.PublicScheduleListResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicScheduleResponse;
 import lombok.RequiredArgsConstructor;

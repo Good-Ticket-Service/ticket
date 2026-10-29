@@ -1,8 +1,9 @@
-package com.sparta.ticket.performance.application;
+package com.sparta.ticket.performance.application.service;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.performance.application.dto.PublicSchedule;
 import com.sparta.ticket.performance.application.dto.PublicScheduleRow;
+import com.sparta.ticket.performance.application.port.PublicScheduleReader;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import java.time.Clock;

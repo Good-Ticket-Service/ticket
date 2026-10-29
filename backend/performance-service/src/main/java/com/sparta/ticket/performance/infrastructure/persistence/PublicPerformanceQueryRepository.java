@@ -10,7 +10,6 @@ import com.querydsl.core.types.dsl.DateTimeExpression;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
-import com.sparta.ticket.performance.application.PublicPerformanceReader;
 import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
 import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
@@ -18,6 +17,7 @@ import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCond
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSummary;
 import com.sparta.ticket.performance.application.dto.VenueSummary;
+import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.performance.QPerformanceGradePrice;
