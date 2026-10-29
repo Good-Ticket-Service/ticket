@@ -8,6 +8,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
 import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
+import com.sparta.ticket.reservation.booking.application.port.RefundReason;
 import feign.RetryableException;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,6 @@ public class PaymentFeignAdapter implements PaymentPort {
 
     private static final String PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
     private static final String PAYMENT_AMOUNT_MISMATCH = "PAYMENT_AMOUNT_MISMATCH";
-    private static final String USER_CANCEL = "USER_CANCEL";
     private static final Set<String> REFUND_STATUSES =
             Set.of("WAITING", "REQUESTED", "DONE", "FAILED", "SKIPPED", "NOT_REQUIRED");
 
@@ -105,10 +105,10 @@ public class PaymentFeignAdapter implements PaymentPort {
      * 끝까지 처리하는 책임은 payment에 있다(#127). 본문을 읽지 못했거나 모르는 상태면 받았다고 단정하지 않는다.
      */
     @Override
-    public RefundOutcome refund(String orderId) {
+    public RefundOutcome refund(String orderId, RefundReason reason) {
         PaymentRefundResponse response;
         try {
-            response = commandClient.refund(orderId, new PaymentRefundRequest(USER_CANCEL));
+            response = commandClient.refund(orderId, new PaymentRefundRequest(reason.name()));
         } catch (BusinessException e) {
             if (PAYMENT_NOT_FOUND.equals(e.getErrorCode().code())) {
                 return RefundOutcome.unknownOrder();

@@ -6,6 +6,7 @@ import com.sparta.ticket.reservation.booking.application.cancel.CancelTransactio
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
+import com.sparta.ticket.reservation.booking.application.port.RefundReason;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -58,7 +59,7 @@ public class ReservationCancelService {
 
     private RefundOutcome requestRefund(Long reservationId, String orderId) {
         try {
-            return paymentPort.refund(orderId);
+            return paymentPort.refund(orderId, RefundReason.USER_CANCEL);
         } catch (RuntimeException e) {
             log.warn("환불 요청의 결과를 모른다. 취소 확인 스케줄러가 마무리한다. reservationId={}, orderId={}", reservationId, orderId, e);
             return RefundOutcome.unknown();
