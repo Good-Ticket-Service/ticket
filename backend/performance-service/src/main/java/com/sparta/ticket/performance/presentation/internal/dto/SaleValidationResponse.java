@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.presentation.dto;
+package com.sparta.ticket.performance.presentation.internal.dto;
 
 import com.sparta.ticket.performance.application.dto.SaleValidationResult;
 import java.time.LocalDateTime;

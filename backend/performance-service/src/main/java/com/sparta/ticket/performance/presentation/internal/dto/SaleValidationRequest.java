@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.presentation.dto;
+package com.sparta.ticket.performance.presentation.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;

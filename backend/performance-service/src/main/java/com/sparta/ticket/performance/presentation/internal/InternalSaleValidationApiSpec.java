@@ -1,7 +1,7 @@
-package com.sparta.ticket.performance.presentation;
+package com.sparta.ticket.performance.presentation.internal;
 
-import com.sparta.ticket.performance.presentation.dto.SaleValidationRequest;
-import com.sparta.ticket.performance.presentation.dto.SaleValidationResponse;
+import com.sparta.ticket.performance.presentation.internal.dto.SaleValidationRequest;
+import com.sparta.ticket.performance.presentation.internal.dto.SaleValidationResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
