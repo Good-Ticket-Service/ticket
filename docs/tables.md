@@ -486,7 +486,8 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
 | 예매 쿠폰(추가 설계) | user_coupon_id BIGINT NULL, discount_amount 원본 초안 BIGINT NULL. DDL 미반영. 예매 할인액은 min(쿠폰액,max(0,정가-100)) 원본안을 복원하며 결제는 보정 없이 검증한다. 타입 이행·경계는 architecture 14절 |
 | 예매 금액 | 현행 payment_amount BIGINT. 공통 INT 목표와 discount_amount 원본 BIGINT 초안의 실제 이행 범위·시점은 architecture 14절에서 담당 확인 |
-| 예매 CANCELING | 활성 UNIQUE에는 포함되지만 현행 domain enum/CHECK에는 미반영(facade enum에는 포함). 취소 구현 시 enum/CHECK/집계 추가 |
+| 예매 CANCELING | #126 합의, DDL 미반영. ck_p_reservations_status에 'CANCELING'을 더하고 domain enum·countActiveSeats 집계에 넣는다. 활성 UNIQUE와 facade enum에는 이미 있다 |
+| 예매 회차 스냅샷 | #126 합의, DDL 미반영. p_reservations에 schedule_start_at TIMESTAMP NOT NULL, performance_title VARCHAR(200) NOT NULL을 더한다. 선점 때 판매 검증(P21) 값을 저장하고 다시 조회하지 않는다. 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다 |
 | 티켓 가격 | 현행 CHECK(price>=0), 판매 정책 목표>0. 무료 결제 경로 없음 |
 | 최소 Reconcile 이행 | 워킹트리 SQL/Entity는 일정 스냅샷·단계·영속 불명 재시도를 지원한다. 기존 DB는 모든 결제 실행을 중지하고 `backend/sql/payment-service/migrations/001-reconcile-checkpoints.sql` 적용 후 새 코드만 기동. 새 DB는 schema.sql만 적용. 기존 reconciled_at은 재확인, 2단계 완료만 5단계 완료로 매핑하며 진행 중인 옛 단계는 첫 단계부터 보수적으로 재확인한다 |
 | 고도화(설계 전) | Outbox/Inbox/영속 작업/전이 이력의 물리 테이블·컬럼·보존 기간은 미정. Kafka 도입 때 스키마 확정 |
@@ -503,7 +504,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE(원본: performance/api.md:463-467; 담당 확인 필요) |
 | Performance.period(비저장) | 구현 제안: 미삭제·미취소 회차 start_at의 최소/최대 KST 날짜, 대상 없으면 null(원본: performance/tables.md:206,298; 담당 확인 필요) |
 | SeatState | AVAILABLE,HOLD,SOLD |
-| ReservationState(facade) / ReservationStatus(domain) | facade에는 CANCELING 포함. 현행 domain/CHECK에는 CANCELING 없음. 나머지는 HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/EXPIRED/RELEASED/CANCELED |
+| ReservationState(facade) / ReservationStatus(domain) | facade에는 CANCELING 포함. domain/CHECK 반영은 #126 합의, 구현 전. 나머지는 HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/EXPIRED/RELEASED/CANCELED |
 | Coupon.issueStatus(비저장) | now<start:UPCOMING;start<=now<end:ISSUING;그 밖 ENDED. 수량0이어도 ISSUING 가능 |
 | Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
