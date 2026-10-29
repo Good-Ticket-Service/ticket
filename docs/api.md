@@ -175,6 +175,7 @@
 - salesStatus는 CANCELED, CLOSED, BEFORE_OPEN, UNAVAILABLE, ON_SALE 순서로 먼저 맞는 값을 준다. 매진 여부는 포함하지 않는다.
 - 좌석 배치(P20)의 isSellable은 공연 공통 판매 제외를 반영한다. 실시간 점유 여부가 아니다.
 - 좌석 배치(P20)의 basePrice는 판매 제외 좌석이면서 그 등급에 가격이 없을 때만 null이다.
+- 좌석 배치(P20)와 좌석 서비스의 선택 가능 좌석 조회(`GET /api/seats/schedules/{scheduleId}`)는 좌석 순서가 다르다. 두 응답은 순서가 아니라 P20의 `seats[].id`와 좌석 조회의 `venueSeatId`(같은 공연장 좌석 ID)로 짝짓는다.
 
 공연·회차 관리
 - 등급별 가격 설정은 공연의 전체 가격 집합을 보내 교체한다. 판매 대상 좌석이 쓰는 등급은 모두 가격이 있어야 하며(없으면 400 GRADE_PRICE_MISSING), 모든 좌석이 판매 제외된 등급만 가격을 생략할 수 있다.
