@@ -327,7 +327,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | reconcile_checkpoints_minutes | VARCHAR(1024); 실패 당시 분 단위 누적 일정 CSV. 기존 결제에 설정 변경 소급하지 않음 |
 | reconcile_retry_count | INT NOT NULL DEFAULT 0; 현재 단계의 연속 조회 불명 횟수 |
 | reconcile_unknown_since | TIMESTAMP; 현재 단계의 최초 연속 조회 불명 시각. 확인 완료 시 NULL |
-| next_attempt_at | TIMESTAMP |
+| next_attempt_at | TIMESTAMP; IN_PROGRESS는 다음 복구 시각·점유. 카카오 READY는 PG 준비 점유 만료 시각(동시 재요청이 준비를 한 번만 부르게 함, #163), 준비 결과 반영 시 NULL |
 | recovery_started_at | TIMESTAMP |
 | recovery_attempts | INT NOT NULL DEFAULT 0 |
 | last_error | VARCHAR(80) |

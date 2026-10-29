@@ -312,6 +312,37 @@ class PaymentCheckoutIntegrationTest extends PaymentIntegrationTest {
         }
 
         @Test
+        @DisplayName("카카오 같은 orderId 동시 10건은 PG 준비를 한 번만 부르고 모두 같은 결제 화면으로 응답한다(#163)")
+        void sameKakaoOrderIdConcurrentlyReadiesOnce() throws Exception {
+            CheckoutCommand command = command(newOrderId(), newReservationId(), PgProvider.KAKAO);
+            pg.holdReady(1);
+            Thread releaser = new Thread(() -> {
+                try {
+                    pg.awaitReadyEntered(1);
+                    Thread.sleep(300);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                pg.releaseReady();
+            });
+            releaser.start();
+            List<Callable<CheckoutResult>> tasks = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                tasks.add(() -> paymentService.checkout(command));
+            }
+
+            List<Future<CheckoutResult>> futures = runTogether(tasks);
+            releaser.join();
+
+            Payment saved = load(command.orderId());
+            assertThat(pg.readyCalls()).isEqualTo(1);
+            for (Future<CheckoutResult> future : futures) {
+                assertThat(failure(future)).isNull();
+                assertThat(future.get().checkoutUrl()).isEqualTo(saved.getCheckoutUrl());
+            }
+        }
+
+        @Test
         @DisplayName("같은 예매·다른 orderId 동시 5건은 살아 있는 결제를 하나만 남기고 나머지는 409 또는 대체된다")
         void sameReservationConcurrently() throws Exception {
             long reservationId = newReservationId();
@@ -335,20 +366,21 @@ class PaymentCheckoutIntegrationTest extends PaymentIntegrationTest {
         }
 
         @Test
-        @DisplayName("tid 없는 카카오 READY를 동시에 재개해도 tid는 하나만 저장되고 두 응답이 같은 결제창을 준다")
+        @DisplayName("tid 없는 카카오 READY를 동시에 재개해도 PG 준비는 한 번만 부르고 두 응답이 같은 결제창을 준다")
         void concurrentResumeKeepsFirstTid() throws Exception {
             CheckoutCommand command = command(newOrderId(), newReservationId(), PgProvider.KAKAO);
             pg.readyReturns(() -> {
                 throw new IllegalStateException("준비 직후 서버 중단");
             });
             assertThatThrownBy(() -> paymentService.checkout(command)).isInstanceOf(IllegalStateException.class);
-            pg.holdReady(2);
+            pg.holdReady(1);
 
             ExecutorService executor = Executors.newFixedThreadPool(2);
             try {
                 Future<CheckoutResult> first = executor.submit(() -> paymentService.checkout(command));
                 Future<CheckoutResult> second = executor.submit(() -> paymentService.checkout(command));
-                pg.awaitReadyEntered(2);
+                pg.awaitReadyEntered(1);
+                Thread.sleep(300);
                 pg.releaseReady();
 
                 assertThat(first.get().checkoutUrl()).isEqualTo(second.get().checkoutUrl());
@@ -358,6 +390,8 @@ class PaymentCheckoutIntegrationTest extends PaymentIntegrationTest {
             Payment stored = load(command.orderId());
             assertThat(stored.getStatus()).isEqualTo(PaymentStatus.READY);
             assertThat(stored.getCheckoutUrl()).endsWith(stored.getPgTransactionId());
+            // 실패한 첫 준비 1회 + 재개 1회. 동시 재개가 준비를 두 번 부르면 저장 tid와 결제창이 어긋난다(#163).
+            assertThat(pg.readyCalls()).isEqualTo(2);
         }
 
         @Test

@@ -205,7 +205,32 @@ public class Payment extends BaseEntity {
         } else if (result instanceof PgReadyResult.Failed failed) {
             fail(PaymentFailureCode.READY_FAILED, failed.reason());
         }
+        recovery.finish();
         return true;
+    }
+
+    /**
+     * PG 준비를 부를 권한을 until까지 점유한다. 카카오는 준비마다 새 tid를 주고 이전 tid를 쓸 수 없게 하므로,
+     * 같은 결제의 동시 재요청이 준비를 여러 번 부르면 저장한 tid와 사용자가 받은 결제 화면이 어긋난다(#163).
+     * Note: READY는 복구 대상이 아니라 복구 점유 시각을 준비 점유에 쓴다. 승인 시작(startApproval)이 다시 초기화한다.
+     *
+     * @return 점유했으면 true. 이미 준비가 끝났거나 다른 요청이 점유 중이면 false
+     */
+    public boolean claimPgReady(LocalDateTime now, LocalDateTime until) {
+        if (!needsPgReady()) {
+            return false;
+        }
+        LocalDateTime claimedUntil = recovery.getNextAttemptAt();
+        if (claimedUntil != null && claimedUntil.isAfter(now)) {
+            return false;
+        }
+        recovery.claimUntil(toDbPrecision(until));
+        return true;
+    }
+
+    /** PG 준비 호출이 예외로 끝나 결과를 반영하지 못했다. 기다리는 요청이 점유 만료 전에 이어받게 점유를 푼다. */
+    public void releasePgReady() {
+        if (needsPgReady()) recovery.finish();
     }
 
     /** 승인 요청을 이미 받았는지. 받은 READY는 승인이 진행 중일 수 있어 새 준비가 대체하지 않는다. */

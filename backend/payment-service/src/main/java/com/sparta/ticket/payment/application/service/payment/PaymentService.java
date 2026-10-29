@@ -1,6 +1,7 @@
 package com.sparta.ticket.payment.application.service.payment;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutCommand;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutResult;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
@@ -14,6 +15,7 @@ import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
 import com.sparta.ticket.payment.domain.model.payment.PaymentStatus;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
+import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,6 +31,14 @@ public class PaymentService {
 
     /** 카카오 결제창에 보이는 상품명. 준비 요청에 공연 이름이 없어 고정값을 쓴다. */
     static final String ITEM_NAME = "공연 티켓";
+
+    /** PG 준비 점유 시간. PG 읽기 타임아웃(10초)보다 길어 정상 호출 중에는 다른 요청이 넘겨받지 않는다. */
+    static final Duration READY_LEASE = Duration.ofSeconds(15);
+
+    /** 다른 요청의 준비 결과를 기다리는 최대 시간. 점유가 끝난 뒤 한 번 넘겨받을 여유를 둔다. */
+    static final Duration READY_WAIT = Duration.ofSeconds(20);
+
+    private static final Duration READY_POLL = Duration.ofMillis(100);
 
     private final PaymentTransactions transactions;
     private final PgClientRegistry pgClients;
@@ -107,13 +117,40 @@ public class PaymentService {
         return CheckoutResult.from(readyAtPg(payment));
     }
 
+    /**
+     * 점유한 요청만 PG 준비를 부르고, 나머지는 그 결과가 저장될 때까지 기다렸다가 같은 결제로 응답한다(#163).
+     * 점유한 요청이 죽으면 점유가 끝난 뒤 기다리던 요청 하나가 이어서 부른다. 끝까지 결과가 없으면 503으로 재요청을 받는다.
+     */
     private Payment readyAtPg(Payment payment) {
-        if (!payment.needsPgReady()) {
-            return payment;
+        long deadline = System.nanoTime() + READY_WAIT.toNanos();
+        Payment current = payment;
+        while (current.needsPgReady()) {
+            if (transactions.claimPgReady(current.getId(), READY_LEASE)) {
+                PgReadyResult result;
+                try {
+                    result = pgClients
+                            .get(current.getPgProvider())
+                            .ready(new PgReadyRequest(
+                                    current.getOrderId(), current.getUserId(), current.getAmount(), ITEM_NAME));
+                } catch (RuntimeException e) {
+                    transactions.releasePgReady(current.getId());
+                    throw e;
+                }
+                return transactions.applyPgReady(current.getId(), result);
+            }
+            if (System.nanoTime() > deadline) {
+                throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE);
+            }
+            try {
+                Thread.sleep(READY_POLL.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE);
+            }
+            current = transactions
+                    .findByOrderId(current.getOrderId())
+                    .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
         }
-        PgReadyResult result = pgClients
-                .get(payment.getPgProvider())
-                .ready(new PgReadyRequest(payment.getOrderId(), payment.getUserId(), payment.getAmount(), ITEM_NAME));
-        return transactions.applyPgReady(payment.getId(), result);
+        return current;
     }
 }
