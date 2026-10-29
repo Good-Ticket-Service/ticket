@@ -1,0 +1,46 @@
+rule_files: []
+evaluation_interval: 15s
+tests:
+  - name: payment-snapshot-dedup-freshness-and-role
+    interval: 15s
+    input_series:
+      - series: 'payment_db_refunds_pending{application="payment-service",instance="a",provider="TOSS",status="REQUESTED",mode="SLOW",reason="AUTO_VOID"}'
+        values: '5000+0x10'
+      - series: 'payment_db_refunds_pending{application="payment-service",instance="b",provider="TOSS",status="REQUESTED",mode="SLOW",reason="AUTO_VOID"}'
+        values: '5000+0x10'
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '30+0x10'
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="b"}'
+        values: '45+0x10'
+      - series: 'payment_job_enabled{application="payment-service",instance="a",task="refund"}'
+        values: '1+0x10'
+      - series: 'payment_job_enabled{application="payment-service",instance="b",task="refund"}'
+        values: '0+0x10'
+      - series: 'payment_job_last_success_timestamp_seconds{application="payment-service",instance="a",task="refund"}'
+        values: '20+0x10'
+      - series: 'payment_job_last_success_timestamp_seconds{application="payment-service",instance="b",task="refund"}'
+        values: '0+0x10'
+    promql_expr_test:
+      - expr: 'sum(payment_db_refunds_pending{application="payment-service"})'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 10000
+      - expr: 'sum(max by(provider,status,mode,reason)(payment_db_refunds_pending{application="payment-service"} and on(instance) (time()-payment_observation_last_success_timestamp_seconds{application="payment-service"}<45)))'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 5000
+      - expr: 'sum(max by(provider,status,mode,reason)(payment_db_refunds_pending{application="payment-service"} and on(instance) (time()-payment_observation_last_success_timestamp_seconds{application="payment-service"}<45)))'
+        eval_time: 1m30s
+        exp_samples: []
+      - expr: 'sum(up{application="payment-service"}) or vector(0)'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: '(time()-payment_job_last_success_timestamp_seconds{application="payment-service"}) and on(instance,task) (payment_job_enabled{application="payment-service"} == 1)'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{application="payment-service",instance="a",task="refund"}'
+            value: 40
