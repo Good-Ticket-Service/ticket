@@ -10,7 +10,7 @@ import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.exception.ConstraintViolationException;
+import org.postgresql.util.PSQLException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -84,11 +84,17 @@ public class SeatHoldService {
                 new SimpleErrorCode(HttpStatus.BAD_REQUEST, reasonCode, "지금은 이 회차의 좌석을 선점할 수 없습니다."));
     }
 
-    /** 원인 중 Hibernate 제약 위반 예외를 찾아 제약 이름을 비교한다. */
+    /**
+     * 원인 중 PostgreSQL 드라이버 예외를 찾아, 서버가 오류 정보에 따로 담아 보낸 제약 이름을 비교한다.
+     * Note: Hibernate의 ConstraintViolationException.getConstraintName()은 이 이름을 영문 오류 메시지 문장
+     * ("violates unique constraint \"...\"")에서 잘라 낸다(Hibernate 6.6 PostgreSQLDialect). DB 메시지 언어(lc_messages)가
+     * 영어가 아니면 null이 되어 409가 아니라 500이 나간다. 서버 오류 정보의 제약 이름은 언어와 관계없다.
+     */
     private static boolean violates(DataIntegrityViolationException e, String constraintName) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ConstraintViolationException violation) {
-                return constraintName.equalsIgnoreCase(violation.getConstraintName());
+            if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null) {
+                return constraintName.equalsIgnoreCase(
+                        psql.getServerErrorMessage().getConstraint());
             }
         }
         return false;
