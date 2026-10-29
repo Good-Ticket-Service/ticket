@@ -13,30 +13,22 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Status;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
-import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
-import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
-import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.support.TransactionTemplate;
 
-class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
+class BookingSchedulerIntegrationTest extends BookingIntegrationTest {
 
     private static final Duration BUDGET = Duration.ofSeconds(5);
     private static final Duration THRESHOLD = Duration.ofMinutes(1);
@@ -54,34 +46,7 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private PaymentReconcileService reconcileService;
 
-    @Autowired
-    private FakePaymentPort payment;
-
-    @Autowired
-    private FakeSeatPort seats;
-
-    @Autowired
-    private MutableClock clock;
-
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM p_tickets");
-        jdbcTemplate.update("DELETE FROM p_reservations");
-        clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
-        payment.reset();
-        seats.reset();
-    }
 
     private Long hold(Duration holdFor, Long seatId) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
@@ -102,15 +67,6 @@ class BookingSchedulerIntegrationTest extends ReservationIntegrationTest {
         payment.confirmedOrderIds.clear();
         payment.calledInTransaction.clear();
         return orderId;
-    }
-
-    private String statusOf(Long reservationId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
-    }
-
-    private double count(String meter) {
-        return meterRegistry.counter(meter).count();
     }
 
     private double gauge(String meter) {

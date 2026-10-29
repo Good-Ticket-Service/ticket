@@ -4,36 +4,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
-import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestIds;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.util.List;
 import java.util.function.IntSupplier;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.IllegalTransactionStateException;
-import org.springframework.transaction.support.TransactionTemplate;
 
-class ReservationTransitionExecutorIntegrationTest extends ReservationIntegrationTest {
+class ReservationTransitionExecutorIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private ReservationTransitionExecutor executor;
 
-    @Autowired
-    private FakeSeatPort seats;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
     private final Long reservationId = TestIds.next();
     private final List<Long> seatIds = List.of(TestIds.next());
-
-    @BeforeEach
-    void setUp() {
-        seats.reset();
-    }
 
     private boolean confirmAndSell(int updatedRows) {
         return transactionTemplate.execute(

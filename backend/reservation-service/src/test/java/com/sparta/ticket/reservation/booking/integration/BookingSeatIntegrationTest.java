@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.booking.integration;
 
+import static com.sparta.ticket.reservation.booking.support.BookingTestConfig.START_TIME;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -15,16 +16,11 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.infrastructure.seat.SeatFacadeAdapter;
-import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
-import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
-import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -32,13 +28,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /** booking의 확정·만료가 SeatFacade를 거쳐 실제 좌석 행까지 바꾸는지 본다. 좌석은 seat의 선점이 남기는 모양으로 직접 넣는다. */
-class BookingSeatIntegrationTest extends ReservationIntegrationTest {
-
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
+class BookingSeatIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingFacade bookingFacade;
@@ -55,36 +47,13 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private SeatFacadeAdapter seatFacadeAdapter;
 
-    @Autowired
-    private FakeSeatPort seats;
-
-    @Autowired
-    private FakePaymentPort payment;
-
-    @Autowired
-    private MutableClock clock;
-
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
     private final Long scheduleId = TestIds.next();
     private long nextVenueSeatId = 1;
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM p_tickets");
-        jdbcTemplate.update("DELETE FROM p_reservations");
         jdbcTemplate.update("DELETE FROM p_schedule_seats");
-        clock.set(NOW);
-        payment.reset();
-        seats.reset();
         seats.useReal(seatFacadeAdapter);
     }
 
@@ -95,13 +64,14 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
     }
 
     private Long seat() {
-        return jdbcTemplate.queryForObject("""
+        return jdbcTemplate.queryForObject(
+                """
                 INSERT INTO p_schedule_seats (schedule_id, venue_seat_id, venue_seat_grade_id, grade_name, base_price,
                     section, row_label, seat_number, is_sellable, config_version,
                     created_at, created_by, updated_at, updated_by)
                 VALUES (?, ?, 1, 'VIP', 10000, 'A', '1', ?, TRUE, 1, ?, 'test', ?, 'test')
                 RETURNING id
-                """, Long.class, scheduleId, nextVenueSeatId, nextVenueSeatId++, NOW, NOW);
+                """, Long.class, scheduleId, nextVenueSeatId, nextVenueSeatId++, START_TIME, START_TIME);
     }
 
     private void holdSeats(Long reservationId, List<Long> seatIds) {
@@ -109,7 +79,7 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
             jdbcTemplate.update(
                     "UPDATE p_schedule_seats SET status = 'HOLD', reservation_id = ?, hold_expires_at = ? WHERE id = ?",
                     reservationId,
-                    NOW.plusMinutes(10),
+                    START_TIME.plusMinutes(10),
                     seatId);
         }
     }
@@ -120,7 +90,7 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
                 user.userId(),
                 TestHoldTargets.of(scheduleId),
                 TestSeats.priced(seatIds.toArray(Long[]::new)),
-                NOW.plusMinutes(10)));
+                START_TIME.plusMinutes(10)));
         holdSeats(reservationId, seatIds);
         return reservationId;
     }
@@ -142,10 +112,6 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
     private boolean lock(List<Long> seatIds, Long reservationId) {
         return Boolean.TRUE.equals(
                 transactionTemplate.execute(status -> seatFacadeAdapter.lockSeats(seatIds, reservationId)));
-    }
-
-    private double lateSuccessCount() {
-        return meterRegistry.counter("reservation.payment.late_success").count();
     }
 
     @Test
@@ -173,9 +139,7 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
 
         assertThat(holdExpiryService.expireDue(10, Duration.ofSeconds(5))).isEqualTo(1);
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId))
-                .isEqualTo("EXPIRED");
+        assertThat(statusOf(reservationId)).isEqualTo("EXPIRED");
         Map<String, Object> row = seatRow(seatId);
         assertThat(row.get("status")).isEqualTo("AVAILABLE");
         assertThat(row.get("reservation_id")).isNull();
@@ -188,14 +152,12 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
         Long deleted = seat();
         Long reservationId = holdWithSeats(List.of(kept, deleted));
         jdbcTemplate.update(
-                "UPDATE p_schedule_seats SET deleted_at = ?, deleted_by = 'test' WHERE id = ?", NOW, deleted);
+                "UPDATE p_schedule_seats SET deleted_at = ?, deleted_by = 'test' WHERE id = ?", START_TIME, deleted);
         clock.advance(Duration.ofMinutes(10));
 
         assertThat(holdExpiryService.expireDue(10, Duration.ofSeconds(5))).isEqualTo(1);
 
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId))
-                .isEqualTo("EXPIRED");
+        assertThat(statusOf(reservationId)).isEqualTo("EXPIRED");
         assertThat(seatRow(kept).get("status")).isEqualTo("AVAILABLE");
     }
 
@@ -243,7 +205,7 @@ class BookingSeatIntegrationTest extends ReservationIntegrationTest {
         payment.lookupReturns(orderId, PaymentLookup.of(PaymentLookup.Status.SUCCEEDED));
 
         for (int run = 1; run <= 3; run++) {
-            clock.set(NOW.plusMinutes(run * 2L));
+            clock.set(START_TIME.plusMinutes(run * 2L));
             paymentReconcileService.reconcile(Duration.ofMinutes(1), Duration.ofMinutes(30), 10, Duration.ofSeconds(5));
         }
 

@@ -17,31 +17,23 @@ import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestT
 import com.sparta.ticket.reservation.booking.application.payment.PaymentResultApplier;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
-import com.sparta.ticket.reservation.booking.support.FakePaymentPort;
-import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
-import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.transaction.support.TransactionTemplate;
 
-class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
+class ReservationPaymentIntegrationTest extends BookingIntegrationTest {
 
     private static final String USERNAME = "hong01";
 
@@ -63,37 +55,10 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private HoldExpiryService holdExpiryService;
 
-    @Autowired
-    private FakePaymentPort payment;
-
-    @Autowired
-    private FakeSeatPort seats;
-
-    @Autowired
-    private MutableClock clock;
-
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     private final Long userId = TestIds.next();
     private final Long scheduleId = TestIds.next();
     private final Long seatA = 10L;
     private final Long seatB = 11L;
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM p_tickets");
-        jdbcTemplate.update("DELETE FROM p_reservations");
-        clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
-        payment.reset();
-        seats.reset();
-    }
 
     private Long hold() {
         return transactionTemplate.execute(status -> bookingFacade.hold(
@@ -135,10 +100,6 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 "SELECT status, order_id, payment_amount, pg_auth_token, updated_by FROM p_reservations"
                         + " WHERE reservation_id = ?",
                 reservationId);
-    }
-
-    private double lateSuccessCount() {
-        return meterRegistry.counter("reservation.payment.late_success").count();
     }
 
     @Test
