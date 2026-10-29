@@ -12,6 +12,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
 import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
+import com.sparta.ticket.reservation.booking.application.port.RefundReason;
 import feign.RetryableException;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -225,9 +226,22 @@ class PaymentFeignAdapterTest {
         for (String refundStatus : List.of("WAITING", "REQUESTED", "DONE", "FAILED", "SKIPPED", "NOT_REQUIRED")) {
             STUB.respond(path, 200, """
                     {"refundStatus": "%s", "refundAmount": 20000}""".formatted(refundStatus));
-            assertThat(adapter.refund("order-1")).as(refundStatus).isEqualTo(RefundOutcome.accepted());
+            assertThat(adapter.refund("order-1", RefundReason.USER_CANCEL))
+                    .as(refundStatus)
+                    .isEqualTo(RefundOutcome.accepted());
         }
         assertThat(JSON.readTree(STUB.lastBody(path)).get("reason").asText()).isEqualTo("USER_CANCEL");
+    }
+
+    @Test
+    @DisplayName("확정하지 못한 결제의 환불은 확정 실패 사유를 보낸다")
+    void refundSendsConfirmFailedReason() throws Exception {
+        String path = "POST /internal/payments/order-1/refund";
+        STUB.respond(path, 200, """
+                {"refundStatus": "REQUESTED", "refundAmount": 20000}""");
+
+        assertThat(adapter.refund("order-1", RefundReason.CONFIRM_FAILED)).isEqualTo(RefundOutcome.accepted());
+        assertThat(JSON.readTree(STUB.lastBody(path)).get("reason").asText()).isEqualTo("CONFIRM_FAILED");
     }
 
     @Test
@@ -236,17 +250,18 @@ class PaymentFeignAdapterTest {
         String path = "POST /internal/payments/order-1/refund";
         STUB.respond(path, 200, """
                 {"refundStatus": "PENDING", "refundAmount": 20000}""");
-        assertThat(adapter.refund("order-1")).isEqualTo(RefundOutcome.unknown());
+        assertThat(adapter.refund("order-1", RefundReason.USER_CANCEL)).isEqualTo(RefundOutcome.unknown());
 
         STUB.respond(path, 200, "{}");
-        assertThat(adapter.refund("order-1")).isEqualTo(RefundOutcome.unknown());
+        assertThat(adapter.refund("order-1", RefundReason.USER_CANCEL)).isEqualTo(RefundOutcome.unknown());
 
         STUB.respond(path, 200, "not json");
-        assertThatThrownBy(() -> adapter.refund("order-1")).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> adapter.refund("order-1", RefundReason.USER_CANCEL))
+                .isInstanceOf(RuntimeException.class);
 
         STUB.respond(path, 404, """
                 {"status": 404, "code": "PAYMENT_NOT_FOUND", "message": "결제를 찾을 수 없습니다."}""");
-        assertThat(adapter.refund("order-1")).isEqualTo(RefundOutcome.unknownOrder());
+        assertThat(adapter.refund("order-1", RefundReason.USER_CANCEL)).isEqualTo(RefundOutcome.unknownOrder());
     }
 
     @Test
@@ -255,7 +270,8 @@ class PaymentFeignAdapterTest {
         String path = "POST /internal/payments/order-1/refund";
         STUB.delay(path, 1_000);
 
-        assertThatThrownBy(() -> adapter.refund("order-1")).isInstanceOf(RetryableException.class);
+        assertThatThrownBy(() -> adapter.refund("order-1", RefundReason.USER_CANCEL))
+                .isInstanceOf(RetryableException.class);
         assertThat(STUB.count(path)).isEqualTo(1);
     }
 

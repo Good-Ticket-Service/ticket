@@ -6,6 +6,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
 import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
+import com.sparta.ticket.reservation.booking.application.port.RefundReason;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ public class FakePaymentPort implements PaymentPort {
     public final List<Boolean> calledInTransaction = new CopyOnWriteArrayList<>();
     public final List<String> lookedUpOrderIds = new CopyOnWriteArrayList<>();
     public final List<String> refundedOrderIds = new CopyOnWriteArrayList<>();
+    public final List<RefundReason> refundReasons = new CopyOnWriteArrayList<>();
     public final List<Integer> activeConnectionsAtCall = new CopyOnWriteArrayList<>();
     private volatile IntSupplier activeConnections = () -> 0;
     private final Map<String, PaymentLookup> lookups = new ConcurrentHashMap<>();
@@ -44,6 +46,7 @@ public class FakePaymentPort implements PaymentPort {
         calledInTransaction.clear();
         lookedUpOrderIds.clear();
         refundedOrderIds.clear();
+        refundReasons.clear();
         activeConnectionsAtCall.clear();
         lookups.clear();
         discount = 0;
@@ -131,9 +134,10 @@ public class FakePaymentPort implements PaymentPort {
     }
 
     @Override
-    public RefundOutcome refund(String orderId) {
+    public RefundOutcome refund(String orderId, RefundReason reason) {
         record();
         refundedOrderIds.add(orderId);
+        refundReasons.add(reason);
         return refundResult.get();
     }
 
