@@ -5,29 +5,37 @@ import com.sparta.ticket.common.auth.RequireRole;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.common.response.PageResponse;
 import com.sparta.ticket.reservation.coupon.application.CouponIssueService;
+import com.sparta.ticket.reservation.coupon.application.CouponQueryService;
 import com.sparta.ticket.reservation.coupon.application.CouponService;
+import com.sparta.ticket.reservation.coupon.application.dto.CouponDetailResult;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponResult;
 import com.sparta.ticket.reservation.coupon.application.dto.IssuedCouponResult;
+import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.presentation.dto.CreateCouponRequest;
 import com.sparta.ticket.reservation.coupon.presentation.dto.UpdateCouponRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 쿠폰 API. 관리자의 생성·수정·발급 중단·삭제와 회원의 발급을 받는다.
- * 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 관리자 기능은 CouponService, 발급은 CouponIssueService에 넘긴다.
+ * 쿠폰 API. 관리자의 생성·수정·발급 중단·삭제, 회원의 발급, 로그인 사용자의 조회를 받는다.
+ * 요청 값 검증(@Valid)과 역할 확인(@RequireRole)만 하고, 처리는 관리자 기능은 CouponService, 발급은 CouponIssueService,
+ * 조회는 CouponQueryService에 넘긴다.
  * Gateway가 /api/coupons/**를 reservation-service로 보낸다. 명세는 docs/api.md 쿠폰 절이다.
  */
 @Tag(name = "쿠폰")
@@ -38,6 +46,7 @@ public class CouponController {
 
     private final CouponService couponService;
     private final CouponIssueService couponIssueService;
+    private final CouponQueryService couponQueryService;
 
     /** 쿠폰 생성. 201과 만든 쿠폰을 돌려준다. */
     @Operation(summary = "쿠폰 생성")
@@ -85,5 +94,21 @@ public class CouponController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<IssuedCouponResult> issue(@PathVariable Long couponId, @CurrentUser UserContext user) {
         return ApiResponse.created("쿠폰이 발급되었습니다.", couponIssueService.issue(couponId, user.userId(), user.username()));
+    }
+
+    /**
+     * 발급 상태별 쿠폰 목록. 200과 페이지(PageResponse)를 돌려준다.
+     * 역할 제한이 없어 로그인한 모든 사용자가 볼 수 있고, 사용자 헤더가 없으면 @CurrentUser가 401을 낸다.
+     * page·size·sort 보정은 공통 SearchPageableArgumentResolver가 하고, 정렬 허용 필드는 서비스가 검사한다.
+     */
+    @Operation(summary = "쿠폰 목록", description = "issueStatus를 보내지 않으면 지금 받을 수 있는(ISSUING) 쿠폰만 보여 준다.")
+    @GetMapping
+    public ApiResponse<PageResponse<CouponDetailResult>> search(
+            @RequestParam(defaultValue = "ISSUING") CouponIssueStatus issueStatus,
+            Pageable pageable,
+            @CurrentUser UserContext user) {
+        // issueStatus가 정의에 없는 값이면 Spring이 타입 변환에 실패해 400 VALIDATION_ERROR가 된다
+        return ApiResponse.ok(
+                PageResponse.from(couponQueryService.searchCoupons(issueStatus, user.userId(), pageable)));
     }
 }
