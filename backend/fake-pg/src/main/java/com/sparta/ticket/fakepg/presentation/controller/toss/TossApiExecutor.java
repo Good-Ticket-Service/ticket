@@ -10,6 +10,7 @@ import com.sparta.ticket.fakepg.domain.exception.PgErrorCode;
 import com.sparta.ticket.fakepg.domain.exception.PgException;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
 import com.sparta.ticket.fakepg.domain.model.pg.PgProvider;
+import com.sparta.ticket.fakepg.presentation.controller.ResponseTamper;
 import com.sparta.ticket.fakepg.presentation.dto.toss.TossErrorResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Component;
  *   <li>지연 → 확률에 따라 처리하지 않은 500</li>
  *   <li>업무 처리. 성공과 업무 거절은 멱등 키에 저장한다</li>
  *   <li>확률에 따라 응답 유실: 처리·저장은 끝났는데 응답을 붙잡았다가 500</li>
+ *   <li>확률에 따라 성공 응답 변조: 처리·저장은 정상이고 내보내는 본문만 망가뜨린다(저장한 응답 재현에도 적용)</li>
  * </ol>
  *
  * Note: 응답 유실은 "PG는 처리했는데 우리 서버는 결과를 모르는" 상황이다. 응답을 클라이언트 읽기 타임아웃보다 오래 붙잡아,
@@ -45,6 +47,7 @@ public class TossApiExecutor {
     private final FaultInjector faults;
     private final IdempotencyService idempotency;
     private final ObjectMapper objectMapper;
+    private final ResponseTamper tamper;
 
     public ResponseEntity<Object> execute(
             PgOperation operation, String idempotencyKey, Object requestForFingerprint, Supplier<Object> action) {
@@ -54,9 +57,11 @@ public class TossApiExecutor {
             Optional<StoredResponse> stored = idempotency.begin(
                     PROVIDER, idempotencyKey, operation, fingerprint(operation, requestForFingerprint));
             if (stored.isPresent()) {
-                return ResponseEntity.status(stored.get().statusCode())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(stored.get().body());
+                return tampered(
+                        operation,
+                        ResponseEntity.status(stored.get().statusCode())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .body(stored.get().body()));
             }
         }
 
@@ -85,7 +90,18 @@ public class TossApiExecutor {
         if (faults.shouldLoseResponse(PROVIDER, operation)) {
             return hold(operation);
         }
-        return response;
+        return tampered(operation, response);
+    }
+
+    private ResponseEntity<Object> tampered(PgOperation operation, ResponseEntity<Object> response) {
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        return faults.tamper(PROVIDER, operation)
+                .<ResponseEntity<Object>>map(mode -> ResponseEntity.status(response.getStatusCode())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(tamper.apply(PROVIDER, mode, response.getBody())))
+                .orElse(response);
     }
 
     private ResponseEntity<Object> hold(PgOperation operation) {

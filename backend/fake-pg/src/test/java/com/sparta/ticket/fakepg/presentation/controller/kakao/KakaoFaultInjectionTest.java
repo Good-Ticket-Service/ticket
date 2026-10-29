@@ -162,6 +162,31 @@ class KakaoFaultInjectionTest extends KakaoApiTestBase {
     }
 
     @Test
+    @DisplayName("응답 변조(금액): 승인 응답의 금액이 1,000원 많다. 실제 승인 금액은 그대로다")
+    void tamperWrongAmountOnApprove() throws Exception {
+        ready(10_000);
+        String pgToken = userApprove();
+        fault("CONFIRM", "{\"tamperRate\":1,\"tamperMode\":\"WRONG_AMOUNT\"}");
+
+        approve(pgToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount.total").value(11_000));
+        order(tid).andExpect(jsonPath("$.amount.total").value(10_000));
+    }
+
+    @Test
+    @DisplayName("응답 변조(다른 거래): 조회 응답의 tid·주문번호가 다른 값이다")
+    void tamperOtherTransactionOnOrder() throws Exception {
+        ready(10_000);
+        fault("INQUIRE", "{\"tamperRate\":1,\"tamperMode\":\"OTHER_TRANSACTION\"}");
+
+        order(tid)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partner_order_id").value("other-" + orderId))
+                .andExpect(jsonPath("$.tid").value(org.hamcrest.Matchers.not(tid)));
+    }
+
+    @Test
     @DisplayName("외부 부분 취소: PART_CANCEL_PAYMENT, 취소액과 취소 가능 금액이 나뉜다")
     void externalPartialCancel() throws Exception {
         ready(10_000);

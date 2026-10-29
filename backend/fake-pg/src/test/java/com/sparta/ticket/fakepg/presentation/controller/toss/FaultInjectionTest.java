@@ -241,6 +241,63 @@ class FaultInjectionTest extends FakePgIntegrationTest {
     }
 
     @Test
+    @DisplayName("응답 변조(필드 누락): 승인은 기록되고 응답에서 거래 키·금액이 빠진다")
+    void tamperMissingFields() throws Exception {
+        prepare(10_000);
+        fault("CONFIRM", "{\"tamperRate\":1,\"tamperMode\":\"MISSING_FIELDS\"}");
+
+        confirm(null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DONE"))
+                .andExpect(jsonPath("$.paymentKey").doesNotExist())
+                .andExpect(jsonPath("$.totalAmount").doesNotExist());
+
+        clearFaults();
+        assertThat(pgStatus()).isEqualTo("DONE");
+    }
+
+    @Test
+    @DisplayName("응답 변조(다른 거래): 조회 응답의 거래 키·주문번호가 다른 값이다. 저장한 응답 재현에도 적용되고, 풀면 원래 응답이 나온다")
+    void tamperOtherTransactionAppliesToReplay() throws Exception {
+        prepare(10_000);
+        fault("CONFIRM", "{\"tamperRate\":1,\"tamperMode\":\"OTHER_TRANSACTION\"}");
+
+        confirm("key-tamper")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderId").value("other-" + orderId));
+        confirm("key-tamper").andExpect(jsonPath("$.orderId").value("other-" + orderId));
+
+        clearFaults();
+        confirm("key-tamper")
+                .andExpect(jsonPath("$.orderId").value(orderId))
+                .andExpect(jsonPath("$.paymentKey").value(paymentKey));
+    }
+
+    @Test
+    @DisplayName("응답 변조(금액): 취소 응답의 취소액이 1,000원 많다. 실제 취소는 전액 한 번이다")
+    void tamperWrongAmountOnCancel() throws Exception {
+        prepare(10_000);
+        confirm(null).andExpect(status().isOk());
+        fault("CANCEL", "{\"tamperRate\":1,\"tamperMode\":\"WRONG_AMOUNT\"}");
+
+        cancel("key-cancel")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"))
+                .andExpect(jsonPath("$.cancels[0].cancelAmount").value(11_000))
+                .andExpect(jsonPath("$.balanceAmount").value(0));
+        inquire().andExpect(jsonPath("$.cancels[0].cancelAmount").value(10_000));
+    }
+
+    @Test
+    @DisplayName("tamperRate만 있고 tamperMode가 없으면 400")
+    void tamperRateRequiresMode() throws Exception {
+        mockMvc.perform(put("/fake/admin/faults/TOSS/CONFIRM")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tamperRate\":1}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("외부 부분 취소: PARTIAL_CANCELED, 남은 금액이 줄고 우리 API로는 더 취소할 수 없다")
     void externalPartialCancel() throws Exception {
         prepare(10_000);
