@@ -90,6 +90,23 @@ public interface ReservationJpaRepository
     }
 
     @Override
+    default int startCancel(Long id, Long userId, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.START_CANCEL;
+        return updateStartCancel(id, t.from(), t.to(), userId, stamp.at(), stamp.by());
+    }
+
+    @Override
+    default int cancel(Long id, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.CANCEL;
+        return updateStatus(id, t.from(), t.to(), stamp.at(), stamp.by());
+    }
+
+    @Override
+    default List<Long> findStaleCancelIds(LocalDateTime updatedBefore, int limit) {
+        return selectStaleCancelIds(updatedBefore, PageRequest.of(0, limit));
+    }
+
+    @Override
     default List<Long> findExpiredHoldIds(LocalDateTime now, int limit) {
         return selectExpiredHoldIds(now, PageRequest.of(0, limit));
     }
@@ -228,6 +245,55 @@ public interface ReservationJpaRepository
             @Param("userId") Long userId,
             @Param("at") LocalDateTime at,
             @Param("by") String by);
+
+    /** 회차 시작 시각과 같으면 취소할 수 없다. 기한은 이 전이에서만 본다. 취소 중이 된 예약은 회차가 시작돼도 끝까지 처리한다. */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from AND r.userId = :userId AND r.scheduleStartAt > :at
+            """)
+    int updateStartCancel(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
+            @Param("userId") Long userId,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from
+            """)
+    int updateStatus(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r SET r.cancelCheckedAt = :checkedAt
+             WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.CANCELING
+               AND COALESCE(r.cancelCheckedAt, r.updatedAt) <= :checkedBefore
+            """)
+    int markCancelChecked(
+            @Param("id") Long id,
+            @Param("checkedAt") LocalDateTime checkedAt,
+            @Param("checkedBefore") LocalDateTime checkedBefore);
+
+    /** 결과 확인과 같은 이유로, 환불을 다시 요청해도 결과가 안 바뀌는 예약(payment가 모르는 주문)이 앞자리를 막지 않게 한다. */
+    @Query("""
+            SELECT r.id FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.CANCELING
+               AND r.updatedAt <= :updatedBefore
+             ORDER BY COALESCE(r.cancelCheckedAt, r.updatedAt), r.id
+            """)
+    List<Long> selectStaleCancelIds(@Param("updatedBefore") LocalDateTime updatedBefore, Pageable pageable);
 
     @Override
     @Modifying(flushAutomatically = true)

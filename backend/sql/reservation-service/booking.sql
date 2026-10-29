@@ -33,6 +33,8 @@ CREATE TABLE p_reservations
     payment_checked_at TIMESTAMP,
     -- 결제는 성공했는데 좌석을 확정하지 못해 환불해야 한다고 처음 기록한 시각. 한 번만 쓰고, 기록된 예약은 결과 확인이 다시 고르지 않는다
     refund_required_at TIMESTAMP,
+    -- 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각. 결과가 안 바뀌는 예약이 앞자리를 계속 막지 않게 한다
+    cancel_checked_at TIMESTAMP,
     created_at      TIMESTAMP    NOT NULL,
     created_by      VARCHAR(100) NOT NULL,
     updated_at      TIMESTAMP    NOT NULL,
@@ -49,6 +51,8 @@ CREATE TABLE p_reservations
 CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) WHERE status = 'HOLD';
 -- 결과 확인 스케줄러가 결제 중으로 오래 머문 예약을 고른다
 CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';
+-- 취소 확인 스케줄러가 취소 중으로 오래 머문 예약을 고른다
+CREATE INDEX ix_p_reservations_cancel_stale ON p_reservations (updated_at) WHERE status = 'CANCELING';
 -- 한 회원은 한 회차에 진행 중인 예약을 하나만 가진다. 1인 매수 제한의 마지막 방어선이다.
 -- seat가 이 이름의 위반을 보고 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다. 취소 중에도 좌석은 판매된 그대로라 진행 중으로 센다
 CREATE UNIQUE INDEX uk_p_reservations_active_user_schedule

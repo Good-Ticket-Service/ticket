@@ -14,4 +14,10 @@ public interface PaymentPort {
 
     /** 승인 결과를 조회한다. 결과 확인 스케줄러가 쓴다. */
     PaymentLookup find(String orderId);
+
+    /**
+     * 사용자 취소로 전액 환불을 요청한다. 같은 orderId로 다시 보내도 payment는 처음 사유를 지키고 지금 상태를 돌려준다.
+     * 받았는지 모르면 예외를 던지거나 결과 모름을 돌려준다.
+     */
+    RefundOutcome refund(String orderId);
 }

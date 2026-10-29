@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 좌석·쿠폰과 예약을 함께 바꾸는 전이를 한 순서로 실행한다. 좌석을 먼저 잠그고(seat의 선점과 같은 순서),
  * 조건부 UPDATE가 1행일 때만 좌석과 쿠폰에 반영한다. 부르는 쪽의 트랜잭션 안에서만 쓴다.
- * 좌석을 바꾸지 않는 전이(결제 시작, 선점으로 되돌리기)는 이 클래스를 거치지 않고 저장소를 바로 부른다.
+ * 좌석을 바꾸지 않는 전이(결제 시작, 선점으로 되돌리기, 취소 시작)는 이 클래스를 거치지 않고 저장소를 바로 부른다.
  */
 @Component
 @RequiredArgsConstructor
@@ -47,6 +47,23 @@ public class ReservationTransitionExecutor {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean expireAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
+        return closeAndRelease(reservationId, seatIds, conditionalUpdate);
+    }
+
+    /**
+     * 취소를 확정하고 판매된 좌석과 사용한 쿠폰을 돌려준다. 조건부 UPDATE가 0행이면 아무것도 돌려주지 않고 false다.
+     * 쿠폰은 환불 완료를 기다리지 않고 이때 돌려준다(#125).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean cancelAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
+        return closeAndRelease(reservationId, seatIds, conditionalUpdate);
+    }
+
+    /**
+     * Note: 잠금 결과(이 예약의 HOLD인지)를 보지 않는다. 만료는 HOLD, 취소는 SOLD 좌석을 돌려주므로 상태가 다르다.
+     * 이 예약이 가진 좌석만 돌려주는 조건은 반환 쪽(SeatPort.release)에 있다.
+     */
+    private boolean closeAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
         seatPort.lockSeats(seatIds, reservationId);
         if (conditionalUpdate.getAsInt() == 0) {
             return false;
