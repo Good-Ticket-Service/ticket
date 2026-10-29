@@ -293,6 +293,22 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("예약은 끝났는데 좌석만 그 예약의 HOLD로 남은 상태면 자동으로 풀지 않고 409를 유지한다(경고 로그만 남긴다)")
+    void orphanSeatIsNotReleasedAutomatically() throws Exception {
+        Long seatId = seat(SCHEDULE, true);
+        Long orphan = reservationIdOf(hold(OTHER_USER, SCHEDULE, seatId).andExpect(status().isCreated()));
+        // 정상 경로로는 생기지 않는 상태를 직접 만든다: 예약만 EXPIRED, 좌석은 그 예약의 HOLD 그대로
+        jdbcTemplate.update("UPDATE p_reservations SET status = 'EXPIRED' WHERE reservation_id = ?", orphan);
+        clock.advance(Duration.ofMinutes(11));
+
+        hold(USER, SCHEDULE, seatId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SEAT_ALREADY_TAKEN"));
+        assertThat(seatRow(seatId)).containsEntry("status", "HOLD");
+        assertThat(reservationOnSeat(seatId)).isEqualTo(orphan);
+    }
+
+    @Test
     @DisplayName("이 회원의 만료된 선점이 다른 좌석에 있으면 그 예약을 만료시키고 좌석을 돌려준 뒤 새로 선점한다")
     void ownExpiredHoldIsCleanedUp() throws Exception {
         Long oldSeat = seat(SCHEDULE, true);
