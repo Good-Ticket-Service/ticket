@@ -14,6 +14,8 @@ import com.sparta.ticket.reservation.coupon.application.CouponIssueService;
 import com.sparta.ticket.reservation.coupon.application.CouponService;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
+import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -49,6 +51,9 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private CouponService couponService;
+
+    @Autowired
+    private UserCouponRepository userCouponRepository;
 
     /** 서비스와 같이 초 단위로 자른 현재 시각. */
     private LocalDateTime now() {
@@ -195,6 +200,84 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
             Coupon coupon = issuingCoupon("헤더 없는 요청");
 
             mockMvc.perform(get("/api/coupons/{couponId}", coupon.getId()))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/coupons/me")
+    class FindMyCoupons {
+
+        @Test
+        @DisplayName("200과 헤더 사용자의 쿠폰만 돌려주고, 만료 시각이 지난 AVAILABLE은 EXPIRED로 보인다")
+        void mine() throws Exception {
+            long userId = 962_001L;
+            Coupon active = issuingCoupon("쓸 수 있는 쿠폰");
+            couponIssueService.issue(active.getId(), userId, "user@ticket.com");
+            // 8일 전에 받은 쿠폰은 유효 일수(7일)가 지나 만료 시각이 이미 지났다
+            Coupon old = issuingCoupon("지난 쿠폰");
+            userCouponRepository.saveIssued(UserCoupon.issue(userId, old, now().minusDays(8)));
+            // 다른 회원의 쿠폰은 나오지 않아야 한다
+            couponIssueService.issue(active.getId(), 962_002L, "other@ticket.com");
+
+            perform(get("/api/coupons/me").param("sort", "expiresAt,DESC"), userId, Role.USER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalElements").value(2))
+                    .andExpect(jsonPath("$.data.sort").value("expiresAt,DESC"))
+                    // 만료 시각이 늦은 쿠폰이 먼저 온다
+                    .andExpect(jsonPath("$.data.content[0].couponId").value(active.getId()))
+                    .andExpect(jsonPath("$.data.content[0].userCouponId").isNumber())
+                    .andExpect(jsonPath("$.data.content[0].name").value("쓸 수 있는 쿠폰"))
+                    .andExpect(jsonPath("$.data.content[0].discountAmount").value(5000))
+                    .andExpect(jsonPath("$.data.content[0].status").value("AVAILABLE"))
+                    .andExpect(jsonPath("$.data.content[0].issuedAt").value(now().format(FORMAT)))
+                    .andExpect(jsonPath("$.data.content[0].expiresAt")
+                            .value(now().plusDays(7).format(FORMAT)))
+                    // 발급 응답과 달리 내 쿠폰에는 usedAt이 있고, 아직 쓰지 않았으면 null이다
+                    .andExpect(jsonPath("$.data.content[0].usedAt").isEmpty())
+                    .andExpect(jsonPath("$.data.content[1].couponId").value(old.getId()))
+                    .andExpect(jsonPath("$.data.content[1].status").value("EXPIRED"));
+        }
+
+        @Test
+        @DisplayName("status를 보내면 그 상태의 쿠폰만 나온다")
+        void filtersByStatus() throws Exception {
+            long userId = 962_011L;
+            couponIssueService.issue(issuingCoupon("쓸 수 있는 쿠폰").getId(), userId, "user@ticket.com");
+            userCouponRepository.saveIssued(UserCoupon.issue(userId, issuingCoupon("지난 쿠폰"), now().minusDays(8)));
+
+            perform(get("/api/coupons/me").param("status", "EXPIRED"), userId, Role.USER)
+                    .andExpect(jsonPath("$.data.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.content[0].name").value("지난 쿠폰"));
+        }
+
+        @Test
+        @DisplayName("받은 쿠폰이 없으면 빈 목록이다(SELLER 포함)")
+        void empty() throws Exception {
+            perform(get("/api/coupons/me"), 962_021L, Role.SELLER)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content").isEmpty())
+                    .andExpect(jsonPath("$.data.totalElements").value(0))
+                    .andExpect(jsonPath("$.data.sort").value("createdAt,DESC"));
+        }
+
+        @Test
+        @DisplayName("허용하지 않은 정렬 필드나 없는 status면 400 VALIDATION_ERROR")
+        void badRequest() throws Exception {
+            // issueEndAt은 쿠폰 목록에서만 쓰는 정렬이다
+            perform(get("/api/coupons/me").param("sort", "issueEndAt,ASC"), 1L, Role.USER)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            perform(get("/api/coupons/me").param("status", "DELETED"), 1L, Role.USER)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        @Test
+        @DisplayName("사용자 헤더가 없으면 401 UNAUTHORIZED")
+        void noUser() throws Exception {
+            mockMvc.perform(get("/api/coupons/me"))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         }
