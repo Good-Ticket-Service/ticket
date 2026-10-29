@@ -18,10 +18,10 @@ flowchart LR
         RQ["queue<br/>대기열·입장 토큰"]
         RS["seat<br/>선점·좌석 조회·잔여석"]
         RB["booking<br/>예매·티켓·Saga 조정"]
-        RC["coupon<br/>이전 예정·#27 초안"]
+        RC["coupon<br/>이전 예정·#125 합의"]
     end
     RB ==>|"준비·승인·조회 Feign 동기<br/>환불만 Phase 2 Kafka 가안"| PP["payment :8084<br/>결제·환불·할인액 검증"]
-    RB -->|로컬 CouponUsage 초안| RC
+    RB -->|로컬 CouponUsage #125| RC
     P -->|"회차 좌석 준비·URI 미합의"| RS
     RS -->|판매 검증| P
     PP -->|RestClient HTTP| FPG["fake-pg :8090<br/>토스·카카오 형식"]
@@ -41,12 +41,12 @@ flowchart LR
 | reservation-service / queue | 8083 | 대기열 순번·입장 토큰, Redis | 태현 |
 | reservation-service / seat | 8083 | 회차 좌석 스냅샷·선점·실시간 좌석/잔여석 조회, reservation_schema | 정민 |
 | reservation-service / booking | 8083 | 예매·티켓·만료·결제 준비/승인·취소/보상 조정, reservation_schema | 한얼 |
-| reservation-service / coupon | 8083 | 쿠폰 정책·동기 발급·점유/사용/복원. reservation_schema로 이전 예정, #27 초안 | 윤범 |
+| reservation-service / coupon | 8083 | 쿠폰 정책·동기 발급·점유/사용/복원. reservation_schema로 이전 예정, CouponUsage #125 합의 | 윤범 |
 | payment-service | 8084 | 결제·환불·PG 실행·결과 확인, payment_schema. 쿠폰 ID/상태는 처리하지 않음 | 현민 |
 | fake-pg | 8090 | 토스·카카오 호환 거래·장애 주입·결과 조회, fake_pg_schema | 현민 |
 
 - 서비스별 계정·스키마를 격리하고 다른 서비스 데이터의 직접 조회·물리 FK를 두지 않는다. common-core는 비웹 계약, common은 MVC 공통이다.
-- seat·booking은 같은 로컬 트랜잭션에서 좌석·예매를 맞춘다. 쿠폰 이전의 목적도 같은 원자성 확보이며, 상세 연결은 #27 합의·구현 대기다. 모듈을 별도 서비스로 나누면 기존 원자성을 자동 보존할 수 없다.
+- seat·booking은 같은 로컬 트랜잭션에서 좌석·예매를 맞춘다. 쿠폰 이전의 목적도 같은 원자성 확보이며, 상세 연결은 #125에서 합의했고 구현 전이다. 모듈을 별도 서비스로 나누면 기존 원자성을 자동 보존할 수 없다.
 - 판매자 정산·수수료·부분 환불은 현행 확장 범위이며 합의 없이 추가하지 않는다.
 
 ## 3. 서비스 간 통신
@@ -58,7 +58,7 @@ flowchart LR
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. URI·응답 미합의(#54) | 공연 방향과 좌석 소비안 조율 필요 |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
-| booking → coupon | 로컬 CouponUsage, reservationId 점유 | #27 초안·이전 구현 전 |
+| booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, 구현 전 |
 | booking → payment 준비·승인·조회 | Feign 동기 유지. 승인 응답 DONE/FAILED/IN_PROGRESS | HTTP 계약 합의, D16 적용 |
 | booking → payment 환불 | MVP HTTP 인수. Phase 2 Kafka 명령은 P3 가안 | 접수 확인·토픽 미합의 |
 | payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
@@ -199,7 +199,7 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 ## 11. 선점·예매 로컬 원자성
 
 - 선점10분, MVP 회원·회차당1장. seat가 공유 Clock(Asia/Seoul)으로 holdExpiresAt을 한 번 계산, 좌석/예매에 동일 저장. 결제 중 연장 안 함. 과거 DB now() 초안은 #34 공유 Clock으로 대체.
-- 잠금 순서 **좌석 ID 오름차순 → 예약**. 선점·만료·확정·해제·취소 모두 동일. 모듈 facade 모든 메서드 MANDATORY. CouponUsage는 REQUIRED로 예매 트랜잭션 참여(초안).
+- 잠금 순서 **좌석 ID 오름차순 → 예약**. 선점·만료·확정·해제·취소 모두 동일. 모듈 facade 모든 메서드 MANDATORY. CouponUsage는 REQUIRED로 예매 트랜잭션에 참여한다(#125).
 - 매수 제한 사전 count + DB 부분 UNIQUE로 최종 방어. 유니크 위반은 전체 선점 롤백, 제약 이름이 맞을 때만 트랜잭션 밖409 변환. 본인 만료 HOLD는 옛 좌석 잠금→예약 EXPIRED→좌석 반환 뒤 재선점.
 - 같은 회원/좌석의 만료 전 HOLD 재요청은 기존 예약200. 가격은 seat.base_price→ticket.price로 복사, 결제 totalPrice는 티켓 합. 클라이언트 가격 신뢰 금지.
 - 만료 `HOLD AND expires<=:now`, 결제 시작 `HOLD AND expires>:now`. PAYMENT_IN_PROGRESS는 만료 정리 대상 아님. 상태 변경0행은 재조회/분기, 성공 가정 금지.
@@ -207,12 +207,15 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 - SeatFacade.sell은 HOLD+reservation_id 일치, release도 reservation_id 일치. 갱신 행 수가 요청 수와 다르면 확정 성공으로 처리하지 않는다. 가격 재조회(priceSnapshot) 없음.
 - release 결과 RELEASED/EXPIRED/ALREADY_CLOSED만 좌석 반환. NOT_RELEASABLE은409, PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/CANCELED 좌석은 해제하지 않음.
 
-## 12. 예매 ↔ 쿠폰 (CouponUsage #27 초안)
+## 12. 예매 ↔ 쿠폰 (CouponUsage #125 합의)
+
+메서드와 타입은 api.md 「서비스 내부 모듈 계약」에 있다.
 
 - reservationId로 점유하고, 발급 시점의 할인액을 쓴다. reserve 때 유효기간을 확인하고, 이후 RESERVED는 만료 배치가 풀지 않는다. 유효기간이 지나도 결제가 확정되면 USED다.
 - 결제 FAILED로 HOLD에 돌아가면 쿠폰을 유지하고, EXPIRED·RELEASED면 해제한다. CANCELED면 USED를 복원한다(원래 만료됐으면 EXPIRED).
-- 쿠폰을 바꾸면 기존 release와 새 reserve를 같은 트랜잭션에서 한다.
-- 취소 복원 시점은 결제·예매가 동의했고 쿠폰 담당 합의를 기다린다.
+- 쿠폰을 바꾸면 기존 쿠폰의 release를 먼저 하고 새 reserve를 같은 트랜잭션에서 한다.
+- 취소한 예매의 쿠폰은 취소 확정(결제가 환불 요청을 받아 예매가 CANCELED가 될 때) 때 복원한다. 환불 완료를 기다리지 않는다. 환불이 끝내 실패해도 취소한 예매를 되살리지 않으므로 쿠폰도 복원한 채로 둔다.
+- 할인액을 최소 결제 금액에 맞춰 자르는 일은 예매가 한다. 쿠폰은 발급 시점 할인액을 그대로 주고, 결제는 보정 없이 검증한다.
 
 ## 13. 결정 번호
 
@@ -226,7 +229,8 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | B19 | (예매) "결제는 됐는데 표가 없는" 상태(F6)는 자동 환불로 끝낸다. MVP는 감지·알림·지표만 두고 환불 요청은 트러블슈팅 기간에 붙인다 | 예매 결정. D18과 범위 합의 대기 |
 | F6 | (예매 실패 유형) 이미 끝난 예약이나 다른 시도(orderId 불일치)에 결제 성공이 도착한 경우. 그 orderId로 환불을 요청한다 | 예매 설계 |
 | #22 | 결제는 쿠폰을 처리하지 않는다. 예매가 확정한 정가·할인액만 받아 검증·저장한다 | 합의 (#25에서 예매 담당 승인) |
-| #27 | CouponUsage를 예매 기준(reservationId 점유)으로 바꾸는 계약 | 초안. 쿠폰 담당 합의 대기 |
+| #27 | CouponUsage를 예매 기준(reservationId 점유)으로 바꾸는 계약 | #125로 이어서 합의 |
+| #125 | CouponUsage의 메서드·반환 타입, USED 복원, 취소 확정 때 복원, 할인액은 예매가 자름 | 합의 (쿠폰·결제 담당 확인) |
 | #34 | seat ↔ booking은 facade 패키지의 메서드·타입으로만 서로 부르고, 공유 Clock으로 선점 만료를 계산한다 | 합의 |
 | #86 | 결제 준비의 sellerId·performanceId는 판매 검증(P21) 응답에서 받아 선점 때 예약에 저장한 값을 쓴다 | 합의 |
 | #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
@@ -252,8 +256,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 항목 | 현재 근거·필요한 결정/후속 작업 | 관련 담당 |
 |---|---|---|
 | 준비 순서 | 같은 예매 준비의 직렬화/영속 소유 방식, 오래된 원격 시도 차단, READY_FAILED 매핑. 타임아웃 재전송은 같은 orderId 유지 제안 | 예매·결제 |
-| CouponUsage #27 | 인자/반환/상태·취소 복원 합의와 실제 이전·DDL·호출 연결 | 예매·쿠폰 |
-| 할인액 경계 | 예매 원본은 min(쿠폰액,max(0,정가-100)), 결제는 보정 없이 검증. 예매의 실제 보정/쿠폰 거절 경계와 구현 연결 확인 | 예매·쿠폰·결제 |
+| CouponUsage 구현 | 계약은 #125로 합의했다. coupon 모듈의 CouponUsage 구현, 예매의 호출 연결과 할인액 자르기, 예매 쿠폰 DDL(tables 「예매 쿠폰」)이 남았다 | 예매·쿠폰 |
 | 취소·보상 | CANCELING domain enum/CHECK/집계/복구 미구현(활성 UNIQUE·facade enum은 포함). F6의 B19(감지·알림)와 D18(보상 의도 영속 저장) MVP 범위 조율 | 예매·좌석·결제 |
 | 취소 거절 복귀 | 원본 CANCELING→CONFIRMED가 접수 전 정책 거절인지 확인. 인수한 환불의 PG 실패로 티켓을 복구하지 않는 계약 유지 | 예매·결제 |
 | 회차 취소 | 공연202만 확정. 전달 URI/payload/영속 재시도 주체·결제중 보호·신규 판매 차단·PG 환불 조회 합의. reservation-summary만으로 PG 환불 완료 판단 금지 | 공연·예매·좌석·결제 |
