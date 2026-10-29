@@ -17,4 +17,9 @@ final class QueueKeys {
     static String seq(long performanceId) {
         return "queue:performance:" + performanceId + ":seq";
     }
+
+    /** 마지막 조회 시각(Sorted Set). member는 회원 ID, score는 Redis 시각(ms)이다. */
+    static String seen(long performanceId) {
+        return "queue:performance:" + performanceId + ":seen";
+    }
 }

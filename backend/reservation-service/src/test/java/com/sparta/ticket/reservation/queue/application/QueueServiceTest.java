@@ -8,6 +8,7 @@ import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
 import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,12 @@ class QueueServiceTest {
         public QueuePosition enter(long performanceId, long userId) {
             calls.incrementAndGet();
             return new QueuePosition(aheadCount);
+        }
+
+        @Override
+        public Optional<QueuePosition> findPosition(long performanceId, long userId) {
+            calls.incrementAndGet();
+            return Optional.of(new QueuePosition(aheadCount));
         }
     }
 
