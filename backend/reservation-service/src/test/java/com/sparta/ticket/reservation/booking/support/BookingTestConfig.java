@@ -12,10 +12,13 @@ import org.springframework.context.annotation.Primary;
 @TestConfiguration
 public class BookingTestConfig {
 
+    /** 테스트 시계가 시작하는 시각. 통합 테스트는 매번 이 시각으로 되돌리고 시작한다. */
+    public static final LocalDateTime START_TIME = LocalDateTime.of(2026, 11, 1, 20, 0);
+
     @Bean
     @Primary
     public MutableClock testClock() {
-        return new MutableClock(LocalDateTime.of(2026, 11, 1, 20, 0));
+        return new MutableClock(START_TIME);
     }
 
     @Bean

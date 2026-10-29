@@ -8,11 +8,10 @@ import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationState;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
-import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -21,16 +20,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /** 좌석 선점·조회가 부르는 BookingFacade 메서드(countActiveSeats, findActiveHold, expireIfDue, findPaymentInProgress). */
-class BookingFacadeSeatQueryIntegrationTest extends ReservationIntegrationTest {
+class BookingFacadeSeatQueryIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingFacade bookingFacade;
@@ -41,23 +37,7 @@ class BookingFacadeSeatQueryIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private ChangeStamps changeStamps;
 
-    @Autowired
-    private MutableClock clock;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     private final Long userId = TestIds.next();
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM p_tickets");
-        jdbcTemplate.update("DELETE FROM p_reservations");
-        clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
-    }
 
     private Long hold(Long user, Long scheduleId, Duration holdFor, Long... seatIds) {
         return holdUntil(user, scheduleId, clock.now().plus(holdFor), seatIds);
@@ -101,11 +81,6 @@ class BookingFacadeSeatQueryIntegrationTest extends ReservationIntegrationTest {
 
     private Set<Long> findPaymentInProgress(Collection<Long> reservationIds) {
         return transactionTemplate.execute(status -> bookingFacade.findPaymentInProgress(reservationIds));
-    }
-
-    private String statusOf(Long reservationId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
     }
 
     @Test

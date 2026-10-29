@@ -13,14 +13,12 @@ import com.sparta.ticket.reservation.booking.application.facade.ReservationState
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
-import com.sparta.ticket.reservation.booking.support.MutableClock;
+import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
-import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.sql.Timestamp;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,16 +29,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
-import org.springframework.transaction.support.TransactionTemplate;
 
-class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
+class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingFacade bookingFacade;
@@ -51,23 +46,7 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private ChangeStamps changeStamps;
 
-    @Autowired
-    private MutableClock clock;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     private final Long userId = TestIds.next();
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM p_tickets");
-        jdbcTemplate.update("DELETE FROM p_reservations");
-        clock.set(LocalDateTime.of(2026, 11, 1, 20, 0));
-    }
 
     private Long hold(Duration holdFor, Long... seatIds) {
         return transactionTemplate.execute(status -> bookingFacade.hold(
@@ -89,11 +68,6 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
 
     private ReleaseResult release(Long user, Long reservationId) {
         return transactionTemplate.execute(status -> bookingFacade.release(user, reservationId));
-    }
-
-    private String statusOf(Long reservationId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT status FROM p_reservations WHERE reservation_id = ?", String.class, reservationId);
     }
 
     @Test
