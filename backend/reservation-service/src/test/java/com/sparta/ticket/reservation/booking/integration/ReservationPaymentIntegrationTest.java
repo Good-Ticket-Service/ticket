@@ -153,6 +153,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.data.paymentAmount").value(17_000));
 
+        assertThat(payment.prepared).as("결제 준비는 한 번만 보낸다").hasSize(1);
         PaymentPrepareRequest request = payment.prepared.get(0);
         assertThat(request.totalPrice()).isEqualTo(20_000L);
         assertThat(request.discountAmount()).isZero();
@@ -260,6 +261,9 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         confirm(reservationId, orderId, userId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PAYMENT_IN_PROGRESS"));
+
+        assertThat(row(reservationId).get("status")).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).as("승인은 한 번 보냈다").hasSize(1);
     }
 
     @Test
@@ -302,6 +306,8 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(status().isForbidden());
         checkout(reservationId, stranger).andExpect(status().isForbidden());
         confirm(reservationId, orderId, stranger).andExpect(status().isForbidden());
+        assertThat(payment.prepared).as("본인의 결제 준비 한 번만 보냈다").hasSize(1);
+        assertThat(payment.confirmedOrderIds).as("남의 승인 요청은 payment에 보내지 않는다").isEmpty();
         mockMvc.perform(as(get("/api/reservations/{id}", reservationId), userId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("HOLD"))
@@ -347,7 +353,10 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
                         .content("{\"pgProvider\": \"KAKAO\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.paymentWindowUrl").doesNotExist());
-        assertThat(payment.prepared.get(0).pgProvider()).isEqualTo("KAKAO");
+        assertThat(payment.prepared)
+                .singleElement()
+                .extracting(PaymentPrepareRequest::pgProvider)
+                .isEqualTo("KAKAO");
     }
 
     @Test

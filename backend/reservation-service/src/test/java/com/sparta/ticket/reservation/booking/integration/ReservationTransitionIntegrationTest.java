@@ -124,15 +124,17 @@ class ReservationTransitionIntegrationTest extends ReservationIntegrationTest {
                         clock.now().plusMinutes(10)))
                 .isInstanceOf(IllegalTransactionStateException.class);
         assertThatThrownBy(() -> hold(Duration.ofMinutes(10), seatA, seatA))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("같은 좌석");
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST));
         assertThatThrownBy(() -> transactionTemplate.execute(status -> bookingFacade.hold(
                         userId,
                         new HoldTarget(TestIds.next(), null, TestHoldTargets.SELLER_ID),
                         TestSeats.priced(TestIds.next()),
                         clock.now().plusMinutes(10))))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("판매자");
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST));
     }
 
     @Test
