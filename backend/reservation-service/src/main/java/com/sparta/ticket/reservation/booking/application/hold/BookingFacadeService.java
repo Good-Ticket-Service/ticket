@@ -10,6 +10,7 @@ import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationState;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
+import com.sparta.ticket.reservation.booking.application.port.CouponPort;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -33,6 +34,7 @@ public class BookingFacadeService implements BookingFacade {
     private final ReservationRepository reservationRepository;
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
+    private final CouponPort couponPort;
 
     /** 좌석과 예약이 한 트랜잭션에서 바뀌어야 하므로, 바깥 트랜잭션 없이 부르면 예외로 막는다. */
     @Override
@@ -72,6 +74,8 @@ public class BookingFacadeService implements BookingFacade {
         }
         ChangeStamp stamp = changeStamps.stamp();
         if (reservationRepository.releaseHold(reservationId, userId, stamp) == 1) {
+            // Note: 좌석은 seat가 돌려주고, 쿠폰은 seat가 다루지 않으므로 booking이 같은 트랜잭션에서 돌려준다.
+            couponPort.release(reservationId);
             metrics.releasedHold();
             return ReleaseResult.RELEASED;
         }
@@ -118,6 +122,7 @@ public class BookingFacadeService implements BookingFacade {
     /** HOLD → EXPIRED가 1행일 때만 만료로 센다. 해제 경로와 seat 정리 경로가 같은 기준으로 세게 한 곳에 둔다. */
     private boolean expireHold(Long reservationId, ChangeStamp stamp) {
         if (reservationRepository.expireHold(reservationId, stamp) == 1) {
+            couponPort.release(reservationId);
             metrics.expiredHold();
             return true;
         }

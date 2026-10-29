@@ -14,6 +14,7 @@ import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
+import com.sparta.ticket.reservation.booking.application.port.CouponPort;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -45,7 +46,7 @@ class BookingFacadeServiceTest {
     private final ChangeStamps changeStamps = mock(ChangeStamps.class);
     private final BookingMetrics metrics = mock(BookingMetrics.class);
     private final BookingFacadeService bookingFacade =
-            new BookingFacadeService(reservationRepository, changeStamps, metrics);
+            new BookingFacadeService(reservationRepository, changeStamps, metrics, mock(CouponPort.class));
 
     @BeforeEach
     void setUp() {

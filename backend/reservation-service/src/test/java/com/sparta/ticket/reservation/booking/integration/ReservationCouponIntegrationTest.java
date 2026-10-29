@@ -9,16 +9,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.UserHeaders;
+import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.CheckoutTarget;
+import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +47,9 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingFacade bookingFacade;
+
+    @Autowired
+    private HoldExpiryService holdExpiryService;
 
     @Autowired
     private PaymentRequestTransactions paymentRequestTransactions;
@@ -102,17 +109,22 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
     class Checkout {
 
         @Test
-        @DisplayName("쿠폰을 고르면 예약에 잡고 할인액을 결제 준비에 넘긴다")
-        void reservesCoupon() throws Exception {
+        @DisplayName("쿠폰을 고르면 예약에 잡고 할인액을 결제 준비에 넘기며, 확정되면 사용 처리한다")
+        void reservesAndUses() throws Exception {
             Long reservationId = hold();
             Long coupon = coupons.issue(userId, 3_000);
 
-            checkoutOrderId(reservationId, coupon);
+            String orderId = checkoutOrderId(reservationId, coupon);
 
             assertThat(lastPrepared().totalPrice()).isEqualTo(20_000L);
             assertThat(lastPrepared().discountAmount()).isEqualTo(3_000L);
             assertThat(coupons.statusOf(coupon)).isEqualTo("RESERVED");
             assertThat(coupons.reservationOf(coupon)).isEqualTo(reservationId);
+
+            confirm(reservationId, orderId)
+                    .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
+                    .andExpect(jsonPath("$.data.paymentAmount").value(17_000));
+            assertThat(coupons.statusOf(coupon)).isEqualTo("USED");
         }
 
         @Test
@@ -267,6 +279,107 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
                 .isNull();
         assertThat(row.get("payment_amount")).isNull();
         assertThat(((Number) row.get("user_coupon_id")).longValue()).isEqualTo(second);
+    }
+
+    @Nested
+    @DisplayName("예약이 끝날 때 쿠폰 처리")
+    class Closing {
+
+        @Test
+        @DisplayName("결제가 실패해 HOLD로 돌아가면 쿠폰을 잡은 채로 둔다")
+        void keepsCouponOnFailureWithTimeLeft() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            String orderId = checkoutOrderId(reservationId, coupon);
+            payment.confirmReturns(ConfirmOutcome.failed());
+
+            confirm(reservationId, orderId).andExpect(jsonPath("$.data.status").value("HOLD"));
+
+            assertThat(coupons.statusOf(coupon)).isEqualTo("RESERVED");
+        }
+
+        @Test
+        @DisplayName("결제가 실패했는데 선점 시간이 지났으면 EXPIRED가 되고 쿠폰을 돌려준다")
+        void releasesCouponOnFailureAfterExpiry() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            String orderId = checkoutOrderId(reservationId, coupon);
+            payment.confirmAnswers(() -> {
+                clock.advance(Duration.ofMinutes(11));
+                return ConfirmOutcome.failed();
+            });
+
+            confirm(reservationId, orderId).andExpect(jsonPath("$.data.status").value("EXPIRED"));
+
+            assertThat(coupons.statusOf(coupon)).isEqualTo("AVAILABLE");
+        }
+
+        @Test
+        @DisplayName("결제 결과를 모르면 쿠폰을 잡은 채로 둔다")
+        void keepsCouponWhenOutcomeUnknown() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            String orderId = checkoutOrderId(reservationId, coupon);
+            payment.confirmTimesOut();
+
+            confirm(reservationId, orderId).andExpect(jsonPath("$.data.status").value("PAYMENT_IN_PROGRESS"));
+
+            assertThat(coupons.statusOf(coupon)).isEqualTo("RESERVED");
+        }
+
+        @Test
+        @DisplayName("만료 스케줄러가 선점을 만료하면 쿠폰을 돌려준다")
+        void releasesCouponOnScheduledExpiry() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            checkoutOrderId(reservationId, coupon);
+            clock.advance(Duration.ofMinutes(11));
+
+            assertThat(holdExpiryService.expireDue(10, Duration.ofSeconds(5))).isEqualTo(1);
+
+            assertThat(coupons.statusOf(coupon)).isEqualTo("AVAILABLE");
+        }
+
+        @Test
+        @DisplayName("사용자가 선점을 해제하면 쿠폰을 돌려준다")
+        void releasesCouponOnUserRelease() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            checkoutOrderId(reservationId, coupon);
+
+            ReleaseResult result = transactionTemplate.execute(status -> bookingFacade.release(userId, reservationId));
+
+            assertThat(result).isEqualTo(ReleaseResult.RELEASED);
+            assertThat(coupons.statusOf(coupon)).isEqualTo("AVAILABLE");
+        }
+
+        @Test
+        @DisplayName("seat가 시간이 지난 선점을 정리하면 쿠폰을 돌려준다")
+        void releasesCouponOnExpireIfDue() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            checkoutOrderId(reservationId, coupon);
+            clock.advance(Duration.ofMinutes(11));
+
+            Boolean expired = transactionTemplate.execute(status -> bookingFacade.expireIfDue(reservationId));
+
+            assertThat(expired).isTrue();
+            assertThat(coupons.statusOf(coupon)).isEqualTo("AVAILABLE");
+        }
+
+        @Test
+        @DisplayName("좌석이 이 예약의 선점이 아니라 확정하지 못하면 쿠폰도 사용 처리하지 않는다")
+        void keepsCouponWhenNotConfirmed() throws Exception {
+            Long reservationId = hold();
+            Long coupon = coupons.issue(userId, 3_000);
+            String orderId = checkoutOrderId(reservationId, coupon);
+            seats.notHeld(20L);
+
+            confirm(reservationId, orderId);
+
+            assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
+            assertThat(coupons.statusOf(coupon)).isEqualTo("RESERVED");
+        }
     }
 
     private Map<String, Object> couponColumns(Long reservationId) {
