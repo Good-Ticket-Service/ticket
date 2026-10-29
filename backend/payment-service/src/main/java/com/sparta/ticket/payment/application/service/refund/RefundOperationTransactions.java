@@ -156,6 +156,13 @@ public class RefundOperationTransactions {
                     && java.util.Set.of("PG_INCONSISTENT_APPROVAL", "PG_TRANSACTION_MISMATCH")
                             .contains(Objects.toString(r.getVerificationReason(), ""));
         }
+        // Note: 업무 거절은 운영자가 원인 해결을 확인하고, 호출자가 PG 조회로 같은 거래의 승인 전액이 그대로임(validApproval)을
+        // 확인한 경우만 새 키로 재시도한다(#164). 취소가 일부라도 반영됐거나 결과가 충돌·불명이면 조회 단계에서 거절된다.
+        if (request.reason() == RefundOperation.Reason.ROOT_CAUSE_FIXED
+                && r.getStatus() == RefundStatus.FAILED
+                && r.getRecoveryMode() == RefundRecoveryMode.PAUSED
+                && r.isRecoveryBlocked()
+                && !"PG_CANCEL_RESULT_CONFLICT".equals(r.getFailureCode())) return true;
         // Note: 명시적인 인증 거절 후 설정 수정만 초기 허용한다. 일반 거절·불명·취소 불가를 새 키로 우회하지 않는다.
         return request.reason() == RefundOperation.Reason.AUTH_CONFIGURATION_FIXED
                 && r.getStatus() == RefundStatus.FAILED
