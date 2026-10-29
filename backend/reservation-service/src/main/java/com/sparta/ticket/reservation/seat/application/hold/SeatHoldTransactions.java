@@ -14,6 +14,7 @@ import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Note: 좌석은 잠근 Entity의 전이 메서드(release·hold)로만 바꾼다. 같은 트랜잭션에서 조건부 일괄 UPDATE와 섞으면 영속성 컨텍스트의
  * 좌석 Entity가 바뀌기 전 값으로 남아 이후 판단이 틀어진다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class SeatHoldTransactions {
@@ -134,6 +137,7 @@ public class SeatHoldTransactions {
                         .forEach(lockedSeat -> lockedSeat.release(reservationId));
                 continue;
             }
+            warnIfOrphanSeats(reservationId, locked.values());
             if (reservationId.equals(otherHolderId)) {
                 // 만료 시각이 지났지만 그 예약은 결제 중이다. 결제 중인 예약의 좌석은 선택할 수 없다
                 throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
@@ -172,5 +176,30 @@ public class SeatHoldTransactions {
             return Optional.empty();
         }
         return bookingFacade.getReservation(heldBy);
+    }
+
+    /**
+     * expireIfDue가 false였는데, 잠근 좌석 중 그 예약이 아직 HOLD로 잡은 좌석이 있고 그 예약이 결제 중도 아니면 경고를 남긴다.
+     * 예약은 이미 끝났는데(EXPIRED·RELEASED·CANCELED) 좌석만 그 예약의 HOLD로 남은 상태(고아 좌석)라는 뜻이다. 지금은 예약과
+     * 좌석을 같은 트랜잭션에서 바꾸므로 생기지 않아야 한다. 좌석을 자동으로 풀면 상태를 잘못 분류할 때 판 좌석을 다시 팔 위험이
+     * 있어, 로그로 알리기만 하고 409는 그대로 둔다(동시성 리뷰 4번).
+     *
+     * Note: 잡은 좌석이 없으면 경고하지 않는다. 만료 스케줄러가 먼저 정리해 이미 좌석을 돌려준 정상 경우다.
+     * 결제 중인지는 findPaymentInProgress로 DB에서 다시 확인한다. 이 트랜잭션에서 먼저 읽은 예약 Entity는 그 뒤의
+     * 조건부 UPDATE(결제 시작·만료)를 반영하지 못한 옛 상태일 수 있어 판단에 쓰지 않는다.
+     */
+    private void warnIfOrphanSeats(Long reservationId, Collection<ScheduleSeat> lockedSeats) {
+        List<Long> stillHeld = lockedSeats.stream()
+                .filter(lockedSeat -> lockedSeat.isHeldBy(reservationId))
+                .map(ScheduleSeat::getId)
+                .toList();
+        if (stillHeld.isEmpty()
+                || !bookingFacade.findPaymentInProgress(List.of(reservationId)).isEmpty()) {
+            return;
+        }
+        log.warn(
+                "만료된 선점의 예약을 만료시키지 못했는데 결제 중이 아니다. 좌석만 남은 상태일 수 있다. reservationId={}, scheduleSeatIds={}",
+                reservationId,
+                stillHeld);
     }
 }
