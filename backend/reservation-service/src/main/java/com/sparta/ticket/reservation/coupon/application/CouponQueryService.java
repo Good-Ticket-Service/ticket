@@ -84,10 +84,12 @@ public class CouponQueryService {
         // 1) 상태 필터에 맞는 이 회원의 쿠폰을 읽는다. AVAILABLE·EXPIRED는 만료 시각으로 나눈다
         Page<UserCoupon> userCoupons = userCouponRepository.findMine(userId, status, now, pageable);
 
-        // 2) 쿠폰 이름을 붙이려고 이 페이지의 쿠폰 정의를 한 번에 읽어 ID → 이름으로 둔다
+        // 2) 쿠폰 이름을 붙이려고 이 페이지의 쿠폰 정의를 한 번에 읽어 ID → 이름으로 둔다. ID로 읽으므로 키가 겹치지 않는다
+        // Note: 삭제된 쿠폰은 읽히지 않아 이름이 null이 된다. 지금은 발급 수량이 0일 때만 삭제할 수 있어(softDeleteIfNotIssued)
+        // 회원이 받은 쿠폰의 정의는 삭제되지 않는다. 받은 쿠폰도 삭제할 수 있게 바꾸면 여기서 이름을 다시 정해야 한다
         Set<Long> couponIds = userCoupons.map(UserCoupon::getCouponId).toSet();
         Map<Long, String> names = couponRepository.findAllById(couponIds).stream()
-                .collect(Collectors.toMap(Coupon::getId, Coupon::getName, (first, second) -> first));
+                .collect(Collectors.toMap(Coupon::getId, Coupon::getName));
 
         // 3) 응답으로 바꾼다. 상태는 같은 now로 계산해 필터와 어긋나지 않는다
         return userCoupons.map(userCoupon -> UserCouponResult.of(userCoupon, names.get(userCoupon.getCouponId()), now));
