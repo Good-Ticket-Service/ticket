@@ -126,4 +126,27 @@ public class Reservation extends BaseEntity {
     public boolean isAttempt(String orderId) {
         return orderId != null && orderId.equals(this.orderId);
     }
+
+    // Note: 아래 판단은 다시 읽은 예약으로 "왜 전이가 0행이었는지"를 가릴 때만 쓴다.
+    // 동시 요청을 막는 것은 ReservationRepository 조건부 UPDATE의 WHERE이고, 같은 조건이 거기에도 있다.
+
+    /** 이 orderId의 결제 시도가 지금 진행 중이다. 결과를 반영해도 되는 시도인지 가를 때 쓴다. */
+    public boolean isCurrentPayment(String orderId) {
+        return status == ReservationStatus.PAYMENT_IN_PROGRESS && isAttempt(orderId);
+    }
+
+    /** 이 orderId의 결제 시도로 이미 확정됐다. 같은 성공이나 승인이 다시 온 것이다. */
+    public boolean isConfirmedBy(String orderId) {
+        return status == ReservationStatus.CONFIRMED && isAttempt(orderId);
+    }
+
+    /** 사용자 해제나 시간 초과로 이미 끝난 선점이다. */
+    public boolean isClosedHold() {
+        return status == ReservationStatus.RELEASED || status == ReservationStatus.EXPIRED;
+    }
+
+    /** 아직 선점 중인데 만료 시각이 지났다. 만료 스케줄러가 좌석을 잠그기 전에 거른다. */
+    public boolean isExpirableAt(LocalDateTime now) {
+        return status == ReservationStatus.HOLD && isHoldExpiredAt(now);
+    }
 }
