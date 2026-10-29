@@ -102,6 +102,17 @@ public interface ReservationJpaRepository
     }
 
     @Override
+    default int cancelUnconfirmed(Long id, String orderId, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.CANCEL_UNCONFIRMED;
+        return updateCancelUnconfirmed(id, t.from(), t.to(), orderId, stamp.at(), stamp.by());
+    }
+
+    @Override
+    default List<Long> findRefundRequiredIds(LocalDateTime checkedBefore, int limit) {
+        return selectRefundRequiredIds(checkedBefore, PageRequest.of(0, limit));
+    }
+
+    @Override
     default List<Long> findStaleCancelIds(LocalDateTime updatedBefore, int limit) {
         return selectStaleCancelIds(updatedBefore, PageRequest.of(0, limit));
     }
@@ -190,12 +201,17 @@ public interface ReservationJpaRepository
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
+    /**
+     * 실패 반영은 환불이 필요하다고 기록된 예약을 바꾸지 않는다. 이미 돈이 나간 결제라 늦게 온 실패(환불 뒤 조회한 CANCELED 포함)로
+     * 선점에 돌려보내면 다음 결제 시도가 남은 기록 때문에 환불 대상이 된다. 아래 실패 후 만료도 같다.
+     */
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.orderId = NULL, r.paymentAmount = NULL, r.pgAuthToken = NULL,
                    r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId AND r.holdExpiresAt > :at
+               AND r.refundRequiredAt IS NULL
             """)
     int updateReturnToHold(
             @Param("id") Long id,
@@ -210,6 +226,7 @@ public interface ReservationJpaRepository
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId AND r.holdExpiresAt <= :at
+               AND r.refundRequiredAt IS NULL
             """)
     int updateExpireAfterFailure(
             @Param("id") Long id,
@@ -302,6 +319,43 @@ public interface ReservationJpaRepository
              WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
             """)
     int markPaymentChecked(@Param("id") Long id, @Param("checkedAt") LocalDateTime checkedAt);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId AND r.refundRequiredAt IS NOT NULL
+            """)
+    int updateCancelUnconfirmed(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
+            @Param("orderId") String orderId,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r SET r.paymentCheckedAt = :checkedAt
+             WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.refundRequiredAt IS NOT NULL
+               AND COALESCE(r.paymentCheckedAt, r.refundRequiredAt) <= :checkedBefore
+            """)
+    int markRefundChecked(
+            @Param("id") Long id,
+            @Param("checkedAt") LocalDateTime checkedAt,
+            @Param("checkedBefore") LocalDateTime checkedBefore);
+
+    /** 다시 요청해도 결과가 안 바뀌는 예약(payment가 모르는 주문)이 앞자리를 막지 않게 오래 요청하지 않은 순으로 고른다. */
+    @Query("""
+            SELECT r.id FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.refundRequiredAt IS NOT NULL
+               AND COALESCE(r.paymentCheckedAt, r.refundRequiredAt) <= :checkedBefore
+             ORDER BY COALESCE(r.paymentCheckedAt, r.refundRequiredAt), r.id
+            """)
+    List<Long> selectRefundRequiredIds(@Param("checkedBefore") LocalDateTime checkedBefore, Pageable pageable);
 
     @Override
     @Modifying(flushAutomatically = true)

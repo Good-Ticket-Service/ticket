@@ -60,7 +60,16 @@ public class ReservationTransitionExecutor {
     }
 
     /**
-     * Note: 잠금 결과(이 예약의 HOLD인지)를 보지 않는다. 만료는 HOLD, 취소는 SOLD 좌석을 돌려주므로 상태가 다르다.
+     * 확정하지 못한 결제의 환불을 payment가 받은 뒤 예약을 끝내고, 이 예약이 아직 가진 좌석과 잡아 둔 쿠폰을 돌려준다.
+     * 확정하지 못한 까닭이 좌석이라 보통 돌려줄 좌석은 없다. 조건부 UPDATE가 0행이면 아무것도 돌려주지 않고 false다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean cancelUnconfirmedAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
+        return closeAndRelease(reservationId, seatIds, conditionalUpdate);
+    }
+
+    /**
+     * Note: 잠금 결과(이 예약의 HOLD인지)를 보지 않는다. 만료는 HOLD, 취소는 SOLD 좌석을 돌려주고, 확정하지 못한 결제는 보통 돌려줄 좌석이 없다.
      * 이 예약이 가진 좌석만 돌려주는 조건은 반환 쪽(SeatPort.release)에 있다.
      */
     private boolean closeAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {

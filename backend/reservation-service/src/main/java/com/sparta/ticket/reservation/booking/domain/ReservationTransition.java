@@ -19,7 +19,8 @@ public enum ReservationTransition {
     RETURN_TO_HOLD(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.HOLD),
     EXPIRE_AFTER_FAILURE(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.EXPIRED),
     START_CANCEL(ReservationStatus.CONFIRMED, ReservationStatus.CANCELING),
-    CANCEL(ReservationStatus.CANCELING, ReservationStatus.CANCELED);
+    CANCEL(ReservationStatus.CANCELING, ReservationStatus.CANCELED),
+    CANCEL_UNCONFIRMED(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.CANCELED);
 
     private final ReservationStatus from;
     private final ReservationStatus to;

@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
 import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileService;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
+import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -27,8 +28,13 @@ public class BookingSchedulingConfig {
             BookingSchedulerProperties properties,
             HoldExpiryService holdExpiryService,
             PaymentReconcileService paymentReconcileService,
+            UnconfirmedRefundService unconfirmedRefundService,
             CancelReconcileService cancelReconcileService) {
         return new BookingScheduleRunner(
-                properties, holdExpiryService, paymentReconcileService, cancelReconcileService);
+                properties,
+                holdExpiryService,
+                paymentReconcileService,
+                unconfirmedRefundService,
+                cancelReconcileService);
     }
 }

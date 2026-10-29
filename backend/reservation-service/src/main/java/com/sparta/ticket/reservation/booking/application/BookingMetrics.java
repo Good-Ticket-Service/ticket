@@ -17,6 +17,7 @@ public class BookingMetrics {
     private final Counter canceled;
     private final Counter resentRefunds;
     private final Counter unknownRefundOrders;
+    private final Counter unconfirmedRefunds;
     private final AtomicLong paymentsInProgress = new AtomicLong();
     private final AtomicLong stuckPayments = new AtomicLong();
 
@@ -41,6 +42,9 @@ public class BookingMetrics {
                 .register(registry);
         this.unknownRefundOrders = Counter.builder("reservation.cancel.unknown_order")
                 .description("payment가 모르는 orderId라 환불을 요청하지 못한 수. 0보다 크면 관리자가 확인한다")
+                .register(registry);
+        this.unconfirmedRefunds = Counter.builder("reservation.payment.unconfirmed_refunded")
+                .description("결제는 성공했는데 확정하지 못해, payment가 환불 요청을 받고 CANCELED로 끝낸 예약 수")
                 .register(registry);
         Gauge.builder("reservation.payment.in_progress", paymentsInProgress, AtomicLong::get)
                 .description("결제 중 예약 수. 결과 확인 스케줄러가 실행마다 갱신한다")
@@ -76,6 +80,10 @@ public class BookingMetrics {
 
     public void unknownRefundOrder() {
         unknownRefundOrders.increment();
+    }
+
+    public void unconfirmedRefunded() {
+        unconfirmedRefunds.increment();
     }
 
     public void paymentBacklog(long inProgress, long stuck) {
