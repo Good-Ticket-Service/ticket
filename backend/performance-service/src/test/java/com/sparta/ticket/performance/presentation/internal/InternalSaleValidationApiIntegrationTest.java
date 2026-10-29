@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.presentation;
+package com.sparta.ticket.performance.presentation.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;

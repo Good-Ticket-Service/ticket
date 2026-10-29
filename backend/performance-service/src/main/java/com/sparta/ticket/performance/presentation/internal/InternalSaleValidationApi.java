@@ -1,8 +1,8 @@
-package com.sparta.ticket.performance.presentation;
+package com.sparta.ticket.performance.presentation.internal;
 
 import com.sparta.ticket.performance.application.service.SaleValidationService;
-import com.sparta.ticket.performance.presentation.dto.SaleValidationRequest;
-import com.sparta.ticket.performance.presentation.dto.SaleValidationResponse;
+import com.sparta.ticket.performance.presentation.internal.dto.SaleValidationRequest;
+import com.sparta.ticket.performance.presentation.internal.dto.SaleValidationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
