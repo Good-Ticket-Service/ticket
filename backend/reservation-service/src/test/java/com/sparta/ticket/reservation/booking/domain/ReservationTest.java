@@ -67,8 +67,11 @@ class ReservationTest {
     }
 
     private static Reservation reservation(ReservationStatus status, String orderId) {
-        Reservation reservation =
-                Reservation.hold(1L, new SaleTarget(10L, 20L, 30L), List.of(new SeatPrice(100L, 10_000)), EXPIRES_AT);
+        Reservation reservation = Reservation.hold(
+                1L,
+                new SaleTarget(10L, 20L, 30L, LocalDateTime.of(2026, 12, 1, 19, 0), "공연"),
+                List.of(new SeatPrice(100L, 10_000)),
+                EXPIRES_AT);
         ReflectionTestUtils.setField(reservation, "status", status);
         ReflectionTestUtils.setField(reservation, "orderId", orderId);
         return reservation;

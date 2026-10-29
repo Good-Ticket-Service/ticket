@@ -179,7 +179,7 @@ class BookingFacadeServiceTest {
     private static Reservation reservation(ReservationStatus status) {
         Reservation reservation = Reservation.hold(
                 USER_ID,
-                new SaleTarget(1L, 2L, 3L),
+                new SaleTarget(1L, 2L, 3L, LocalDateTime.of(2026, 12, 1, 19, 0), "공연"),
                 List.of(new SeatPrice(100L, 10_000)),
                 STAMP.at().plusMinutes(10));
         ReflectionTestUtils.setField(reservation, "status", status);

@@ -101,14 +101,36 @@ class ReservationTransitionIntegrationTest extends BookingIntegrationTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST));
-        assertThatThrownBy(() -> transactionTemplate.execute(status -> bookingFacade.hold(
-                        userId,
-                        new HoldTarget(TestIds.next(), null, TestHoldTargets.SELLER_ID),
-                        TestSeats.priced(TestIds.next()),
-                        clock.now().plusMinutes(10))))
-                .isInstanceOfSatisfying(
-                        BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST));
+        HoldTarget complete = TestHoldTargets.of(TestIds.next());
+        for (HoldTarget missing : List.of(
+                new HoldTarget(
+                        complete.scheduleId(),
+                        null,
+                        complete.sellerId(),
+                        complete.scheduleStartAt(),
+                        complete.performanceTitle()),
+                new HoldTarget(
+                        complete.scheduleId(),
+                        complete.performanceId(),
+                        complete.sellerId(),
+                        null,
+                        complete.performanceTitle()),
+                new HoldTarget(
+                        complete.scheduleId(),
+                        complete.performanceId(),
+                        complete.sellerId(),
+                        complete.scheduleStartAt(),
+                        null))) {
+            assertThatThrownBy(() -> transactionTemplate.execute(status -> bookingFacade.hold(
+                            userId,
+                            missing,
+                            TestSeats.priced(TestIds.next()),
+                            clock.now().plusMinutes(10))))
+                    .as("빠진 값: %s", missing)
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST));
+        }
     }
 
     @Test

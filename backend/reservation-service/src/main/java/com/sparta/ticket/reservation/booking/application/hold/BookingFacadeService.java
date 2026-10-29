@@ -51,7 +51,12 @@ public class BookingFacadeService implements BookingFacade {
         return reservationRepository
                 .saveAndFlush(Reservation.hold(
                         userId,
-                        new SaleTarget(target.scheduleId(), target.performanceId(), target.sellerId()),
+                        new SaleTarget(
+                                target.scheduleId(),
+                                target.performanceId(),
+                                target.sellerId(),
+                                target.scheduleStartAt(),
+                                target.performanceTitle()),
                         prices,
                         holdExpiresAt))
                 .getId();

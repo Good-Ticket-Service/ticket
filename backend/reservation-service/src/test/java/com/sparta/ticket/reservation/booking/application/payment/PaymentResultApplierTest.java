@@ -172,7 +172,7 @@ class PaymentResultApplierTest {
     private static Reservation reservation(ReservationStatus status, boolean sameAttempt) {
         Reservation reservation = Reservation.hold(
                 1L,
-                new SaleTarget(1L, 2L, 3L),
+                new SaleTarget(1L, 2L, 3L, LocalDateTime.of(2026, 12, 1, 19, 0), "공연"),
                 SEAT_IDS.stream().map(seatId -> new SeatPrice(seatId, 10_000)).toList(),
                 STAMP.at().plusMinutes(10));
         ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);

@@ -49,6 +49,12 @@ public class Reservation extends BaseEntity {
     @Column(nullable = false)
     private Long sellerId;
 
+    @Column(nullable = false)
+    private LocalDateTime scheduleStartAt;
+
+    @Column(nullable = false, length = 200)
+    private String performanceTitle;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ReservationStatus status;
@@ -81,14 +87,16 @@ public class Reservation extends BaseEntity {
         this.scheduleId = target.scheduleId();
         this.performanceId = target.performanceId();
         this.sellerId = target.sellerId();
+        this.scheduleStartAt = target.scheduleStartAt();
+        this.performanceTitle = target.performanceTitle();
         this.holdExpiresAt = holdExpiresAt;
         this.status = ReservationStatus.HOLD;
     }
 
     /** 좌석 선점과 같은 트랜잭션에서 HOLD 예약과 좌석마다 티켓을 만든다. */
     public static Reservation hold(Long userId, SaleTarget target, List<SeatPrice> seats, LocalDateTime holdExpiresAt) {
-        if (target.scheduleId() == null || target.performanceId() == null || target.sellerId() == null) {
-            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "회차·공연·판매자는 모두 있어야 합니다.");
+        if (!target.isComplete()) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "회차·공연·판매자·회차 시작 시각·공연명은 모두 있어야 합니다.");
         }
         if (seats == null || seats.isEmpty()) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, "선점할 좌석이 없습니다.");
