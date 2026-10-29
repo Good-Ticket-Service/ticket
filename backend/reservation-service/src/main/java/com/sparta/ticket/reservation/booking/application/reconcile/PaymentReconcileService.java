@@ -56,11 +56,10 @@ public class PaymentReconcileService {
     }
 
     private boolean reconcileOne(Long reservationId, long deadline) {
-        PendingPayment pending = transactions.readPendingPayment(reservationId).orElse(null);
+        PendingPayment pending = transactions.claimPendingPayment(reservationId).orElse(null);
         if (pending == null) {
             return false;
         }
-        transactions.markPaymentChecked(reservationId);
         PaymentLookup lookup = paymentPort.find(pending.orderId());
         return switch (lookup.status()) {
             case SUCCEEDED, FAILED -> resultApplier.apply(reservationId, pending.orderId(), lookup.toOutcome());
