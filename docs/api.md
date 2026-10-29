@@ -259,7 +259,7 @@
 
 ## 예매 — reservation-service / booking
 
-상태: 단건 조회·checkout·confirm은 구현됨. DTO 필드는 아래 표와 같다. checkout의 쿠폰 반영은 구현됐지만(#143), coupon 모듈의 CouponUsage와 연결하기 전에는 쿠폰을 고르면 503이다. 취소는 #127로 합의했고 구현 전이다. 목록은 초안이다.
+상태: 단건 조회·checkout·confirm·취소는 구현됨. DTO 필드는 아래 표와 같다. checkout의 쿠폰 반영은 구현됐지만(#143), coupon 모듈의 CouponUsage와 연결하기 전에는 쿠폰을 고르면 503이다. 취소 확정 때 좌석과 함께 쿠폰을 돌려준다(#127, #125). 목록은 초안이다.
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -428,7 +428,7 @@
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외). HoldTarget 두 필드 추가와 CANCELING 집계는 #126으로 합의했고 구현 전이다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)이며 구현 전이다.
+상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외). HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)이며 구현 전이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
