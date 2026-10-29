@@ -303,12 +303,12 @@
 
 ## 대기열 — reservation-service / queue
 
-상태: 진입은 구현(#100). 순번 조회와 대기 취소는 초안(구현 전). 공연 단위 입장 토큰 정책과 구현 완료를 구분한다.
+상태: 진입(#100)과 순번 조회(#101)는 구현. 대기 취소는 초안(구현 전). 공연 단위 입장 토큰 정책과 구현 완료를 구분한다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
 | POST /api/queues/performances/{performanceId} | JWT | 200 | 없음 | position:long,aheadCount:long,estimatedWaitSeconds:long | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
-| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | 미정 | 404 NOT_IN_QUEUE |
+| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | status:string(WAITING),position:long,aheadCount:long,estimatedWaitSeconds:long | 404 NOT_IN_QUEUE;503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
 | DELETE /api/queues/performances/{performanceId}/me | JWT | 204 | 없음 | 없음 | 없음 |
 
 - 줄은 공연 단위로 하나다. 입장 토큰 범위가 공연이고, 회차들이 같은 서버 자원을 쓰기 때문이다.
@@ -316,6 +316,9 @@
 - 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더로 정한다.
 - 진입은 이미 서 있으면 원래 순번을 돌려준다. 새로 만들지 않으므로 201이 아니라 200이다.
 - position은 1부터 센다. aheadCount는 내 앞 인원이다. estimatedWaitSeconds는 aheadCount ÷ 초당 입장 인원을 올림한 초다.
+- 순번 조회는 줄을 선 회원이 몇 초마다 부르는 폴링 API다. status는 지금 WAITING뿐이고, 입장 차례가 된 상태(ENTERED)는 입장 토큰과 함께 추가한다.
+- 순번 조회는 부를 때마다 마지막 조회 시각을 남긴다. 이탈자(창을 닫고 떠난 회원)를 찾는 데 쓰는 서버 관리 기록이라 GET으로 둔다.
+- 순번 조회 응답에는 Cache-Control: no-store를 붙인다. 캐시되면 요청이 서버에 오지 않아 이탈자로 잘못 판단하기 때문이다.
 - 대기열이 꺼져 있으면(reservation.queue.enabled=false) 503 QUEUE_DISABLED다.
 - Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
 - 오픈 전 진입과 판매 중지 공연의 진입은 아직 막지 않는다. 공연 서비스 확인 방식이 architecture 14절 미합의 항목이기 때문이다.
