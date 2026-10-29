@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.application.performance.dto;
+package com.sparta.ticket.performance.application.dto;
 
 import java.util.List;
 

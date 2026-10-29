@@ -1,8 +1,8 @@
-package com.sparta.ticket.performance.application.performance;
+package com.sparta.ticket.performance.application;
 
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceDetail;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformancePage;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceSearchCondition;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
+import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
 import java.time.LocalDateTime;
 import java.util.Optional;
 

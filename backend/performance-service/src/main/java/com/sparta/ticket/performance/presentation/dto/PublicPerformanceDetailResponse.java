@@ -1,8 +1,8 @@
 package com.sparta.ticket.performance.presentation.dto;
 
-import com.sparta.ticket.performance.application.performance.dto.PerformancePeriod;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceDetail;
-import com.sparta.ticket.performance.application.performance.dto.VenueSummary;
+import com.sparta.ticket.performance.application.dto.PerformancePeriod;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
+import com.sparta.ticket.performance.application.dto.VenueSummary;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;

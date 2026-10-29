@@ -1,4 +1,4 @@
-package com.sparta.ticket.performance.application.performance.dto;
+package com.sparta.ticket.performance.application.dto;
 
 import com.sparta.ticket.performance.domain.performance.AgeRating;
 import com.sparta.ticket.performance.domain.performance.Genre;

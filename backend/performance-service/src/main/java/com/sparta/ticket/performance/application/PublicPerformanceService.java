@@ -1,9 +1,9 @@
-package com.sparta.ticket.performance.application.performance;
+package com.sparta.ticket.performance.application;
 
 import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceDetail;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformancePage;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceSearchCondition;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
+import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import java.time.Clock;
 import java.time.LocalDateTime;

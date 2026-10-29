@@ -1,7 +1,7 @@
 package com.sparta.ticket.performance.presentation;
 
 import com.sparta.ticket.common.response.ApiResponse;
-import com.sparta.ticket.performance.application.performance.dto.PublicPerformanceSort;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
