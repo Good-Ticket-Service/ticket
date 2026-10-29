@@ -181,6 +181,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - performance_id·seller_id는 선점 때 판매 검증(P21)이 돌려준 값이다. 결제 준비에 그대로 넘기며 바꾸지 않는다(#86).
 - schedule_start_at·performance_title도 선점 때 판매 검증(P21)이 돌려준 값이다. 다시 조회하지 않고 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다(#126).
 - cancel_checked_at은 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각이다. 끝나지 않는 취소가 다음 차례의 앞자리를 막지 않게 한다.
+- refund_required_at은 결제 중인 지금 시도의 성공을 확정하지 못한 시각이다. 기록된 예약은 결과 확인 대상에서 빠지고 확정 불가 환불 대상이 된다(#155).
+- payment_checked_at은 결과 확인이 마지막으로 결제를 조회한 시각이다. refund_required_at이 있는 예약에서는 마지막으로 CONFIRM_FAILED 환불을 요청한 시각이다. 두 작업은 대상이 겹치지 않는다(#155).
 
 - user_coupon_id는 결제 준비에서 이 예약에 잡은 회원 쿠폰이고, discount_amount는 최소 결제 금액에 맞춰 자른 할인액이다. 쿠폰을 쓰지 않으면 둘 다 NULL이다(#125, #143).
 
@@ -517,7 +519,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE(원본: performance/api.md:463-467; 담당 확인 필요) |
 | Performance.period(비저장) | 구현 제안: 미삭제·미취소 회차 start_at의 최소/최대 KST 날짜, 대상 없으면 null(원본: performance/tables.md:206,298; 담당 확인 필요) |
 | SeatState | AVAILABLE,HOLD,SOLD |
-| ReservationState(facade) / ReservationStatus(domain) | HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/EXPIRED/RELEASED/CANCELED. CANCELING은 활성 UNIQUE와 countActiveSeats 집계에 든다(#126) |
+| ReservationState(facade) / ReservationStatus(domain) | HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/EXPIRED/RELEASED/CANCELED. CANCELING은 활성 UNIQUE와 countActiveSeats 집계에 든다(#126). PAYMENT_IN_PROGRESS→CANCELED는 확정하지 못한 결제의 환불이 접수됐을 때만 바뀐다(#155) |
 | Coupon.issueStatus(비저장) | now<start:UPCOMING;start<=now<end:ISSUING;그 밖 ENDED. 수량0이어도 ISSUING 가능 |
 | Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
