@@ -2,6 +2,8 @@ package com.sparta.ticket.payment.infrastructure.pg;
 
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
 import com.sparta.ticket.payment.domain.model.pg.PgResult;
+import io.micrometer.core.instrument.LongTaskTimer;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.ConnectException;
@@ -45,6 +47,48 @@ public final class PgHttp {
                             new PgCall.Responded(res.getStatusCode().value(), readBody(res.getBody())));
         } catch (ResourceAccessException e) {
             return classify(e);
+        }
+    }
+
+    public static PgCall call(
+            Function<RestClient, RestClient.RequestHeadersSpec<?>> request,
+            RestClient client,
+            MeterRegistry meters,
+            String provider,
+            String operation) {
+        if (meters == null) return call(request, client);
+        long started = System.nanoTime();
+        LongTaskTimer.Sample active = null;
+        try {
+            active = LongTaskTimer.builder("payment.pg.http.inflight")
+                    .tags("provider", provider, "operation", operation)
+                    .register(meters)
+                    .start();
+        } catch (RuntimeException ignored) {
+            // Note: 관측 실패로 PG 호출을 막지 않는다.
+        }
+        String outcome = "exception";
+        try {
+            PgCall result = call(request, client);
+            outcome = result instanceof PgCall.Responded response
+                    ? (response.status() == 429 ? "429" : response.status() / 100 + "xx")
+                    : result instanceof PgCall.NotSent ? "not_sent" : "response_lost";
+            return result;
+        } finally {
+            try {
+                if (active != null) active.stop();
+                meters.timer(
+                                "payment.pg.http.duration",
+                                "provider",
+                                provider,
+                                "operation",
+                                operation,
+                                "outcome",
+                                outcome)
+                        .record(System.nanoTime() - started, java.util.concurrent.TimeUnit.NANOSECONDS);
+            } catch (RuntimeException ignored) {
+                // Note: 실제 응답·전송 실패 분류를 관측 오류로 바꾸지 않는다.
+            }
         }
     }
 
