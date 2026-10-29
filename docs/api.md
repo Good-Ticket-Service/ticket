@@ -110,6 +110,10 @@
 - 좌석은 두 값을 BookingFacade.hold의 HoldTarget으로 그대로 넘긴다. 클라이언트 입력에서 받지 않는다.
 - 예매는 두 값을 예약에 저장하고 결제 준비(POST /internal/payments)에 선점 시점 값으로 넘긴다. 결제는 같은 orderId의 재요청에서 값이 다르면 409 PAYMENT_ORDER_CONFLICT로 거절하기 때문이다.
 
+판매 검증 P21.scheduleStartAt·performanceTitle (합의 #126):
+- 좌석은 두 값도 HoldTarget으로 그대로 넘긴다. 허용 응답에 두 값이 없으면 좌석이 503으로 선점을 거절한다.
+- 예매는 두 값을 예약에 선점 시점 스냅샷으로 저장하고 다시 조회하지 않는다. scheduleStartAt은 취소 기한, performanceTitle은 내 예매 목록 표시에 쓴다. 취소가 공연 서비스 가용성에 묶이지 않게 하기 위해서다.
+
 ### 공연 오류 코드
 
 공연 업무 코드 (이번 구현 범위)
@@ -255,7 +259,7 @@
 
 ## 예매 — reservation-service / booking
 
-상태: 단건 조회·checkout·confirm의 현행 Controller는 구현됨. DTO 필드는 아래 표와 같고, checkout/confirm은 결제 미연동이라 503이다. 목록·취소는 초안이다.
+상태: 단건 조회·checkout·confirm의 현행 Controller는 구현됨. DTO 필드는 아래 표와 같고, checkout/confirm은 결제 미연동이라 503이다. 취소는 #127로 합의했고 구현 전이다. 목록은 초안이다.
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -263,7 +267,7 @@
 | POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
 | POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION |
 | GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC | PageC<ReservationSummary>(항목 필드 미정) | 구현 전 |
-| POST /api/reservations/{reservationId}/cancel | 본인 USER | 200 | reason?:string | Reservation(CANCELING/CANCELED) | 취소 정책/세부 오류 미정; 구현 전 |
+| POST /api/reservations/{reservationId}/cancel | 본인 USER | 200 | reason?:string | Reservation(CANCELING/CANCELED) | 409 NOT_CANCELLABLE/INVALID_STATUS_TRANSITION |
 
 - Reservation = `{reservationId:long,scheduleId:long,scheduleSeatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,paymentAmount:long|null}`.
 
@@ -298,9 +302,17 @@
 - confirm: 지난 시도의 결과가 늦게 와도 현재 시도에 반영하지 않는다. 실패는 무시하고 성공은 그 orderId만 F6 보상 대상으로 남긴다. 자동 환불의 MVP 구현 범위는 architecture 14절에서 조율한다. (원본 복원: reservation/booking-decisions.md:38, reservation/orchestration.md:164, 담당 확인 필요)
 - confirm: pgAuthToken은 PAYMENT_IN_PROGRESS 동안만 예매에 남는다. CONFIRMED·HOLD·EXPIRED로 바뀌면 지운다. (원본 복원: reservation/orchestration.md:176, reservation/tables.md:90, 담당 확인 필요)
 - 결과 확인: 결제 조회가 404이면 예매는 알림을 남기고 PAYMENT_IN_PROGRESS를 그대로 둔다. (원본 복원: reservation/orchestration.md:242, 담당 확인 필요)
-- cancel: CONFIRMED이고 취소 가능 기간 안인 예매만 받는다. 취소할 수 없으면 NOT_CANCELLABLE이다. (원본 복원: reservation/orchestration.md:264,353, 담당 확인 필요)
-- cancel: CANCELING에서 같은 취소가 다시 오면 결제를 다시 부르지 않는다. 200과 현재 상태를 준다. (원본 복원: reservation/orchestration.md:274, 담당 확인 필요)
-- cancel: 환불 요청 결과를 모르면 200과 CANCELING을 준다. (원본 복원: reservation/api.md:174, reservation/orchestration.md:268, 담당 확인 필요)
+- cancel: CONFIRMED이고 now < scheduleStartAt인 예매만 CANCELING으로 바꾼다. 회차 시작 시각과 같거나 지났으면 409 NOT_CANCELLABLE이다. scheduleStartAt은 선점 때 저장한 값이다. (#126, #127)
+- cancel: HOLD·PAYMENT_IN_PROGRESS·EXPIRED·RELEASED이면 409 INVALID_STATUS_TRANSITION이다. (#127)
+- cancel: 이미 CANCELING이나 CANCELED이면 결제를 부르지 않고 200과 현재 상태를 준다. 기한도 다시 확인하지 않는다. (#127)
+- cancel: 기한은 CONFIRMED→CANCELING 때만 확인한다. 기한 안에 받은 취소는 회차가 시작된 뒤에도 끝까지 처리한다. (#127)
+- cancel: reason은 선택값이다. 결제에는 사유 USER_CANCEL을 보낸다. (#127)
+- cancel 처리 순서: [트랜잭션] 본인·CONFIRMED·기한 확인 후 CONFIRMED→CANCELING 조건부 변경 → [트랜잭션 밖] 결제 refund(orderId, USER_CANCEL) → [트랜잭션] 좌석 잠금(ID 오름차순) → CANCELING→CANCELED → 좌석 반환·쿠폰 복원. CANCELED가 될 때까지 좌석은 SOLD다. (#127)
+- cancel: 환불 대상 orderId는 CONFIRMED에 쓴 예매의 order_id이고 CANCELING에 들어갈 때 고정한다. 이후 재요청도 같은 값을 쓴다. (#127)
+- cancel: 결제가 200과 해석 가능한 refundStatus(WAITING·REQUESTED·DONE·FAILED·SKIPPED·NOT_REQUIRED)를 주면 환불 요청을 받은 것으로 보고 CANCELED로 바꾼다. refundStatus 값과 관계없다. (#127)
+- cancel: 응답 본문을 해석하지 못했거나 모르는 refundStatus, 타임아웃·5xx, 404 PAYMENT_NOT_FOUND이면 CANCELING을 두고 200 CANCELING을 준다. 404는 잘못된 orderId나 데이터 유실 같은 이상 상황이라 알림을 남긴다. (#127)
+- cancel: CANCELING→CONFIRMED로 되돌리는 경로는 없다. 결제가 받은 환불이 PG에서 실패해도 티켓을 되살리지 않는다. (#127)
+- 취소 확인 스케줄러: 오래 머문 CANCELING은 결제 조회 없이 같은 orderId로 refund를 다시 요청하고, 받으면 위 순서로 CANCELED까지 마무리한다. 결제는 같은 orderId 재요청에 최초 사유를 보존하고 최신 refundStatus와 금액을 준다. 클라이언트는 GET /api/reservations/{reservationId}로 확인한다. (#127)
 
 ## 대기열 — reservation-service / queue
 
@@ -409,16 +421,16 @@
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외), SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)이며 구현 전이다.
+상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외). HoldTarget 두 필드 추가와 CANCELING 집계는 #126으로 합의했고 구현 전이다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)이며 구현 전이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
-| booking → seat | 합의 #34 | hold(Long userId,HoldTarget target,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
+| booking → seat | 합의 #34, #126 | hold(Long userId,HoldTarget target,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
 | seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
 | coupon → booking | 합의 #125 | reserve(Long userCouponId,Long userId,Long reservationId):CouponDiscount; use(Long reservationId); release(Long reservationId) |
 
-- HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long}` (#86); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
+- HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long,scheduleStartAt:LocalDateTime,performanceTitle:String}` (#86, #126); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
 - ReleaseResult=RELEASED/EXPIRED/ALREADY_CLOSED/NOT_RELEASABLE; facade 전용 enum은 domain enum을 노출하지 않는다. 트랜잭션 규칙은 architecture 참조.
 - CouponDiscount=`{userCouponId:Long,couponId:Long,name:String,discountAmount:int}`. CouponUsage는 `coupon.application.facade`에 두고, 예매는 이 패키지만 쓴다. (#125)
 - CouponUsage 전파는 REQUIRED다. 예매 트랜잭션에 합류해 함께 커밋·롤백된다. (#125)
@@ -433,7 +445,7 @@
 - 좌석 준비(공연→seat): MVP Feign 계약의 URI·응답·타임아웃 미합의. 요청 초안=`{requestId:string,scheduleId:long,configVersion:long,seats:[{venueSeatId:long,venueSeatGradeId:long,gradeName:string,basePrice:int|null,isSellable:boolean,section:string,rowLabel:string,seatNumber:int}]}`. Kafka 전환 후 Requested/Completed/Failed의 토픽·스키마·버전은 별도 합의. 미확정 HTTP 경로나 메시지 계약을 생성하지 않는다.
 
 - BookingFacade 공통: 상태를 바꾸지 못한 경우(0행)는 예외가 아니라 반환값으로 알린다. 다음 행동은 호출자가 고른다. (원본 복원: shared/modules/booking-facade.md:17, 담당 확인 필요)
-- hold: HoldTarget의 세 값 중 하나라도 null이면 INVALID_REQUEST다. performanceId·sellerId는 판매 검증(P21) 응답 값이다. (#86)
+- hold: HoldTarget의 다섯 값 중 하나라도 null이면 INVALID_REQUEST다. performanceId·sellerId(#86)와 scheduleStartAt(KST)·performanceTitle(#126)은 판매 검증(P21) 응답 값이다.
 - hold: HOLD 예매와 좌석마다 티켓을 만든다. 티켓 가격은 넘겨받은 선점 시점 가격이다. (원본 복원: shared/modules/booking-facade.md:40, 담당 확인 필요)
 - hold: 1차는 좌석 목록 길이1이다. 같은 좌석이 두 번 들어오거나 가격이 음수면 INVALID_REQUEST이다. (원본 복원: shared/modules/booking-facade.md:41, 담당 확인 필요)
 - hold: 활성 예매(HOLD·PAYMENT_IN_PROGRESS·CONFIRMED·CANCELING)가 이미 있으면 부분 UNIQUE 위반을 잡지 않고 그대로 던진다. 이 예외는 호출 안에서 드러난다. (원본 복원: shared/modules/booking-facade.md:42, 담당 확인 필요)
@@ -443,7 +455,7 @@
 - release: 결제 시작과 해제가 동시에 오면 한쪽만 성공한다. 진 쪽의 결과는 NOT_RELEASABLE이다. (원본 복원: shared/modules/booking-facade.md:81, 담당 확인 필요)
 - release: 쿠폰 연동 시 잡아 둔 쿠폰은 booking이 같은 트랜잭션에서 CouponUsage.release로 해제한다(현행 미연결). seat는 쿠폰을 다루지 않는다. (원본 복원: shared/modules/booking-facade.md:82, 담당 확인 필요)
 - countActiveSeats: 예매 수가 아니라 활성 예매의 티켓 수를 센다. (원본 복원: shared/modules/booking-facade.md:88,97, 담당 확인 필요)
-- countActiveSeats: 현행 집계 대상은 HOLD·PAYMENT_IN_PROGRESS·CONFIRMED이다. CANCELING은 취소를 구현할 때 더한다. (원본 복원: shared/modules/booking-facade.md:97, 담당 확인 필요)
+- countActiveSeats: 집계 대상은 HOLD·PAYMENT_IN_PROGRESS·CONFIRMED·CANCELING이다. 취소 중에도 좌석은 SOLD이고 유효한 예매다. (#126)
 - findActiveHold: 이 회원의 이 회차 HOLD 예매를 만료 여부와 상관없이 돌려준다. (원본 복원: shared/modules/booking-facade.md:89, 담당 확인 필요)
 - expireIfDue: `status=HOLD AND hold_expires_at<=:now`일 때만 EXPIRED로 바꾼다. 쿠폰 연동 시 같은 트랜잭션에서 해제한다(현행 미연결). (원본 복원: shared/modules/booking-facade.md:90, 담당 확인 필요)
 - expireIfDue: PAYMENT_IN_PROGRESS면 선점 시간이 지났어도 false이다. (원본 복원: shared/modules/booking-facade.md:98, 담당 확인 필요)
@@ -453,7 +465,7 @@
 - 확정 때 좌석이 이 예약 것이 아니면 확정하지 않고 CONFIRM_FAILED 보상 대상으로 남긴다. CANCELING 전이와 MVP 구현 범위는 architecture 14절에서 조율한다. (원본 복원: shared/modules/seat-facade.md:51, 담당 확인 필요)
 - 선점 만료 스케줄러: 후보를 잠금 없이 조회하고, 예약마다 lockSeats → HOLD→EXPIRED(조건부) → 1건이면 release 순서로 처리한다. (원본 복원: shared/modules/seat-facade.md:52, 담당 확인 필요)
 - 결제 실패이고 시간이 지났으면 lockSeats → PAYMENT_IN_PROGRESS→EXPIRED → release 순서다. (원본 복원: shared/modules/seat-facade.md:53, 담당 확인 필요)
-- 예매 취소: CONFIRMED→CANCELING 커밋 → 환불 요청 접수 → lockSeats → CANCELING→CANCELED → release 순서다. (원본 복원: shared/modules/seat-facade.md:54, 담당 확인 필요)
+- 예매 취소: CONFIRMED→CANCELING 커밋 → 환불 요청 접수 → lockSeats(ID 오름차순) → CANCELING→CANCELED → release 순서다. 기존 잠금 순서(좌석 → 예약)와 같다. CANCELING 예매의 좌석은 BookingFacade.release로 풀지 않는다(NOT_RELEASABLE). (#127)
 - 좌석 준비 저장은 한 트랜잭션에서 전부 반영하거나 전부 반영하지 않는다. (원본 복원: seat/tables.md:111, 담당 확인 필요)
 - 좌석 준비 응답 초안=`{scheduleId:long,configVersion:long,seatCount:int,sellableCount:int}`. 타입은 미합의다. (원본 복원: shared/internal-api/seat.md:34-35, 담당 확인 필요)
 - CouponUsage: 준비·승인 응답이 유실돼 PAYMENT_IN_PROGRESS가 유지되면 쿠폰을 해제하지 않는다. 같은 orderId 조회·재요청으로 결과를 확인한다. (원본 복원: shared/modules/coupon-usage.md:41, 담당 확인 필요)

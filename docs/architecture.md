@@ -60,7 +60,7 @@ flowchart LR
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
 | booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, 구현 전 |
 | booking → payment 준비·승인·조회 | Feign 동기 유지. 승인 응답 DONE/FAILED/IN_PROGRESS | HTTP 계약 합의, D16 적용 |
-| booking → payment 환불 | MVP HTTP 인수. Phase 2 Kafka 명령은 P3 가안 | 접수 확인·토픽 미합의 |
+| booking → payment 환불 | MVP HTTP 동기. 200과 해석 가능한 refundStatus면 인수(#127). Phase 2 Kafka 명령은 P3 가안 | MVP 인수 기준 합의(#127), 토픽 미합의 |
 | payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
 | payment → fake-pg | RestClient + JDK HttpClient HTTP/1.1. 연결2초·읽기10초(D17) | PG 어댑터 구현됨 |
 | 잔여석 조회 | seat가 GET /api/seats/schedules/{scheduleId}/remaining 제공. 공연 카운터 갱신 이벤트는 보류 | 좌석 API 초안 |
@@ -127,8 +127,8 @@ stateDiagram-v2
 - PAYMENT_IN_PROGRESS는 선점 만료 정리 대상이 아니다.60초는 결제의 판정 기준이고 잡 지연·서버 중단 중 완료 시한 보장은 아니다(9절).
 - CONFIRMED는 좌석 판매·티켓 코드·쿠폰 사용이 함께 확정된 상태다. EXPIRED/RELEASED는 좌석·예약 쿠폰을 반환한다.
 - CANCELING은 외부 환불 전 저장하는 의도, CANCELED는 결제의 환불 요청 인수 상태다. PG 취소 완료와 같지 않다.
-- facade enum ReservationState에는 CANCELING이 있다. 현행 domain ReservationStatus와 booking.sql CHECK에는 없고 활성 부분 UNIQUE에는 이미 포함된다. 취소 구현 때 domain/CHECK/집계를 맞춘다.
-- 상태 전이는 조건부 UPDATE로 한 번만 반영한다. 영구 확정 실패의 PAYMENT_IN_PROGRESS/EXPIRED → CANCELING 전이와 환불 거절 시 CANCELING → CONFIRMED 복귀는 자동 추가하지 않는다(14절).
+- facade enum ReservationState와 활성 부분 UNIQUE에는 CANCELING이 있다. domain ReservationStatus·booking.sql CHECK·countActiveSeats 집계에 더하는 것은 #126으로 합의했고 구현 전이다.
+- 상태 전이는 조건부 UPDATE로 한 번만 반영한다. CANCELING → CONFIRMED 복귀 경로는 두지 않는다(#127). 영구 확정 실패의 PAYMENT_IN_PROGRESS/EXPIRED → CANCELING 전이는 자동 추가하지 않는다(14절).
 
 ## 6. Kafka 메시징 범위
 
@@ -154,7 +154,7 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 | PG 호출 전 READY | 승인 접수 여부를 조회하고 같은 orderId·인증값으로 재전송. 세부 재전송 시각·404 분기는14절 |
 | FAILED 종료 후 늦은 과금 | 해당 orderId만 AUTO_VOID, 새 예매 시도·쿠폰은 보존. 결제 담당의 단계별 최소 Reconcile로 확인하며 최종 누락 부재의 증명은 아님. 실제 PG 취소와 전체 내역 대사는 별도 |
 | 과금됐으나 확정 불가(F6) | 현재 시도 식별·알림. MVP의 보상 의도 영속 저장 여부는 B19/D18 합의 대기 |
-| 환불 접수 응답 유실 | CANCELING 유지·동일 orderId 멱등 재요청. 인수 후 CANCELED |
+| 환불 접수 응답 유실 | CANCELING 유지. 취소 확인 스케줄러가 조회 없이 CANCELING 진입 때 고정한 orderId로 재요청한다. 200과 해석 가능한 refundStatus면 CANCELED. 404는 알림·CANCELING 유지(#127) |
 | 환불 PG 거절·장기 불명 | 금융 미완료는 결제가 관리. 인수 후 취소한 티켓을 되살리지 않음. 접수 전 정책상 거절과 구분 |
 | 회차 취소 | 공연202 접수와 예매 전달·PG 완료는 구분. 전파·재시도·상태별 정리는14절 계약 대기 |
 
@@ -181,7 +181,7 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 - **결과 확정 시한:** 결제는 PG 승인 호출 시각부터 60초가 지나도 결과를 모르면 FAILED(`PG_UNRESOLVED`)로 확정한다. 서버 중단·적체 중에도 정확히 60초에 끝난다는 보장은 아니고, 실제 과금이 없었다는 증명도 아니다. 그래서 늦은 승인은 결제가 그 orderId만 자동 환불(`AUTO_VOID`)하고, 새 시도의 예매·쿠폰·티켓은 건드리지 않는다.
 - **조회가 안 될 때:** 결제 조회가 실패했다는 이유만으로 예매가 좌석·쿠폰을 풀지 않는다.
 - **환불의 세 단계:** 환불 접수, PG 취소 성공, 고객 카드·계좌 반영은 각각 다른 시점에 끝난다. `NOT_REQUIRED`·`SKIPPED`의 의미는 api.md 결제 계약을 따른다.
-- **취소 정책:** 사용자는 회차 시작 전에만 정책에 따라 취소할 수 있다. 회차 취소와 확정 실패 보상은 사용자 취소 기한의 예외다. 부분 환불·취소 수수료 차감은 지원하지 않는다.
+- **취소 정책:** 사용자는 회차 시작 전에만 정책에 따라 취소할 수 있다. 기한은 CONFIRMED → CANCELING 때 선점 시 저장한 회차 시작 시각으로 판정하고(`now < scheduleStartAt`), 받은 취소는 회차가 시작된 뒤에도 마무리한다(#126·#127). 회차 취소와 확정 실패 보상은 사용자 취소 기한의 예외다. 부분 환불·취소 수수료 차감은 지원하지 않는다.
 - **환불 실패와 예매:** 환불이 FAILED·차단돼도 취소한 예매·티켓을 되살리지 않는다. 환불 완료는 결제가 끝까지 책임진다.
 
 ## 10. 공연·좌석 준비
@@ -231,6 +231,8 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | #22 | 결제는 쿠폰을 처리하지 않는다. 예매가 확정한 정가·할인액만 받아 검증·저장한다 | 합의 (#25에서 예매 담당 승인) |
 | #27 | CouponUsage를 예매 기준(reservationId 점유)으로 바꾸는 계약 | #125로 이어서 합의 |
 | #125 | CouponUsage의 메서드·반환 타입, USED 복원, 취소 확정 때 복원, 할인액은 예매가 자름 | 합의 (쿠폰·결제 담당 확인) |
+| #126 | 선점 때 HoldTarget으로 회차 시작 시각·공연명을 넘겨 예약에 스냅샷으로 저장하고, CANCELING을 domain/CHECK/집계에 반영한다 | 합의 (좌석 담당 확인) |
+| #127 | 예약 취소 API, NOT_CANCELLABLE 409, 환불 200 응답의 인수 해석, 같은 orderId 재요청, CANCELING → CONFIRMED 복귀 없음 | 합의 (결제·좌석 담당 확인) |
 | #34 | seat ↔ booking은 facade 패키지의 메서드·타입으로만 서로 부르고, 공유 Clock으로 선점 만료를 계산한다 | 합의 |
 | #86 | 결제 준비의 sellerId·performanceId는 판매 검증(P21) 응답에서 받아 선점 때 예약에 저장한 값을 쓴다 | 합의 |
 | #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
@@ -257,8 +259,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 |---|---|---|
 | 준비 순서 | 같은 예매 준비의 직렬화/영속 소유 방식, 오래된 원격 시도 차단, READY_FAILED 매핑. 타임아웃 재전송은 같은 orderId 유지 제안 | 예매·결제 |
 | CouponUsage 구현 | 계약은 #125로 합의했다. coupon 모듈의 CouponUsage 구현, 예매의 호출 연결과 할인액 자르기, 예매 쿠폰 DDL(tables 「예매 쿠폰」)이 남았다 | 예매·쿠폰 |
-| 취소·보상 | CANCELING domain enum/CHECK/집계/복구 미구현(활성 UNIQUE·facade enum은 포함). F6의 B19(감지·알림)와 D18(보상 의도 영속 저장) MVP 범위 조율 | 예매·좌석·결제 |
-| 취소 거절 복귀 | 원본 CANCELING→CONFIRMED가 접수 전 정책 거절인지 확인. 인수한 환불의 PG 실패로 티켓을 복구하지 않는 계약 유지 | 예매·결제 |
+| 취소·보상 | 사용자 취소는 #126·#127로 합의했다. CANCELING domain enum/CHECK/집계, 예매 회차 스냅샷 DDL, 취소 API와 취소 확인 스케줄러 구현이 남았다. F6의 B19(감지·알림)와 D18(보상 의도 영속 저장) MVP 범위 조율 | 예매·좌석·결제 |
 | 회차 취소 | 공연202만 확정. 전달 URI/payload/영속 재시도 주체·결제중 보호·신규 판매 차단·PG 환불 조회 합의. reservation-summary만으로 PG 환불 완료 판단 금지 | 공연·예매·좌석·결제 |
 | 삭제 전 조회 | 공연/회차 삭제의 예매 존재 확인·오류·의존 조회 불가 정책 계약 | 공연·예매 |
 | 연령·탈퇴 | 미달 차단에 필요한 생년월일/기준시각/ageRating 전달, 진행 거래·공연 보유 회원 탈퇴 정책 | 회원·공연·예매 |
@@ -266,7 +267,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답·회차→공연 검증·Redis 키·오픈 전 진입·잔여석 캐시TTL 결정 | 대기열·좌석·Gateway |
 | 만료 직전 요청 | payment.expiresAt=holdExpiresAt 경계·전송 중 만료 처리·grace 합의 | 예매·결제 |
 | Feign timeout | 현행 예매15초와 결제20초 제안의 실행 예산 조율 | 예매·결제 |
-| 조회404·취소 오류 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409; NOT_CANCELLABLE의 HTTP/기간 정책 확정 필요 | 예매·결제 |
+| 조회404 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409. NOT_CANCELLABLE은 409로 합의(#127) | 예매·결제 |
 | 금액 타입 | payment_amount 및 원본 discount_amount BIGINT에서 공통 INT 목표로 DDL·DTO 이행 범위·시점 | 예매·결제 |
 | 내부 보안·운영 | 결제 관리자 JWT·MASTER·캐시 우회는 #88 브랜치 구현(api/infra 참조). 서비스 인증 전반·직접 접근 통제·공통 감사 주체·미완료 경보는 별도 확인 | 플랫폼·각 도메인 |
 | 추가 API | 티켓 조회/관리자 예매 목록은 현행 계약 없음. 전체 공연 취소 API는 제공하지 않고 회차별 취소 | 예매·공연 |
