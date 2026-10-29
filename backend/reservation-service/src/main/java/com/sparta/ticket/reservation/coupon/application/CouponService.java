@@ -79,7 +79,9 @@ public class CouponService {
     public void delete(Long couponId, String username) {
         // 발급 수량이 0이고 아직 삭제되지 않은 경우에만 삭제 정보를 기록한다
         int deleted = couponRepository.softDeleteIfNotIssued(couponId, username, now());
-        // 0행이면 쿠폰이 남아 있는지로 409(이미 발급됨)와 404(없음)를 가른다
+        // 바뀐 행이 0이면 삭제 조건이 맞지 않은 것이다. 실패 이유를 알려고 삭제되지 않은 쿠폰이 있는지 다시 본다.
+        // - 있다: 쿠폰은 있는데 조건(발급 수량 0)에 걸렸다 = 누가 이미 받았다 → 409 COUPON_NOT_DELETABLE
+        // - 없다: 처음부터 없는 ID거나 이미 삭제됐다(existsById는 삭제된 쿠폰을 못 찾는다) → 404 COUPON_NOT_FOUND
         if (deleted == 0) {
             throw new BusinessException(
                     couponRepository.existsById(couponId)
