@@ -1,0 +1,47 @@
+# 팀 공용 Alertmanager. 경보 규칙은 infra/prometheus/rules/{서비스}-*.yml에 있다.
+#
+# - 서비스별 메시지 형식·묶음·억제는 application 라벨로 나눈 하위 route와 수신자에 둔다. 최상위는 범용 기본값이다.
+# - Slack webhook URL은 이 파일에 쓰지 않는다. compose가 SLACK_WEBHOOK_URL_FILE(기본: 모의 수신기 URL)을
+#   /etc/alertmanager/secrets/slack_webhook_url로 마운트한다.
+# - 알림 전송 실패는 업무 처리에 영향을 주지 않는다. 실패는 alertmanager_notifications_failed_total로 따로 본다.
+global:
+  resolve_timeout: 5m
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+route:
+  receiver: slack-default
+  group_by: [environment, application, alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  routes:
+    # payment: 위험 거래마다 알리지 않고 PG·경보 종류로 묶는다(결제 담당).
+    - matchers: [application="payment-service"]
+      receiver: slack-payment
+      group_by: [environment, application, provider, alertname]
+
+receivers:
+  # 서비스 전용 route가 없는 경보(Alertmanager 자체 경보 포함). Alertmanager 기본 Slack 형식을 쓴다.
+  - name: slack-default
+    slack_configs:
+      - api_url_file: /etc/alertmanager/secrets/slack_webhook_url
+        send_resolved: true
+  - name: slack-payment
+    slack_configs:
+      - api_url_file: /etc/alertmanager/secrets/slack_webhook_url
+        send_resolved: true
+        title: '{{ template "payment.slack.title" . }}'
+        text: '{{ template "payment.slack.text" . }}'
+        color: '{{ template "payment.slack.color" . }}'
+
+inhibit_rules:
+  # payment: 같은 위험의 CRITICAL이 뜨면 WARNING은 보내지 않는다. 경보 규칙이 두 단계에 같은 alertname을 쓴다.
+  - source_matchers: [application="payment-service", severity="critical"]
+    target_matchers: [application="payment-service", severity="warning"]
+    equal: [environment, alertname, provider, task]
+  # payment: 타깃이 없으면 다른 payment 경보는 원인이 같으므로 억제한다.
+  - source_matchers: [alertname="PaymentTargetMissing"]
+    target_matchers: [application="payment-service", alertname!="PaymentTargetMissing"]
+    equal: [environment]
