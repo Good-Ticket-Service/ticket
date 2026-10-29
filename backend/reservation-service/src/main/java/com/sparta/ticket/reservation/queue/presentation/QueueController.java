@@ -10,11 +10,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -49,5 +52,16 @@ public class QueueController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(ApiResponse.ok(queueService.findMyStatus(performanceId, user.userId())));
+    }
+
+    /**
+     * 대기를 취소한다. 204(본문 없음). 이미 줄에 없어도 204다.
+     * 응답이 유실돼 앱이 다시 보낸 요청이 실패로 보이지 않도록, 여러 번 불러도 같은 결과(멱등)를 준다.
+     */
+    @Operation(summary = "대기 취소")
+    @DeleteMapping("/performances/{performanceId}/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leave(@PathVariable Long performanceId, @CurrentUser UserContext user) {
+        queueService.leave(performanceId, user.userId());
     }
 }

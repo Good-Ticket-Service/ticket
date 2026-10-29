@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.queue.presentation;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -97,10 +98,42 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.code").value("NOT_IN_QUEUE"));
     }
 
+    /** 사용자 헤더를 붙여 대기를 취소한다. */
+    private ResultActions leave(long performanceId, long userId) throws Exception {
+        return mockMvc.perform(delete("/api/queues/performances/{performanceId}/me", performanceId)
+                .header(UserHeaders.USER_ID, String.valueOf(userId))
+                .header(UserHeaders.USERNAME, "user" + userId + "@ticket.com")
+                .header(UserHeaders.ROLE, Role.USER.name()));
+    }
+
+    @Test
+    @DisplayName("대기를 취소하면 204이고, 이후 순번 조회는 404, 뒤 회원의 순번은 당겨진다")
+    void leave() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+        enter(performanceId, 1L);
+        enter(performanceId, 2L);
+
+        leave(performanceId, 1L).andExpect(status().isNoContent());
+
+        findMyStatus(performanceId, 1L).andExpect(status().isNotFound());
+        findMyStatus(performanceId, 2L).andExpect(jsonPath("$.data.position").value(1));
+    }
+
+    @Test
+    @DisplayName("줄에 없는 회원이 취소해도 204다(여러 번 불러도 같다)")
+    void leaveNotInQueue() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+
+        leave(performanceId, 1L).andExpect(status().isNoContent());
+        leave(performanceId, 1L).andExpect(status().isNoContent());
+    }
+
     @Test
     @DisplayName("사용자 헤더가 없으면 401")
     void unauthenticated() throws Exception {
         mockMvc.perform(post("/api/queues/performances/{performanceId}", 1L)).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/queues/performances/{performanceId}/me", 1L)).andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/api/queues/performances/{performanceId}/me", 1L))
+                .andExpect(status().isUnauthorized());
     }
 }

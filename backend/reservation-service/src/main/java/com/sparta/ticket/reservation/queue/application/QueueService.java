@@ -42,6 +42,12 @@ public class QueueService {
                 estimatedWaitSeconds(position.aheadCount()));
     }
 
+    /** 대기를 취소한다. 줄에 없어도 성공으로 본다(같은 요청을 다시 보내도 결과가 같다). */
+    public void leave(long performanceId, long userId) {
+        requireEnabled();
+        waitingQueue.leave(performanceId, userId);
+    }
+
     private void requireEnabled() {
         if (!properties.enabled()) {
             throw new BusinessException(QueueErrorCode.QUEUE_DISABLED);
