@@ -100,6 +100,9 @@ public class CouponController {
 
     /**
      * 발급 상태별 쿠폰 목록. 200과 페이지(PageResponse)를 돌려준다.
+     * 관리자가 만든 쿠폰 종류(p_coupons)를 보여 주는 "쿠폰 받기" 화면용이다. 내가 받은 쿠폰 한 장 한 장은 /me가 보여 준다.
+     * issueStatus는 쿠폰의 발급 기간이 지금 어디인지(시작 전·발급 중·종료)로 거르는 필터라 누가 보든 같다(화면 탭 구분용).
+     * 회원마다 다른 값은 issuedByMe(이미 받았는지)이고, "받기"·"받음" 버튼 표시에 쓴다.
      * 역할 제한이 없어 로그인한 모든 사용자가 볼 수 있고, 사용자 헤더가 없으면 @CurrentUser가 401을 낸다.
      * page·size·sort 보정은 공통 SearchPageableArgumentResolver가 하고, 정렬 허용 필드는 서비스가 검사한다.
      */
@@ -126,6 +129,9 @@ public class CouponController {
 
     /**
      * 내 쿠폰 목록. 200과 요청한 사용자가 받은 회원 쿠폰 페이지를 돌려준다. status를 보내지 않으면 전부다.
+     * 쿠폰 종류 목록(GET /api/coupons)과 달리 회원이 받은 쿠폰 한 장 한 장(p_user_coupons)을 보여 주는 "내 쿠폰함"이다.
+     * status는 받을 수 있는 기간이 아니라 이 한 장을 쓸 수 있는지(AVAILABLE·RESERVED·USED·EXPIRED)이고,
+     * 예매에 쓸 userCouponId를 여기서 얻는다.
      * 응답 상태는 저장값이 아니라 만료 시각을 반영한 표시 상태라, 기간이 지난 AVAILABLE은 EXPIRED로 보인다.
      * Note: 명세 권한이 로그인이라 역할을 막지 않는다. SELLER·MASTER는 받은 쿠폰이 없어 빈 목록이다.
      * Note: 요청 /api/coupons/me는 이 /me 패턴과 상세의 /{couponId} 패턴(couponId="me")에 둘 다 맞는다.
