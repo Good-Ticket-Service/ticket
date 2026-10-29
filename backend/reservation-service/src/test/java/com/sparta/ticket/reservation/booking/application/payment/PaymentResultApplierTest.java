@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -23,6 +24,8 @@ import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
+import com.sparta.ticket.reservation.booking.domain.SaleTarget;
+import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * 결제 성공 반영의 갈래마다 전이, 다시 읽기, 환불 대상 표시, 메트릭을 어떤 순서로 몇 번 부르는지 본다.
@@ -190,12 +194,16 @@ class PaymentResultApplierTest {
                 .thenReturn(confirmed);
     }
 
+    /** 상태 판단은 Reservation의 실제 코드를 타게 하고, 티켓 발급 여부만 확인하려고 spy로 감싼다. */
     private static Reservation reservation(ReservationStatus status, boolean sameAttempt) {
-        Reservation reservation = mock(Reservation.class);
-        when(reservation.getId()).thenReturn(RESERVATION_ID);
-        when(reservation.getStatus()).thenReturn(status);
-        when(reservation.isAttempt(ORDER_ID)).thenReturn(sameAttempt);
-        when(reservation.getSeatIds()).thenReturn(SEAT_IDS);
-        return reservation;
+        Reservation reservation = Reservation.hold(
+                1L,
+                new SaleTarget(1L, 2L, 3L),
+                SEAT_IDS.stream().map(seatId -> new SeatPrice(seatId, 10_000)).toList(),
+                STAMP.at().plusMinutes(10));
+        ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
+        ReflectionTestUtils.setField(reservation, "status", status);
+        ReflectionTestUtils.setField(reservation, "orderId", sameAttempt ? ORDER_ID : "order-other");
+        return spy(reservation);
     }
 }

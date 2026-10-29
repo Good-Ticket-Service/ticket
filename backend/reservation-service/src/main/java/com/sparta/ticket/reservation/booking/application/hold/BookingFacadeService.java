@@ -13,7 +13,6 @@ import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
-import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.SaleTarget;
 import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
@@ -86,9 +85,7 @@ public class BookingFacadeService implements BookingFacade {
 
     /** 해제도 만료도 0행이었을 때, 다시 읽은 지금 상태로 이미 끝난 선점인지 해제할 수 없는 예약인지 가른다. */
     private ReleaseResult closedOrNotReleasable(Long reservationId) {
-        ReservationStatus status =
-                reservationRepository.reload(reservationId).orElseThrow().getStatus();
-        if (status == ReservationStatus.RELEASED || status == ReservationStatus.EXPIRED) {
+        if (reservationRepository.reload(reservationId).orElseThrow().isClosedHold()) {
             return ReleaseResult.ALREADY_CLOSED;
         }
         // Note: 결제 중·확정·취소는 예외 대신 결과로 알린다. seat가 204와 409를 고르는 근거다(#34).

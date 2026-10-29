@@ -7,7 +7,6 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
-import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,7 +45,7 @@ public class PaymentResultApplier {
 
     /** 지금 시도의 결제 중 예약일 때만 좌석을 잠그고 확정한다. 그 밖의 성공은 좌석을 건드리지 않고 가린다. */
     private boolean applySuccess(Reservation reservation, String orderId, ChangeStamp stamp) {
-        if (!isCurrentPayment(reservation, orderId)) {
+        if (!reservation.isCurrentPayment(orderId)) {
             recordUnconfirmedSuccess(reservation, orderId, stamp);
             return false;
         }
@@ -78,12 +77,12 @@ public class PaymentResultApplier {
      */
     private void recordUnconfirmedSuccess(Reservation current, String orderId, ChangeStamp stamp) {
         Long id = current.getId();
-        if (current.isAttempt(orderId) && current.getStatus() == ReservationStatus.CONFIRMED) {
+        if (current.isConfirmedBy(orderId)) {
             return;
         }
         // Note: 확정하지 못한 지금 시도는 결제 중으로 남아 결과 확인이 같은 성공을 계속 다시 받는다.
         // 처음 한 번만 환불 대상으로 세야 환불할 결제 수가 부풀지 않는다.
-        if (isCurrentPayment(current, orderId)
+        if (current.isCurrentPayment(orderId)
                 && reservationRepository.markRefundRequired(id, orderId, stamp.at()) == 0) {
             return;
         }
@@ -98,7 +97,7 @@ public class PaymentResultApplier {
 
     /** 같은 실패가 다시 왔거나 지난 시도의 실패면 아무것도 바꾸지 않는다. */
     private boolean applyFailure(Reservation reservation, String orderId, ChangeStamp stamp) {
-        if (!isCurrentPayment(reservation, orderId)) {
+        if (!reservation.isCurrentPayment(orderId)) {
             return false;
         }
         Long id = reservation.getId();
@@ -114,9 +113,5 @@ public class PaymentResultApplier {
                 id,
                 reservation.getSeatIds(),
                 () -> reservationRepository.returnToHold(id, orderId, stamp));
-    }
-
-    private static boolean isCurrentPayment(Reservation reservation, String orderId) {
-        return reservation.getStatus() == ReservationStatus.PAYMENT_IN_PROGRESS && reservation.isAttempt(orderId);
     }
 }

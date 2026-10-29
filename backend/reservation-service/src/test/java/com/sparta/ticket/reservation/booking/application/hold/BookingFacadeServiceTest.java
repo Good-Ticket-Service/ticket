@@ -21,6 +21,8 @@ import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.SaleTarget;
+import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InOrder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * 쿼리를 보내는지, 어떤 순서로 보내는지, 메트릭을 언제 세는지처럼 통합 테스트로 보기 어려운 것만 확인한다.
@@ -182,8 +185,13 @@ class BookingFacadeServiceTest {
     }
 
     private void givenNoRowChangedThenReloaded(ReservationStatus status) {
-        Reservation reloaded = mock(Reservation.class);
-        when(reloaded.getStatus()).thenReturn(status);
+        // Note: 끝난 선점인지는 Reservation이 판단하므로 mock 대신 상태만 넣은 실제 예약을 돌려준다.
+        Reservation reloaded = Reservation.hold(
+                USER_ID,
+                new SaleTarget(1L, 2L, 3L),
+                List.of(new SeatPrice(100L, 10_000)),
+                STAMP.at().plusMinutes(10));
+        ReflectionTestUtils.setField(reloaded, "status", status);
         when(reservationRepository.releaseHold(RESERVATION_ID, USER_ID, STAMP)).thenReturn(0);
         when(reservationRepository.expireHold(RESERVATION_ID, STAMP)).thenReturn(0);
         when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.of(reloaded));
