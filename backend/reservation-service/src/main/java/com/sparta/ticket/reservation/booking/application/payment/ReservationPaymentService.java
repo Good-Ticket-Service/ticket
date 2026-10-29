@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.booking.application.payment;
 
 import com.sparta.ticket.common.auth.UserContext;
+import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutResult;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
@@ -11,9 +12,11 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
+import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -34,8 +37,8 @@ public class ReservationPaymentService {
      * 결제 호출이 실패하거나 결과를 몰라도 잡은 쿠폰은 그대로 둔다. 같은 쿠폰으로 다시 준비하면 된다.
      */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
-        CheckoutTarget target = transactions.applyCoupon(
-                transactions.loadCheckoutTarget(user.userId(), reservationId), command.userCouponId());
+        CheckoutTarget target =
+                applyCoupon(transactions.loadCheckoutTarget(user.userId(), reservationId), command.userCouponId());
         String orderId = UUID.randomUUID().toString();
         PreparedPayment prepared = paymentPort.prepare(new PaymentPrepareRequest(
                 orderId,
@@ -50,6 +53,20 @@ public class ReservationPaymentService {
                 target.holdExpiresAt()));
         transactions.recordCheckout(target, orderId, prepared.amount());
         return new CheckoutResult(orderId, prepared.amount(), prepared.checkoutUrl());
+    }
+
+    /**
+     * 쿠폰을 예약에 반영한다. 같은 회원의 두 예약이 서로의 쿠폰으로 동시에 바꾸면 쿠폰 행을 서로 반대 순서로 잠가 DB가 한쪽을 중단할 수 있다.
+     * 한쪽은 어차피 상대 쿠폰을 잡지 못하므로, 잠금 실패는 서버 오류가 아니라 다른 준비가 먼저 처리된 것으로 답한다.
+     * 트랜잭션이 롤백된 뒤라 예약과 쿠폰은 그대로다. 그 밖의 DB 오류는 바꾸지 않는다.
+     */
+    private CheckoutTarget applyCoupon(CheckoutTarget target, Long userCouponId) {
+        try {
+            return transactions.applyCoupon(target, userCouponId);
+        } catch (PessimisticLockingFailureException e) {
+            log.warn("쿠폰 반영 중 잠금 실패. reservationId={}, userCouponId={}", target.reservationId(), userCouponId, e);
+            throw new BusinessException(ReservationErrorCode.CHECKOUT_CONFLICT);
+        }
     }
 
     /**
