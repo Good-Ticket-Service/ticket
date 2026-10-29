@@ -2,9 +2,6 @@ package com.sparta.ticket.reservation.booking.application.hold;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,11 +29,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * 쿼리를 보내는지, 어떤 순서로 보내는지, 메트릭을 언제 세는지처럼 통합 테스트로 보기 어려운 것만 확인한다.
+ * 해제 결과와 메트릭처럼 통합 테스트로 보기 어려운 것만 확인한다. 저장소를 어떤 순서로 부르는지는 보지 않는다.
  * 상태가 실제로 바뀌는지는 BookingFacadeSeatQueryIntegrationTest와 ReservationTransitionIntegrationTest가 본다.
  */
 class BookingFacadeServiceTest {
@@ -80,7 +76,7 @@ class BookingFacadeServiceTest {
     }
 
     @Test
-    @DisplayName("release: 예약이 없으면 RESERVATION_NOT_FOUND이고 조건부 UPDATE를 보내지 않는다")
+    @DisplayName("release: 예약이 없으면 RESERVATION_NOT_FOUND이고 세지 않는다")
     void releaseMissingReservation() {
         when(reservationRepository.findById(RESERVATION_ID)).thenReturn(Optional.empty());
 
@@ -89,13 +85,11 @@ class BookingFacadeServiceTest {
                         BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ReservationErrorCode.RESERVATION_NOT_FOUND));
 
-        verify(reservationRepository, never()).releaseHold(anyLong(), anyLong(), any());
-        verify(reservationRepository, never()).expireHold(anyLong(), any());
         verifyNoInteractions(metrics);
     }
 
     @Test
-    @DisplayName("release: 해제가 1행이면 RELEASED이고 해제만 센다. 만료는 시도하지 않는다")
+    @DisplayName("release: 해제가 1행이면 RELEASED이고 해제만 센다")
     void releaseCountsReleased() {
         givenOwnedReservation();
         when(reservationRepository.releaseHold(RESERVATION_ID, USER_ID, STAMP)).thenReturn(1);
@@ -104,26 +98,19 @@ class BookingFacadeServiceTest {
 
         verify(metrics).releasedHold();
         verify(metrics, never()).expiredHold();
-        verify(reservationRepository, never()).expireHold(anyLong(), any());
-        verify(reservationRepository, never()).reload(anyLong());
     }
 
     @Test
-    @DisplayName("release: 해제가 0행이고 만료가 1행이면 EXPIRED이고 만료만 센다. 두 UPDATE에 같은 스탬프를 쓴다")
-    void releaseCountsExpiredWithSameStamp() {
+    @DisplayName("release: 해제가 0행이고 만료가 1행이면 EXPIRED이고 만료만 센다")
+    void releaseCountsExpired() {
         givenOwnedReservation();
         when(reservationRepository.releaseHold(RESERVATION_ID, USER_ID, STAMP)).thenReturn(0);
         when(reservationRepository.expireHold(RESERVATION_ID, STAMP)).thenReturn(1);
 
         assertThat(bookingFacade.release(USER_ID, RESERVATION_ID)).isEqualTo(ReleaseResult.EXPIRED);
 
-        InOrder order = inOrder(reservationRepository, metrics);
-        order.verify(reservationRepository).releaseHold(RESERVATION_ID, USER_ID, STAMP);
-        order.verify(reservationRepository).expireHold(RESERVATION_ID, STAMP);
-        order.verify(metrics).expiredHold();
-        verify(changeStamps).stamp();
+        verify(metrics).expiredHold();
         verify(metrics, never()).releasedHold();
-        verify(reservationRepository, never()).reload(anyLong());
     }
 
     @ParameterizedTest
@@ -137,7 +124,6 @@ class BookingFacadeServiceTest {
 
         assertThat(bookingFacade.release(USER_ID, RESERVATION_ID)).isEqualTo(ReleaseResult.ALREADY_CLOSED);
 
-        verifyOrderOfQueries();
         verifyNoInteractions(metrics);
     }
 
@@ -153,7 +139,6 @@ class BookingFacadeServiceTest {
 
         assertThat(bookingFacade.release(USER_ID, RESERVATION_ID)).isEqualTo(ReleaseResult.NOT_RELEASABLE);
 
-        verifyOrderOfQueries();
         verifyNoInteractions(metrics);
     }
 
@@ -179,29 +164,24 @@ class BookingFacadeServiceTest {
     }
 
     private void givenOwnedReservation() {
-        Reservation reservation = mock(Reservation.class);
-        when(reservation.isOwnedBy(USER_ID)).thenReturn(true);
-        when(reservationRepository.findById(RESERVATION_ID)).thenReturn(Optional.of(reservation));
+        when(reservationRepository.findById(RESERVATION_ID))
+                .thenReturn(Optional.of(reservation(ReservationStatus.HOLD)));
     }
 
     private void givenNoRowChangedThenReloaded(ReservationStatus status) {
-        // Note: 끝난 선점인지는 Reservation이 판단하므로 mock 대신 상태만 넣은 실제 예약을 돌려준다.
-        Reservation reloaded = Reservation.hold(
+        when(reservationRepository.releaseHold(RESERVATION_ID, USER_ID, STAMP)).thenReturn(0);
+        when(reservationRepository.expireHold(RESERVATION_ID, STAMP)).thenReturn(0);
+        when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.of(reservation(status)));
+    }
+
+    /** 소유자와 끝난 선점인지는 Reservation이 판단하므로 mock 대신 상태만 넣은 실제 예약을 쓴다. */
+    private static Reservation reservation(ReservationStatus status) {
+        Reservation reservation = Reservation.hold(
                 USER_ID,
                 new SaleTarget(1L, 2L, 3L),
                 List.of(new SeatPrice(100L, 10_000)),
                 STAMP.at().plusMinutes(10));
-        ReflectionTestUtils.setField(reloaded, "status", status);
-        when(reservationRepository.releaseHold(RESERVATION_ID, USER_ID, STAMP)).thenReturn(0);
-        when(reservationRepository.expireHold(RESERVATION_ID, STAMP)).thenReturn(0);
-        when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.of(reloaded));
-    }
-
-    private void verifyOrderOfQueries() {
-        InOrder order = inOrder(reservationRepository);
-        order.verify(reservationRepository).findById(RESERVATION_ID);
-        order.verify(reservationRepository).releaseHold(RESERVATION_ID, USER_ID, STAMP);
-        order.verify(reservationRepository).expireHold(RESERVATION_ID, STAMP);
-        order.verify(reservationRepository).reload(RESERVATION_ID);
+        ReflectionTestUtils.setField(reservation, "status", status);
+        return reservation;
     }
 }

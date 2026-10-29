@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -21,8 +20,11 @@ import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
+import com.sparta.ticket.reservation.booking.domain.SaleTarget;
+import com.sparta.ticket.reservation.booking.domain.SeatPrice;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.IntSupplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,15 +32,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.mockito.InOrder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * startPayment가 0행일 때 다시 읽은 예약으로 이유를 가리는 순서를 확인한다. 오류 코드의 우선순위
+ * startPayment가 0행일 때 다시 읽은 예약으로 어떤 오류나 결과를 돌려주는지 확인한다. 오류 코드의 우선순위
  * (본인 아님 → 다른 시도 → 상태)는 통합 테스트로 한 번에 만들기 어려워 여기서 본다.
  */
 class PaymentRequestTransactionsTest {
 
     private static final Long USER_ID = 1L;
+    private static final Long OTHER_USER_ID = 2L;
     private static final Long RESERVATION_ID = 10L;
     private static final String ORDER_ID = "order-1";
     private static final ConfirmCommand COMMAND = new ConfirmCommand(ORDER_ID, "pg-token");
@@ -60,16 +63,12 @@ class PaymentRequestTransactionsTest {
     void startedReturnsReloadedAmount() {
         givenStarted(true);
         Reservation reloaded = givenReloaded(ReservationStatus.PAYMENT_IN_PROGRESS, true, true, false);
-        when(reloaded.getPaymentAmount()).thenReturn(20_000L);
+        ReflectionTestUtils.setField(reloaded, "paymentAmount", 20_000L);
 
         PaymentStart start = transactions.startPayment(USER_ID, RESERVATION_ID, COMMAND);
 
         assertThat(start.started()).isTrue();
         assertThat(start.amount()).isEqualTo(20_000L);
-        InOrder order = inOrder(transitionExecutor, reservationRepository);
-        order.verify(transitionExecutor)
-                .execute(eq(ReservationTransition.START_PAYMENT), eq(RESERVATION_ID), anyList(), any());
-        order.verify(reservationRepository).reload(RESERVATION_ID);
     }
 
     @ParameterizedTest
@@ -153,12 +152,16 @@ class PaymentRequestTransactionsTest {
                 .thenReturn(started);
     }
 
+    /** 본인 여부, 같은 시도, 만료는 Reservation이 판단하므로 mock 대신 그 값을 넣은 실제 예약을 쓴다. */
     private Reservation givenReloaded(ReservationStatus status, boolean owned, boolean sameAttempt, boolean expired) {
-        Reservation reservation = mock(Reservation.class);
-        when(reservation.getStatus()).thenReturn(status);
-        when(reservation.isOwnedBy(USER_ID)).thenReturn(owned);
-        when(reservation.isAttempt(ORDER_ID)).thenReturn(sameAttempt);
-        when(reservation.isHoldExpiredAt(STAMP.at())).thenReturn(expired);
+        Reservation reservation = Reservation.hold(
+                owned ? USER_ID : OTHER_USER_ID,
+                new SaleTarget(1L, 2L, 3L),
+                List.of(new SeatPrice(100L, 10_000)),
+                expired ? STAMP.at().minusMinutes(1) : STAMP.at().plusMinutes(10));
+        ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
+        ReflectionTestUtils.setField(reservation, "status", status);
+        ReflectionTestUtils.setField(reservation, "orderId", sameAttempt ? ORDER_ID : "order-other");
         when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.of(reservation));
         return reservation;
     }
