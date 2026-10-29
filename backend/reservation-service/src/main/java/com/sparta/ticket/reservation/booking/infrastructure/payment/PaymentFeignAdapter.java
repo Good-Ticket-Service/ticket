@@ -57,13 +57,13 @@ public class PaymentFeignAdapter implements PaymentPort {
                 // Note: payment는 금액이 다르면 PG를 부르지 않는다. 돈이 오가지 않았으므로 실패로 끝낸다.
                 // 결과 모름으로 두면 결과 확인 스케줄러가 같은 금액으로 다시 보내 같은 거절을 끝없이 받는다.
                 log.error("승인 금액이 결제 준비 금액과 다르다. orderId={}, amount={}", orderId, amount);
-                return ConfirmOutcome.failed(PAYMENT_AMOUNT_MISMATCH);
+                return ConfirmOutcome.failed();
             }
             throw e;
         }
         return switch (response.status()) {
             case "DONE" -> ConfirmOutcome.succeeded();
-            case "FAILED" -> ConfirmOutcome.failed(reason(response.failureCode(), response.failureType()));
+            case "FAILED" -> ConfirmOutcome.failed();
             case "IN_PROGRESS" -> ConfirmOutcome.unknown();
             default -> {
                 log.error("알 수 없는 승인 결과다. orderId={}, status={}", orderId, response.status());
@@ -87,16 +87,12 @@ public class PaymentFeignAdapter implements PaymentPort {
             case "READY" -> PaymentLookup.of(PaymentLookup.Status.NOT_RECEIVED);
             case "IN_PROGRESS" -> PaymentLookup.of(PaymentLookup.Status.IN_PROGRESS);
             case "DONE" -> PaymentLookup.of(PaymentLookup.Status.SUCCEEDED);
-            case "FAILED" -> PaymentLookup.failed(reason(response.failureCode(), response.failureType()));
+            case "FAILED" -> PaymentLookup.of(PaymentLookup.Status.FAILED);
             // Note: 승인된 뒤 전액 환불된 결제다. 돈이 사용자에게 돌아갔으므로 예약에는 실패로 반영한다.
-            case "CANCELED" -> PaymentLookup.failed("CANCELED");
+            case "CANCELED" -> PaymentLookup.of(PaymentLookup.Status.FAILED);
             default ->
                 throw new IllegalStateException("알 수 없는 결제 상태다. orderId=" + orderId + ", status=" + response.status());
         };
-    }
-
-    private static String reason(String failureCode, String failureType) {
-        return failureCode != null ? failureCode : failureType;
     }
 
     private static BusinessException unavailable(RetryableException cause) {

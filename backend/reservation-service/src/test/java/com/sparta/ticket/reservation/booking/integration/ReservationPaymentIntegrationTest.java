@@ -187,7 +187,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
     void failureReturnsToHold() throws Exception {
         Long reservationId = hold();
         String firstOrderId = checkoutOrderId(reservationId);
-        payment.confirmReturns(ConfirmOutcome.failed("CARD_DECLINED"));
+        payment.confirmReturns(ConfirmOutcome.failed());
 
         confirm(reservationId, firstOrderId, userId)
                 .andExpect(status().isOk())
@@ -217,7 +217,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         String orderId = checkoutOrderId(reservationId);
         payment.confirmAnswers(() -> {
             clock.advance(Duration.ofMinutes(11));
-            return ConfirmOutcome.failed("EXPIRED");
+            return ConfirmOutcome.failed();
         });
 
         confirm(reservationId, orderId, userId)
@@ -396,7 +396,7 @@ class ReservationPaymentIntegrationTest extends ReservationIntegrationTest {
         confirm(reservationId, orderId, userId);
         double lateBefore = lateSuccessCount();
 
-        assertThat(paymentResultApplier.apply(reservationId, oldOrderId, ConfirmOutcome.failed("DECLINED")))
+        assertThat(paymentResultApplier.apply(reservationId, oldOrderId, ConfirmOutcome.failed()))
                 .isFalse();
         assertThat(row(reservationId).get("status")).isEqualTo("PAYMENT_IN_PROGRESS");
 
