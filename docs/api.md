@@ -321,7 +321,7 @@
 
 상태: 생성·수정·발급 중단·삭제·발급, 목록·상세 조회, 내 쿠폰 조회는 구현됨. 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
 
-로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:형식 미정}`. page=0,size=10(10/30/50).
+로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`. page=0,size=10(10/30/50). sort는 실제 적용한 정렬을 요청과 같은 `필드,방향` 형식으로 돌려주고, 정렬을 보내지 않으면 기본값 `createdAt,DESC`, 여러 개면 `;`로 잇는다(예: `issueEndAt,ASC;createdAt,DESC`).
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -343,7 +343,6 @@
 - 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
 - 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
 - 발급 기간은 요청 시각으로 판단한다. 관리자가 발급을 중단하는 동안 먼저 도착해 기다리던 요청은 중단 뒤에도 발급될 수 있다.
-- 쿠폰 목록·내 쿠폰 응답의 sort는 실제 적용한 정렬을 요청과 같은 `필드,방향` 형식으로 돌려준다. 정렬을 보내지 않으면 기본값 `createdAt,DESC`, 여러 개면 `;`로 잇는다.
 - 내 쿠폰은 요청한 사용자 본인의 쿠폰만 보여 주고, status를 보내지 않으면 전부다. 받은 쿠폰이 없는 SELLER·MASTER는 빈 목록이다.
 
 - 모든 쿠폰 API는 토큰이 없거나 유효하지 않으면 401 UNAUTHORIZED다. (원본 복원: coupon/api.md:90,125,145,178,202,219,246,283, 담당 확인 필요)
