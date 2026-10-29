@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.BookingTestConfig;
+import com.sparta.ticket.reservation.seat.support.SeatTestConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
@@ -26,7 +27,7 @@ import org.testcontainers.utility.DockerImageName;
  * 대기열 테스트용 부모를 따로 두면 컨텍스트가 둘로 갈려 위의 스키마 문제가 생기므로, 같은 부모에 둔다.
  */
 @AutoConfigureMockMvc
-@Import(BookingTestConfig.class)
+@Import({BookingTestConfig.class, SeatTestConfig.class})
 @TestPropertySource(
         properties = {
             "spring.sql.init.schema-locations="
