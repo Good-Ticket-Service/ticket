@@ -170,7 +170,7 @@ public class Coupon extends BaseEntity {
         if (status == CouponIssueStatus.ENDED) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
-        // 시작 전이면 시작 시각도 당겨 기간 순서(시작 <= 종료)를 지킨다
+        // 시작 전이면 현재 < 시작이라, 종료만 현재로 당기면 시작 > 종료가 된다. 시작도 현재로 당겨 시작 = 종료로 맞춘다
         if (status == CouponIssueStatus.UPCOMING) {
             this.issueStartAt = now;
         }
@@ -188,6 +188,7 @@ public class Coupon extends BaseEntity {
         if (now.isBefore(issueEndAt)) {
             return CouponIssueStatus.ISSUING;
         }
+        // 현재 시각이 종료 시각과 같거나 지났다. 종료 정각부터 끝난 것으로 본다(발급 중단은 종료 시각을 현재로 당겨 여기로 온다)
         return CouponIssueStatus.ENDED;
     }
 
