@@ -36,6 +36,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Slf4j
 @RequiredArgsConstructor
 public class RefundTransactions {
+    /** 실패 결제의 자동 취소 금액을 PG 조회로 바로잡는 최대 횟수. 넘으면 기존 업무 거절처럼 운영 인수로 넘긴다. */
+    static final int MAX_VOID_CORRECTIONS = 3;
+
+    /** 금액을 다시 확인하는 자동 취소는 저빈도 일정 대신 이 횟수까지 기본 백오프로 조회한다. */
+    private static final int VOID_RECHECK_ACTIVE_ATTEMPTS = 5;
+
     private final PaymentRepository payments;
     private final RefundRepository refunds;
     private final PaymentTransactions paymentTransactions;
@@ -108,8 +114,10 @@ public class RefundTransactions {
                 || refund.getNextAttemptAt() == null
                 || refund.getNextAttemptAt().isAfter(now)) return Optional.empty();
         refreshPolicy(payment, refund, now);
-        boolean inquireFirst =
-                refund.getExecutionVersion() > 0 || refund.getRecoveryMode() != RefundRecoveryMode.ACTIVE;
+        // Note: 실패 결제의 자동 취소 금액은 검증에 실패했거나 늦게 온 응답에서 왔다. 첫 취소 전에도 PG 승인액을 조회로 확인한다.
+        boolean inquireFirst = refund.getExecutionVersion() > 0
+                || refund.getRecoveryMode() != RefundRecoveryMode.ACTIVE
+                || payment.getStatus() == PaymentStatus.FAILED;
         observation.duration("payment.execution.claim.delay", refund.getNextAttemptAt(), "task", "refund");
         refund.claimRecovery(nextAttempt(refund, now));
         return Optional.of(new RefundClaim(
@@ -176,12 +184,19 @@ public class RefundTransactions {
         LocalDateTime now = LocalDateTime.now(clock);
         refreshPolicy(payment, refund, now);
         if (inquiry instanceof PgInquiry.Approved approved) {
-            if (approved.transactionId() != null
+            boolean sameApproval = approved.transactionId() != null
                     && approved.transactionId().equals(payment.getPgTransactionId())
-                    && approved.amount() == refund.getRefundAmount()
-                    && approved.approvedAt() != null) {
+                    && approved.approvedAt() != null;
+            if (sameApproval && approved.amount() == refund.getRefundAmount()) {
                 if (refund.canCancelAt(now, properties.maxCancelAge())) return true;
-                defer(refund, "PG_CANCEL_VERIFICATION_ONLY", now);
+                if (voidRecheck(payment, refund)) deferVoidRecheck(refund, "PG_CANCEL_VERIFICATION_ONLY", now);
+                else defer(refund, "PG_CANCEL_VERIFICATION_ONLY", now);
+                return false;
+            }
+            if (sameApproval && voidAmountCorrectable(payment, refund, approved.amount())) {
+                // Note: 다음 실행이 새 금액·새 키로 다시 조회한 뒤 취소한다. 지금 실행의 claim은 이전 금액·키를 들고 있다.
+                refund.correctVoidAmount(approved.amount(), now);
+                committedCounter("payment.refund.void.amount.corrected", payment.getId());
                 return false;
             }
             verificationRequired(payment, refund, "PG_INCONSISTENT_APPROVAL", now);
@@ -210,6 +225,31 @@ public class RefundTransactions {
         refund.deferRecovery(reason, nextAttempt(refund, now));
     }
 
+    private static boolean voidRecheck(Payment payment, Refund refund) {
+        return payment.getStatus() == PaymentStatus.FAILED
+                && Refund.VOID_CANCEL_REJECTED.equals(refund.getVerificationReason());
+    }
+
+    private static boolean voidAmountCorrectable(Payment payment, Refund refund, int approvedAmount) {
+        return payment.getStatus() == PaymentStatus.FAILED
+                && approvedAmount > 0
+                && approvedAmount != refund.getRefundAmount()
+                && refund.getCancelAttempt() < MAX_VOID_CORRECTIONS
+                && refund.isVoidAmountCorrectable();
+    }
+
+    /** 거절 직후 금액 재확인은 저빈도 일정(최초 600초)을 기다리지 않고 기본 백오프로 몇 번 조회한다. */
+    private void deferVoidRecheck(Refund refund, String reason, LocalDateTime now) {
+        if (refund.getRecoveryAttempts() >= VOID_RECHECK_ACTIVE_ATTEMPTS) {
+            defer(refund, reason, now);
+            return;
+        }
+        refund.deferRecovery(
+                reason,
+                now.plusSeconds(properties.claimSeconds(refund.getRecoveryAttempts()))
+                        .truncatedTo(ChronoUnit.MICROS));
+    }
+
     @Transactional
     public boolean apply(RefundClaim claim, PgResult result) {
         Payment payment = payments.lockById(claim.paymentId()).orElseThrow();
@@ -231,6 +271,14 @@ public class RefundTransactions {
         LocalDateTime now = LocalDateTime.now(clock);
         if (result instanceof PgResult.Approved success && valid(success, refund.getRefundAmount())) {
             finish(payment, refund, success.transactionId(), success.at());
+        } else if (result instanceof PgResult.Rejected rejected
+                && businessRejection(rejected)
+                && payment.getStatus() == PaymentStatus.FAILED
+                && refund.getCancelAttempt() < MAX_VOID_CORRECTIONS) {
+            // Note: 자동 취소 금액이 틀린 응답에서 왔으면 PG가 거절한다. 멈추지 않고 승인액을 다시 조회한다(D20).
+            refund.rejectForVoidRecheck(rejected.code(), now);
+            deferVoidRecheck(refund, Refund.VOID_CANCEL_REJECTED, now);
+            committedCounter("payment.refund.void.recheck", payment.getId());
         } else if (result instanceof PgResult.Rejected rejected && businessRejection(rejected)) {
             refund.reject(rejected.code(), "PG_CANCEL_REJECTED", now);
             publisher.refundFinalized(payment, refund);
