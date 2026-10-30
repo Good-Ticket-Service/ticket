@@ -374,7 +374,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("빈 목록·좌석 번호 0·필수값 누락·길이 초과는 400 VALIDATION_ERROR다")
+        @DisplayName("빈 목록·좌석 번호 0·필수값 누락·길이 초과·정수가 아닌 번호와 등급 ID는 400 VALIDATION_ERROR다")
         void rejectsInvalidBody() throws Exception {
             for (String body : new String[] {
                 "{\"seats\":[]}",
@@ -384,7 +384,11 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
                 seats(seat("C", "가".repeat(11), 1, 201)),
                 seats(seat("  ", "1", 1, 201)),
                 seats(seat("　", "1", 1, 201)),
-                seats(seat("C", "　", 1, 201))
+                seats(seat("C", "　", 1, 201)),
+                // 서비스 전체 숫자 규칙(이슈 #181): 소수를 잘라 다른 좌석 번호·등급으로 저장하지 않는다
+                "{\"seats\":[{\"section\":\"C\",\"rowLabel\":\"1\",\"seatNumber\":1.5,\"venueSeatGradeId\":201}]}",
+                "{\"seats\":[{\"section\":\"C\",\"rowLabel\":\"1\",\"seatNumber\":1,\"venueSeatGradeId\":201.9}]}",
+                "{\"seats\":[{\"section\":\"C\",\"rowLabel\":\"1\",\"seatNumber\":1,\"venueSeatGradeId\":\"201\"}]}"
             }) {
                 expectError(registerSeats(EDITABLE, "\"3\"", body), 400, "VALIDATION_ERROR");
             }
