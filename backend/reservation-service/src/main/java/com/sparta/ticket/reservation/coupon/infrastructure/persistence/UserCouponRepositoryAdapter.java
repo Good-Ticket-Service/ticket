@@ -11,7 +11,7 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.exception.ConstraintViolationException;
+import org.postgresql.util.PSQLException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -98,12 +98,18 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
         }
     }
 
-    /** 원인 중 Hibernate 제약 위반 예외를 찾아 제약 이름을 비교한다. 메시지 문자열은 DB·버전마다 달라 쓰지 않는다. */
+    /**
+     * 원인 중 PostgreSQL 드라이버 예외를 찾아, 서버가 오류 정보에 따로 담아 보낸 제약 이름을 비교한다(SeatHoldService.violates와 같은 방식).
+     * Note: Hibernate의 ConstraintViolationException.getConstraintName()은 이 이름을 영문 오류 메시지 문장
+     * ("violates unique constraint \"...\"")에서 잘라 낸다(Hibernate 6.6 PostgreSQLDialect). DB 메시지 언어(lc_messages)가
+     * 영어가 아니면 null이 되어, 같은 회원의 동시 발급이 409가 아니라 500으로 나간다. 서버 오류 정보의 제약 이름은 언어와 관계없다.
+     */
     private static boolean violates(DataIntegrityViolationException e, String constraintName) {
-        // Spring 예외 안에 감싸인 원인을 따라가며 Hibernate 제약 위반 예외를 찾는다
+        // Spring 예외 안에 감싸인 원인을 따라가며 드라이버 예외를 찾는다
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ConstraintViolationException violation) {
-                return constraintName.equalsIgnoreCase(violation.getConstraintName());
+            if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null) {
+                return constraintName.equalsIgnoreCase(
+                        psql.getServerErrorMessage().getConstraint());
             }
         }
         return false;
