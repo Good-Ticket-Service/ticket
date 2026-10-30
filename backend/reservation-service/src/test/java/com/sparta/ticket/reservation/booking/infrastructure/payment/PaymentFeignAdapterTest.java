@@ -93,7 +93,17 @@ class PaymentFeignAdapterTest {
 
     private static PaymentPrepareRequest prepareRequest() {
         return new PaymentPrepareRequest(
-                "order-1", 1L, 2L, 3L, 4L, 5L, 20_000L, 0L, "KAKAO", LocalDateTime.of(2026, 11, 1, 20, 10));
+                "order-1",
+                1L,
+                2L,
+                3L,
+                4L,
+                5L,
+                LocalDateTime.of(2026, 11, 3, 19, 0),
+                20_000L,
+                0L,
+                "KAKAO",
+                LocalDateTime.of(2026, 11, 1, 20, 10));
     }
 
     @Test
@@ -117,6 +127,9 @@ class PaymentFeignAdapterTest {
         assertThat(body.get("discountAmount").asInt()).isZero();
         assertThat(body.get("pgProvider").asText()).isEqualTo("KAKAO");
         assertThat(body.get("expiresAt").asText()).as("시각은 KST 오프셋을 붙여 보낸다").isEqualTo("2026-11-01T20:10:00+09:00");
+        assertThat(body.get("scheduleStartAt").asText())
+                .as("회차 시작 시각도 KST 오프셋을 붙여 보낸다")
+                .isEqualTo("2026-11-03T19:00:00+09:00");
         assertThat(body.has("userCouponId")).as("쿠폰은 할인액으로만 보낸다").isFalse();
     }
 

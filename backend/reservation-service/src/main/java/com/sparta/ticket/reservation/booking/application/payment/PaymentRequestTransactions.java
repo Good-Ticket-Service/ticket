@@ -41,6 +41,7 @@ public class PaymentRequestTransactions {
             Long sellerId,
             String currentOrderId,
             LocalDateTime holdExpiresAt,
+            LocalDateTime scheduleStartAt,
             long baseAmount,
             Long userCouponId,
             long discountAmount) {
@@ -55,6 +56,7 @@ public class PaymentRequestTransactions {
                     sellerId,
                     null,
                     holdExpiresAt,
+                    scheduleStartAt,
                     baseAmount,
                     newUserCouponId,
                     newDiscountAmount);
@@ -82,6 +84,7 @@ public class PaymentRequestTransactions {
                 reservation.getSellerId(),
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
+                reservation.getScheduleStartAt(),
                 reservation.baseAmount(),
                 reservation.getUserCouponId(),
                 reservation.getDiscountAmount() == null ? 0 : reservation.getDiscountAmount());
