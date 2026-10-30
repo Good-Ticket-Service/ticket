@@ -436,26 +436,27 @@
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외). HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)이며 구현 전이다.
+상태: BookingFacade는 합의·구현됨(쿠폰 호출 제외). HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이다. 예매 쪽 연결(CouponPort 어댑터)은 아직이라 checkout에서 쿠폰을 고르면 503이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
 | booking → seat | 합의 #34, #126 | hold(Long userId,HoldTarget target,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
 | seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
-| coupon → booking | 합의 #125 | reserve(Long userCouponId,Long userId,Long reservationId):CouponDiscount; use(Long reservationId); release(Long reservationId) |
+| coupon → booking | 합의 #125; 구현됨(#159) | reserve(Long userCouponId,Long userId,Long reservationId):CouponDiscount; use(Long reservationId); release(Long reservationId) |
 
 - HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long,scheduleStartAt:LocalDateTime,performanceTitle:String}` (#86, #126); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
 - ReleaseResult=RELEASED/EXPIRED/ALREADY_CLOSED/NOT_RELEASABLE; facade 전용 enum은 domain enum을 노출하지 않는다. 트랜잭션 규칙은 architecture 참조.
 - CouponDiscount=`{userCouponId:Long,couponId:Long,name:String,discountAmount:int}`. CouponUsage는 `coupon.application.facade`에 두고, 예매는 이 패키지만 쓴다. (#125)
 - CouponUsage 전파는 REQUIRED다. 예매 트랜잭션에 합류해 함께 커밋·롤백된다. (#125)
-- reserve: 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE 예외다. 예매는 이 오류를 checkout 400으로 그대로 낸다. (#125)
+- reserve: 없는 쿠폰이거나, 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE 예외다. 예매는 이 오류를 checkout 400으로 그대로 낸다. (#125)
 - reserve: discountAmount는 발급 시점 할인액 그대로다. 최소 결제 금액에 맞춰 자르는 일은 예매가 한다. 쿠폰은 정가를 모르기 때문이다. (#125)
-- reserve: 같은 예매에 같은 쿠폰이 다시 오면 이미 잡힌 값을 돌려준다. 예매에 다른 쿠폰이 잡혀 있으면 예외다. (#125)
+- reserve: 같은 예매에 같은 쿠폰이 다시 오면 이미 잡힌 값을 돌려준다. 예매에 다른 쿠폰이 잡혀 있으면 IllegalStateException이다(호출 순서 오류). (#125)
 - 쿠폰 교체: 예매는 기존 쿠폰의 release를 먼저 부르고 새 reserve를 같은 트랜잭션에서 부른다. 예매 하나에 쿠폰은 하나만 잡힌다(uk_p_user_coupons_reservation). (#125)
 - use: RESERVED를 USED로 바꾼다. 유효 기간이 지났어도 USED다. 이미 USED면 아무것도 하지 않는다. (#125)
 - release: RESERVED와 USED를 되돌린다. 유효 기간이 남았으면 AVAILABLE, 지났으면 EXPIRED이고 reservation_id를 지운다. 만료 배치는 RESERVED·USED를 건드리지 않으므로 이 판정은 release가 공용 Clock으로 한다. (#125)
 - release: 대상이 없거나 이미 되돌렸어도 성공한다. 예매 스케줄러가 같은 예매로 다시 부를 수 있기 때문이다. (#125)
+- 동시성: 회원 쿠폰 행을 SELECT ... FOR UPDATE로 잠그고 읽는다. 같은 쿠폰을 두 예매가 동시에 잡으면 차례로 처리되어 하나만 성공한다. 같은 예매의 쿠폰 호출은 예매가 예약 행을 먼저 잠가 차례로 들어온다. (#159)
 - 예매는 checkout에서 reserve, 결제 성공 확정에서 use, 결제 실패 후 만료·선점 만료·선점 해제·취소 확정에서 release를 부른다. 결제 실패로 HOLD에 돌아가거나 결과를 모르면 부르지 않는다. (#125)
 - 좌석 준비(공연→seat): MVP Feign 계약의 URI·응답·타임아웃 미합의. 요청 초안=`{requestId:string,scheduleId:long,configVersion:long,seats:[{venueSeatId:long,venueSeatGradeId:long,gradeName:string,basePrice:int|null,isSellable:boolean,section:string,rowLabel:string,seatNumber:int}]}`. Kafka 전환 후 Requested/Completed/Failed의 토픽·스키마·버전은 별도 합의. 미확정 HTTP 경로나 메시지 계약을 생성하지 않는다.
 
