@@ -302,17 +302,17 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
         Long couponY = coupons.issue(userId, 5_000);
         checkoutOrderId(first, couponX);
         checkoutOrderId(second, couponY);
-        coupons.syncReservesWith(new CyclicBarrier(2));
+        couponPort.syncReservesWith(new CyclicBarrier(2));
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
         try {
             Future<String> firstSwap = executor.submit(() -> errorCode(checkout(first, couponY)));
             Future<String> secondSwap = executor.submit(() -> errorCode(checkout(second, couponX)));
 
-            // Note: 상대 쿠폰은 상대 트랜잭션이 돌려주는 중이라 아직 이 예약이 잡을 수 없다. 쿠폰 쪽 구현이 그 행을 기다리면
-            // 교착으로 한쪽이 CHECKOUT_CONFLICT, 기다리지 않으면 둘 다 COUPON_NOT_AVAILABLE이다. 어느 쪽이든 500은 아니다.
+            // Note: 서로 상대가 돌려주는 중인 쿠폰 행을 기다려 교착이 나고, DB가 한쪽을 중단한다. 중단된 쪽이 롤백되면
+            // 그 쿠폰은 다시 그 예약의 것이므로 남은 쪽도 잡지 못한다.
             assertThat(List.of(firstSwap.get(10, TimeUnit.SECONDS), secondSwap.get(10, TimeUnit.SECONDS)))
-                    .allSatisfy(result -> assertThat(result).isIn("409 CHECKOUT_CONFLICT", "400 COUPON_NOT_AVAILABLE"));
+                    .containsExactlyInAnyOrder("409 CHECKOUT_CONFLICT", "400 COUPON_NOT_AVAILABLE");
         } finally {
             executor.shutdownNow();
         }
@@ -331,7 +331,7 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
         Long first = coupons.issue(userId, 3_000);
         Long second = coupons.issue(userId, 5_000);
         checkoutOrderId(reservationId, first);
-        coupons.failNextReserveWithLock();
+        couponPort.failNextReserveWithLock();
 
         checkout(reservationId, second)
                 .andExpect(status().isConflict())
