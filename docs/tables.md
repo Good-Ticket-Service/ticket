@@ -422,6 +422,37 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - 인덱스: `(refund_id, processed_at DESC, command_id DESC)`.
 - 004-refund-operations.sql은 기존 제한 시각을 추정하지 않으며 재실행 시 명령 결과·기존 거래를 초기화하지 않는다.
 
+### p_settlement_items — payment-service/schema.sql + A (판매자 정산, 합의 #160 진행 중)
+
+판매자 정산 항목이다. SALE은 승인된 결제 1건, DEDUCTION은 정산서 발행 뒤 환불 1건이다. 금액·정책·달력 버전은 만들 때 고정하고 정책이 바뀌어도 다시 계산하지 않는다. 결제 경로 연결 전이며 정산서·지급 테이블은 후속 작업에서 추가한다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| kind | VARCHAR(20) NOT NULL; SALE/DEDUCTION |
+| status | VARCHAR(20) NOT NULL; SALE은 UNPOSTED/PENDING/HELD/ON_STATEMENT/CANCELED, DEDUCTION은 OPEN/CLEARED CHECK |
+| seller_id | BIGINT NOT NULL |
+| payment_id | BIGINT NOT NULL FK p_payments |
+| refund_id | BIGINT FK p_refunds; SALE은 접수된 환불, DEDUCTION은 차감 원천 |
+| origin_item_id | BIGINT FK p_settlement_items; DEDUCTION이 되돌리는 SALE |
+| performance_id, schedule_id | BIGINT; SALE 필수 |
+| schedule_start_at | TIMESTAMP; 회차 시작(KST). 없으면 SALE은 HELD |
+| approved_at | TIMESTAMP; SALE 필수, 정책·달력 버전 선택 기준 |
+| gross_amount, discount_amount, booking_fee, paid_amount | INT; SALE 필수 결제 입력(G·P·Bf·E) |
+| commission, commission_vat, seller_amount, booking_fee_net, booking_fee_vat | INT; 분개한 SALE 필수(F·V·N·Bn·Bv), UNPOSTED는 NULL |
+| policy_version, calendar_version | VARCHAR(40); 분개한 SALE 필수 |
+| eligible_at | TIMESTAMP; 정산 가능 시각(회차 시작일 다음 날부터 3번째 영업일 00:00). PENDING 필수 |
+| hold_reason | VARCHAR(40); REFUND_IN_PROGRESS/MISSING_SCHEDULE_START/CALENDAR_NOT_COVERED. HELD 필수 |
+| failure_reason | VARCHAR(80); UNPOSTED 필수 계산 실패 사유 |
+| statement_id | BIGINT; ON_STATEMENT 필수. 정산서 테이블 도입 때 FK |
+| principal, remaining | BIGINT; DEDUCTION 필수. 0 ≤ remaining ≤ principal, OPEN이면 remaining > 0, CLEARED면 0 |
+| version | BIGINT NOT NULL DEFAULT 0; 낙관적 잠금 |
+
+- 부분 UNIQUE: `(payment_id) WHERE kind = 'SALE'`, `(refund_id) WHERE kind = 'DEDUCTION'`. SALE도 refund_id를 기록하므로 전체 UNIQUE가 아니다.
+- 분개한 SALE CHECK: `paid = gross − discount + booking_fee`, `paid + discount = seller_amount + commission + commission_vat + booking_fee_net + booking_fee_vat`(BIGINT 계산), 금액 모두 0 이상.
+- UNPOSTED CHECK: failure_reason 필수, 계산 결과·정책 버전 NULL(0원 정상 거래로 위장 금지).
+- 005-settlement-items.sql은 기존 결제·환불 데이터를 바꾸지 않으며 다시 실행해도 안전하다.
+
 ### pg_transaction — fake-pg/schema.sql
 
 | 필드 | 타입·제약·기본값 |
