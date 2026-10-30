@@ -498,9 +498,14 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 |---|---|
 | id | BIGINT IDENTITY PK |
 | seller_id | BIGINT NOT NULL UNIQUE |
-| account_ref | VARCHAR(100); 모의 계좌 참조. 등록 전 NULL |
+| bank_code | VARCHAR(10); 은행 코드. 등록 전 NULL |
+| account_ref | VARCHAR(100); 모의 계좌 참조(은행·계좌번호 해시). 등록 전 NULL |
+| account_masked | VARCHAR(40); 계좌번호 끝 4자리만 남긴 값. 등록 전 NULL |
 | holder_masked | VARCHAR(100); 마스킹한 예금주. 등록 전 NULL |
-| version | BIGINT NOT NULL DEFAULT 0; 낙관적 잠금 |
+| version | BIGINT NOT NULL DEFAULT 0; 낙관적 잠금, ETag·If-Match 기준 |
+
+- 계좌 네 열은 모두 NULL(등록 전)이거나 모두 값이 있다 CHECK. 계좌번호·예금주 원문은 저장하지 않는다.
+- 009-seller-payout-account.sql은 계좌 열과 CHECK를 추가하며 다시 실행해도 안전하다.
 
 ### p_settlement_statements — payment-service/schema.sql + A (판매자·회차별 정산서)
 
