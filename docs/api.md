@@ -27,7 +27,7 @@
 
 ## 공연 — performance-service
 
-상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations는 구현됨(#83, #107, #108, #109). 나머지 9개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
+상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats는 구현됨(#83, #107, #108, #109, #128). 나머지 6개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
 
 33개 계약 중 이번 프로젝트 기간에는 아래 표의 15개를 구현한다. 나머지 18개는 「추후 구현 예정 API」에 경로만 남긴다.
 
