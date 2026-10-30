@@ -91,5 +91,6 @@ public interface UserCouponJpaRepository extends JpaRepository<UserCoupon, Long>
               AND expires_at <= :now
               AND deleted_at IS NULL
             """, nativeQuery = true)
-    int expire(@Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now, @Param("updatedBy") String updatedBy);
+    int expire(
+            @Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now, @Param("updatedBy") String updatedBy);
 }

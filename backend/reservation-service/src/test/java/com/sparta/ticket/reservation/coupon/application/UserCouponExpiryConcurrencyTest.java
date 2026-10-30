@@ -131,7 +131,8 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
             CountDownLatch release = new CountDownLatch(1);
             // 배치의 한 묶음 트랜잭션. EXPIRED로 바꾼 뒤 release 신호가 올 때까지 커밋하지 않는다
             Future<Integer> batch = executor.submit(() -> transactionTemplate.execute(status -> {
-                int changed = userCouponRepository.expire(List.of(coupon.getId()), EXPIRES_AT, HeaderAuditorAware.SYSTEM);
+                int changed =
+                        userCouponRepository.expire(List.of(coupon.getId()), EXPIRES_AT, HeaderAuditorAware.SYSTEM);
                 expired.countDown();
                 await(release);
                 return changed;
@@ -140,8 +141,8 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
 
             // 예매는 만료 직전 시각으로 잡으려 한다. 시각만 보면 아직 쓸 수 있지만 배치의 락을 기다린다
             clock.set(EXPIRES_AT.minusSeconds(1));
-            Future<ErrorCode> booking = executor.submit(() -> run(
-                    () -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L)));
+            Future<ErrorCode> booking =
+                    executor.submit(() -> run(() -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L)));
             waitForLockWaiters(1);
 
             release.countDown();

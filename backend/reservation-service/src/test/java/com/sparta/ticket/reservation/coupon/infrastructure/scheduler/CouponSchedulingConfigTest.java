@@ -69,14 +69,16 @@ class CouponSchedulingConfigTest {
     @Test
     @DisplayName("enabled=false면 스케줄러를 띄우지 않는다")
     void canBeDisabled() {
-        enabled().withPropertyValues("reservation.coupon.scheduler.enabled=false")
+        enabled()
+                .withPropertyValues("reservation.coupon.scheduler.enabled=false")
                 .run(context -> assertThat(context).doesNotHaveBean(CouponExpiryScheduleRunner.class));
     }
 
     @Test
     @DisplayName("켰는데 설정값이 틀리거나 빠지면 기동에 실패한다")
     void rejectsInvalidValues() {
-        enabled().withPropertyValues("reservation.coupon.scheduler.expiry.batch-size=0")
+        enabled()
+                .withPropertyValues("reservation.coupon.scheduler.expiry.batch-size=0")
                 .run(context -> assertThat(context).hasFailed());
         runner.withPropertyValues("reservation.coupon.scheduler.enabled=true")
                 .run(context -> assertThat(context).hasFailed());

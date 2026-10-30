@@ -119,9 +119,7 @@ class UserCouponExpiryPersistenceIntegrationTest extends ReservationIntegrationT
             int changed = expireIds(List.of(coupon.getId()), now);
 
             assertThat(changed).isEqualTo(1);
-            assertThat(row(coupon.getId()))
-                    .containsEntry("status", "EXPIRED")
-                    .containsEntry("updated_by", "SYSTEM");
+            assertThat(row(coupon.getId())).containsEntry("status", "EXPIRED").containsEntry("updated_by", "SYSTEM");
             assertThat(row(coupon.getId()).get("updated_at")).isEqualTo(Timestamp.valueOf(now));
             assertThat(userCouponRepository.findExpirableIds(now, 10)).doesNotContain(coupon.getId());
         }
