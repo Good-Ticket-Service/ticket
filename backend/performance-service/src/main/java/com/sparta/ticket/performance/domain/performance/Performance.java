@@ -135,6 +135,13 @@ public class Performance extends BaseEntity {
         }
     }
 
+    /** 취소된 공연에는 회차를 추가할 수 없다. 409 INVALID_STATUS_TRANSITION. 공개 전·후는 따지지 않는다. */
+    public void verifyNotCanceled() {
+        if (operationStatus == OperationStatus.CANCELED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION, "취소된 공연에는 회차를 추가할 수 없습니다.");
+        }
+    }
+
     /** 가격·판매 제외 같은 좌석 구성은 공개 전에만 바꿀 수 있다. 공개됐으면 409 PERFORMANCE_CONFIGURATION_LOCKED. */
     public void verifyConfigurable() {
         if (publicationStatus != PublicationStatus.DRAFT) {

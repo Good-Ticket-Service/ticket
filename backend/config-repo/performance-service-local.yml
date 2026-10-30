@@ -12,3 +12,8 @@ spring:
       data-locations: classpath:db/seed-local.sql,classpath:db/seed-load.sql
       # 지정하지 않으면 OS 기본 인코딩으로 읽는다. Windows 한글 환경(MS949)에서 한글 값이 깨진다.
       encoding: UTF-8
+
+performance:
+  seat-setup:
+    # 좌석 쪽 seat-setups 엔드포인트가 구현되기 전까지 임시 구현체를 쓴다(2026-10-30 결정). 구현되면 이 줄을 지운다
+    client: stub

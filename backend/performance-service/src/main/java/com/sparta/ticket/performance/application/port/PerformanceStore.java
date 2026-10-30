@@ -2,7 +2,6 @@ package com.sparta.ticket.performance.application.port;
 
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceGradePrice;
-import com.sparta.ticket.performance.domain.schedule.Schedule;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -23,9 +22,6 @@ public interface PerformanceStore {
 
     /** 새 가격 행을 저장한다. 기존 행의 가격 변경·논리 삭제는 Entity 변경으로 커밋 때 반영된다. */
     void saveGradePrices(List<PerformanceGradePrice> prices);
-
-    /** 공연의 회차 전체. 취소된 회차도 포함한다. */
-    List<Schedule> findSchedules(Long performanceId);
 
     /** 공연장의 좌석 중 이 공연에서 판매 제외되지 않은 좌석이 쓰는 등급 ID. 가격이 반드시 있어야 하는 등급이다. */
     Set<Long> findSellableGradeIds(Long performanceId, Long venueId);

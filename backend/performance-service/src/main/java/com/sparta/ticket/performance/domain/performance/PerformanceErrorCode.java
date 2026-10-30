@@ -24,6 +24,7 @@ public enum PerformanceErrorCode implements ErrorCode {
     DUPLICATE_VENUE_SEAT(HttpStatus.CONFLICT, "같은 구역·열·번호의 좌석이 이미 있습니다."),
     VENUE_LAYOUT_IN_USE(HttpStatus.CONFLICT, "공연이 사용 중인 공연장은 좌석 등급·좌석을 바꿀 수 없습니다."),
     PERFORMANCE_CONFIGURATION_LOCKED(HttpStatus.CONFLICT, "공개된 공연은 가격·판매 제외 같은 구성을 바꿀 수 없습니다."),
+    DUPLICATE_SCHEDULE(HttpStatus.CONFLICT, "같은 시작 시각의 회차가 이미 있습니다."),
     VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 먼저 변경했습니다. 최신 정보를 다시 조회해 주세요."),
     PRECONDITION_REQUIRED(HttpStatus.PRECONDITION_REQUIRED, "If-Match 헤더가 필요합니다.");
 
