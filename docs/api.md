@@ -422,7 +422,7 @@
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | POST /api/coupons | MASTER | 201 | CouponInput | Coupon | 400 VALIDATION_ERROR |
-| PATCH /api/coupons/{couponId} | MASTER | 200 | CouponInput의 변경 필드만 | Coupon | 404 COUPON_NOT_FOUND;409 COUPON_NOT_MODIFIABLE/COUPON_QUANTITY_BELOW_ISSUED/COUPON_ALREADY_CLOSED |
+| PATCH /api/coupons/{couponId} | MASTER | 200 | CouponInput의 변경 필드만[1개 이상] | Coupon | 400 VALIDATION_ERROR;404 COUPON_NOT_FOUND;409 COUPON_NOT_MODIFIABLE/COUPON_QUANTITY_BELOW_ISSUED/COUPON_ALREADY_CLOSED |
 | POST /api/coupons/{couponId}/close | MASTER | 200 | 없음 | Coupon(issueStatus=ENDED) | 404 COUPON_NOT_FOUND;409 COUPON_ALREADY_CLOSED |
 | DELETE /api/coupons/{couponId} | MASTER | 204 | 없음 | 없음 | 404 COUPON_NOT_FOUND;409 COUPON_NOT_DELETABLE |
 | GET /api/coupons | 로그인 | 200 | Q issueStatus?:string=ISSUING,page?,size?,sort?:string=createdAt,DESC(createdAt/issueStartAt/issueEndAt,ASC/DESC) | PageC<CouponDetail> | 400 VALIDATION_ERROR |
@@ -431,11 +431,13 @@
 | GET /api/coupons/me | 로그인 | 200 | Q status?:string,page?,size?,sort?:string=createdAt,DESC(createdAt/expiresAt,ASC/DESC) | PageC<UserCoupon> | 400 VALIDATION_ERROR |
 
 - CouponInput = `{name:string(1~100),discountAmount:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`.
+- issueStartAt이 현재보다 앞이면 현재 시각으로 저장하고 응답에도 그 값을 돌려준다(생성, 시작 전 쿠폰 수정). 과거 시작은 "지금 시작"과 같게 동작하므로 저장값을 실제로 발급이 열린 시각에 맞춘다. 거절하지 않는 것은 "지금"을 보내도 서버에 닿으면 이미 과거이기 때문이다.
+- 수정은 바꿀 항목을 1개 이상 보내야 한다. 빈 본문 `{}`, 모두 null, 모르는 필드만 보낸 요청은 400 VALIDATION_ERROR다. 지금 값과 같은 값을 보낸 것은 바꿀 항목으로 센다.
 - Coupon = `{couponId:long,name:string,discountAmount:int,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`.
 - CouponDetail = Coupon + `{issuedByMe:boolean}`. issuedByMe는 요청한 사용자가 이 쿠폰을 이미 받았는지이며, 사용·만료와 관계없이 받은 적이 있으면 true다. 받을 수 없는 SELLER·MASTER는 false다.
 - UserCoupon = `{userCouponId:long,couponId:long,name:string,discountAmount:int,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
 - 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=issuedQuantity). 삭제는 issuedQuantity=0일 때만. 발급은 1인 1장.
-- 발급이 끝난(ENDED) 쿠폰의 issueEndAt은 바꿀 수 없고 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리기 때문이다. 다시 발급하려면 새 쿠폰을 만든다.
+- 발급이 끝난(ENDED) 쿠폰은 name만 바꿀 수 있다. issueEndAt·totalQuantity를 다른 값으로 바꾸면 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고, 총 수량은 더 발급하지 않아 남은 수량 숫자만 달라지기 때문이다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있다. 다시 발급하려면 새 쿠폰을 만든다.
 - 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
 - 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
 - 발급 기간은 요청 시각으로 판단한다. 관리자가 발급을 중단하는 동안 먼저 도착해 기다리던 요청은 중단 뒤에도 발급될 수 있다.
