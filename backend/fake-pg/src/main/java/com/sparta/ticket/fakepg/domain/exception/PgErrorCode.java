@@ -22,6 +22,7 @@ public enum PgErrorCode {
     NOT_CANCELABLE_PAYMENT(403, true, "취소할 수 없는 결제입니다."),
     NOT_FOUND_PAYMENT(404, true, "존재하지 않는 결제 정보입니다."),
     NOT_FOUND_PAYMENT_SESSION(404, true, "결제 시간이 만료되어 결제 진행 데이터가 존재하지 않습니다."),
+    NOT_FOUND_PAYOUT(404, true, "존재하지 않는 지급 요청입니다."),
     IDEMPOTENT_REQUEST_PROCESSING(409, false, "같은 멱등 키의 요청을 처리하고 있습니다."),
     INVALID_IDEMPOTENCY_KEY(422, false, "같은 멱등 키로 다른 내용의 요청을 보낼 수 없습니다."),
     TOO_MANY_REQUESTS(429, false, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),

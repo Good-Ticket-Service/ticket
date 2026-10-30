@@ -21,7 +21,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @SpringBootTest(
         properties = {
             "fake-pg.toss.secret-key=" + FakePgIntegrationTest.SECRET_KEY,
-            "fake-pg.kakao.secret-key=" + FakePgIntegrationTest.KAKAO_SECRET_KEY
+            "fake-pg.kakao.secret-key=" + FakePgIntegrationTest.KAKAO_SECRET_KEY,
+            // 지급대행 처리 지연을 짧게 둬 접수 → 처리 중 → 확정을 빨리 시험한다
+            "fake-pg.payout.processing-delay-ms=" + FakePgIntegrationTest.PAYOUT_DELAY_MS
         })
 @AutoConfigureMockMvc
 public abstract class FakePgIntegrationTest {
@@ -33,6 +35,7 @@ public abstract class FakePgIntegrationTest {
     public static final String KAKAO_SECRET_KEY = "DEV_integration";
     public static final String KAKAO_AUTHORIZATION = "SECRET_KEY " + KAKAO_SECRET_KEY;
     public static final String KAKAO_CID = "TC0ONETIME";
+    public static final long PAYOUT_DELAY_MS = 500;
 
     @ServiceConnection
     protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");

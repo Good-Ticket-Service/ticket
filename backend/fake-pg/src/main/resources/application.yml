@@ -44,5 +44,8 @@ fake-pg:
     cid: TC0ONETIME
     # 준비 응답의 결제창 URL 앞부분. 실제로 열 수 있는 페이지는 아니다(사용자 승인은 POST /fake/kakao/approve)
     checkout-url-base: ${FAKE_PG_BASE_URL:http://localhost:8090}
+  # PG 지급대행(판매자 정산 지급) 흉내. 접수 뒤 이 시간이 지나야 조회 시 완료·실패로 확정된다(실제 지급대행은 영업일 시간대에 처리)
+  payout:
+    processing-delay-ms: ${FAKE_PG_PAYOUT_DELAY_MS:3000}
   # 결제 인증(카카오는 준비) 후 승인까지 허용하는 시간(토스는 약 10분)
   auth-valid-minutes: 10
