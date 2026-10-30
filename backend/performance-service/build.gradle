@@ -14,6 +14,9 @@ dependencies {
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 
     runtimeOnly 'org.postgresql:postgresql'
+    // 제약 위반의 제약 이름을 드라이버가 받은 서버 오류 정보에서 읽는다(공연장 등급·좌석의 부분 UNIQUE 판별). Hibernate는 이름을
+    // 영문 오류 메시지 문장에서 잘라 내므로 DB 메시지 언어가 영어가 아니면 null이 된다
+    compileOnly 'org.postgresql:postgresql'
 
     testImplementation(testFixtures(project(':common')))
 }
