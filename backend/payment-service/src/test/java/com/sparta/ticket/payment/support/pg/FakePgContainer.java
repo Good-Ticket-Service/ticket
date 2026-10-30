@@ -27,6 +27,8 @@ public final class FakePgContainer {
             .withEnv("SPRING_DATASOURCE_URL", "jdbc:postgresql://fake-pg-db:5432/" + DB.getDatabaseName())
             .withEnv("SPRING_DATASOURCE_USERNAME", DB.getUsername())
             .withEnv("SPRING_DATASOURCE_PASSWORD", DB.getPassword())
+            // 지급대행 처리 지연을 짧게 둬 접수 → 처리 중 → 확정을 빨리 시험한다
+            .withEnv("FAKE_PG_PAYOUT_DELAY_MS", "300")
             .withCommand("java", "-Xmx256m", "-jar", "/app.jar")
             .withExposedPorts(PORT)
             .dependsOn(DB)
