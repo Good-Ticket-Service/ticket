@@ -150,6 +150,21 @@ public class SettlementItem extends BaseEntity {
         return item;
     }
 
+    /**
+     * 정산서에 들어가기 전에 접수된 환불. 분개한 SALE은 REFUND_IN_PROGRESS로 보류하고,
+     * 계산 실패(UNPOSTED) SALE은 보충 때 반영하도록 환불 ID만 남긴다. 접수된 환불은 되돌리지 않으므로 보류를 풀지 않는다.
+     */
+    public void holdForRefund(Long refundId) {
+        if (kind != SettlementItemKind.SALE) throw new IllegalStateException("SALE만 환불로 보류한다");
+        if (refundId == null) throw new IllegalArgumentException("보류할 환불이 없다");
+        if (status == SettlementItemStatus.ON_STATEMENT || status == SettlementItemStatus.CANCELED)
+            throw new IllegalStateException("정산서에 들어갔거나 취소된 SALE은 보류하지 않는다");
+        this.refundId = refundId;
+        if (status == SettlementItemStatus.UNPOSTED) return;
+        this.status = SettlementItemStatus.HELD;
+        this.holdReason = SettlementHoldReason.REFUND_IN_PROGRESS;
+    }
+
     private static SettlementItem sale(SaleSource source, SettlementItemStatus status) {
         SettlementItem item = new SettlementItem();
         item.kind = SettlementItemKind.SALE;

@@ -1,6 +1,7 @@
 package com.sparta.ticket.payment;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.sparta.ticket.common.support.LayeredArchitectureRules;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -38,6 +39,23 @@ class ArchitectureTest {
             .should(notUseTransactional())
             .because("PG 호출은 트랜잭션 밖에 있어야 하고, 상태는 PG 호출 전에 커밋돼야 한다")
             .allowEmptyShould(true);
+
+    /**
+     * 정산은 결제가 넘긴 스냅샷(SaleSource)만 쓴다(settlement-design 4.1절). 결제·환불 Entity나 Repository를 직접 읽으면
+     * 정산 쪽 변경이 결제 잠금 순서·상태 전이에 끼어들 수 있어 막는다.
+     */
+    @ArchTest
+    static final ArchRule SETTLEMENT_USES_SNAPSHOT_ONLY = noClasses()
+            .that()
+            .resideInAnyPackage("..settlement..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "..domain.model.payment..",
+                    "..domain.model.refund..",
+                    "..domain.repository.payment..",
+                    "..domain.repository.refund..")
+            .because("정산은 결제·환불 Entity를 직접 참조하지 않고 결제가 넘긴 스냅샷만 쓴다");
 
     private static ArchCondition<JavaClass> notUseTransactional() {
         return new ArchCondition<>("not be annotated with @Transactional on the class or its methods") {
