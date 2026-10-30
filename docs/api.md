@@ -329,7 +329,7 @@
 |---|---|---|---|---|---|
 | GET /api/reservations/{reservationId} | 본인 USER 또는 MASTER | 200 | 없음 | Reservation | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
 | POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
-| POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION |
+| POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;503 SERVICE_UNAVAILABLE |
 | GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC | PageC<ReservationSummary>(항목 필드 미정) | 구현 전 |
 | POST /api/reservations/{reservationId}/cancel | 본인 USER | 200 | reason?:string | Reservation(CANCELING/CANCELED) | 409 NOT_CANCELLABLE/INVALID_STATUS_TRANSITION |
 
@@ -353,6 +353,7 @@
 - confirm: 금액은 받지 않는다. 승인 금액은 예매에 저장된 payment_amount다. (원본 복원: reservation/orchestration.md:221,347, 담당 확인 필요)
 - confirm: HOLD, 만료 전, order_id 일치일 때 PAYMENT_IN_PROGRESS로 바꾸고 결제를 부른다. (원본 복원: reservation/orchestration.md:142,218, 담당 확인 필요)
 - confirm: 업무 결과는 HTTP 상태가 아니라 200 응답의 status로 알린다. 결제 실패와 결과 모름도 200이다. (원본 복원: reservation/api.md:143,195, 담당 확인 필요)
+- checkout·confirm: payment가 느려 동시에 기다리는 결제 호출이 한도에 찼거나 payment가 응답하지 않는 일이 이어지면, 결제를 부르지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 상태를 바꾸기 전에 거절하므로 예매는 HOLD 그대로다. 잠시 뒤 같은 요청으로 다시 시도한다(confirm은 같은 orderId·pgAuthToken). 막혀 있는 동안은 같은 승인을 다시 보내도 503이므로, 결제 중인지는 단건 조회로 확인한다.
 - confirm: 응답 status는 결제 성공이면 CONFIRMED이다. (원본 복원: reservation/orchestration.md:223,254, 담당 확인 필요)
 - confirm: 결제 실패이고 선점 시간이 남았으면 응답 status는 HOLD이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
 - confirm: 결제 실패이고 선점 시간이 지났으면 응답 status는 EXPIRED이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
