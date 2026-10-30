@@ -165,6 +165,44 @@ public class SettlementItem extends BaseEntity {
         this.holdReason = SettlementHoldReason.REFUND_IN_PROGRESS;
     }
 
+    /** 정산서에 들어가기 전에 환불이 끝난 SALE. 판매 분개의 반대 분개와 함께 부르며, 이후 정산서에 들어가지 않는다. */
+    public void cancelByRefund(Long refundId) {
+        if (kind != SettlementItemKind.SALE) throw new IllegalStateException("SALE만 환불로 취소한다");
+        if (refundId == null) throw new IllegalArgumentException("취소할 환불이 없다");
+        if (status != SettlementItemStatus.PENDING && status != SettlementItemStatus.HELD)
+            throw new IllegalStateException("분개했고 정산서에 들어가지 않은 SALE만 환불로 취소한다: " + status);
+        this.refundId = refundId;
+        this.status = SettlementItemStatus.CANCELED;
+    }
+
+    /**
+     * 계산에 실패했던(UNPOSTED) SALE을 다시 계산한 결과로 바꾼다. 결제마다 SALE은 하나라 새 행을 만들지 않고 같은 행을 고친다.
+     * 다시 실패하면 사유만 바뀐다. 이미 기록한 환불 ID는 유지하고, 환불 상태 반영은 호출자가 이어서 한다.
+     */
+    public void adoptCalculation(SettlementItem recalculated) {
+        if (kind != SettlementItemKind.SALE || status != SettlementItemStatus.UNPOSTED)
+            throw new IllegalStateException("계산 실패 SALE만 다시 계산한다");
+        if (recalculated.kind != SettlementItemKind.SALE || !paymentId.equals(recalculated.paymentId))
+            throw new IllegalArgumentException("같은 결제의 SALE 계산 결과가 아니다");
+        this.status = recalculated.status;
+        this.scheduleStartAt = recalculated.scheduleStartAt;
+        this.approvedAt = recalculated.approvedAt;
+        this.grossAmount = recalculated.grossAmount;
+        this.discountAmount = recalculated.discountAmount;
+        this.bookingFee = recalculated.bookingFee;
+        this.paidAmount = recalculated.paidAmount;
+        this.commission = recalculated.commission;
+        this.commissionVat = recalculated.commissionVat;
+        this.sellerAmount = recalculated.sellerAmount;
+        this.bookingFeeNet = recalculated.bookingFeeNet;
+        this.bookingFeeVat = recalculated.bookingFeeVat;
+        this.policyVersion = recalculated.policyVersion;
+        this.calendarVersion = recalculated.calendarVersion;
+        this.eligibleAt = recalculated.eligibleAt;
+        this.holdReason = recalculated.holdReason;
+        this.failureReason = recalculated.failureReason;
+    }
+
     private static SettlementItem sale(SaleSource source, SettlementItemStatus status) {
         SettlementItem item = new SettlementItem();
         item.kind = SettlementItemKind.SALE;
