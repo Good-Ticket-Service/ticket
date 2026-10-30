@@ -35,6 +35,8 @@ public record KakaoErrorResponse(int errorCode, String errorMessage) {
             case ALREADY_PROCESSED_PAYMENT -> -702;
             case NOT_FOUND_PAYMENT_SESSION -> -703;
             case NOT_FOUND_PAYMENT -> -704;
+            // 지급대행은 토스형 API만 있어 카카오 형식으로 나가지 않는다. 컴파일 완전성을 위해 일반 요청 오류로 둔다
+            case NOT_FOUND_PAYOUT -> -2;
             case ALREADY_CANCELED_PAYMENT -> -721;
             case NOT_CANCELABLE_PAYMENT -> -722;
             case REJECT_CARD_PAYMENT -> -780;

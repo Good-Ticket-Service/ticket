@@ -24,11 +24,19 @@ public class ResponseTamper {
     private final ObjectMapper objectMapper;
 
     public JsonNode apply(PgProvider provider, TamperMode mode, Object body) {
+        return apply(provider == PgProvider.TOSS ? Fields.TOSS : Fields.KAKAO, mode, body);
+    }
+
+    /** 지급대행 응답 변조. 지급 거래 ID·멱등 키·금액을 망가뜨려 호출자의 결과 검증을 시험한다. */
+    public JsonNode applyPayout(TamperMode mode, Object body) {
+        return apply(Fields.PAYOUT, mode, body);
+    }
+
+    private JsonNode apply(Fields fields, TamperMode mode, Object body) {
         JsonNode tree = body instanceof String json ? read(json) : objectMapper.valueToTree(body);
         if (!(tree instanceof ObjectNode node)) {
             return tree;
         }
-        Fields fields = provider == PgProvider.TOSS ? Fields.TOSS : Fields.KAKAO;
         switch (mode) {
             case MISSING_FIELDS -> fields.removable().forEach(node::remove);
             case OTHER_TRANSACTION -> {
@@ -73,6 +81,13 @@ public class ResponseTamper {
                 "orderId",
                 List.of("paymentKey", "totalAmount", "balanceAmount", "approvedAt", "cancels"),
                 List.of("totalAmount", "balanceAmount", "cancels.0.cancelAmount"));
+
+        static final Fields PAYOUT = new Fields(
+                "payoutId",
+                "payout_",
+                "idempotencyKey",
+                List.of("payoutId", "amount", "status", "accountRef"),
+                List.of("amount"));
 
         static final Fields KAKAO = new Fields(
                 "tid",
