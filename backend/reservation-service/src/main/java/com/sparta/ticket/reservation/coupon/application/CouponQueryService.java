@@ -63,7 +63,11 @@ public class CouponQueryService {
         return coupons.map(coupon -> CouponDetailResult.of(coupon, now, issuedIds.contains(coupon.getId())));
     }
 
-    /** 쿠폰 상세. 없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND. */
+    /**
+     * 쿠폰 상세. 없거나 삭제된 쿠폰이면 404 COUPON_NOT_FOUND.
+     * 발급 상태와 상관없이 연다(UPCOMING·ENDED 포함). 받은 쿠폰은 발급이 끝나도 내 쿠폰에서 상세를 봐야 하고,
+     * 목록도 issueStatus 필터로 모든 상태를 볼 수 있다. 화면은 응답의 issueStatus로 상태를 표시한다(#197).
+     */
     public CouponDetailResult getCoupon(Long couponId, Long userId) {
         Coupon coupon = couponRepository
                 .findById(couponId)
