@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.booking.support;
 
+import com.sparta.ticket.reservation.booking.infrastructure.coupon.CouponUsageAdapter;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -9,7 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 통합 테스트용 대역. 시각은 테스트가 정하고, 좌석과 결제는 기록하는 가짜로, 쿠폰은 계약대로 쿠폰 테이블을 바꾸는 대역으로 바꾼다. */
+/** 통합 테스트용 대역. 시각은 테스트가 정하고, 좌석과 결제는 기록하는 가짜로, 쿠폰은 실제 구현을 쓰되 동시 진입과 잠금 실패를 끼워 넣을 수 있게 감싼다. */
 @TestConfiguration
 public class BookingTestConfig {
 
@@ -30,8 +31,13 @@ public class BookingTestConfig {
 
     @Bean
     @Primary
-    public TableCouponPort tableCouponPort(JdbcTemplate jdbcTemplate, MutableClock clock) {
-        return new TableCouponPort(jdbcTemplate, clock);
+    public ControlledCouponPort controlledCouponPort(CouponUsageAdapter delegate) {
+        return new ControlledCouponPort(delegate);
+    }
+
+    @Bean
+    public CouponFixture couponFixture(JdbcTemplate jdbcTemplate, MutableClock clock) {
+        return new CouponFixture(jdbcTemplate, clock);
     }
 
     @Bean

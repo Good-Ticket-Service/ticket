@@ -26,7 +26,10 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
     protected FakeSeatPort seats;
 
     @Autowired
-    protected TableCouponPort coupons;
+    protected CouponFixture coupons;
+
+    @Autowired
+    protected ControlledCouponPort couponPort;
 
     @Autowired
     protected MeterRegistry meterRegistry;
@@ -46,6 +49,7 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
         jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         coupons.reset();
+        couponPort.reset();
         clock.set(BookingTestConfig.START_TIME);
         payment.reset();
         paymentGuard.reset();
