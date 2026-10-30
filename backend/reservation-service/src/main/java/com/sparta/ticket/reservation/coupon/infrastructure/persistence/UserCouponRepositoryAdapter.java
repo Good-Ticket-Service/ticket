@@ -8,6 +8,7 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,20 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
     @Override
     public boolean existsOtherOnReservation(Long reservationId, Long userCouponId) {
         return jpaRepository.existsByReservationIdAndIdNot(reservationId, userCouponId);
+    }
+
+    @Override
+    public List<Long> findExpirableIds(LocalDateTime now, int limit) {
+        return jpaRepository.findExpirableIds(now, limit);
+    }
+
+    @Override
+    public int expire(Collection<Long> userCouponIds, LocalDateTime now, String updatedBy) {
+        // 빈 목록으로 IN 쿼리를 만들지 않는다. 고른 쿠폰이 없으면 바꿀 것이 없다
+        if (userCouponIds.isEmpty()) {
+            return 0;
+        }
+        return jpaRepository.expire(userCouponIds, now, updatedBy);
     }
 
     @Override
