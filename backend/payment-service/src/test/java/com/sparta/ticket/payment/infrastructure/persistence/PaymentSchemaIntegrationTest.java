@@ -76,7 +76,8 @@ class PaymentSchemaIntegrationTest extends PaymentIntegrationTest {
                 order.pgProvider(),
                 order.totalPrice(),
                 order.discountAmount() + 1,
-                order.expiresAt());
+                order.expiresAt(),
+                order.scheduleStartAt());
         assertThat(reloaded.matches(changedDiscount)).isFalse();
     }
 

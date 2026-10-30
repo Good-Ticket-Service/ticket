@@ -1,5 +1,6 @@
 package com.sparta.ticket.payment.presentation.internal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -7,12 +8,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.support.PaymentIntegrationTest;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -23,6 +26,9 @@ class InternalPaymentApiTest extends PaymentIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private static String body(String orderId, long reservationId, String provider, int totalPrice, int discount) {
         return """
@@ -85,6 +91,25 @@ class InternalPaymentApiTest extends PaymentIntegrationTest {
         checkout(body(orderId, reservationId, "TOSS", 50_000, 5_000)).andExpect(status().isOk());
 
         checkout(body(orderId, reservationId, "TOSS", 50_000, 4_000))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_ORDER_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("회차 시작 시각은 KST로 저장하고, 같은 orderId에 다른 값이면 409")
+    void scheduleStartAtStoredAndCompared() throws Exception {
+        String orderId = newOrderId();
+        long reservationId = RESERVATION_IDS.incrementAndGet();
+        String base = body(orderId, reservationId, "TOSS", 50_000, 0);
+        checkout(base.replace("\"expiresAt\"", "\"scheduleStartAt\":\"2026-11-07T10:00:00Z\",\"expiresAt\""))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject(
+                        "SELECT schedule_start_at FROM p_payments WHERE order_id = ?", LocalDateTime.class, orderId))
+                .isEqualTo(LocalDateTime.of(2026, 11, 7, 19, 0));
+        checkout(base.replace("\"expiresAt\"", "\"scheduleStartAt\":\"2026-11-07T19:00:00+09:00\",\"expiresAt\""))
+                .andExpect(status().isOk());
+        checkout(base)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PAYMENT_ORDER_CONFLICT"));
     }

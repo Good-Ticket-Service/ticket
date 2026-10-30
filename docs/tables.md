@@ -314,6 +314,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | pg_transaction_id | VARCHAR(200) |
 | checkout_url | VARCHAR(500) |
 | expires_at | TIMESTAMP NOT NULL |
+| schedule_start_at | TIMESTAMP; 회차 시작 시각(KST). 결제 준비의 선택 필드이며, 없으면 정산을 보류한다(#160) |
 | total_price | INT NOT NULL |
 | discount_amount | INT NOT NULL DEFAULT 0 |
 | amount | INT NOT NULL |
