@@ -16,7 +16,6 @@ import com.sparta.ticket.payment.domain.model.pg.PgResult;
 import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
 import com.sparta.ticket.payment.domain.model.refund.RefundStatus;
-import com.sparta.ticket.payment.domain.model.settlement.SaleSource;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
 import java.time.Clock;
@@ -168,7 +167,7 @@ public class PaymentTransactions {
                         })
                         .orElse(null);
                 // 요청·recovery·reconcile 모두 이 분기를 지나므로 정산 포착 지점은 여기 하나다(payment → refund 잠금 뒤).
-                settlementCapture.captureApproval(saleSource(payment), requestedRefundId);
+                settlementCapture.captureApproval(SettlementSnapshots.sale(payment), requestedRefundId);
                 resultPublisher.paymentFinalized(payment);
             }
         } else if (payment.getStatus() == PaymentStatus.IN_PROGRESS) {
@@ -227,21 +226,6 @@ public class PaymentTransactions {
                     refund.skip();
                     resultPublisher.refundFinalized(payment, refund);
                 });
-    }
-
-    /** 정산은 결제 Entity를 보지 않고 이 스냅샷만 받는다. 예매수수료는 미적용 결정이라 0이다. */
-    private static SaleSource saleSource(Payment payment) {
-        return new SaleSource(
-                payment.getId(),
-                payment.getSellerId(),
-                payment.getPerformanceId(),
-                payment.getScheduleId(),
-                payment.getScheduleStartAt(),
-                payment.getApprovedAt(),
-                payment.getTotalPrice(),
-                payment.getDiscountAmount(),
-                0,
-                payment.getAmount());
     }
 
     private Payment locked(Long id) {

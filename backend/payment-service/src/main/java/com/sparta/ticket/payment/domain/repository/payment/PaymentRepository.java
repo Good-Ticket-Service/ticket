@@ -51,4 +51,10 @@ public interface PaymentRepository {
     List<Payment> lockNextRefundInModes(LocalDateTime now, Collection<Long> excludedIds, Collection<String> modes);
 
     LocalDateTime oldestDueRefund(LocalDateTime now);
+
+    /**
+     * 정산 보충 대상 결제 ID를 afterId 다음부터 ID 순으로 읽는다(잠그지 않음).
+     * 승인된 뒤 DONE·CANCELED인데 SALE이 없거나, SALE이 계산 실패(UNPOSTED)인 결제다. 실패 결제는 판매가 아니라 제외한다.
+     */
+    List<Long> findSettlementBackfillIds(Long afterId, int limit);
 }

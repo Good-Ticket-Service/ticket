@@ -3,7 +3,6 @@ package com.sparta.ticket.payment.application.service.settlement;
 import com.sparta.ticket.payment.application.service.observation.CommittedObservation;
 import com.sparta.ticket.payment.domain.model.settlement.LedgerJournals;
 import com.sparta.ticket.payment.domain.model.settlement.SaleSource;
-import com.sparta.ticket.payment.domain.model.settlement.SettlementFailure;
 import com.sparta.ticket.payment.domain.model.settlement.SettlementItem;
 import com.sparta.ticket.payment.domain.model.settlement.SettlementItemStatus;
 import com.sparta.ticket.payment.domain.model.settlement.SettlementRules;
@@ -52,7 +51,7 @@ public class SettlementCaptureTransactions {
     public void captureApproval(SaleSource source, Long requestedRefundId) {
         if (!enabled) return;
         if (items.findSaleByPaymentId(source.paymentId()).isPresent()) return;
-        SettlementItem sale = calculate(source);
+        SettlementItem sale = SaleCalculation.calculate(rules, source);
         if (requestedRefundId != null) sale.holdForRefund(requestedRefundId);
         items.saveAndFlush(sale);
         if (sale.getStatus() == SettlementItemStatus.UNPOSTED) {
@@ -65,15 +64,5 @@ public class SettlementCaptureTransactions {
         }
         observation.counter(
                 "settlement.sale.captured", "status", sale.getStatus().name());
-    }
-
-    /** DB를 건드리지 않는 순수 계산이라, 예상하지 못한 예외도 트랜잭션을 깨지 않고 UNPOSTED로 바꿀 수 있다. */
-    private SettlementItem calculate(SaleSource source) {
-        try {
-            return rules.saleFor(source);
-        } catch (RuntimeException e) {
-            log.error("정산 계산 중 예상하지 못한 오류. paymentId={}", source.paymentId(), e);
-            return SettlementItem.unpostedSale(source, SettlementFailure.UNEXPECTED_ERROR);
-        }
     }
 }
