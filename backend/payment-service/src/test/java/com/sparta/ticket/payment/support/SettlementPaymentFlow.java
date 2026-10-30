@@ -42,14 +42,19 @@ public final class SettlementPaymentFlow {
     }
 
     public Payment inProgress() {
+        return inProgress(2L, 20L);
+    }
+
+    /** 판매자·회차를 시험마다 나눠, 판매자·회차 단위 집계가 다른 시험 데이터와 섞이지 않게 한다. */
+    public Payment inProgress(long sellerId, long scheduleId) {
         String orderId = "settle-flow-" + UUID.randomUUID();
         service.checkout(new CheckoutCommand(
                 orderId,
                 RESERVATION_IDS.incrementAndGet(),
                 1L,
-                2L,
+                sellerId,
                 10L,
-                20L,
+                scheduleId,
                 PgProvider.TOSS,
                 50_000,
                 5_000,
@@ -60,6 +65,13 @@ public final class SettlementPaymentFlow {
         return transactions
                 .markInProgress(payment.getId(), "key-" + payment.getId())
                 .orElseThrow();
+    }
+
+    public Payment approvedFor(long sellerId, long scheduleId) {
+        Payment payment = inProgress(sellerId, scheduleId);
+        transactions.complete(
+                payment.getId(), new PgResult.Approved("key-" + payment.getId(), 45_000, LocalDateTime.now(clock)));
+        return payments.findById(payment.getId()).orElseThrow();
     }
 
     public Payment approved(LocalDateTime approvedAt) {

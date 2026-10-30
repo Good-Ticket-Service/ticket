@@ -186,12 +186,18 @@ class LedgerTransactionsIntegrationTest extends PaymentIntegrationTest {
         long refundId = SettlementDbFixture.refund(jdbc, payment1, 10_000);
         postLocked(payment1, saleDraft(payment1, sellerId, 10_000));
         postLocked(payment2, saleDraft(payment2, sellerId, 20_000));
+        long statement1 = SettlementDbFixture.statement(jdbc, sellerId, 1L, 8_680, 0);
+        long payout1 = SettlementDbFixture.payout(jdbc, statement1, sellerId, 8_680);
+        long statement2 = SettlementDbFixture.statement(jdbc, sellerId, 2L, 17_360, 8_680);
+        long payout2 = SettlementDbFixture.payout(jdbc, statement2, sellerId, 8_680);
         tx.executeWithoutResult(status -> {
-            ledgerTransactions.post(LedgerJournals.payoutDone(1L, 11L, sellerId, 8_680, APPROVED.plusDays(5)));
+            ledgerTransactions.post(
+                    LedgerJournals.payoutDone(payout1, statement1, sellerId, 8_680, APPROVED.plusDays(5)));
             ledgerTransactions.post(LedgerJournals.receivable(
                     SettlementDbFixture.sale(rules, payment1, sellerId, 10_000), refundId, APPROVED.plusDays(6)));
-            ledgerTransactions.post(LedgerJournals.offset(12L, sellerId, 8_680, APPROVED.plusDays(8)));
-            ledgerTransactions.post(LedgerJournals.payoutDone(2L, 12L, sellerId, 8_680, APPROVED.plusDays(8)));
+            ledgerTransactions.post(LedgerJournals.offset(statement2, sellerId, 8_680, APPROVED.plusDays(8)));
+            ledgerTransactions.post(
+                    LedgerJournals.payoutDone(payout2, statement2, sellerId, 8_680, APPROVED.plusDays(8)));
         });
 
         Map<String, Long> net = balances(sellerId);

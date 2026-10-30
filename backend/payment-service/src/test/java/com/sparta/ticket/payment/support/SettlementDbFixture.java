@@ -43,6 +43,33 @@ public final class SettlementDbFixture {
                 amount);
     }
 
+    /** 원장 시험용 발행된 정산서 행. 지급액 = 판매 합계 − 상계액. */
+    public static long statement(JdbcTemplate jdbc, long sellerId, long scheduleId, long saleTotal, long offsetTotal) {
+        long payable = saleTotal - offsetTotal;
+        return jdbc.queryForObject(
+                "INSERT INTO p_settlement_statements (seller_id, schedule_id, sequence, cutoff, sale_total, offset_total,"
+                        + " payable_amount, status, issued_at, created_at, created_by, updated_at, updated_by)"
+                        + " VALUES (?, ?, 0, now(), ?, ?, ?, ?, now(), now(), 't', now(), 't') RETURNING id",
+                Long.class,
+                sellerId,
+                scheduleId,
+                saleTotal,
+                offsetTotal,
+                payable,
+                payable > 0 ? "ISSUED" : "NO_PAYOUT");
+    }
+
+    /** 원장 시험용 지급 행. */
+    public static long payout(JdbcTemplate jdbc, long statementId, long sellerId, long amount) {
+        return jdbc.queryForObject(
+                "INSERT INTO p_payouts (statement_id, seller_id, amount, status, created_at, created_by, updated_at,"
+                        + " updated_by) VALUES (?, ?, ?, 'READY', now(), 't', now(), 't') RETURNING id",
+                Long.class,
+                statementId,
+                sellerId,
+                amount);
+    }
+
     /** 저장하지 않은 posted SALE. 금액은 설정의 승인 시각 정책으로 계산한다. */
     public static SettlementItem sale(SettlementRules rules, long paymentId, long sellerId, int gross) {
         return rules.saleFor(new SaleSource(
