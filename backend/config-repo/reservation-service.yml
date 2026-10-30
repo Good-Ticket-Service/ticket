@@ -68,3 +68,15 @@ reservation:
       half-open-calls: 5
       # 시험 호출 결과가 1분 안에 다 오지 않으면 다시 연다. 결제 호출 최대 대기(connect 5초 + read 20초)보다 길다
       half-open-max-wait: 1m
+
+  # 기간 지난 회원 쿠폰의 저장 상태를 EXPIRED로 맞추는 만료 배치(#183). 설정이 없으면 꺼진다.
+  # 사용 판단은 만료 시각으로 하므로 주기가 길어도 쿠폰 사용에는 영향이 없다. 운영 조회를 저장값으로 하게 되면 주기를 줄인다
+  coupon:
+    scheduler:
+      enabled: true
+      expiry:
+        interval: 1h
+        # 한 트랜잭션에서 바꾸는 최대 건수. 행을 오래 잠그지 않도록 나눈다
+        batch-size: 500
+        # 한 번 실행이 이 시간을 넘기면 남은 건은 다음 실행에 넘긴다
+        time-budget: 30s
