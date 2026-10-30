@@ -552,7 +552,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | amount | BIGINT NOT NULL > 0 |
 | status | VARCHAR(20) NOT NULL; READY/REQUESTED/DONE/FAILED CHECK |
 | attempt | INT NOT NULL DEFAULT 0 ≥ 0; 실행권을 얻을 때 1 증가 |
-| next_attempt_at | TIMESTAMP; READY는 다음 실행 시각(처음은 발행 cutoff 이후 첫 영업일 04:10, 게이트 실패·계좌 미등록 뒤 1시간), REQUESTED는 다음 조회 시각. 달력 범위 밖이면 NULL |
+| next_attempt_at | TIMESTAMP; READY는 다음 실행 시각(처음은 발행 cutoff 이후 첫 영업일 04:10, 게이트 실패·계좌 미등록 뒤 1시간), REQUESTED는 다음 조회 시각. 실행권 점유 만료도 이 값으로 표현(점유 중에는 점유 시간만큼 뒤). 달력 범위 밖이면 NULL |
 | idempotency_key | VARCHAR(100); `payout:{id}:{attempt}`. NULL이 아니면 UNIQUE(부분 인덱스) |
 | bank_code, account_ref, holder_masked | VARCHAR(10), VARCHAR(100), VARCHAR(100); 실행권 획득 때 판매자 계좌 스냅샷 |
 | account_version | BIGINT; 스냅샷한 판매자 계좌 version |
@@ -561,7 +561,6 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | failure_code | VARCHAR(40); ACCOUNT_INVALID/REJECTED/REQUEST_INVALID. FAILED일 때만 NOT NULL CHECK |
 | inquiry_only | BOOLEAN NOT NULL DEFAULT FALSE; 응답이 스냅샷과 달라 다시 요청하지 않고 조회만 함 |
 | verification_reason | VARCHAR(80); inquiry_only 사유 |
-| lease_until | TIMESTAMP; 실행권 만료 시각 |
 | requested_at, done_at | TIMESTAMP; 실행권 획득·완료 시각 |
 | last_error | VARCHAR(80); 게이트 실패·계좌 미등록·결과 불명 사유 |
 | version | BIGINT NOT NULL DEFAULT 0 |
@@ -572,6 +571,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - 발행 후보 인덱스: `p_settlement_items (eligible_at, schedule_id, seller_id) WHERE kind = 'SALE' AND status = 'PENDING'`, `(seller_id) WHERE kind = 'DEDUCTION' AND status = 'OPEN'`.
 - 008-settlement-statements.sql은 위 테이블과 정산 항목·원장의 정산서·지급 FK를 추가하며, 다시 실행해도 안전하다.
 - 010-payout-execution.sql은 지급 실행 컬럼·CHECK·인덱스와 정산서 paid_at·PAID를 추가하며, 다시 실행해도 안전하다.
+- 011-drop-payout-lease.sql은 010의 lease_until을 지운다(점유 만료는 next_attempt_at으로 표현). 다시 실행해도 안전하다.
 
 ### pg_transaction — fake-pg/schema.sql
 

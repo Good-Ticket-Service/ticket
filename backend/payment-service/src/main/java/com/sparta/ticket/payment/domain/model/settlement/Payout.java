@@ -45,7 +45,11 @@ public class Payout extends BaseEntity {
     @Column(nullable = false)
     private int attempt;
 
-    /** READY는 다음 실행 시각, REQUESTED는 다음 조회 시각이다. 달력 범위를 넘어 비어 있으면 지급 실행이 보류한다. */
+    /**
+     * READY는 다음 실행 시각, REQUESTED는 다음 조회 시각이다. 달력 범위를 넘어 비어 있으면 지급 실행이 보류한다.
+     * Note: 실행권 점유 만료도 이 값으로 표현한다(visibility timeout). 실행권을 얻으면 점유 시간만큼 뒤로 미뤄, 그 사이 다른 실행자가
+     * 조회를 시작하지 않는다. 실행자가 끊기면 이 시각이 지나 recovery가 같은 키로 조회한다. 그래서 따로 lease 열을 두지 않는다.
+     */
     private LocalDateTime nextAttemptAt;
 
     /** 실행권을 얻을 때 찍는 지급대행 멱등 키("payout:{id}:{attempt}"). */
@@ -76,9 +80,6 @@ public class Payout extends BaseEntity {
 
     private String verificationReason;
 
-    /** 실행권 만료 시각. 지나면 다른 실행자가 같은 키로 조회해 확정한다. */
-    private LocalDateTime leaseUntil;
-
     private LocalDateTime requestedAt;
 
     private LocalDateTime doneAt;
@@ -102,7 +103,7 @@ public class Payout extends BaseEntity {
     }
 
     /** 실행권 획득. attempt를 올리고 이번 attempt의 키·계좌 스냅샷을 고정한다. 결과를 모르는 상태(UNKNOWN)로 시작한다. */
-    public void claim(SellerPayoutAccount account, LocalDateTime now, LocalDateTime leaseUntil) {
+    public void claim(SellerPayoutAccount account, LocalDateTime now, LocalDateTime claimedUntil) {
         requireStatus(PayoutStatus.READY);
         if (!account.isRegistered() || !account.getSellerId().equals(sellerId))
             throw new IllegalArgumentException("이 판매자의 등록된 계좌만 스냅샷한다");
@@ -115,8 +116,7 @@ public class Payout extends BaseEntity {
         accountVersion = account.getVersion();
         providerStatus = PayoutProviderStatus.UNKNOWN;
         requestedAt = now;
-        this.leaseUntil = leaseUntil;
-        nextAttemptAt = leaseUntil;
+        nextAttemptAt = claimedUntil;
         lastError = null;
     }
 
@@ -185,7 +185,6 @@ public class Payout extends BaseEntity {
     }
 
     private void release(LocalDateTime next) {
-        leaseUntil = null;
         nextAttemptAt = next;
     }
 

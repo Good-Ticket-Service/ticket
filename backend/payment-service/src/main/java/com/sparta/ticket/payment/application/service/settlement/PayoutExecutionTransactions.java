@@ -60,7 +60,7 @@ public class PayoutExecutionTransactions {
     @Value("${payment.settlement.payout.lock-timeout-ms:5000}")
     private long lockTimeoutMillis;
 
-    /** 실행권을 쥔 실행자가 끊겼을 때 다른 실행자가 조회를 시작할 수 있는 시각까지의 길이. */
+    /** 실행권 점유 시간. 실행자가 끊기면 이 시간이 지난 뒤 다른 실행자가 같은 키로 조회를 시작한다(next_attempt_at으로 표현). */
     @Value("${payment.settlement.payout.lease-seconds:60}")
     private long leaseSeconds;
 

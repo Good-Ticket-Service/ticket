@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 최초 지급 실행(Task 20-8). 실행권 획득(트랜잭션) → 지급대행 호출(트랜잭션 밖) → 결과 반영(트랜잭션) 세 단계다.
- * 결과 반영이 실패해도 지급은 REQUESTED로 남아 같은 키 조회로 확정한다. 주기 조회·lease 회수는 20-9가 맡는다.
+ * 결과 반영이 실패해도 지급은 REQUESTED로 남아 같은 키 조회로 확정한다. 주기 조회·점유 만료 회수는 20-9가 맡는다.
  * Note: payout.enabled=false는 새 지급 요청만 막는다. REQUESTED 결과 조회(inquire)는 스위치와 무관하게 계속한다.
  */
 @Slf4j
