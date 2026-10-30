@@ -49,6 +49,8 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
     /**
      * 발급 상태에 맞는 쿼리를 골라 부른다. 정렬·페이지는 Pageable을 쓰고 끝에 ID 보조 키를 붙인다(허용 필드 검사는 application이 한다).
      * Note: Spring Data는 인터페이스의 default 메서드를 쿼리로 만들지 않고 그대로 실행한다.
+     * Note: 기간 조건(issue_start_at, issue_end_at)에 인덱스가 없어 테이블 전체를 읽는다. 쿠폰 정의는 관리자가 만드는 적은 데이터라
+     * 충분하다. 많아지면 EXPLAIN ANALYZE로 실행 계획을 보고 인덱스를 정한다(#197).
      */
     @Override
     default Page<Coupon> searchByIssueStatus(CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable) {
