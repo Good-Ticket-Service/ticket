@@ -265,6 +265,7 @@ flowchart LR
 ## 12. 결제 관리자 접근 (#88 브랜치 구현)
 
 - 관리자 API 계약은 api.md의 결제 관리자 절에 둔다. Gateway가 `/api/admin/payments/**`를 payment로 전달하고 MASTER만 허용한다. 이 경로는 사용자 캐시를 우회해 매 요청 현재 계정·역할을 확인한다. 조회 장애는503이며 기존 캐시로 대체하지 않는다.
+- 정산 관리자 `/api/admin/settlements/**`도 같은 방식으로 MASTER만 허용한다. 판매자 정산 `/api/seller/settlements/**`·`/api/seller/payout-account`는 Gateway가 SELLER만 허용하고, 본인 정산인지는 payment가 `X-User-Id`로 확인한다(#160).
 - payment도 공통 `@RequireRole(MASTER)`로 검사하고 실행자를 인증된 사용자 ID로 기록한다. 직접 접근 시 사용자 헤더를 위조할 수 있으므로 서비스 포트 비공개와 Gateway 경유 접근을 배포 환경에서 보장해야 한다. 실제 보안 그룹·내부 호출자 통제는 미검증이다.
 - `/internal/**` 외부 차단을 유지한다. 서비스 인증 전반의 미합의 상태를 이번 관리자 경로 구현으로 해결했다고 간주하지 않는다.
 - 기존 DB는 002→003→004 이행 후 배포한다. 실행자는 조회→원인 확인·수정→최신 상태로 명령→PG/DB 대조 순서로 처리한다. 결과 불명은 동일 commandId로 확인하며 DB 상태를 직접 덮어쓰지 않는다.
