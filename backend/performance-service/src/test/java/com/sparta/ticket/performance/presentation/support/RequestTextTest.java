@@ -20,8 +20,24 @@ class RequestTextTest {
         assertThat(RequestText.strip("　서울 공연장　")).isEqualTo("서울 공연장");
     }
 
+    @Test
+    @DisplayName("NBSP(U+00A0)·줄바꿈도 공백으로 보고 지운다. 가운데 공백은 남긴다")
+    void stripsUnicodeSpaces() {
+        assertThat(RequestText.strip(" VIP \n")).isEqualTo("VIP");
+        assertThat(RequestText.stripToNull(" 　 ")).isNull();
+        assertThat(RequestText.strip(" 서울 공연장 ")).isEqualTo("서울 공연장");
+    }
+
+    @Test
+    @DisplayName("containsBlank는 가운데의 NBSP·전각 공백도 찾는다")
+    void findsBlankInside() {
+        assertThat(RequestText.containsBlank("https://a b.com")).isTrue();
+        assertThat(RequestText.containsBlank("https://a　b.com")).isTrue();
+        assertThat(RequestText.containsBlank("https://example.com/a.jpg")).isFalse();
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "　", "　 \t"})
+    @ValueSource(strings = {"", "   ", "　", "　 \t", " ", " 　"})
     @DisplayName("지우고 남는 것이 없으면 400 VALIDATION_ERROR다")
     void rejectsBlank(String value) {
         assertThatThrownBy(() -> RequestText.strip(value))
