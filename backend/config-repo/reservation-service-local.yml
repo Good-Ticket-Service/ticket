@@ -9,6 +9,7 @@ spring:
       # 좌석 준비(공연 → 좌석)가 생기기 전까지 좌석 조회·선점을 확인할 회차 좌석 시드(#124).
       # local은 기동마다 테이블을 다시 만드므로 매번 새로 넣는다. dev는 이 파일을 쓰지 않는다.
       mode: always
-      data-locations: classpath:db/seed-local.sql
+      # 부하 측정용 회차 900 좌석 1,000석(seed-load.sql, #173)은 기존 시드 다음에 넣는다. 재시작하면 처음 상태로 돌아가 측정 사이 초기화에 쓴다.
+      data-locations: classpath:db/seed-local.sql,classpath:db/seed-load.sql
       # 지정하지 않으면 OS 기본 인코딩으로 읽는다. Windows 한글 환경(MS949)에서 주석·한글 값이 깨진다.
       encoding: UTF-8
