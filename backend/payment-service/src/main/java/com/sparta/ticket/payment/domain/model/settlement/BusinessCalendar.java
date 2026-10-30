@@ -3,6 +3,7 @@ package com.sparta.ticket.payment.domain.model.settlement;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -42,5 +43,20 @@ public record BusinessCalendar(
             if (isBusinessDay(day)) counted++;
         }
         return Optional.of(day.atStartOfDay());
+    }
+
+    /**
+     * from 이후 첫 지급 가능 시각: from이 영업일이고 지급 시작 시각 전이면 그날, 아니면 다음 영업일의 지급 시작 시각.
+     * 그 날이 달력 범위를 넘으면 비어 있다.
+     */
+    public Optional<LocalDateTime> nextPayoutAt(LocalDateTime from, LocalTime payoutTime) {
+        LocalDate day = from.toLocalDate();
+        if (!from.toLocalTime().isAfter(payoutTime) && !day.isAfter(coveredUntil) && isBusinessDay(day))
+            return Optional.of(day.atTime(payoutTime));
+        do {
+            day = day.plusDays(1);
+            if (day.isAfter(coveredUntil)) return Optional.empty();
+        } while (!isBusinessDay(day));
+        return Optional.of(day.atTime(payoutTime));
     }
 }

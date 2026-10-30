@@ -1,6 +1,7 @@
 package com.sparta.ticket.payment.domain.model.settlement;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Optional;
 
 /**
@@ -8,6 +9,9 @@ import java.util.Optional;
  * DB를 바꾸지 않는 순수 계산이라, 결제 승인 트랜잭션에서 저장 전에 실패를 분기할 수 있다.
  */
 public final class SettlementRules {
+
+    /** 영업일 지급 시작 시각. 정산서 발행(04:00) 뒤 10분이다(settlement-design 5절 1번). */
+    static final LocalTime PAYOUT_TIME = LocalTime.of(4, 10);
 
     private final SettlementPolicyBook policies;
     private final BusinessCalendarBook calendars;
@@ -45,5 +49,10 @@ public final class SettlementRules {
     /** 정산 항목에 고정한 정책 버전. 손익 조회가 과거 요율을 쓰게 한다. */
     public Optional<SettlementPolicy> policy(String version) {
         return policies.byVersion(version);
+    }
+
+    /** 정산서를 발행한 시각 이후 처음 지급할 수 있는 시각(영업일 04:10). 달력이 모르는 날짜면 비어 있다. */
+    public Optional<LocalDateTime> nextPayoutAt(LocalDateTime from) {
+        return calendars.at(from).flatMap(calendar -> calendar.nextPayoutAt(from, PAYOUT_TIME));
     }
 }
