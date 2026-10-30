@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.coupon.domain;
 
 import com.sparta.ticket.common.entity.BaseEntity;
+import com.sparta.ticket.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -98,5 +99,68 @@ public class UserCoupon extends BaseEntity {
         }
         // 그 밖에는 저장된 상태 그대로다. RESERVED는 예매가 잡고 있어 기간이 지나도 만료로 보지 않는다(architecture 12절)
         return status;
+    }
+
+    /**
+     * 예매에 잡는다(AVAILABLE → RESERVED). 결제 준비에서 회원이 이 쿠폰을 골랐을 때 CouponUsage.reserve가 부른다.
+     * 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE이다.
+     * 이미 같은 예매에 잡혀 있으면 아무것도 바꾸지 않는다(멱등). 예매가 같은 요청을 다시 보낼 수 있기 때문이다.
+     * Note: 동시에 같은 쿠폰을 잡는 요청은 호출자가 행을 잠그고(FOR UPDATE) 읽어 차례로 이 메서드를 부른다.
+     * 뒤에 온 요청은 앞 요청이 커밋한 상태를 보고 판단한다.
+     */
+    public void reserve(Long userId, Long reservationId, LocalDateTime now) {
+        // 1) 남의 쿠폰은 쓸 수 없다. 존재를 드러내지 않으려고 없는 쿠폰과 같은 오류로 답한다
+        if (!this.userId.equals(userId)) {
+            throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
+        }
+        // 2) 이미 이 예매에 잡혀 있으면 앞서 성공한 같은 요청이다. 그대로 둔다
+        if (status == UserCouponStatus.RESERVED && reservationId.equals(this.reservationId)) {
+            return;
+        }
+        // 3) 다른 예매가 잡았거나, 이미 썼거나, 만료 처리된 쿠폰은 쓸 수 없다
+        if (status != UserCouponStatus.AVAILABLE) {
+            throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
+        }
+        // 4) 만료 배치 전이라도 만료 시각이 지났으면 쓸 수 없다(displayStatus와 같은 경계: 만료 시각 정각부터 만료)
+        if (!now.isBefore(expiresAt)) {
+            throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
+        }
+        // 5) 이 예매에 잡는다
+        this.status = UserCouponStatus.RESERVED;
+        this.reservationId = reservationId;
+    }
+
+    /**
+     * 사용 확정(RESERVED → USED). 결제가 성공해 예매가 확정될 때 CouponUsage.use가 부른다.
+     * 잡은 뒤 유효 기간이 지났어도 결제가 확정되면 USED다(architecture 12절). 이미 USED면 아무것도 바꾸지 않는다(멱등).
+     */
+    public void use(LocalDateTime now) {
+        // 이미 사용 처리된 쿠폰이면 앞서 성공한 같은 요청이다
+        if (status == UserCouponStatus.USED) {
+            return;
+        }
+        // 예매 ID로 찾은 쿠폰은 RESERVED·USED뿐이다(ck_p_user_coupons_reservation). 그 밖이면 호출 순서가 잘못됐다
+        if (status != UserCouponStatus.RESERVED) {
+            throw new IllegalStateException("예매에 잡히지 않은 쿠폰은 사용할 수 없습니다. status=" + status);
+        }
+        this.status = UserCouponStatus.USED;
+        this.usedAt = now;
+    }
+
+    /**
+     * 예매에서 돌려준다(RESERVED·USED → AVAILABLE 또는 EXPIRED). 선점 만료·해제나 예매 취소 확정 때 CouponUsage.release가 부른다.
+     * 유효 기간이 남았으면 AVAILABLE, 지났으면 EXPIRED다. 만료 배치는 RESERVED·USED를 건드리지 않으므로 여기서 판정한다.
+     * 이미 돌려준 쿠폰이면 아무것도 바꾸지 않는다(멱등).
+     */
+    public void release(LocalDateTime now) {
+        // 예매에 잡혀 있지 않으면 이미 돌려준 것이다
+        if (status != UserCouponStatus.RESERVED && status != UserCouponStatus.USED) {
+            return;
+        }
+        // 만료 시각 정각부터 만료다(displayStatus와 같은 경계)
+        this.status = now.isBefore(expiresAt) ? UserCouponStatus.AVAILABLE : UserCouponStatus.EXPIRED;
+        // DB CHECK가 RESERVED·USED에만 예매 ID를, USED에만 사용 시각을 허용하므로 함께 지운다
+        this.reservationId = null;
+        this.usedAt = null;
     }
 }
