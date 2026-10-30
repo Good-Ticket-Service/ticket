@@ -203,6 +203,24 @@ public class SettlementItem extends BaseEntity {
         this.failureReason = recalculated.failureReason;
     }
 
+    /** 정산서에 편입한다. 정산 가능한 PENDING SALE만 한 번 편입되고, 이후 환불은 차감 경로로 간다. */
+    public void putOnStatement(Long statementId) {
+        if (kind != SettlementItemKind.SALE || status != SettlementItemStatus.PENDING)
+            throw new IllegalStateException("정산 대기 SALE만 정산서에 편입한다: " + status);
+        if (statementId == null) throw new IllegalArgumentException("편입할 정산서가 없다");
+        this.statementId = statementId;
+        this.status = SettlementItemStatus.ON_STATEMENT;
+    }
+
+    /** 정산서에서 상계한 만큼 미회수 잔액을 줄인다. 잔액이 0이면 CLEARED다. */
+    public void offsetBy(long amount) {
+        if (kind != SettlementItemKind.DEDUCTION || status != SettlementItemStatus.OPEN)
+            throw new IllegalStateException("미회수 차감만 상계한다: " + status);
+        if (amount <= 0 || amount > remaining) throw new IllegalArgumentException("상계액은 0보다 크고 잔액 이하다");
+        this.remaining = remaining - amount;
+        if (remaining == 0) this.status = SettlementItemStatus.CLEARED;
+    }
+
     private static SettlementItem sale(SaleSource source, SettlementItemStatus status) {
         SettlementItem item = new SettlementItem();
         item.kind = SettlementItemKind.SALE;

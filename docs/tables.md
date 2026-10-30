@@ -447,7 +447,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | eligible_at | TIMESTAMP; 정산 가능 시각(회차 시작일 다음 날부터 3번째 영업일 00:00). PENDING 필수 |
 | hold_reason | VARCHAR(40); REFUND_IN_PROGRESS/MISSING_SCHEDULE_START/CALENDAR_NOT_COVERED. HELD 필수 |
 | failure_reason | VARCHAR(80); UNPOSTED 필수 계산 실패 사유 |
-| statement_id | BIGINT; ON_STATEMENT 필수. 정산서 테이블 도입 때 FK |
+| statement_id | BIGINT FK p_settlement_statements; ON_STATEMENT 필수 |
 | principal, remaining | BIGINT; DEDUCTION 필수. 0 ≤ remaining ≤ principal, OPEN이면 remaining > 0, CLEARED면 0 |
 | version | BIGINT NOT NULL DEFAULT 0; 낙관적 잠금 |
 
@@ -468,7 +468,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | seller_id | BIGINT NOT NULL |
 | payment_id | BIGINT FK p_payments; SALE·REFUND 필수 |
 | refund_id | BIGINT FK p_refunds; REFUND면 source_id와 같다 |
-| statement_id, payout_id | BIGINT; 정산서·지급 테이블 도입 때 FK |
+| statement_id, payout_id | BIGINT FK p_settlement_statements, p_payouts |
 | policy_version | VARCHAR(40); SALE·REFUND 필수(원거래 정책 고정), STATEMENT·PAYOUT은 NULL |
 | reverses_transaction_id | BIGINT FK p_ledger_transactions; REVERSE일 때만 필수 |
 | occurred_at | TIMESTAMP NOT NULL |
@@ -489,6 +489,69 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `deleted_at IS NULL` CHECK. 0원 줄은 만들지 않는다.
 - 행 CHECK·UNIQUE는 여러 줄의 차변 합 = 대변 합을 보장하지 않는다. 균형은 저장 전 도메인 검증과 내부 대조가 맡는다.
 - 006-settlement-ledger.sql은 기존 데이터를 바꾸지 않으며 다시 실행해도 안전하다.
+
+### p_seller_payout_accounts — payment-service/schema.sql + A (판매자 정산 기준 행)
+
+판매자마다 하나인 정산 기준 행이자 수취 계좌다. 정산서 발행은 이 행을 잠가 판매자 단위로 직렬화한다. 발행이 먼저 만들 수 있으므로 행이 있다고 계좌가 등록된 것은 아니다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| seller_id | BIGINT NOT NULL UNIQUE |
+| account_ref | VARCHAR(100); 모의 계좌 참조. 등록 전 NULL |
+| holder_masked | VARCHAR(100); 마스킹한 예금주. 등록 전 NULL |
+| version | BIGINT NOT NULL DEFAULT 0; 낙관적 잠금 |
+
+### p_settlement_statements — payment-service/schema.sql + A (판매자·회차별 정산서)
+
+발행 때 합계를 고정하고 바꾸지 않는다. 늦게 정상화된 SALE은 같은 회차의 다음 sequence 정산서로 나간다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| seller_id, schedule_id | BIGINT NOT NULL |
+| sequence | INT NOT NULL ≥ 0; UNIQUE(seller_id, schedule_id, sequence) |
+| cutoff | TIMESTAMP NOT NULL; 발행 잡 시작 시각. 이 시각까지 정산 가능해진 SALE만 담는다 |
+| sale_total | BIGINT NOT NULL > 0; 편입 SALE의 판매자 몫 N 합 |
+| offset_total | BIGINT NOT NULL ≥ 0; 미회수 차감 상계액 |
+| payable_amount | BIGINT NOT NULL ≥ 0; sale_total − offset_total CHECK |
+| status | VARCHAR(20) NOT NULL; ISSUED(지급액 > 0)/NO_PAYOUT(지급액 0) CHECK |
+| issued_at | TIMESTAMP NOT NULL |
+| version | BIGINT NOT NULL DEFAULT 0 |
+
+- `deleted_at IS NULL` CHECK.
+
+### p_settlement_statement_lines — payment-service/schema.sql + A (정산서 명세행)
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| statement_id | BIGINT NOT NULL FK p_settlement_statements |
+| item_id | BIGINT NOT NULL FK p_settlement_items; UNIQUE(statement_id, item_id) |
+| kind | VARCHAR(20) NOT NULL; SALE/DEDUCTION |
+| amount | BIGINT NOT NULL > 0; SALE은 N 전액, DEDUCTION은 이 정산서에서 상계한 몫 |
+
+- 부분 UNIQUE `(item_id) WHERE kind = 'SALE'`: SALE은 한 정산서에만 들어간다. DEDUCTION은 여러 정산서에 나눠 상계될 수 있다.
+- `deleted_at IS NULL` CHECK.
+
+### p_payouts — payment-service/schema.sql + A (판매자 지급)
+
+정산서 하나에 지급 하나다. 현재는 발행이 만드는 READY까지만 있고, 실행·결과 컬럼은 지급 실행 작업에서 추가한다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| statement_id | BIGINT NOT NULL UNIQUE FK p_settlement_statements |
+| seller_id | BIGINT NOT NULL |
+| amount | BIGINT NOT NULL > 0 |
+| status | VARCHAR(20) NOT NULL; READY CHECK |
+| attempt | INT NOT NULL DEFAULT 0 ≥ 0 |
+| next_attempt_at | TIMESTAMP; 처음 실행할 수 있는 시각(발행 cutoff 이후 첫 영업일 04:10). 달력 범위 밖이면 NULL |
+| version | BIGINT NOT NULL DEFAULT 0 |
+
+- `deleted_at IS NULL` CHECK.
+- 발행 후보 인덱스: `p_settlement_items (eligible_at, schedule_id, seller_id) WHERE kind = 'SALE' AND status = 'PENDING'`, `(seller_id) WHERE kind = 'DEDUCTION' AND status = 'OPEN'`.
+- 008-settlement-statements.sql은 위 테이블과 정산 항목·원장의 정산서·지급 FK를 추가하며, 다시 실행해도 안전하다.
 
 ### pg_transaction — fake-pg/schema.sql
 

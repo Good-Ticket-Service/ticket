@@ -50,6 +50,9 @@ class SettlementRefundIntegrationTest extends PaymentIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private SettlementStatementTransactions statements;
+
     private SettlementPaymentFlow flow;
 
     @BeforeEach
@@ -100,14 +103,11 @@ class SettlementRefundIntegrationTest extends PaymentIntegrationTest {
                 .allSatisfy((account, net) -> assertThat(net).as(account).isZero());
     }
 
-    /** 정산서는 Task 20-5에서 생기므로 SALE을 SQL로 정산서에 편입된 상태로 만든다. */
+    /** 판매자·회차를 따로 두고 실제로 정산서를 발행한 뒤 환불한다. */
     @Test
     void completionAfterStatementCreatesFullDeduction() {
-        Payment payment = flow.approved();
-        jdbc.update(
-                "UPDATE p_settlement_items SET status = 'ON_STATEMENT', statement_id = 1 WHERE payment_id = ?"
-                        + " AND kind = 'SALE'",
-                payment.getId());
+        Payment payment = flow.approvedFor(90_404L, 91_404L);
+        statements.issue(90_404L, 91_404L, LocalDateTime.of(2026, 11, 12, 4, 0));
 
         refundService.refund(payment.getOrderId(), RefundReason.SCHEDULE_CANCELED);
 
