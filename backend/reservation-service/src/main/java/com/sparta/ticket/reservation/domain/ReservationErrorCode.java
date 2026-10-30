@@ -23,7 +23,9 @@ public enum ReservationErrorCode implements ErrorCode {
     SEAT_ALREADY_TAKEN(HttpStatus.CONFLICT, "이미 다른 예약이 선점했거나 판매된 좌석입니다."),
     SEAT_NOT_SELLABLE(HttpStatus.CONFLICT, "판매 대상이 아닌 좌석입니다."),
     SEAT_CONFIG_VERSION_MISMATCH(HttpStatus.CONFLICT, "좌석 정보가 최신 구성과 다릅니다. 좌석을 다시 조회해 주세요."),
-    PURCHASE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "이 회차에 이미 진행 중인 예약이 있습니다.");
+    PURCHASE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "이 회차에 이미 진행 중인 예약이 있습니다."),
+    SEAT_SETUP_STALE_VERSION(HttpStatus.CONFLICT, "이미 더 높은 좌석 구성 버전이 반영되어 있습니다."),
+    SEAT_SETUP_IN_USE(HttpStatus.CONFLICT, "선점·판매된 좌석이 있어 좌석 구성을 바꿀 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
