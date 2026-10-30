@@ -87,8 +87,8 @@ public interface ReservationRepository {
     /** 넘긴 id 중 결제 중인 예약의 id. 빈 목록을 넘기지 않는다. */
     List<Long> findPaymentInProgressIds(Collection<Long> ids);
 
-    /** 결과 확인 스케줄러가 확인한 시각을 남긴다. 상태와 감사 컬럼은 바꾸지 않는다. */
-    int markPaymentChecked(Long id, LocalDateTime checkedAt);
+    /** 결과 확인 스케줄러가 확인한 시각을 남긴다. checkedBefore 뒤로 이미 집은 인스턴스가 있으면 0행이다. 상태와 감사 컬럼은 바꾸지 않는다. */
+    int markPaymentChecked(Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore);
 
     /**
      * 결제 중인 지금 시도가 성공했는데 확정하지 못했다고 기록한다. 이미 기록됐으면 0행이다.

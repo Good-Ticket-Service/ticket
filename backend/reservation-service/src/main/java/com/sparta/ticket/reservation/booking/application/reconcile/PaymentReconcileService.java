@@ -38,13 +38,14 @@ public class PaymentReconcileService {
     public int reconcile(Duration threshold, Duration stuckAfter, int batchSize, Duration timeBudget) {
         long deadline = System.nanoTime() + timeBudget.toNanos();
         LocalDateTime now = changeStamps.now();
+        LocalDateTime staleBefore = now.minus(threshold);
         int changed = 0;
-        for (Long reservationId : reservationRepository.findStalePaymentIds(now.minus(threshold), batchSize)) {
+        for (Long reservationId : reservationRepository.findStalePaymentIds(staleBefore, batchSize)) {
             if (System.nanoTime() > deadline) {
                 break;
             }
             try {
-                if (reconcileOne(reservationId, deadline)) {
+                if (reconcileOne(reservationId, staleBefore, deadline)) {
                     changed++;
                 }
             } catch (RuntimeException e) {
@@ -55,8 +56,9 @@ public class PaymentReconcileService {
         return changed;
     }
 
-    private boolean reconcileOne(Long reservationId, long deadline) {
-        PendingPayment pending = transactions.claimPendingPayment(reservationId).orElse(null);
+    private boolean reconcileOne(Long reservationId, LocalDateTime staleBefore, long deadline) {
+        PendingPayment pending =
+                transactions.claimPendingPayment(reservationId, staleBefore).orElse(null);
         if (pending == null) {
             return false;
         }

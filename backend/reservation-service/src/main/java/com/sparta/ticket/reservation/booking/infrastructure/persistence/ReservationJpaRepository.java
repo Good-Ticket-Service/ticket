@@ -317,8 +317,14 @@ public interface ReservationJpaRepository
     @Query("""
             UPDATE Reservation r SET r.paymentCheckedAt = :checkedAt
              WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.updatedAt <= :checkedBefore
+               AND r.refundRequiredAt IS NULL
+               AND COALESCE(r.paymentCheckedAt, r.updatedAt) <= :checkedBefore
             """)
-    int markPaymentChecked(@Param("id") Long id, @Param("checkedAt") LocalDateTime checkedAt);
+    int markPaymentChecked(
+            @Param("id") Long id,
+            @Param("checkedAt") LocalDateTime checkedAt,
+            @Param("checkedBefore") LocalDateTime checkedBefore);
 
     @Modifying(flushAutomatically = true)
     @Query("""
