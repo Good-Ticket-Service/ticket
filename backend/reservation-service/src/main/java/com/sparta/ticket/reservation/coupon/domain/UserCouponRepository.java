@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.coupon.domain;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.domain.Page;
@@ -47,4 +48,16 @@ public interface UserCouponRepository {
      * Note: 잠그지 않고 읽는다. 같은 예매의 쿠폰 호출은 예매가 예약 행을 먼저 잠가 차례로 들어오므로 그사이 바뀌지 않는다.
      */
     boolean existsOtherOnReservation(Long reservationId, Long userCouponId);
+
+    /**
+     * 만료 배치가 바꿀 회원 쿠폰의 ID. AVAILABLE이면서 만료 시각이 now 이하인 것을 만료 시각이 이른 순으로 limit개 고른다.
+     * Note: 잠그지 않고 고른다. 고른 뒤 예매가 잡은 쿠폰은 expire의 조건이 다시 걸러 낸다.
+     */
+    List<Long> findExpirableIds(LocalDateTime now, int limit);
+
+    /**
+     * 고른 회원 쿠폰을 EXPIRED로 바꾸고 바뀐 행 수를 돌려준다. 그사이 상태가 바뀐 쿠폰은 건너뛴다.
+     * 저장값만 맞추는 정리 작업이다. 쓸 수 있는지는 이 결과와 상관없이 계속 만료 시각으로 판단한다(UserCoupon.displayStatus·reserve).
+     */
+    int expire(Collection<Long> userCouponIds, LocalDateTime now, String updatedBy);
 }

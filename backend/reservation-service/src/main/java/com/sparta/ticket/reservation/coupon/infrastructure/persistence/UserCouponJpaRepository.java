@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -60,4 +61,35 @@ public interface UserCouponJpaRepository extends JpaRepository<UserCoupon, Long>
                        AND uc.expiresAt <= :now))
             """)
     Page<UserCoupon> findExpired(@Param("userId") Long userId, @Param("now") LocalDateTime now, Pageable pageable);
+
+    /**
+     * 만료 배치 대상 ID. ix_p_user_coupons_expire(expires_at, WHERE status = 'AVAILABLE')를 타도록 상태를 문자열 그대로 비교한다.
+     * 만료 시각이 같으면 ID 순으로 고른다.
+     */
+    @Query(value = """
+            SELECT user_coupon_id FROM p_user_coupons
+            WHERE status = 'AVAILABLE'
+              AND expires_at <= :now
+              AND deleted_at IS NULL
+            ORDER BY expires_at, user_coupon_id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> findExpirableIds(@Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /**
+     * 고른 ID 가운데 아직 AVAILABLE이고 만료 시각이 지난 행만 EXPIRED로 바꾼다.
+     * UPDATE가 행을 잠그므로, 예매가 먼저 잡은 쿠폰은 잡은 트랜잭션이 끝난 뒤 WHERE를 다시 보고 건너뛴다.
+     * 쿼리로 바로 바꿔 JPA 감사가 돌지 않으므로 updated_at·updated_by를 직접 쓴다.
+     * 영속성 컨텍스트에 남은 옛 회원 쿠폰 값을 읽지 않도록 실행 뒤 비운다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            UPDATE p_user_coupons
+            SET status = 'EXPIRED', updated_at = :now, updated_by = :updatedBy
+            WHERE user_coupon_id IN (:ids)
+              AND status = 'AVAILABLE'
+              AND expires_at <= :now
+              AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int expire(@Param("ids") Collection<Long> ids, @Param("now") LocalDateTime now, @Param("updatedBy") String updatedBy);
 }
