@@ -237,7 +237,7 @@
 
 ## 좌석 — reservation-service / seat
 
-상태: 선택 가능 좌석 조회(#84)와 좌석 선점(#148)은 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: 선택 가능 좌석 조회(#84), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -257,10 +257,11 @@
 - 선점 처리: [트랜잭션 밖] 회차 소속 확인 → 판매 검증 → [트랜잭션] 요청 좌석·이 회원의 HOLD 좌석·요청 좌석을 잡은 예약의 좌석 전체를 id 오름차순으로 한 번에 잠금 → 잠근 뒤의 시각으로 판정 → 만료된 선점은 예약 ID 오름차순으로 expireIfDue하고 그 예약의 좌석을 모두 반환 → countActiveSeats → BookingFacade.hold → 좌석 HOLD. 잠금 순서는 좌석 → 예약이다. (구현 #148)
 - 선점 재요청: 잠근 좌석이 이 회원 예약의 만료 전 HOLD면 기존 예약을 200으로 준다. 잠금을 기다리는 사이 같은 회원의 다른 요청이 만든 예약도 잠근 뒤 다시 읽어 200으로 준다. (구현 #148)
 - 선점 시간은 10분이고 hold_expires_at은 좌석과 예약에 같은 값이다. HoldTarget의 공연·판매자·회차 시작 시각·공연명은 판매 검증 응답 값이다. (구현 #148)
-- 선점 해제는 잠금 없이 BookingFacade.getReservation으로 예약을 먼저 읽어 404·403을 가린다. (원본 복원: seat/api.md:236, 담당 확인 필요)
-- 예약이 없거나 예약의 scheduleId가 경로와 다르면 404 RESERVATION_NOT_FOUND, 본인 예약이 아니면 403 FORBIDDEN이다. (원본 복원: seat/api.md:236,256-257, 담당 확인 필요)
-- 해제의 회차 확인은 좌석이 아니라 예약으로 한다. 이미 끝난 예약에는 좌석이 남아 있지 않을 수 있다. (원본 복원: seat/api.md:236, 담당 확인 필요)
-- 모든 facade가 MANDATORY이므로 호출자 트랜잭션 안에서 비잠금 사전 조회 후 view.scheduleSeatIds 순서로 좌석을 잠그고 BookingFacade.release를 부른다. (원본 복원: seat/api.md:237-238, 담당 확인 필요)
+- 선점 해제 처리: [트랜잭션] BookingFacade.getReservation으로 예약을 잠금 없이 읽음(MANDATORY라 트랜잭션 안) → 예약의 좌석을 id 오름차순으로 한 번에 잠금 → BookingFacade.release(쿠폰 반환 포함) → 결과별 좌석 처리. 잠금 순서는 좌석 → 예약이다. (구현 #166)
+- 예약이 없거나 예약의 scheduleId가 경로와 다르면 404 RESERVATION_NOT_FOUND, 본인 예약이 아니면 403 FORBIDDEN이다. 회차 확인은 좌석이 아니라 예약으로 한다. 이미 끝난 예약에는 좌석이 남아 있지 않을 수 있다. (구현 #166)
+- release 결과가 RELEASED·EXPIRED·ALREADY_CLOSED면 이 예약이 아직 HOLD로 잡은 좌석만 반환하고 204다. 다른 예약에 넘어간 좌석은 건드리지 않으므로 같은 해제를 반복해도 204다. (구현 #166)
+- release 결과가 NOT_RELEASABLE(결제 중·확정·취소 중·취소)이면 좌석을 바꾸지 않고 409 INVALID_STATUS_TRANSITION이다. 결제 시작과 동시에 와도 예약의 HOLD 조건부 변경으로 한쪽만 성공한다. (구현 #166)
+- 끝난 예약의 좌석이 SOLD로 남아 있으면 예약과 좌석이 어긋난 상태라 반환하지 않고 경고 로그만 남긴다(204). (구현 #166)
 - 좌석 API 응답 시각은 +09:00 오프셋을 포함한 ISO 8601이다. (원본 복원: seat/api.md:15, 담당 확인 필요)
 
 ## 예매 — reservation-service / booking
