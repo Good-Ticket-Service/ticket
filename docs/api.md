@@ -37,6 +37,8 @@
 - 공연 목록은 `PageP<T>={items:T[],page:int,size:int,totalElements:long}`이다. page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다.
 - 버전 필드(version, venueVersion, performanceVersion, policyVersion, configVersion, seatConfigVersion)는 long이다. 테이블의 BIGINT 컬럼과 같다.
 - If-Match는 대상 리소스의 version을 큰따옴표로 감싼 값이다(예: `"3"`).
+- 서버는 따옴표 없는 값(예: `3`)도 받는다. Swagger 등에서 손으로 넣기 쉽게 하려는 것이다.
+- 약한 비교(`W/"3"`), 와일드카드(`*`), 여러 값은 받지 않는다. 400 VALIDATION_ERROR다.
 - 공연장의 등급·좌석 명령은 venue.version을 쓴다.
 - 등급별 가격 설정과 공연 공개는 performance.version을 쓴다.
 - 회차 명령은 schedule.version을 쓴다.
@@ -44,7 +46,11 @@
 - 회차 등록은 If-Match를 받지 않는다.
 - 관리용 단건 조회는 응답 헤더 `ETag: "{version}"`을 준다. 이 값을 다음 명령의 If-Match에 그대로 쓴다.
 - 공연 초안 등록과 회차 등록의 Idempotency-Key는 권장 초안이다. 키의 범위와 보존 기간은 정하지 않았다.
+- 현재 구현은 Idempotency-Key를 처리하지 않는다(이슈 #129 결정). 같은 요청을 두 번 보내면 두 개가 만들어진다.
 - 요청 형식 오류는 400 VALIDATION_ERROR다(#83 결정). 필드 검증, 타입·열거값 불일치, 날짜 형식, page·size 범위, Path ID 형식이 여기에 해당한다. 팀 공통 GlobalExceptionHandler가 이 코드로 응답하기 때문이다.
+- long·int 필드는 JSON 숫자만 받는다. 문자열 숫자(`"1"`)와 소수(`1.9`)는 400 VALIDATION_ERROR다(이슈 #181). Jackson 기본값은 이 값을 숫자로 바꾸거나 잘라서 다른 ID·금액으로 처리할 수 있기 때문이다.
+- 공연 서비스가 Feign 응답을 읽을 때도 숫자 필드에 같은 규칙을 적용한다.
+- 요청 본문에 계약에 없는 필드가 있으면 거절하지 않고 무시한다.
 - 업무 규칙 위반은 INVALID_TIME_RANGE 같은 공연 오류 코드를 쓴다.
 - 「추가 오류」 칸에는 공통 오류(400 VALIDATION_ERROR, 401 UNAUTHORIZED, 403 FORBIDDEN)를 빼고 그 API에서만 생기는 오류를 적는다.
 - 표의 Genre는 CONCERT, MUSICAL, PLAY, SPORTS 중 하나다.
@@ -153,7 +159,7 @@
 | SEAT_SETUP_NOT_READY | 좌석 준비가 READY가 아님 | 400 |
 | BEFORE_OPEN | 예매 오픈 전임 | 400 |
 | SALES_CLOSED | 예매가 마감됨 | 400 |
-| SEAT_NOT_SELLABLE | 판매 제외 좌석이거나 이 공연장의 좌석이 아님 | 409 |
+| SEAT_NOT_SELLABLE | 판매 제외 좌석이거나, 이 공연장의 좌석이 아니거나, 삭제된 좌석임 | 409 |
 | SEAT_CONFIG_VERSION_MISMATCH | 요청 configVersion이 회차의 최신 구성 버전과 다름 | 409 |
 
 - 이 값은 오류 코드가 아니라 판매 검증 200 응답의 값이다. 좌석 서비스는 이 값을 외부 선점 API의 오류 code로 그대로 쓴다.
@@ -162,6 +168,7 @@
 - 예매 마감 시각과 같으면 SALES_CLOSED이고, 예매 오픈 시각과 같으면 열린 것으로 본다.
 - 거절 응답도 seats만 비우고 나머지 필드는 채운다. configVersion은 회차의 현재 좌석 구성 버전이다.
 - 공연 API는 SEAT_NOT_SELLABLE과 SEAT_CONFIG_VERSION_MISMATCH를 HTTP 오류로 내지 않는다. 409는 좌석 외부 API의 응답이다.
+- 삭제된 좌석과 등급이 삭제된 좌석도 SEAT_NOT_SELLABLE이다. 좌석 배치(P20)에서 빠지는 좌석과 같은 기준이다.
 
 ### 업무 규칙
 
@@ -180,6 +187,11 @@
 - period는 활성 회차의 첫 공연 날짜와 마지막 공연 날짜다. 활성 회차가 없으면 null이다.
 - from·to 필터는 시작일(KST)이 범위 안인 활성 회차가 있는 공연을 고른다.
 - salesStatus는 CANCELED, CLOSED, BEFORE_OPEN, UNAVAILABLE, ON_SALE 순서로 먼저 맞는 값을 준다. 매진 여부는 포함하지 않는다.
+  - CANCELED: 공연이나 회차가 취소됨
+  - CLOSED: 지금이 예매 마감 시각과 같거나 지남
+  - BEFORE_OPEN: 지금이 예매 오픈 시각 전. 오픈 시각과 같으면 열린 것으로 본다
+  - UNAVAILABLE: 예매 기간 중인데 판매가 중지됐거나 좌석 준비가 READY가 아님
+  - ON_SALE: 위에 해당하지 않음
 - 좌석 배치(P20)의 isSellable은 공연 공통 판매 제외를 반영한다. 실시간 점유 여부가 아니다.
 - 좌석 배치(P20)의 basePrice는 판매 제외 좌석이면서 그 등급에 가격이 없을 때만 null이다.
 - 좌석 배치(P20)와 좌석 서비스의 선택 가능 좌석 조회(`GET /api/seats/schedules/{scheduleId}`)는 좌석 순서가 다르다. 두 응답은 순서가 아니라 P20의 `seats[].id`와 좌석 조회의 `venueSeatId`(같은 공연장 좌석 ID)로 짝짓는다.
@@ -213,8 +225,10 @@
 - 판매 중지는 신규 선점만 막는다. 이미 잡힌 유효 HOLD는 원래 만료 시각까지 결제할 수 있다.
 - 판매를 재개해도 오픈 전, 마감 후, 좌석 미준비, 취소 조건은 그대로 적용된다.
 - 판매 검증의 업무 거절은 HTTP 200, allowed=false, reasonCode로 준다. 이때 seats는 빈 배열이다.
-- 판매 검증의 회차나 부모 공연이 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND다.
+- 판매 검증의 회차, 부모 공연, 공연장 중 하나라도 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND다.
 - 판매 검증이 허용이면 요청 좌석의 등급과 가격을 준다. 가격은 공연별 등급 가격이다.
+- 허용 응답의 seats는 요청한 venueSeatIds 순서와 같다.
+- 판매 대상 좌석인데 그 등급에 공연 가격이 없으면 500 INTERNAL_SERVER_ERROR다. 가격 설정 규칙상 생기면 안 되는 데이터 오류라 업무 거절(200)로 숨기지 않는다.
 - policyVersion은 부모 공연의 version이다.
 - 판매 검증은 좌석 점유 여부를 판단하지 않는다. 좌석 확보는 좌석 서비스가 한다.
 
