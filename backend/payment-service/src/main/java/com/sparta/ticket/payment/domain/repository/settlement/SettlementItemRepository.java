@@ -10,4 +10,13 @@ public interface SettlementItemRepository {
 
     /** 결제의 SALE. 결제마다 하나다(부분 UNIQUE). */
     Optional<SettlementItem> findSaleByPaymentId(Long paymentId);
+
+    /**
+     * 결제의 SALE을 행 잠금으로 읽는다. 환불·보충이 정산서 발행과 같은 SALE에서 만날 때 먼저 잠근 쪽만 적용되게 한다.
+     * 잠금 순서는 payment → refund → SALE이다(settlement-design 6절).
+     */
+    Optional<SettlementItem> lockSaleByPaymentId(Long paymentId);
+
+    /** 환불의 DEDUCTION. 환불마다 하나다(부분 UNIQUE). */
+    Optional<SettlementItem> findDeductionByRefundId(Long refundId);
 }
