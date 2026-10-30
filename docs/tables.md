@@ -454,6 +454,40 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - 분개한 SALE CHECK: `paid = gross − discount + booking_fee`, `paid + discount = seller_amount + commission + commission_vat + booking_fee_net + booking_fee_vat`(BIGINT 계산), 금액 모두 0 이상.
 - UNPOSTED CHECK: failure_reason 필수, 계산 결과·정책 버전 NULL(0원 정상 거래로 위장 금지).
 - 005-settlement-items.sql은 기존 결제·환불 데이터를 바꾸지 않으며 다시 실행해도 안전하다.
+- 예매수수료(booking_fee·booking_fee_net·booking_fee_vat)는 미적용 결정으로 항상 0이다. 향후 도입에 대비해 컬럼·계산식을 남긴다.
+
+### p_ledger_transactions — payment-service/schema.sql + A (정산 복식 원장 헤더, 합의 #160 진행 중)
+
+업무 1건(판매·환불·상계·지급)마다 한 행인 분개 헤더다. 추가 전용이며 수정·삭제하지 않는다. 정정은 원거래를 가리키는 반대 분개로 한다. 결제 경로 연결 전이다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| source_type, source_id, action | VARCHAR(20)·BIGINT·VARCHAR(20) NOT NULL; 업무 키 UNIQUE. SALE-POST(결제 ID), REFUND-REVERSE/RECEIVABLE(환불 ID), STATEMENT-OFFSET(정산서 ID), PAYOUT-DONE(지급 ID) CHECK |
+| seller_id | BIGINT NOT NULL |
+| payment_id | BIGINT FK p_payments; SALE·REFUND 필수 |
+| refund_id | BIGINT FK p_refunds; REFUND면 source_id와 같다 |
+| statement_id, payout_id | BIGINT; 정산서·지급 테이블 도입 때 FK |
+| policy_version | VARCHAR(40); SALE·REFUND 필수(원거래 정책 고정), STATEMENT·PAYOUT은 NULL |
+| reverses_transaction_id | BIGINT FK p_ledger_transactions; REVERSE일 때만 필수 |
+| occurred_at | TIMESTAMP NOT NULL |
+
+- 부분 UNIQUE: `(source_id) WHERE source_type = 'REFUND'`(환불 1건은 REVERSE·RECEIVABLE 중 하나), `(reverses_transaction_id) WHERE reverses_transaction_id IS NOT NULL`(원거래 1건의 반대 분개는 하나).
+- `deleted_at IS NULL` CHECK. 인덱스 `(seller_id)`.
+
+### p_ledger_entries — payment-service/schema.sql + A (정산 복식 원장 줄)
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| transaction_id | BIGINT NOT NULL FK p_ledger_transactions |
+| line_no | INT NOT NULL ≥ 1; UNIQUE(transaction_id, line_no). 차변 먼저, 같은 쪽은 계정 순서 |
+| account | VARCHAR(30) NOT NULL; PG_CLEARING/DISCOUNT_EXPENSE/SELLER_RECEIVABLE/SELLER_PAYABLE/COMMISSION_REVENUE/BOOKING_FEE_REVENUE/VAT_PAYABLE/PAYOUT_CLEARING |
+| debit, credit | BIGINT NOT NULL; 한쪽만 양수, 다른 쪽 0 |
+
+- `deleted_at IS NULL` CHECK. 0원 줄은 만들지 않는다.
+- 행 CHECK·UNIQUE는 여러 줄의 차변 합 = 대변 합을 보장하지 않는다. 균형은 저장 전 도메인 검증과 내부 대조가 맡는다.
+- 006-settlement-ledger.sql은 기존 데이터를 바꾸지 않으며 다시 실행해도 안전하다.
 
 ### pg_transaction — fake-pg/schema.sql
 
