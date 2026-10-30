@@ -1,0 +1,15 @@
+-- 관리자 공연장 배치 등록 전용 fixture. 다른 기능의 fixture에 의존하지 않는다.
+-- 201: 편집 가능(version 3, 등급 VIP·R, 삭제 등급, 좌석 A-1-1, 삭제 좌석 A-1-2) / 202: 공연이 참조 / 203: 삭제된 공연만 참조 / 204: 삭제된 공연장 / 205: 다른 공연장(등급 VIP)
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (201,'편집 공연장','서울 주소','서울',3,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (202,'사용 중 공연장','부산 주소','부산',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (203,'삭제 공연 참조 공연장','대전 주소','대전',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (204,'삭제 공연장','대구 주소','대구',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM','2026-10-02');
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (205,'다른 공연장','광주 주소','광주',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_performances (id,seller_id,venue_id,title,genre,age_rating,running_time,publication_status,operation_status,published_at,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (201,501,202,'사용 공연','PLAY','ALL',100,'DRAFT','ACTIVE',NULL,0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_performances (id,seller_id,venue_id,title,genre,age_rating,running_time,publication_status,operation_status,published_at,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (202,501,203,'삭제 공연','PLAY','ALL',100,'DRAFT','ACTIVE',NULL,0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM','2026-10-02');
+INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (201,201,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (202,201,'R','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (203,201,'삭제 등급','2026-10-01','SYSTEM','2026-10-01','SYSTEM','2026-10-02');
+INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (205,205,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venue_seats (id,venue_id,venue_seat_grade_id,section,row_label,seat_number,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (201,201,201,'A','1',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venue_seats (id,venue_id,venue_seat_grade_id,section,row_label,seat_number,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (202,201,201,'A','1',2,'2026-10-01','SYSTEM','2026-10-01','SYSTEM','2026-10-02');
