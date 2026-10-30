@@ -6,6 +6,7 @@ import com.sparta.ticket.payment.application.dto.refund.RefundClaim;
 import com.sparta.ticket.payment.application.dto.refund.RefundResult;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
 import com.sparta.ticket.payment.application.service.payment.PaymentTransactions;
+import com.sparta.ticket.payment.application.service.settlement.SettlementRefundTransactions;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
@@ -50,6 +51,7 @@ public class RefundTransactions {
     private final Clock clock;
     private final MeterRegistry meters;
     private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
+    private final SettlementRefundTransactions settlementRefunds;
 
     @Transactional
     public RefundResult accept(String orderId, RefundReason reason) {
@@ -67,9 +69,12 @@ public class RefundTransactions {
             }
             case FAILED -> RefundResult.notRequired();
             case IN_PROGRESS -> RefundResult.from(refunds.saveAndFlush(Refund.waiting(payment, reason)));
-            case DONE ->
-                RefundResult.from(
-                        refunds.saveAndFlush(Refund.requested(payment, reason, payment.getAmount(), now, now)));
+            case DONE -> {
+                Refund requested =
+                        refunds.saveAndFlush(Refund.requested(payment, reason, payment.getAmount(), now, now));
+                settlementRefunds.refundAccepted(payment.getId(), requested.getId());
+                yield RefundResult.from(requested);
+            }
             case CANCELED -> throw new IllegalStateException("취소 결제의 환불 기록이 없다");
         };
     }
@@ -340,6 +345,8 @@ public class RefundTransactions {
 
     private void afterCompletion(Payment payment, Refund refund) {
         if (payment.getStatus() == PaymentStatus.DONE) payment.cancel();
+        // 요청·recovery·조회 확정·운영 명령 모두 여기로 모인다. 실패 결제의 자동 취소는 SALE이 없어 정산이 아무것도 하지 않는다.
+        settlementRefunds.refundCompleted(payment.getId(), refund.getId(), refund.getRefundedAt());
         publisher.refundFinalized(payment, refund);
         committedCounter("payment.refund.completed", payment.getId());
         if (refund.getCreatedAt() != null)
