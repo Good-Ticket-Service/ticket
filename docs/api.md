@@ -509,13 +509,13 @@
 |---|---|---|---|---|
 | GET /api/seller/payout-account | 200, ETag | 없음 | PayoutAccount | 404 PAYOUT_ACCOUNT_NOT_FOUND |
 | PUT /api/seller/payout-account | 200, ETag | 헤더 If-Match(등록 전 최초 등록은 생략); B: bankCode:string(숫자 3자리),accountNumber:string(숫자·`-` 6~30자),holderName:string[1,50] | PayoutAccount | 400 VALIDATION_ERROR;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
-| GET /api/seller/settlements | 200 | Q: from?:date,to?:date(발행일, from ≤ to),status?:ISSUED/NO_PAYOUT,page:int[0,10000]=0,size:int[1,100]=20 | PageResponse<StatementSummary> | 400 VALIDATION_ERROR |
+| GET /api/seller/settlements | 200 | Q: from?:date,to?:date(발행일, from ≤ to),status?:ISSUED/NO_PAYOUT/PAID,page:int[0,10000]=0,size:int[1,100]=20 | PageResponse<StatementSummary> | 400 VALIDATION_ERROR |
 | GET /api/seller/settlements/{statementId} | 200 | 없음 | StatementDetail | 404 STATEMENT_NOT_FOUND(다른 판매자의 정산서 포함) |
 | GET /api/seller/settlements/receivable | 200 | 없음 | receivable:long,oldestAt:datetime\|null | — |
 
 - PayoutAccount=`{bankCode:string,accountMasked:string(끝 4자리만),holderMasked:string,version:long,updatedAt:datetime}`. 계좌번호·예금주 원문은 저장·응답·로그에 남기지 않는다.
 - 정산서 발행이 판매자 기준 행을 먼저 만들 수 있다. 계좌 정보가 없는 기준 행은 등록 전이며 GET은 404다. 등록 전 PUT은 If-Match 없이 등록하고, 등록 뒤 PUT은 If-Match가 필수다(공통 If-Match 규칙).
-- StatementSummary=`{statementId:long,scheduleId:long,scheduleStartAt:datetime,sequence:int,saleTotal:long,offsetTotal:long,payableAmount:long,status:ISSUED/NO_PAYOUT,issuedAt:datetime,payoutStatus:string|null}`. 지급이 없는 NO_PAYOUT은 payoutStatus가 null이다. 목록은 issuedAt·statementId 내림차순으로 고정한다(sort=`issuedAt,DESC;id,DESC`).
+- StatementSummary=`{statementId:long,scheduleId:long,scheduleStartAt:datetime,sequence:int,saleTotal:long,offsetTotal:long,payableAmount:long,status:ISSUED/NO_PAYOUT/PAID,issuedAt:datetime,paidAt:datetime|null,payoutStatus:string|null}`. 지급이 없는 NO_PAYOUT은 payoutStatus가 null이다. paidAt은 지급 완료(PAID)일 때만 있다. 목록은 issuedAt·statementId 내림차순으로 고정한다(sort=`issuedAt,DESC;id,DESC`).
 - StatementDetail=StatementSummary + `lines:[{itemId:long,kind:SALE/DEDUCTION,paymentId:long,grossAmount:int|null,commission:int|null,commissionVat:int|null,sellerAmount:int|null,amount:long}]`. SALE의 amount는 판매자 몫 전액, DEDUCTION의 amount는 이 정산서에서 실제 상계한 몫이며 금액 내역은 null이다.
 - receivable은 아직 상계하지 못한 차감 잔액 합(미지급액과 별개), oldestAt은 가장 오래된 미회수 차감의 생성 시각이다.
 - 지급 확정 시각(paidAt)은 지급 실행 구현 때 추가한다.
