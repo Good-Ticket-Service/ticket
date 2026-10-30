@@ -1,6 +1,8 @@
 package com.sparta.ticket.performance.domain.venue;
 
 import com.sparta.ticket.common.entity.BaseEntity;
+import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,7 +17,6 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 공연장. 좌석 등급과 물리 좌석의 원본이며, 공연은 공연장 하나를 쓴다. 명세는 .local/performance/tables.md 3.2다.
- * Note: 등록 API는 다음 작업에서 만든다. 그 전까지 데이터는 시드 SQL로 넣는다.
  */
 @Getter
 @Entity
@@ -41,4 +42,25 @@ public class Venue extends BaseEntity {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    private Venue(String name, String address, String region) {
+        this.name = name;
+        this.address = address;
+        this.region = region;
+    }
+
+    /**공연장 생성- 공백 정리, 길이 검증은 요청 DTO에서 끝난 값*/
+    public static Venue create(String name, String address, String region) {
+        return new Venue(name, address, region);
+    }
+
+    /**
+     * If-Match로 받은 version이 현재 값과 같은지 확인 - 다르면 409 VERSION_CONFLICT
+     * Note: 비교는 공연장 행을 잠근 뒤 해야 의미가 있다. 증가는 application이 잠금 모드로 한다.
+     * */
+    public void verifyVersion(long expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(PerformanceErrorCode.VERSION_CONFLICT);
+        }
+    }
 }

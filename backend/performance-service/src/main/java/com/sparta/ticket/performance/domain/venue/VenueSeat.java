@@ -41,4 +41,22 @@ public class VenueSeat extends BaseEntity {
 
     @Column(nullable = false)
     private int seatNumber;
+
+    private VenueSeat(Long venueId, Long venueSeatGradeId, String section, String rowLabel, int seatNumber) {
+        this.venueId = venueId;
+        this.venueSeatGradeId = venueSeatGradeId;
+        this.section = section;
+        this.rowLabel = rowLabel;
+        this.seatNumber = seatNumber;
+    }
+    /** 등급이 지정된 공연장 좌석 생성 - 등급 소속, 위치, 중복 확인은 application이 한다*/
+    public static VenueSeat create(
+            Long venueId, Long venueSeatGradeId, String section, String rowLabel, int seatNumber) {
+        return new VenueSeat(venueId, venueSeatGradeId, section, rowLabel, seatNumber);
+    }
+
+    /** 같은 공연장 안에서 좌석을 구분하는 위치(구역, 열, 번호)*/
+    public SeatPosition position() {
+        return new SeatPosition(section, rowLabel, seatNumber);
+    }
 }

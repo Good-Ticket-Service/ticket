@@ -29,4 +29,14 @@ public class VenueSeatGrade extends BaseEntity {
 
     @Column(nullable = false, length = 20)
     private String name;
+
+    private VenueSeatGrade(Long venueId, String name) {
+        this.venueId = venueId;
+        this.name = name;
+    }
+
+    /** 공연장에 좌석 등급 생성 - 같은 공연장 안 좌석 등급 이름 중복 확인은 application이 한다.*/
+    public static VenueSeatGrade create(Long venueId, String name) {
+        return new VenueSeatGrade(venueId, name);
+    }
 }
