@@ -11,5 +11,10 @@ public enum SettlementFailure {
     /** 계산 결과가 건별 INT 범위를 넘거나 판매자 몫이 음수다. */
     OUT_OF_RANGE,
     /** 승인 시각에 적용할 정산 정책 버전이 없다. */
-    POLICY_NOT_FOUND
+    POLICY_NOT_FOUND,
+    /**
+     * 순수 계산 중 예상하지 못한 예외. 같은 입력으로 다시 해도 같은 결과라 예외로 던지면 결제 recovery가 끝없이 반복되므로,
+     * 결제는 확정하고 정산 오류로 남긴다.
+     */
+    UNEXPECTED_ERROR
 }
