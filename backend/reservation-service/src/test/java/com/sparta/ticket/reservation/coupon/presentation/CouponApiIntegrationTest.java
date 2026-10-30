@@ -104,14 +104,16 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("발급 시작 시각이 지났으면 ISSUING으로 만들어진다")
+        @DisplayName("발급 시작 시각이 지났으면 현재 시각으로 저장되고 ISSUING으로 만들어진다")
         void createIssuing() throws Exception {
-            LocalDateTime start = clock.now().minusHours(1);
+            LocalDateTime now = clock.now().truncatedTo(ChronoUnit.SECONDS);
+            LocalDateTime start = now.minusHours(1);
 
             mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(createBody(start, start.plusDays(7))))
                     .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.issueStartAt").value(format(now)))
                     .andExpect(jsonPath("$.data.issueStatus").value("ISSUING"));
         }
 
@@ -258,6 +260,58 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
             patch(Long.MAX_VALUE, "{\"name\": \"새 이름\"}")
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("바꿀 항목이 하나도 없으면(빈 본문, 모두 null, 모르는 필드만) 400 VALIDATION_ERROR이고 쿠폰은 그대로다")
+        void noFields() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            patch(coupon.getId(), "{}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            patch(coupon.getId(), "{\"name\": null, \"totalQuantity\": null}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            // 필드 이름을 잘못 보내면 모르는 필드는 무시돼 빈 요청이 된다
+            patch(coupon.getId(), "{\"title\": \"새 이름\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+            assertThat(jdbcTemplate.queryForObject(
+                            "SELECT name FROM p_coupons WHERE coupon_id = ?", String.class, coupon.getId()))
+                    .isEqualTo("오픈 기념 5,000원 할인");
+        }
+
+        @Test
+        @DisplayName("발급이 끝난 쿠폰의 총 수량을 바꾸면 409 COUPON_ALREADY_CLOSED이고, 이름은 바꿀 수 있다")
+        void closedQuantity() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
+            mockMvc.perform(as(post("/api/coupons/{couponId}/close", coupon.getId()), Role.MASTER))
+                    .andExpect(status().isOk());
+
+            patch(coupon.getId(), "{\"totalQuantity\": 2000}")
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_ALREADY_CLOSED"));
+            patch(coupon.getId(), "{\"name\": \"종료된 이벤트\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.name").value("종료된 이벤트"))
+                    .andExpect(jsonPath("$.data.totalQuantity").value(1000))
+                    .andExpect(jsonPath("$.data.issueStatus").value("ENDED"));
+        }
+
+        @Test
+        @DisplayName("시작 전 쿠폰의 시작 시각을 과거로 바꾸면 현재 시각으로 저장되고 ISSUING이 된다")
+        void pastStart() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+            LocalDateTime now = clock.now().truncatedTo(ChronoUnit.SECONDS);
+
+            patch(coupon.getId(), """
+                            {"issueStartAt": "%s"}
+                            """.formatted(format(now.minusDays(3))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.issueStartAt").value(format(now)))
+                    .andExpect(jsonPath("$.data.issueStatus").value("ISSUING"));
         }
 
         @Test
@@ -422,10 +476,11 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     /** 발급 시작 시각을 정해 쿠폰을 저장한다. 종료 시각은 7일 뒤다. */
+    /** 발급 시작 하루 전에 만든 쿠폰. 과거 시작 시각은 현재로 맞춰 저장되므로, 시작 시각을 보낸 값 그대로 두려면 시작 전에 만든다. */
     private Coupon saveCoupon(LocalDateTime start) {
         LocalDateTime issueStartAt = start.truncatedTo(ChronoUnit.SECONDS);
-        return couponRepository.save(
-                Coupon.create("오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, clock.now()));
+        return couponRepository.save(Coupon.create(
+                "오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, issueStartAt.minusDays(1)));
     }
 
     /** 발급 기능 대신 발급 수량을 직접 올린다. */

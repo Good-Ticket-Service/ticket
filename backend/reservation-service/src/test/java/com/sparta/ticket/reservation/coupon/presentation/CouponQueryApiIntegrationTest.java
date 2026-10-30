@@ -60,9 +60,10 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
         return clock.now().truncatedTo(ChronoUnit.SECONDS);
     }
 
-    /** 한 시간 전에 발급을 시작해 7일 뒤 끝나는(ISSUING) 쿠폰. */
+    /** 하루 전에 만들어 한 시간 전에 발급을 시작한, 7일 뒤 끝나는(ISSUING) 쿠폰. */
     private Coupon issuingCoupon(String name) {
-        return couponRepository.save(Coupon.create(name, 5_000, 10, now().minusHours(1), now().plusDays(7), 7, now()));
+        return couponRepository.save(
+                Coupon.create(name, 5_000, 10, now().minusHours(1), now().plusDays(7), 7, now().minusDays(1)));
     }
 
     /** Gateway가 인증 뒤 넣어 주는 사용자 헤더를 붙여 요청한다. */

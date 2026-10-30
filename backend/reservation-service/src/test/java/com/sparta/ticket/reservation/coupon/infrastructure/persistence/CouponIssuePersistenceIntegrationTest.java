@@ -37,8 +37,9 @@ class CouponIssuePersistenceIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** 발급 시작 전에 만든 쿠폰. 과거 시작 시각은 현재로 맞춰 저장되므로, 시작 경계를 보려면 시작 전에 만든다. */
     private Coupon saveCoupon(int totalQuantity) {
-        return couponRepository.save(Coupon.create("쿠폰", 5_000, totalQuantity, START, END, 7, NOW));
+        return couponRepository.save(Coupon.create("쿠폰", 5_000, totalQuantity, START, END, 7, START.minusDays(1)));
     }
 
     /** 조건부 UPDATE는 트랜잭션 안에서 불러야 한다. 발급 서비스도 자기 트랜잭션 안에서 부른다. */
