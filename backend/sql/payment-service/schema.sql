@@ -425,7 +425,6 @@ CREATE TABLE p_payouts
     -- 응답이 기대와 다르면 다시 요청하지 않고 조회만 한다
     inquiry_only        BOOLEAN      NOT NULL DEFAULT FALSE,
     verification_reason VARCHAR(80),
-    lease_until         TIMESTAMP,
     requested_at        TIMESTAMP,
     done_at             TIMESTAMP,
     last_error          VARCHAR(80),
