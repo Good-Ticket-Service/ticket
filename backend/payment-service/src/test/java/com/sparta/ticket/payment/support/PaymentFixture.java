@@ -9,6 +9,8 @@ public final class PaymentFixture {
     public static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
     public static final Long USER_ID = 1L;
     public static final Long SELLER_ID = 2L;
+    /** 회차 시작 시각. 정산 가능일이 영업일 달력 범위 안에 들도록 정한다. */
+    public static final LocalDateTime SCHEDULE_START_AT = LocalDateTime.of(2026, 11, 7, 19, 0);
 
     private PaymentFixture() {}
 
@@ -39,7 +41,8 @@ public final class PaymentFixture {
                 provider,
                 order.totalPrice(),
                 order.discountAmount(),
-                order.expiresAt());
+                order.expiresAt(),
+                order.scheduleStartAt());
     }
 
     private static PaymentOrder order(
@@ -54,6 +57,7 @@ public final class PaymentFixture {
                 PgProvider.TOSS,
                 totalPrice,
                 discountAmount,
-                expiresAt);
+                expiresAt,
+                SCHEDULE_START_AT);
     }
 }

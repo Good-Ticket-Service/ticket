@@ -19,6 +19,7 @@ import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -70,6 +71,9 @@ public class Payment extends BaseEntity {
 
     @Column(nullable = false)
     private LocalDateTime expiresAt;
+
+    /** 회차 시작 시각(KST). 판매자 정산 가능일의 기준이다. 보내지 않은 준비 요청은 없다(정산 보류). */
+    private LocalDateTime scheduleStartAt;
 
     @Column(nullable = false)
     private int totalPrice;
@@ -127,6 +131,7 @@ public class Payment extends BaseEntity {
         this.pgProvider = order.pgProvider();
         this.totalPrice = order.totalPrice();
         this.expiresAt = toDbPrecision(order.expiresAt());
+        this.scheduleStartAt = order.scheduleStartAt() == null ? null : toDbPrecision(order.scheduleStartAt());
         this.discountAmount = order.discountAmount();
         this.amount = order.totalPrice() - order.discountAmount();
         this.status = PaymentStatus.READY;
@@ -151,7 +156,10 @@ public class Payment extends BaseEntity {
                 && pgProvider == order.pgProvider()
                 && totalPrice == order.totalPrice()
                 && discountAmount == order.discountAmount()
-                && expiresAt.equals(toDbPrecision(order.expiresAt()));
+                && expiresAt.equals(toDbPrecision(order.expiresAt()))
+                && Objects.equals(
+                        scheduleStartAt,
+                        order.scheduleStartAt() == null ? null : toDbPrecision(order.scheduleStartAt()));
     }
 
     /**

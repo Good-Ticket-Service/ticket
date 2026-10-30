@@ -16,6 +16,8 @@ CREATE TABLE p_payments
     pg_transaction_id    VARCHAR(200),
     checkout_url         VARCHAR(500),
     expires_at           TIMESTAMP    NOT NULL,
+    -- 회차 시작 시각(KST). 결제 준비의 선택 필드이며, 없으면 판매자 정산을 보류한다
+    schedule_start_at    TIMESTAMP,
     total_price          INT          NOT NULL,
     discount_amount      INT          NOT NULL DEFAULT 0,
     amount               INT          NOT NULL,
