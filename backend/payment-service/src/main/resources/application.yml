@@ -15,6 +15,8 @@ spring:
 # 요율은 팀 합의 전 시험용 제안이다(profit-policy.md). 값이 틀리면 기동하지 않는다.
 payment:
   settlement:
+    # 결제 승인 때 정산 항목·판매 분개 포착. 환불 반영(Task 20-4)까지 검증한 뒤 함께 켠다. 끄면 포착이 빠진 결제는 보충 잡이 메운다.
+    capture-enabled: false
     policies:
       - version: "2026-10-30-v1"
         effective-from: "2026-01-01T00:00:00"

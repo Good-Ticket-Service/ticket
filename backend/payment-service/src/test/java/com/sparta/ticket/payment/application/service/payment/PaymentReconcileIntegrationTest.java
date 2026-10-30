@@ -72,6 +72,9 @@ class PaymentReconcileIntegrationTest extends PaymentIntegrationTest {
 
     @BeforeEach
     void isolateDatabase() {
+        jdbc.update("DELETE FROM p_ledger_entries");
+        jdbc.update("DELETE FROM p_ledger_transactions");
+        jdbc.update("DELETE FROM p_settlement_items");
         jdbc.update("DELETE FROM p_refunds");
         jdbc.update("DELETE FROM p_payments");
     }

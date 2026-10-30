@@ -35,7 +35,9 @@ import org.springframework.test.context.TestPropertySource;
             "payment.recovery.enabled=false",
             "payment.reconcile.enabled=false",
             "payment.recovery.refund.enabled=false",
-            "payment.observation.enabled=false"
+            "payment.observation.enabled=false",
+            // 운영 기본값은 OFF지만, 모든 결제 통합 시험이 정산 포착을 켠 상태로 돌아 회귀 관문이 되게 한다.
+            "payment.settlement.capture-enabled=true"
         })
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
