@@ -75,7 +75,10 @@ public class Coupon extends BaseEntity {
         this.validDays = validDays;
     }
 
-    /** 생성. 발급 종료 시각은 발급 시작 시각과 현재 시각보다 뒤여야 한다. */
+    /**
+     * 생성. 발급 종료 시각은 발급 시작 시각과 현재 시각보다 뒤여야 한다.
+     * 발급 시작 시각이 과거면 현재 시각으로 저장한다(startNotBefore).
+     */
     public static Coupon create(
             String name,
             int discountAmount,
@@ -88,17 +91,21 @@ public class Coupon extends BaseEntity {
         requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
         requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
         requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
-        // 발급 기간 순서와 종료 시각이 미래인지 확인한다
-        requireValidEnd(issueStartAt, issueEndAt, now);
-        return new Coupon(name, discountAmount, totalQuantity, issueStartAt, issueEndAt, validDays);
+        // 과거 시작 시각은 현재로 맞춘 뒤, 발급 기간 순서와 종료 시각이 미래인지 확인한다
+        LocalDateTime startAt = startNotBefore(issueStartAt, now);
+        requireValidEnd(startAt, issueEndAt, now);
+        return new Coupon(name, discountAmount, totalQuantity, startAt, issueEndAt, validDays);
     }
 
     /**
      * 부분 수정. null인 값은 바꾸지 않는다.
      * 발급이 시작된 뒤에는 이름, 발급 종료 시각, 총 수량만 바꿀 수 있다. 먼저 받은 사람과 나중에 받은 사람의 조건이 달라지지 않게 하기 위해서다.
      * 바꿀 수 없는 항목도 지금과 같은 값이면 바꾸지 않은 것으로 본다.
-     * 발급이 끝난(ENDED) 쿠폰은 발급 종료 시각을 바꿀 수 없다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리기 때문이다.
+     * 발급이 끝난(ENDED) 쿠폰은 이름만 바꿀 수 있다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고,
+     * 총 수량은 더 발급하지 않으니 바꿔도 남은 수량 숫자만 달라진다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있게 둔다.
      * 다시 발급하려면 새 쿠폰을 만든다.
+     * 시작 전 쿠폰의 발급 시작 시각을 과거로 바꾸면 현재 시각으로 저장한다(startNotBefore).
+     * Note: 아무 항목도 보내지 않은 요청은 UpdateCouponRequest가 400으로 막는다.
      */
     public void update(
             String name,
@@ -108,8 +115,10 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             Integer validDays,
             LocalDateTime now) {
-        // 1) 끝난 쿠폰의 종료 시각 변경 금지: 중단한 쿠폰이 다시 열리는 것을 막는다
-        if (issueStatus(now) == CouponIssueStatus.ENDED && changes(issueEndAt, this.issueEndAt)) {
+        // 1) 끝난 쿠폰은 종료 시각·총 수량을 바꿀 수 없다. 종료 시각은 중단한 쿠폰이 다시 열리는 것을 막고,
+        //    총 수량은 더 발급하지 않아 의미 없는 남은 수량만 만든다. 나머지 시작 후 금지 항목은 2)가 막는다
+        if (issueStatus(now) == CouponIssueStatus.ENDED
+                && (changes(issueEndAt, this.issueEndAt) || changes(totalQuantity, this.totalQuantity))) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
         // 2) 발급이 시작됐으면 할인액·시작 시각·유효 일수는 바꿀 수 없다
@@ -134,15 +143,18 @@ public class Coupon extends BaseEntity {
                 throw new BusinessException(CouponErrorCode.COUPON_QUANTITY_BELOW_ISSUED);
             }
         }
-        // 4) 바뀐 뒤의 발급 기간을 만들어 순서와 종료 시각을 다시 확인한다. 한쪽만 보내도 다른 쪽은 지금 값과 비교한다
-        LocalDateTime nextStart = issueStartAt != null ? issueStartAt : this.issueStartAt;
-        LocalDateTime nextEnd = issueEndAt != null ? issueEndAt : this.issueEndAt;
-        // 기간을 보냈을 때만 검증한다. 끝난 쿠폰은 종료 시각이 과거라, 항상 검증하면 이름·수량만 고쳐도 400이 된다
-        if (issueStartAt != null || issueEndAt != null) {
+        // 4) 새 시작 시각이 과거면 현재로 맞춘다. 지금 값과 같으면 그대로 둔다(이미 시작한 쿠폰이 같은 값을 보내도 바뀌지 않게)
+        LocalDateTime startAt =
+                changes(issueStartAt, this.issueStartAt) ? startNotBefore(issueStartAt, now) : issueStartAt;
+        // 기간을 보냈을 때만 바뀐 뒤의 기간을 만들어 순서와 종료 시각을 확인한다. 한쪽만 보내도 다른 쪽은 지금 값과 비교한다.
+        // 끝난 쿠폰은 종료 시각이 과거라, 항상 검증하면 이름만 고쳐도 400이 된다
+        if (startAt != null || issueEndAt != null) {
+            LocalDateTime nextStart = startAt != null ? startAt : this.issueStartAt;
+            LocalDateTime nextEnd = issueEndAt != null ? issueEndAt : this.issueEndAt;
             requireValidEnd(nextStart, nextEnd, now);
         }
 
-        // 5) 검증을 모두 통과한 뒤에만 값을 바꾼다. 중간에 실패해도 일부만 바뀐 상태가 남지 않는다
+        // 5) 검증을 모두 통과한 뒤에만 값을 바꾼다. 중간에 실패해도 일부만 바뀐 상태가 남지 않는다. 보낸 항목만 바꾼다
         if (name != null) {
             this.name = name;
         }
@@ -155,8 +167,12 @@ public class Coupon extends BaseEntity {
         if (validDays != null) {
             this.validDays = validDays;
         }
-        this.issueStartAt = nextStart;
-        this.issueEndAt = nextEnd;
+        if (startAt != null) {
+            this.issueStartAt = startAt;
+        }
+        if (issueEndAt != null) {
+            this.issueEndAt = issueEndAt;
+        }
     }
 
     /**
@@ -212,6 +228,14 @@ public class Coupon extends BaseEntity {
         if (value <= 0) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, message);
         }
+    }
+
+    /**
+     * 발급 시작 시각이 과거면 현재 시각을 돌려준다. 과거 시작은 "지금 시작"과 같게 동작하므로, 저장값도 실제로 발급이 열린 시각에 맞춘다.
+     * Note: 과거를 거절하지 않는다. 클라이언트가 "지금"을 보내도 서버에 닿으면 이미 과거라, 거절하면 바로 시작하는 쿠폰을 만들 수 없다.
+     */
+    private static LocalDateTime startNotBefore(LocalDateTime issueStartAt, LocalDateTime now) {
+        return issueStartAt.isBefore(now) ? now : issueStartAt;
     }
 
     /** 발급 종료 시각이 시작 시각보다, 그리고 현재보다 뒤인지 확인한다. 아니면 400 VALIDATION_ERROR. */

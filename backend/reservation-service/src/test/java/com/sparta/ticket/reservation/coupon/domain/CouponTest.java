@@ -23,9 +23,9 @@ class CouponTest {
         return Coupon.create("오픈 기념 5,000원 할인", 5_000, 1_000, START, END, 7, NOW);
     }
 
-    /** 발급 중(ISSUING) 쿠폰. */
+    /** 발급 중(ISSUING) 쿠폰. 이틀 전에 만들어 어제부터 발급 중이다(만들 때 시작 시각이 미래라 그대로 저장된다). */
     private static Coupon issuing() {
-        return Coupon.create("오픈 기념 5,000원 할인", 5_000, 1_000, NOW.minusDays(1), END, 7, NOW);
+        return Coupon.create("오픈 기념 5,000원 할인", 5_000, 1_000, NOW.minusDays(1), END, 7, NOW.minusDays(2));
     }
 
     private static void assertError(Runnable action, ErrorCode errorCode) {
@@ -61,6 +61,31 @@ class CouponTest {
         void endNotAfterNow() {
             assertError(
                     () -> Coupon.create("쿠폰", 5_000, 1_000, NOW.minusDays(2), NOW, 7, NOW),
+                    CommonErrorCode.VALIDATION_ERROR);
+        }
+
+        @Test
+        @DisplayName("발급 시작 시각이 과거면 현재 시각으로 저장되고 바로 발급 중이다")
+        void pastStartBecomesNow() {
+            Coupon coupon = Coupon.create("쿠폰", 5_000, 1_000, NOW.minusDays(30), END, 7, NOW);
+
+            assertThat(coupon.getIssueStartAt()).isEqualTo(NOW);
+            assertThat(coupon.issueStatus(NOW)).isEqualTo(CouponIssueStatus.ISSUING);
+        }
+
+        @Test
+        @DisplayName("발급 시작 시각이 현재이거나 미래면 보낸 값 그대로 저장된다")
+        void currentOrFutureStartKept() {
+            assertThat(Coupon.create("쿠폰", 5_000, 1_000, NOW, END, 7, NOW).getIssueStartAt())
+                    .isEqualTo(NOW);
+            assertThat(upcoming().getIssueStartAt()).isEqualTo(START);
+        }
+
+        @Test
+        @DisplayName("과거 시작 시각을 현재로 맞춘 뒤에도 종료 시각이 현재보다 늦지 않으면 VALIDATION_ERROR")
+        void pastStartWithPastEnd() {
+            assertError(
+                    () -> Coupon.create("쿠폰", 5_000, 1_000, NOW.minusDays(2), NOW.minusDays(1), 7, NOW),
                     CommonErrorCode.VALIDATION_ERROR);
         }
 
@@ -117,7 +142,33 @@ class CouponTest {
 
             assertThat(coupon.getName()).isEqualTo("새 이름");
             assertThat(coupon.getDiscountAmount()).isEqualTo(5_000);
+            assertThat(coupon.getIssueStartAt()).isEqualTo(START);
             assertThat(coupon.getIssueEndAt()).isEqualTo(END);
+        }
+
+        @Test
+        @DisplayName("기간 중 한쪽만 보내면 그쪽만 바뀌고 다른 쪽은 지금 값을 유지한다")
+        void onePeriodSide() {
+            Coupon coupon = upcoming();
+
+            coupon.update(null, null, null, null, END.plusDays(1), null, NOW);
+            assertThat(coupon.getIssueStartAt()).isEqualTo(START);
+            assertThat(coupon.getIssueEndAt()).isEqualTo(END.plusDays(1));
+
+            coupon.update(null, null, null, START.plusHours(1), null, null, NOW);
+            assertThat(coupon.getIssueStartAt()).isEqualTo(START.plusHours(1));
+            assertThat(coupon.getIssueEndAt()).isEqualTo(END.plusDays(1));
+        }
+
+        @Test
+        @DisplayName("시작 전 쿠폰의 시작 시각을 과거로 바꾸면 현재 시각으로 저장되고 바로 발급 중이다")
+        void pastStartBecomesNow() {
+            Coupon coupon = upcoming();
+
+            coupon.update(null, null, null, NOW.minusDays(3), null, null, NOW);
+
+            assertThat(coupon.getIssueStartAt()).isEqualTo(NOW);
+            assertThat(coupon.issueStatus(NOW)).isEqualTo(CouponIssueStatus.ISSUING);
         }
 
         @Test
@@ -152,9 +203,13 @@ class CouponTest {
         void afterStartSameValue() {
             Coupon coupon = issuing();
 
-            coupon.update("연장", 5_000, null, coupon.getIssueStartAt(), null, 7, NOW);
+            LocalDateTime start = coupon.getIssueStartAt();
+
+            coupon.update("연장", 5_000, null, start, null, 7, NOW);
 
             assertThat(coupon.getName()).isEqualTo("연장");
+            // 지금과 같은 과거 시작 시각은 현재로 맞추지 않는다
+            assertThat(coupon.getIssueStartAt()).isEqualTo(start);
         }
 
         @Test
@@ -218,16 +273,41 @@ class CouponTest {
         }
 
         @Test
-        @DisplayName("끝난 쿠폰도 이름·총 수량은 바꿀 수 있다")
-        void closedOtherFieldsAllowed() {
+        @DisplayName("끝난 쿠폰도 이름은 바꿀 수 있다")
+        void closedNameAllowed() {
             Coupon coupon = issuing();
             coupon.close(NOW);
 
-            coupon.update("종료된 이벤트", null, 2_000, null, null, null, NOW.plusMinutes(1));
+            coupon.update("종료된 이벤트", null, null, null, null, null, NOW.plusMinutes(1));
 
             assertThat(coupon.getName()).isEqualTo("종료된 이벤트");
-            assertThat(coupon.getTotalQuantity()).isEqualTo(2_000);
             assertThat(coupon.getIssueEndAt()).isEqualTo(NOW);
+        }
+
+        @Test
+        @DisplayName("끝난 쿠폰의 총 수량을 바꾸면 COUPON_ALREADY_CLOSED이고 이름도 바뀌지 않는다")
+        void closedQuantityNotModifiable() {
+            Coupon coupon = issuing();
+            coupon.close(NOW);
+            LocalDateTime later = NOW.plusMinutes(1);
+
+            assertError(
+                    () -> coupon.update("종료된 이벤트", null, 2_000, null, null, null, later),
+                    CouponErrorCode.COUPON_ALREADY_CLOSED);
+
+            assertThat(coupon.getTotalQuantity()).isEqualTo(1_000);
+            assertThat(coupon.getName()).isEqualTo("오픈 기념 5,000원 할인");
+        }
+
+        @Test
+        @DisplayName("끝난 쿠폰이라도 총 수량을 지금과 같은 값으로 보내면 허용한다")
+        void closedSameQuantity() {
+            Coupon coupon = issuing();
+            coupon.close(NOW);
+
+            coupon.update("종료된 이벤트", null, 1_000, null, null, null, NOW.plusMinutes(1));
+
+            assertThat(coupon.getName()).isEqualTo("종료된 이벤트");
         }
     }
 
