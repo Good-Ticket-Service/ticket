@@ -30,6 +30,7 @@ public interface SellerStatementQueries {
             long payableAmount,
             String status,
             LocalDateTime issuedAt,
+            LocalDateTime paidAt,
             String payoutStatus) {}
 
     /** SALE은 결제 금액 내역과 판매자 몫 전액, DEDUCTION은 이 정산서에서 상계한 몫만 amount에 담는다. */

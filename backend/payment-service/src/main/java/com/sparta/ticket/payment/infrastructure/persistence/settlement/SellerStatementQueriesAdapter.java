@@ -16,7 +16,7 @@ public class SellerStatementQueriesAdapter implements SellerStatementQueries {
 
     private static final String SUMMARY_SELECT = "SELECT s.id, s.schedule_id,"
             + " (SELECT MIN(i.schedule_start_at) FROM p_settlement_items i WHERE i.statement_id = s.id),"
-            + " s.sequence, s.sale_total, s.offset_total, s.payable_amount, s.status, s.issued_at, p.status"
+            + " s.sequence, s.sale_total, s.offset_total, s.payable_amount, s.status, s.issued_at, s.paid_at, p.status"
             + " FROM p_settlement_statements s LEFT JOIN p_payouts p ON p.statement_id = s.id";
 
     private static final String RANGE_WHERE = " WHERE s.seller_id = :sellerId AND s.issued_at >= :from"
@@ -115,7 +115,8 @@ public class SellerStatementQueriesAdapter implements SellerStatementQueries {
                 longValue(r[6]),
                 (String) r[7],
                 time(r[8]),
-                (String) r[9]);
+                time(r[9]),
+                (String) r[10]);
     }
 
     private static Long longValue(Object value) {

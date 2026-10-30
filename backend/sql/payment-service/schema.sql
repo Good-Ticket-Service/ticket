@@ -353,6 +353,7 @@ CREATE TABLE p_settlement_statements
     payable_amount BIGINT       NOT NULL,
     status         VARCHAR(20)  NOT NULL,
     issued_at      TIMESTAMP    NOT NULL,
+    paid_at        TIMESTAMP,
     version        BIGINT       NOT NULL DEFAULT 0,
     created_at     TIMESTAMP    NOT NULL,
     created_by     VARCHAR(100) NOT NULL,
@@ -368,7 +369,9 @@ CREATE TABLE p_settlement_statements
         sale_total > 0 AND offset_total >= 0 AND payable_amount >= 0
         AND payable_amount = sale_total - offset_total),
     CONSTRAINT ck_p_settlement_statements_status CHECK (
-        (status = 'ISSUED' AND payable_amount > 0) OR (status = 'NO_PAYOUT' AND payable_amount = 0)),
+        (status = 'ISSUED' AND payable_amount > 0 AND paid_at IS NULL)
+        OR (status = 'NO_PAYOUT' AND payable_amount = 0 AND paid_at IS NULL)
+        OR (status = 'PAID' AND payable_amount > 0 AND paid_at IS NOT NULL)),
     CONSTRAINT ck_p_settlement_statements_version CHECK (version >= 0),
     CONSTRAINT ck_p_settlement_statements_not_deleted CHECK (deleted_at IS NULL)
 );
@@ -409,6 +412,23 @@ CREATE TABLE p_payouts
     status          VARCHAR(20)  NOT NULL,
     attempt         INT          NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMP,
+    -- 실행권 획득 때 찍는 멱등 키와 계좌 스냅샷. 같은 attempt 동안 모든 요청이 같은 키·금액·계좌다
+    idempotency_key     VARCHAR(100),
+    bank_code           VARCHAR(10),
+    account_ref         VARCHAR(100),
+    holder_masked       VARCHAR(100),
+    account_version     BIGINT,
+    -- 지급대행이 알려 준 마지막 상태(ACCEPTED·PROCESSING)와 결과 불명(UNKNOWN)을 구분한다
+    provider_status     VARCHAR(20),
+    external_payout_id  VARCHAR(100),
+    failure_code        VARCHAR(40),
+    -- 응답이 기대와 다르면 다시 요청하지 않고 조회만 한다
+    inquiry_only        BOOLEAN      NOT NULL DEFAULT FALSE,
+    verification_reason VARCHAR(80),
+    lease_until         TIMESTAMP,
+    requested_at        TIMESTAMP,
+    done_at             TIMESTAMP,
+    last_error          VARCHAR(80),
     version         BIGINT       NOT NULL DEFAULT 0,
     created_at      TIMESTAMP    NOT NULL,
     created_by      VARCHAR(100) NOT NULL,
@@ -420,11 +440,21 @@ CREATE TABLE p_payouts
     CONSTRAINT uk_p_payouts_statement UNIQUE (statement_id),
     CONSTRAINT fk_p_payouts_statement FOREIGN KEY (statement_id) REFERENCES p_settlement_statements (id),
     CONSTRAINT ck_p_payouts_amount CHECK (amount > 0),
-    CONSTRAINT ck_p_payouts_status CHECK (status IN ('READY')),
+    CONSTRAINT ck_p_payouts_status CHECK (status IN ('READY', 'REQUESTED', 'DONE', 'FAILED')),
+    CONSTRAINT ck_p_payouts_provider_status CHECK (provider_status IS NULL OR provider_status IN ('ACCEPTED', 'PROCESSING', 'UNKNOWN')),
+    -- 실행권을 얻은 뒤의 지급은 키·계좌 스냅샷을 반드시 가진다
+    CONSTRAINT ck_p_payouts_claimed CHECK (status = 'READY' OR (
+        idempotency_key IS NOT NULL AND bank_code IS NOT NULL AND account_ref IS NOT NULL
+        AND holder_masked IS NOT NULL AND account_version IS NOT NULL AND requested_at IS NOT NULL)),
+    CONSTRAINT ck_p_payouts_done CHECK (status <> 'DONE' OR (external_payout_id IS NOT NULL AND done_at IS NOT NULL)),
+    CONSTRAINT ck_p_payouts_failed CHECK ((status = 'FAILED') = (failure_code IS NOT NULL)),
     CONSTRAINT ck_p_payouts_attempt CHECK (attempt >= 0),
     CONSTRAINT ck_p_payouts_version CHECK (version >= 0),
     CONSTRAINT ck_p_payouts_not_deleted CHECK (deleted_at IS NULL)
 );
+CREATE UNIQUE INDEX uk_p_payouts_idempotency_key ON p_payouts (idempotency_key) WHERE idempotency_key IS NOT NULL;
+-- 지급 실행 후보: 실행할 시각이 된 READY
+CREATE INDEX ix_p_payouts_ready ON p_payouts (next_attempt_at) WHERE status = 'READY';
 
 -- 발행 후보 조회: 정산 가능일이 지난 PENDING SALE, 판매자의 미회수 차감
 CREATE INDEX ix_p_settlement_items_pending_sale ON p_settlement_items (eligible_at, schedule_id, seller_id)

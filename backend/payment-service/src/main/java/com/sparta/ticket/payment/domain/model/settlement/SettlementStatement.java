@@ -59,6 +59,9 @@ public class SettlementStatement extends BaseEntity {
     @Column(nullable = false)
     private LocalDateTime issuedAt;
 
+    /** 지급 완료 시각. PAID일 때만 있다. */
+    private LocalDateTime paidAt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -86,5 +89,12 @@ public class SettlementStatement extends BaseEntity {
         statement.status = statement.payableAmount > 0 ? StatementStatus.ISSUED : StatementStatus.NO_PAYOUT;
         statement.issuedAt = issuedAt;
         return statement;
+    }
+
+    /** 지급 완료. 지급 분개와 같은 트랜잭션에서만 부른다. */
+    public void markPaid(LocalDateTime now) {
+        if (status != StatementStatus.ISSUED) throw new IllegalStateException("ISSUED 정산서만 지급 완료로 바꾼다");
+        status = StatementStatus.PAID;
+        paidAt = now;
     }
 }

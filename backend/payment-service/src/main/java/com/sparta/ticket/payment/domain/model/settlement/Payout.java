@@ -16,8 +16,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 판매자 지급(settlement-design 7.2절). 정산서 하나에 하나다. 이 단계는 발행 때 만드는 READY까지만 다룬다.
- * 실행권·멱등 키·계좌 스냅샷·결과 확정은 지급 실행 작업에서 더한다.
+ * 판매자 지급(settlement-design 7.2절). 정산서 하나에 하나다. 발행 때 READY로 만들고, 실행권을 얻으면 같은 attempt 동안
+ * 멱등 키·금액·계좌 스냅샷을 고정한 채 REQUESTED로 지급대행을 호출한다. 결과는 키·금액·계좌·거래 ID를 확인한 뒤에만 확정한다.
  */
 @Getter
 @Entity
@@ -45,8 +45,45 @@ public class Payout extends BaseEntity {
     @Column(nullable = false)
     private int attempt;
 
-    /** 처음 실행할 수 있는 시각(다음 영업일 지급 시작 시각). 달력 범위를 넘으면 비어 있고 지급 실행이 보류한다. */
+    /** READY는 다음 실행 시각, REQUESTED는 다음 조회 시각이다. 달력 범위를 넘어 비어 있으면 지급 실행이 보류한다. */
     private LocalDateTime nextAttemptAt;
+
+    /** 실행권을 얻을 때 찍는 지급대행 멱등 키("payout:{id}:{attempt}"). */
+    private String idempotencyKey;
+
+    private String bankCode;
+
+    private String accountRef;
+
+    private String holderMasked;
+
+    /** 스냅샷을 찍은 판매자 계좌의 version. */
+    private Long accountVersion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private PayoutProviderStatus providerStatus;
+
+    private String externalPayoutId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 40)
+    private PayoutFailure failureCode;
+
+    /** 응답이 스냅샷과 달라 다시 요청하지 않고 조회로만 확정한다. */
+    @Column(nullable = false)
+    private boolean inquiryOnly;
+
+    private String verificationReason;
+
+    /** 실행권 만료 시각. 지나면 다른 실행자가 같은 키로 조회해 확정한다. */
+    private LocalDateTime leaseUntil;
+
+    private LocalDateTime requestedAt;
+
+    private LocalDateTime doneAt;
+
+    private String lastError;
 
     @Version
     @Column(nullable = false)
@@ -62,5 +99,97 @@ public class Payout extends BaseEntity {
         payout.status = PayoutStatus.READY;
         payout.nextAttemptAt = nextAttemptAt;
         return payout;
+    }
+
+    /** 실행권 획득. attempt를 올리고 이번 attempt의 키·계좌 스냅샷을 고정한다. 결과를 모르는 상태(UNKNOWN)로 시작한다. */
+    public void claim(SellerPayoutAccount account, LocalDateTime now, LocalDateTime leaseUntil) {
+        requireStatus(PayoutStatus.READY);
+        if (!account.isRegistered() || !account.getSellerId().equals(sellerId))
+            throw new IllegalArgumentException("이 판매자의 등록된 계좌만 스냅샷한다");
+        attempt++;
+        status = PayoutStatus.REQUESTED;
+        idempotencyKey = "payout:" + id + ":" + attempt;
+        bankCode = account.getBankCode();
+        accountRef = account.getAccountRef();
+        holderMasked = account.getHolderMasked();
+        accountVersion = account.getVersion();
+        providerStatus = PayoutProviderStatus.UNKNOWN;
+        requestedAt = now;
+        this.leaseUntil = leaseUntil;
+        nextAttemptAt = leaseUntil;
+        lastError = null;
+    }
+
+    /** 게이트 실패·계좌 미등록. READY에 머물고 다음 실행 시각을 미룬다. */
+    public void defer(String reason, LocalDateTime next) {
+        requireStatus(PayoutStatus.READY);
+        lastError = reason;
+        nextAttemptAt = next;
+    }
+
+    /** 이번 attempt의 실행권을 가진 호출인지. 늦게 도착한 이전 attempt 결과를 버린다. */
+    public boolean ownedBy(int attempt, String idempotencyKey) {
+        return status == PayoutStatus.REQUESTED
+                && this.attempt == attempt
+                && this.idempotencyKey.equals(idempotencyKey);
+    }
+
+    /** 지급대행이 접수·처리 중을 알렸다. 완료가 아니므로 다음 조회 시각을 잡는다. */
+    public void observe(PayoutProviderStatus observed, String externalPayoutId, LocalDateTime nextInquiryAt) {
+        requireStatus(PayoutStatus.REQUESTED);
+        if (observed == PayoutProviderStatus.UNKNOWN) throw new IllegalArgumentException("결과 불명은 markUnknown으로 남긴다");
+        providerStatus = observed;
+        if (externalPayoutId != null) this.externalPayoutId = externalPayoutId;
+        release(nextInquiryAt);
+        lastError = null;
+    }
+
+    /** 응답 유실·장애로 결과를 모른다. 같은 키 조회로만 확정한다. */
+    public void markUnknown(String reason, LocalDateTime nextInquiryAt) {
+        requireStatus(PayoutStatus.REQUESTED);
+        providerStatus = PayoutProviderStatus.UNKNOWN;
+        release(nextInquiryAt);
+        lastError = reason;
+    }
+
+    /** 응답이 스냅샷과 다르다. 다시 요청하지 않고 조회로만 확정한다. */
+    public void blockInquiryOnly(String reason, LocalDateTime nextInquiryAt) {
+        requireStatus(PayoutStatus.REQUESTED);
+        inquiryOnly = true;
+        verificationReason = reason;
+        providerStatus = PayoutProviderStatus.UNKNOWN;
+        release(nextInquiryAt);
+    }
+
+    /** 지급 완료. 정산서 PAID·지급 분개와 같은 트랜잭션에서만 부른다. */
+    public void complete(String externalPayoutId, LocalDateTime now) {
+        requireStatus(PayoutStatus.REQUESTED);
+        if (externalPayoutId == null || externalPayoutId.isBlank())
+            throw new IllegalArgumentException("완료는 지급대행 거래 ID가 있어야 한다");
+        status = PayoutStatus.DONE;
+        this.externalPayoutId = externalPayoutId;
+        providerStatus = null;
+        doneAt = now;
+        release(null);
+        lastError = null;
+    }
+
+    /** 지급대행이 실패를 확정했다. 돈은 나가지 않았다. */
+    public void fail(PayoutFailure code, String externalPayoutId) {
+        requireStatus(PayoutStatus.REQUESTED);
+        status = PayoutStatus.FAILED;
+        failureCode = code;
+        if (externalPayoutId != null) this.externalPayoutId = externalPayoutId;
+        providerStatus = null;
+        release(null);
+    }
+
+    private void release(LocalDateTime next) {
+        leaseUntil = null;
+        nextAttemptAt = next;
+    }
+
+    private void requireStatus(PayoutStatus expected) {
+        if (status != expected) throw new IllegalStateException("지급 상태가 " + expected + "가 아니다: " + status);
     }
 }
