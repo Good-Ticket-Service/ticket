@@ -129,7 +129,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | cancel_reason | VARCHAR(500) | NULL; 취소 사유 |
 | seat_setup_attempts | INT | NOT NULL DEFAULT 0, 0 이상; 현재 requestId로 좌석 준비를 호출한 횟수.; 새 requestId를 발급하면 0으로 초기화한다.; 최대 횟수를 넘기면 FAILED로 바꾼다. 최대 횟수는 구현 시 결정한다. |
 | seat_setup_next_attempt_at | TIMESTAMP(3) | NULL; PENDING 회차를 스케줄러가 같은 requestId로 다시 보낼 시각.; READY·FAILED이면 NULL. 재시도 간격은 구현 시 결정한다. |
-| version | BIGINT | NOT NULL DEFAULT 0; 회차 수정·삭제·취소·판매 중지 시 증가.; 회차 명령의 If-Match 기준이며 부모 performance.version과 별개다. |
+| version | BIGINT | NOT NULL DEFAULT 0; 회차 수정·삭제·취소·판매 중지 시 증가.; 회차 명령의 If-Match 기준이며 부모 performance.version과 별개다.; 좌석 준비 진행(seat_setup_*, seat_config_version 변경)으로는 오르지 않는다. |
 
 제약·인덱스:
 

@@ -27,7 +27,7 @@
 
 ## 공연 — performance-service
 
-상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices는 구현됨(#83, #107, #108, #109, #128, #129). 나머지 4개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
+상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices, POST /api/seller/performances/{performanceId}/schedules는 구현됨(#83, #107, #108, #109, #128, #129, 이슈 #131). 나머지 3개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
 
 33개 계약 중 이번 프로젝트 기간에는 아래 표의 15개를 구현한다. 나머지 18개는 「추후 구현 예정 API」에 경로만 남긴다.
 
@@ -42,6 +42,7 @@
 - 공연장의 등급·좌석 명령은 venue.version을 쓴다.
 - 등급별 가격 설정과 공연 공개는 performance.version을 쓴다.
 - 회차 명령은 schedule.version을 쓴다.
+- 서버가 좌석 준비를 진행하거나 가격 변경으로 회차 좌석을 다시 준비할 때는 schedule.version이 오르지 않는다(이슈 #131). 회차 명령이 아니기 때문이다.
 - If-Match가 없으면 428 PRECONDITION_REQUIRED, version이 다르면 409 VERSION_CONFLICT다.
 - 회차 등록은 If-Match를 받지 않는다.
 - 관리용 단건 조회는 응답 헤더 `ETag: "{version}"`을 준다. 이 값을 다음 명령의 If-Match에 그대로 쓴다.
@@ -209,17 +210,21 @@
 
 좌석 준비
 - 회차 등록과 등급별 가격 변경은 회차를 seatSetupStatus=PENDING으로 만든다.
-- 공연 서비스는 트랜잭션 커밋 뒤 좌석 준비를 요청한다. 회차 등록 응답은 준비 완료를 기다리지 않는다.
+- 공연 서비스는 트랜잭션이 끝난 뒤 좌석 준비를 요청한다. 좌석 호출 동안 DB 커넥션을 쥐지 않는다.
+- 회차 등록 응답의 seatSetupStatus는 등록 시점 값(PENDING)이다. 준비 결과는 판매자 회차 조회(`GET /api/seller/schedules/{scheduleId}`)로 확인한다.
 - 준비에 성공하면 READY다. 일시적 실패는 서버가 같은 requestId로 자동 재시도한다.
 - 재시도 한도를 넘거나 요청 데이터 오류로 실패하면 FAILED다.
 - 판매자용 좌석 준비 재시도 API는 없다. 판매자는 seatSetupStatus와 seatSetupError로 상태를 확인한다.
 - 좌석 준비 호출은 「좌석 내부 API」의 `POST /internal/schedules/{scheduleId}/seat-setups`를 쓴다(이슈 #175 합의). MVP는 Feign이다.
 - 공연은 응답의 requestId와 configVersion이 회차의 현재 값과 모두 같을 때만 READY로 바꾼다. 다르면 지난 요청의 결과라 무시한다.
 - 409 SEAT_SETUP_STALE_VERSION은 이미 더 높은 구성이 반영됐다는 뜻이라 결과를 무시한다.
-- 400 VALIDATION_ERROR와 409 SEAT_SETUP_IN_USE는 재시도해도 같은 결과라 재시도하지 않고 FAILED로 바꾼다.
-- 연결 실패, 타임아웃, 5xx는 PENDING을 유지하고 스케줄러가 같은 requestId로 다시 보낸다. 횟수와 간격은 공연 구현 때 정한다.
+- 400 VALIDATION_ERROR는 재시도해도 같은 결과라 재시도하지 않고 FAILED로 바꾼다.
+- 409 SEAT_SETUP_IN_USE는 PENDING을 유지하고 같은 requestId로 다시 보낸다. 만료됐지만 정리 전인 HOLD와 결제 중인 좌석은 시간이 지나면 풀리기 때문이다(이슈 #175 좌석 담당 제안). 한도를 넘으면 FAILED이고, 사유에 선점·판매 중인 좌석이 있다고 남긴다.
+- 연결 실패, 타임아웃, 5xx도 PENDING을 유지하고 스케줄러가 같은 requestId로 다시 보낸다.
+- 재시도는 최대 8회이고 간격은 10초에서 두 배씩 늘린다(상한 5분, 첫 시도부터 약 15분, 이슈 #131). 선점(10분)이 만료·정리되기를 기다릴 수 있는 길이다.
 - Feign 타임아웃은 connect 1초, read 5초로 시작한다. 좌석 담당이 좌석 준비 API를 구현할 때 회차당 1,000석 기준 최악 응답 시간을 재서 이슈 #175에 공유하면 조정한다.
-- 공연은 좌석 쪽 400 조건을 보내기 전에 같은 기준으로 거른다. 좌석이 0개인 공연장은 공연 쪽에서 막고 좌석 준비를 보내지 않는다.
+- 공연은 좌석 쪽 400 조건을 보내기 전에 같은 기준으로 거른다. 공연장 좌석이 0개이거나 판매 대상 좌석의 등급 가격이 없으면 좌석 준비를 보내지 않고 FAILED로 둔다.
+- 가격 누락으로 FAILED가 된 회차는 판매자가 등급별 가격을 설정하면 새 구성 버전으로 다시 준비한다.
 
 판매 중지와 판매 검증
 - 판매 중지는 신규 선점만 막는다. 이미 잡힌 유효 HOLD는 원래 만료 시각까지 결제할 수 있다.
