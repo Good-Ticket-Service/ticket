@@ -114,6 +114,57 @@ class GatewaySecurityTest {
     }
 
     @Test
+    @DisplayName("정산 관리자 경로도 결제 관리자와 같이 매번 원본 사용자를 확인하고 MASTER만 허용한다")
+    void adminSettlementsRequireFreshMaster() throws Exception {
+        given(userServiceClient.fetch(USER_ID))
+                .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "seller@ticket.com", "SELLER"))));
+        client.get()
+                .uri("/api/admin/settlements/payouts")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("SELLER"))
+                .exchange()
+                .expectStatus()
+                .isForbidden();
+        given(userServiceClient.fetch(USER_ID))
+                .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "master@ticket.com", "MASTER"))));
+        client.get()
+                .uri("/api/admin/settlements/payouts")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                .exchange()
+                .expectStatus()
+                .isOk();
+        verify(userLookup, never()).find(any());
+    }
+
+    @Test
+    @DisplayName("판매자 정산·수취 계좌 경로는 SELLER만 허용하고 검증된 사용자 헤더를 주입한다")
+    void sellerSettlementsRequireSeller() throws Exception {
+        for (String path : new String[] {"/api/seller/settlements", "/api/seller/payout-account"}) {
+            given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
+            client.get()
+                    .uri(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                    .header(UserHeaders.ROLE, "SELLER")
+                    .exchange()
+                    .expectStatus()
+                    .isForbidden();
+            given(userLookup.find(USER_ID))
+                    .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "seller@ticket.com", "SELLER"))));
+            client.get()
+                    .uri(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("SELLER"))
+                    .header(UserHeaders.USER_ID, "999")
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody()
+                    .jsonPath("$['X-User-Id']")
+                    .isEqualTo("1")
+                    .jsonPath("$['X-User-Role']")
+                    .isEqualTo("SELLER");
+        }
+    }
+
+    @Test
     @DisplayName("일반 경로에 MASTER 캐시가 있어도 비활성 사용자는 관리자 명령을 실행하지 못한다")
     void adminDoesNotUseStaleMaster() throws Exception {
         given(userLookup.find(USER_ID))

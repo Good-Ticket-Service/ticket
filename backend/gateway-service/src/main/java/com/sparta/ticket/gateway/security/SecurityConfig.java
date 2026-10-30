@@ -38,14 +38,29 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
-    /** 결제 운영은 매 요청 현재 사용자를 조회한다. 일반 요청의 60초 캐시를 사용하지 않는다. */
+    /** 결제·정산 운영은 매 요청 현재 사용자를 조회한다. 일반 요청의 60초 캐시를 사용하지 않는다. */
     @Bean
     @Order(0)
     public SecurityWebFilterChain paymentAdminSecurityWebFilterChain(
             ServerHttpSecurity http, UserServiceClient users, ErrorResponseWriter errorWriter) {
-        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers("/api/admin/payments", "/api/admin/payments/**"))
+        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        "/api/admin/payments",
+                        "/api/admin/payments/**",
+                        "/api/admin/settlements",
+                        "/api/admin/settlements/**"))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().hasRole("MASTER"));
         return authenticatedChain(http, users::fetch, errorWriter);
+    }
+
+    /** 판매자 정산·수취 계좌는 SELLER만 받는다. 본인 정산서인지는 payment-service가 X-User-Id로 확인한다(#160). */
+    @Bean
+    @Order(1)
+    public SecurityWebFilterChain sellerSettlementSecurityWebFilterChain(
+            ServerHttpSecurity http, UserLookup userLookup, ErrorResponseWriter errorWriter) {
+        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        "/api/seller/settlements", "/api/seller/settlements/**", "/api/seller/payout-account"))
+                .authorizeExchange(exchanges -> exchanges.anyExchange().hasRole("SELLER"));
+        return authenticatedChain(http, userLookup, errorWriter);
     }
 
     /**
@@ -54,7 +69,7 @@ public class SecurityConfig {
      * 토큰 검증에 걸려 401이 되기 때문이다.
      */
     @Bean
-    @Order(1)
+    @Order(2)
     public SecurityWebFilterChain securityWebFilterChain(
             ServerHttpSecurity http,
             AuthProperties properties,

@@ -28,7 +28,7 @@ spring:
             - id: payment-service
               uri: lb://payment-service
               predicates:
-                - Path=/api/v1/payments/**,/api/admin/payments/**
+                - Path=/api/v1/payments/**,/api/admin/payments/**,/api/seller/settlements/**,/api/seller/payout-account,/api/admin/settlements/**
             # 서비스별 OpenAPI 문서. Gateway Swagger UI가 /{서비스}/v3/api-docs 로 불러온다.
             - id: user-service-docs
               uri: lb://user-service
