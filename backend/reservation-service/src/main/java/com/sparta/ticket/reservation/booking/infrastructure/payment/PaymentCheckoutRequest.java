@@ -12,6 +12,7 @@ public record PaymentCheckoutRequest(
         Long sellerId,
         Long performanceId,
         Long scheduleId,
+        OffsetDateTime scheduleStartAt,
         int totalPrice,
         int discountAmount,
         String pgProvider,
@@ -27,6 +28,9 @@ public record PaymentCheckoutRequest(
                 request.sellerId(),
                 request.performanceId(),
                 request.scheduleId(),
+                request.scheduleStartAt() == null
+                        ? null
+                        : request.scheduleStartAt().atOffset(KST),
                 Math.toIntExact(request.totalPrice()),
                 Math.toIntExact(request.discountAmount()),
                 request.pgProvider(),

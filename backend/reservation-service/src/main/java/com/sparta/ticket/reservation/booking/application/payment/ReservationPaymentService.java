@@ -47,6 +47,7 @@ public class ReservationPaymentService {
                 target.sellerId(),
                 target.performanceId(),
                 target.scheduleId(),
+                target.scheduleStartAt(),
                 target.baseAmount(),
                 target.discountAmount(),
                 command.pgProvider(),
