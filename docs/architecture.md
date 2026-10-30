@@ -58,7 +58,7 @@ flowchart LR
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. URI·응답 미합의(#54) | 공연 방향과 좌석 소비안 조율 필요 |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
-| booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, 구현 전 |
+| booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, coupon 구현됨(#159). 예매 연결 전 |
 | booking → payment 준비·승인·조회 | Feign 동기 유지. 승인 응답 DONE/FAILED/IN_PROGRESS | HTTP 계약 합의, D16 적용 |
 | booking → payment 환불 | MVP HTTP 동기. 200과 해석 가능한 refundStatus면 인수(#127). Phase 2 Kafka 명령은 P3 가안 | MVP 구현됨(#127), 토픽 미합의 |
 | payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
@@ -258,7 +258,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 항목 | 현재 근거·필요한 결정/후속 작업 | 관련 담당 |
 |---|---|---|
 | 준비 순서 | 같은 예매 준비의 직렬화/영속 소유 방식, 오래된 원격 시도 차단, READY_FAILED 매핑. 타임아웃 재전송은 같은 orderId 유지 제안 | 예매·결제 |
-| CouponUsage 구현 | 계약은 #125로 합의했다. coupon 모듈의 CouponUsage 구현, 예매의 호출 연결과 할인액 자르기, 예매 쿠폰 DDL(tables 「예매 쿠폰」)이 남았다 | 예매·쿠폰 |
+| CouponUsage 구현 | 계약은 #125로 합의했고 coupon 모듈의 CouponUsage는 구현했다(#159). 예매의 호출 연결(UnconnectedCouponPort 교체)과 할인액 자르기, 예매 쿠폰 DDL(tables 「예매 쿠폰」)이 남았다 | 예매·쿠폰 |
 | 취소·보상 | 사용자 취소는 #126·#127대로 구현했고, 취소 확정 때 쿠폰도 돌려준다. F6 자동 환불은 #155(CONFIRM_FAILED, PAYMENT_IN_PROGRESS→CANCELED). 결제 쪽 응답 규칙이 USER_CANCEL과 같은지 결제 확인 | 예매·좌석·결제 |
 | 회차 취소 | 공연202만 확정. 전달 URI/payload/영속 재시도 주체·결제중 보호·신규 판매 차단·PG 환불 조회 합의. reservation-summary만으로 PG 환불 완료 판단 금지 | 공연·예매·좌석·결제 |
 | 삭제 전 조회 | 공연/회차 삭제의 예매 존재 확인·오류·의존 조회 불가 정책 계약 | 공연·예매 |
