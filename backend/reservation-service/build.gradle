@@ -14,6 +14,10 @@ dependencies {
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     // 좌석 선점(임시 점유)·대기열. 연결 정보는 config-repo/application.yml의 spring.data.redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 결제 호출 보호(Bulkhead, Circuit Breaker). 사용자 요청의 결제 준비·승인만 감싼다. 버전은 Spring Cloud BOM이 정한다
+    implementation 'io.github.resilience4j:resilience4j-bulkhead'
+    implementation 'io.github.resilience4j:resilience4j-circuitbreaker'
+    implementation 'io.github.resilience4j:resilience4j-micrometer'
 
     runtimeOnly 'org.postgresql:postgresql'
     // 제약 위반의 제약 이름을 드라이버가 받은 서버 오류 정보에서 읽는다(좌석 선점의 부분 UNIQUE 판별). Hibernate는 이름을 영문

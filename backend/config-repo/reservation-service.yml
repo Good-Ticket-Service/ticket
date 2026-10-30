@@ -49,3 +49,22 @@ reservation:
         threshold: 1m
         batch-size: 20
         time-budget: 20s
+
+    # 사용자 요청의 결제 준비·승인 보호. payment가 느리거나 멈추면 승인 대기가 Tomcat 스레드를 모두 잡아 결제와 무관한 조회까지 늦어진다.
+    # 동시에 기다리는 결제 호출 수를 묶고(Bulkhead), 응답 없음이 이어지면 아예 부르지 않는다(Circuit Breaker). 막으면 바로 503이다.
+    # 스케줄러 호출은 막지 않는다
+    payment-guard:
+      # 대기열처럼 끄고 켜며 같은 조건으로 측정을 비교한다. 운영에서 잘못 막으면 끄는 스위치이기도 하다. 바꾸면 다시 띄운다
+      enabled: ${PAYMENT_GUARD_ENABLED:true}
+      # Tomcat 최대 스레드(기본 200)의 40%만 결제 대기에 쓴다. 측정 환경(스레드 50)에서는 20으로 같은 비율을 쟀다
+      max-concurrent-calls: ${PAYMENT_GUARD_MAX_CONCURRENT_CALLS:80}
+      # 최근 호출 50번 중 20번 이상 쌓였을 때부터 판단한다
+      window-size: 50
+      minimum-calls: 20
+      # 응답 없음(타임아웃·연결 실패·5xx)이 절반 이상이면 연다. 느린 호출은 세지 않는다(느릴 때는 Bulkhead가 맡는다)
+      failure-rate-percent: 50
+      # 연 뒤 10초 동안 막고, 그 뒤 5번만 보내 보고 닫을지 정한다
+      open-duration: 10s
+      half-open-calls: 5
+      # 시험 호출 결과가 1분 안에 다 오지 않으면 다시 연다. 결제 호출 최대 대기(connect 5초 + read 20초)보다 길다
+      half-open-max-wait: 1m
