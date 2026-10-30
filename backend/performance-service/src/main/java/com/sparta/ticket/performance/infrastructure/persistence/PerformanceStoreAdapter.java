@@ -3,7 +3,6 @@ package com.sparta.ticket.performance.infrastructure.persistence;
 import com.sparta.ticket.performance.application.port.PerformanceStore;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceGradePrice;
-import com.sparta.ticket.performance.domain.schedule.Schedule;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.util.HashSet;
@@ -23,7 +22,6 @@ public class PerformanceStoreAdapter implements PerformanceStore {
 
     private final PerformanceJpaRepository performanceRepository;
     private final PerformanceGradePriceJpaRepository gradePriceRepository;
-    private final ScheduleJpaRepository scheduleRepository;
     private final VenueSeatJpaRepository venueSeatRepository;
     private final EntityManager entityManager;
 
@@ -56,11 +54,6 @@ public class PerformanceStoreAdapter implements PerformanceStore {
     @Override
     public void saveGradePrices(List<PerformanceGradePrice> prices) {
         gradePriceRepository.saveAll(prices);
-    }
-
-    @Override
-    public List<Schedule> findSchedules(Long performanceId) {
-        return scheduleRepository.findByPerformanceId(performanceId);
     }
 
     @Override

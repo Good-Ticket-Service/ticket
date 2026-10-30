@@ -10,3 +10,26 @@ spring:
     properties:
       hibernate:
         default_schema: performance_schema
+  cloud:
+    openfeign:
+      client:
+        config:
+          # 회차 좌석 준비(공연 → 좌석, 이슈 #175 합의). 키는 SeatSetupFeignClient의 contextId다.
+          # read 5초는 잠정값이다. 좌석 담당이 좌석 준비 API를 구현할 때 회차당 1,000석 기준으로 재서 조정한다
+          seatSetupClient:
+            connect-timeout: 1000
+            read-timeout: 5000
+
+performance:
+  seat-setup:
+    # feign(기본) 또는 stub. stub은 좌석 서비스를 부르지 않고 성공으로 처리하는 임시 구현체다
+    client: feign
+    retry:
+      # 일시 실패(409 SEAT_SETUP_IN_USE 포함) 재시도: 최대 8회, 간격 10초에서 두 배씩(상한 5분), 첫 시도부터 약 15분.
+      # 15분은 선점(10분)이 만료·정리되기를 기다리는 길이다. 첫 간격은 connect + read 타임아웃(6초)보다 길어야 한다
+      max-attempts: 8
+      first-delay: 10s
+      max-delay: 5m
+      # 재시도 스케줄러: 5초마다 다음 시도 시각이 지난 PENDING 회차를 최대 50개 보낸다
+      fixed-delay-ms: 5000
+      batch-size: 50
