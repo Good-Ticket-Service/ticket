@@ -9,6 +9,9 @@ import org.springframework.data.repository.query.Param;
 /** 공연장 좌석 등급의 Spring Data 저장소. */
 public interface VenueSeatGradeJpaRepository extends JpaRepository<VenueSeatGrade, Long> {
 
+    /** 삭제된 등급은 Entity의 @SQLRestriction으로 빠진다. */
+    List<VenueSeatGrade> findByVenueId(Long venueId);
+
     @Query("SELECT g.name FROM VenueSeatGrade g WHERE g.venueId = :venueId AND g.deletedAt IS NULL")
     List<String> findNamesByVenueId(@Param("venueId") Long venueId);
 

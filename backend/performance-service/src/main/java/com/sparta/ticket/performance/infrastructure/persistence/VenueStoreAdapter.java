@@ -47,6 +47,11 @@ public class VenueStoreAdapter implements VenueStore {
     }
 
     @Override
+    public Optional<Venue> findByIdForShare(Long venueId) {
+        return venueRepository.findByIdForShare(venueId);
+    }
+
+    @Override
     public boolean isUsedByPerformance(Long venueId) {
         return venueRepository.isUsedByPerformance(venueId);
     }
@@ -54,6 +59,11 @@ public class VenueStoreAdapter implements VenueStore {
     @Override
     public Set<String> findGradeNames(Long venueId) {
         return new HashSet<>(gradeRepository.findNamesByVenueId(venueId));
+    }
+
+    @Override
+    public List<VenueSeatGrade> findGrades(Long venueId) {
+        return gradeRepository.findByVenueId(venueId);
     }
 
     @Override

@@ -18,4 +18,15 @@ public interface VenueSeatJpaRepository extends JpaRepository<VenueSeat, Long> {
             WHERE s.venueId = :venueId AND s.section IN :sections AND s.deletedAt IS NULL
             """)
     List<SeatPosition> findPositions(@Param("venueId") Long venueId, @Param("sections") Collection<String> sections);
+
+    /** 공연장 좌석 중 이 공연의 판매 제외 행이 없는 좌석이 쓰는 등급 ID. */
+    @Query("""
+            SELECT DISTINCT s.venueSeatGradeId
+            FROM VenueSeat s
+            WHERE s.venueId = :venueId AND s.deletedAt IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM PerformanceSeatPolicy p
+                  WHERE p.performanceId = :performanceId AND p.venueSeatId = s.id AND p.deletedAt IS NULL)
+            """)
+    List<Long> findSellableGradeIds(@Param("performanceId") Long performanceId, @Param("venueId") Long venueId);
 }

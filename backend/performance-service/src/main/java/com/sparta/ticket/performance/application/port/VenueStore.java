@@ -17,11 +17,21 @@ public interface VenueStore {
     /** 공연장을 행 잠금(FOR UPDATE)으로 읽는다. 같은 공연장의 배치 변경과 공연 초안 등록을 한 줄로 세운다. */
     Optional<Venue> findByIdForUpdate(Long venueId);
 
+    /**
+     * 공연장을 공유 잠금(FOR SHARE)으로 읽는다. 공연 초안 등록이 쓴다.
+     * Note: 배치 변경의 FOR UPDATE와 서로 기다리므로, 배치 변경 중에 공연이 이 공연장을 처음 참조하는 일이 없다.
+     * 공연 초안 등록끼리는 서로 막지 않는다.
+     */
+    Optional<Venue> findByIdForShare(Long venueId);
+
     /** 이 공연장을 참조하는 공연이 있는지. Note: 삭제된 공연도 센다(한 번 쓰인 배치는 고정). */
     boolean isUsedByPerformance(Long venueId);
 
     /** 공연장의 등급 이름 전체. */
     Set<String> findGradeNames(Long venueId);
+
+    /** 공연장의 등급 전체. */
+    List<VenueSeatGrade> findGrades(Long venueId);
 
     /** 공연장의 등급 ID 전체. */
     Set<Long> findGradeIds(Long venueId);
