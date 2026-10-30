@@ -32,6 +32,9 @@ public class CouponIssueService {
      * 실패하면 예외로 트랜잭션 전체가 롤백되어, 올린 발급 수량도 함께 취소된다.
      * Note: 수량을 먼저 올리고 회원 쿠폰을 나중에 저장한다. 수량이 없으면 INSERT 없이 끝나고,
      * INSERT가 중복으로 실패해도 롤백으로 수량이 되돌아가므로 두 값이 어긋나지 않는다.
+     * Note(한계, #197): 같은 쿠폰의 발급은 쿠폰 행 하나의 락을 차례로 잡는다. 인기 쿠폰에 요청이 몰리면 기다리는 요청마다
+     * DB 커넥션을 쥐어, 커넥션 풀을 함께 쓰는 좌석·예매 요청까지 막힐 수 있다. 락 대기 제한이 없다.
+     * 수량을 넘겨 발급되지는 않는다. 부하 측정 후 lock_timeout·진입 제한·Redis 수량 선차감·비동기 발급 중에서 별도로 정한다.
      */
     @Transactional
     public IssuedCouponResult issue(Long couponId, Long userId, String username) {
@@ -57,6 +60,7 @@ public class CouponIssueService {
 
         // 3) 할인액·유효 일수를 복사하려고 쿠폰을 읽는다(일반 SELECT). 2)의 UPDATE가 잡은 행 락이 커밋까지 유지되므로
         //    그사이 관리자 수정은 기다리고, 읽은 값이 저장 때까지 바뀌지 않는다
+        //    Note: UPDATE ... RETURNING으로 이 SELECT를 줄일 수 있지만, 기본 키 조회 한 번이라 엔티티로 받는 단순함을 택했다(#197)
         Coupon coupon = couponRepository
                 .findById(couponId)
                 .orElseThrow(() -> new BusinessException(CouponErrorCode.COUPON_NOT_FOUND));
