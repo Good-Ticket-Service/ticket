@@ -4,6 +4,7 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
 import com.sparta.ticket.payment.application.port.pg.PgApprovalGate;
+import com.sparta.ticket.payment.application.service.settlement.SettlementCaptureTransactions;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
@@ -15,6 +16,7 @@ import com.sparta.ticket.payment.domain.model.pg.PgResult;
 import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
 import com.sparta.ticket.payment.domain.model.refund.RefundStatus;
+import com.sparta.ticket.payment.domain.model.settlement.SaleSource;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
 import java.time.Clock;
@@ -43,6 +45,7 @@ public class PaymentTransactions {
     private final Clock clock;
     private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
     private final PaymentReconcileProperties reconcileProperties;
+    private final SettlementCaptureTransactions settlementCapture;
 
     @Value("${payment.recovery.check-interval-seconds:10}")
     private long checkIntervalSeconds;
@@ -156,10 +159,16 @@ public class PaymentTransactions {
                             payment.getConfirmRequestedAt(),
                             "provider",
                             payment.getPgProvider().name());
-                refundRepository
+                Long requestedRefundId = refundRepository
                         .lockByPaymentId(paymentId)
                         .filter(refund -> refund.getStatus() == RefundStatus.WAITING)
-                        .ifPresent(refund -> refund.ensureRequested(approved.amount(), now, now));
+                        .map(refund -> {
+                            refund.ensureRequested(approved.amount(), now, now);
+                            return refund.getId();
+                        })
+                        .orElse(null);
+                // 요청·recovery·reconcile 모두 이 분기를 지나므로 정산 포착 지점은 여기 하나다(payment → refund 잠금 뒤).
+                settlementCapture.captureApproval(saleSource(payment), requestedRefundId);
                 resultPublisher.paymentFinalized(payment);
             }
         } else if (payment.getStatus() == PaymentStatus.IN_PROGRESS) {
@@ -218,6 +227,21 @@ public class PaymentTransactions {
                     refund.skip();
                     resultPublisher.refundFinalized(payment, refund);
                 });
+    }
+
+    /** 정산은 결제 Entity를 보지 않고 이 스냅샷만 받는다. 예매수수료는 미적용 결정이라 0이다. */
+    private static SaleSource saleSource(Payment payment) {
+        return new SaleSource(
+                payment.getId(),
+                payment.getSellerId(),
+                payment.getPerformanceId(),
+                payment.getScheduleId(),
+                payment.getScheduleStartAt(),
+                payment.getApprovedAt(),
+                payment.getTotalPrice(),
+                payment.getDiscountAmount(),
+                0,
+                payment.getAmount());
     }
 
     private Payment locked(Long id) {
