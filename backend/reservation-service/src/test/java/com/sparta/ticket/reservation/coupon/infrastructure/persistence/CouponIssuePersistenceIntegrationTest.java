@@ -102,8 +102,8 @@ class CouponIssuePersistenceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("삭제된 쿠폰은 0행이다")
         void deleted() {
             Coupon coupon = saveCoupon(10);
-            transactionTemplate.executeWithoutResult(
-                    status -> couponRepository.softDeleteIfNotIssued(coupon.getId(), "master", NOW));
+            transactionTemplate.executeWithoutResult(status ->
+                    couponRepository.lockById(coupon.getId()).orElseThrow().delete("master"));
 
             assertThat(increase(coupon.getId(), NOW)).isZero();
         }

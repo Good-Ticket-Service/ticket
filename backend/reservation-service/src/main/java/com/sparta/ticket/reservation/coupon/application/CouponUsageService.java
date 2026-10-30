@@ -68,7 +68,7 @@ public class CouponUsageService implements CouponUsage {
 
     /**
      * 쿠폰 정의의 이름. 회원 쿠폰에는 이름을 복사하지 않는다.
-     * Note: 받은 사람이 있는 쿠폰은 삭제할 수 없어(softDeleteIfNotIssued) 정의가 항상 있다. 받은 쿠폰도 삭제할 수 있게 바꾸면 다시 정해야 한다.
+     * Note: 받은 사람이 있는 쿠폰은 삭제할 수 없어(Coupon.delete) 정의가 항상 있다. 받은 쿠폰도 삭제할 수 있게 바꾸면 다시 정해야 한다.
      */
     private String couponName(UserCoupon userCoupon) {
         return couponRepository

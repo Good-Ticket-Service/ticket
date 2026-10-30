@@ -91,8 +91,8 @@ class CouponQueryPersistenceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("삭제된 쿠폰은 목록에서 빠진다")
         void excludesDeleted() {
             Coupon deleted = saveCoupon(NOW.minusDays(1), NOW.plusDays(5));
-            transactionTemplate.executeWithoutResult(
-                    status -> couponRepository.softDeleteIfNotIssued(deleted.getId(), "master", NOW));
+            transactionTemplate.executeWithoutResult(status ->
+                    couponRepository.lockById(deleted.getId()).orElseThrow().delete("master"));
 
             assertThat(search(CouponIssueStatus.ISSUING, ALL)).doesNotContain(deleted.getId());
         }

@@ -85,7 +85,7 @@ public class CouponQueryService {
         Page<UserCoupon> userCoupons = userCouponRepository.findMine(userId, status, now, pageable);
 
         // 2) 쿠폰 이름을 붙이려고 이 페이지의 쿠폰 정의를 한 번에 읽어 ID → 이름으로 둔다. ID로 읽으므로 키가 겹치지 않는다
-        // Note: 삭제된 쿠폰은 읽히지 않아 이름이 null이 된다. 지금은 발급 수량이 0일 때만 삭제할 수 있어(softDeleteIfNotIssued)
+        // Note: 삭제된 쿠폰은 읽히지 않아 이름이 null이 된다. 지금은 발급 수량이 0일 때만 삭제할 수 있어(Coupon.delete)
         // 회원이 받은 쿠폰의 정의는 삭제되지 않는다. 받은 쿠폰도 삭제할 수 있게 바꾸면 여기서 이름을 다시 정해야 한다
         Set<Long> couponIds = userCoupons.map(UserCoupon::getCouponId).toSet();
         Map<Long, String> names = couponRepository.findAllById(couponIds).stream()
