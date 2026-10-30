@@ -179,6 +179,9 @@ public class Coupon extends BaseEntity {
      * 발급 중단. 발급 종료 시각을 현재로 당긴다. 이미 발급된 쿠폰은 계속 쓸 수 있다.
      * Note: 시작 전 쿠폰은 시작 시각도 현재로 당긴다. 종료만 당기면 시작이 종료보다 늦어져
      * ck_p_coupons_period(issue_start_at <= issue_end_at)를 어기고, 상태도 ENDED가 아니라 UPCOMING으로 계산된다.
+     * 그래서 시작 = 종료인 기간이 된다. 생성·수정의 시작 < 종료(requireValidEnd)와 다르지만 의도한 것이다.
+     * 끝난 쿠폰은 기간을 바꿀 수 없어(update 1·2단계) 이 기간이 다시 검증되는 일은 없다.
+     * 원래 시작 예정 시각은 덮어써져 남지 않는다. 서비스 동작에 쓰이지 않아 따로 보관하지 않는다.
      */
     public void close(LocalDateTime now) {
         CouponIssueStatus status = issueStatus(now);
