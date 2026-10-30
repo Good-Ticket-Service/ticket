@@ -125,4 +125,14 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
             @Param("now") LocalDateTime now,
             @Param("excludedIds") Collection<Long> excludedIds,
             @Param("modes") Collection<String> modes);
+
+    @Override
+    @Query(
+            value = "SELECT p.id FROM p_payments p WHERE p.id > :afterId AND p.status IN ('DONE','CANCELED')"
+                    + " AND p.approved_at IS NOT NULL AND p.deleted_at IS NULL"
+                    + " AND NOT EXISTS (SELECT 1 FROM p_settlement_items i WHERE i.payment_id = p.id AND i.kind = 'SALE'"
+                    + " AND i.status <> 'UNPOSTED' AND i.deleted_at IS NULL)"
+                    + " ORDER BY p.id LIMIT :limit",
+            nativeQuery = true)
+    List<Long> findSettlementBackfillIds(@Param("afterId") Long afterId, @Param("limit") int limit);
 }
