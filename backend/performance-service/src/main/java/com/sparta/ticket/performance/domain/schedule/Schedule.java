@@ -86,4 +86,18 @@ public class Schedule extends BaseEntity {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    /**
+     * 공연의 좌석 구성(가격, 판매 제외)이 바뀌어 좌석을 다시 준비해야 한다. 구성 버전을 올리고 새 요청 ID로 PENDING부터 시작한다.
+     * Note: 구성 버전이 오를 때만 새 requestId를 쓴다(#54). 같은 구성의 재전송·자동 재시도는 기존 requestId를 쓴다.
+     * READY·FAILED였던 회차도 다시 준비한다. 좌석 준비 호출은 커밋 뒤 회차 등록 연동(이슈 #131)이 맡는다.
+     */
+    public void requireSeatSetupForNewConfig(String newRequestId) {
+        this.seatConfigVersion++;
+        this.seatSetupStatus = SeatSetupStatus.PENDING;
+        this.seatSetupRequestId = newRequestId;
+        this.seatSetupError = null;
+        this.seatSetupAttempts = 0;
+        this.seatSetupNextAttemptAt = null;
+    }
 }

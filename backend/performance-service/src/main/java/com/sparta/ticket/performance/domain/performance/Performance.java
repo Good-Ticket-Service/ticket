@@ -1,6 +1,8 @@
 package com.sparta.ticket.performance.domain.performance;
 
 import com.sparta.ticket.common.entity.BaseEntity;
+import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -19,7 +21,6 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 공연. 공연장 하나를 쓰고, 등급별 가격·판매 제외 좌석·회차를 가진다. 명세는 .local/performance/tables.md 3.5다.
- * Note: 등록·수정·공개 API는 다음 작업에서 만든다. 상태 변경 메서드도 그때 추가한다.
  */
 @Getter
 @Entity
@@ -78,4 +79,66 @@ public class Performance extends BaseEntity {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    private Performance(
+            Long sellerId,
+            Long venueId,
+            String title,
+            Genre genre,
+            AgeRating ageRating,
+            int runningTime,
+            String castInfo,
+            String description,
+            String posterUrl) {
+        this.sellerId = sellerId;
+        this.venueId = venueId;
+        this.title = title;
+        this.genre = genre;
+        this.ageRating = ageRating;
+        this.runningTime = runningTime;
+        this.castInfo = castInfo;
+        this.description = description;
+        this.posterUrl = posterUrl;
+        this.publicationStatus = PublicationStatus.DRAFT;
+        this.operationStatus = OperationStatus.ACTIVE;
+    }
+
+    /** 공연 초안을 만든다. 공개 전(DRAFT)·운영 중(ACTIVE)으로 시작한다. 공백 정리·형식 검증은 요청 DTO에서 끝난 값이다. */
+    public static Performance createDraft(
+            Long sellerId,
+            Long venueId,
+            String title,
+            Genre genre,
+            AgeRating ageRating,
+            int runningTime,
+            String castInfo,
+            String description,
+            String posterUrl) {
+        return new Performance(
+                sellerId, venueId, title, genre, ageRating, runningTime, castInfo, description, posterUrl);
+    }
+
+    /** 본인 공연이 아니면 403 FORBIDDEN. */
+    public void verifyOwner(Long userId) {
+        if (!sellerId.equals(userId)) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, "본인 공연만 변경할 수 있습니다.");
+        }
+    }
+
+    /**
+     * If-Match로 받은 version이 현재 값과 같은지 확인한다. 다르면 409 VERSION_CONFLICT.
+     * Note: 비교는 공연 행을 잠근 뒤 해야 의미가 있다. 증가는 application이 잠금 모드로 한다.
+     */
+    public void verifyVersion(long expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(PerformanceErrorCode.VERSION_CONFLICT);
+        }
+    }
+
+    /** 가격·판매 제외 같은 좌석 구성은 공개 전에만 바꿀 수 있다. 공개됐으면 409 PERFORMANCE_CONFIGURATION_LOCKED. */
+    public void verifyConfigurable() {
+        if (publicationStatus != PublicationStatus.DRAFT) {
+            throw new BusinessException(PerformanceErrorCode.PERFORMANCE_CONFIGURATION_LOCKED);
+        }
+    }
 }

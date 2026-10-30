@@ -36,4 +36,19 @@ public class PerformanceGradePrice extends BaseEntity {
     /** 할인 전 원화 금액. 0원 가격은 저장하지 않는다. */
     @Column(nullable = false)
     private int price;
+
+    private PerformanceGradePrice(Long performanceId, Long venueSeatGradeId, int price) {
+        this.performanceId = performanceId;
+        this.venueSeatGradeId = venueSeatGradeId;
+        this.price = price;
+    }
+
+    /** 공연에 등급 가격을 붙인다. 등급 소속·가격 범위 확인은 application과 요청 DTO가 한다. */
+    public static PerformanceGradePrice create(Long performanceId, Long venueSeatGradeId, int price) {
+        return new PerformanceGradePrice(performanceId, venueSeatGradeId, price);
+    }
+
+    public void changePrice(int price) {
+        this.price = price;
+    }
 }
