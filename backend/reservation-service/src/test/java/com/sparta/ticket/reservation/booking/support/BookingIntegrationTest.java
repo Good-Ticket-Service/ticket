@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.booking.support;
 
+import com.sparta.ticket.reservation.booking.infrastructure.payment.Resilience4jPaymentCallGuard;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,9 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
     @Autowired
     protected JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    protected Resilience4jPaymentCallGuard paymentGuard;
+
     /** JUnit은 부모의 @BeforeEach를 자식의 것보다 먼저 실행한다. 자식은 이 초기화 위에 자기 준비만 더한다. */
     @BeforeEach
     void resetBookingFixtures() {
@@ -44,6 +48,7 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
         coupons.reset();
         clock.set(BookingTestConfig.START_TIME);
         payment.reset();
+        paymentGuard.reset();
         seats.reset();
     }
 

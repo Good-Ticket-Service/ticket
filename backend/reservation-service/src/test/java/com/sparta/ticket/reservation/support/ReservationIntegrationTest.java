@@ -34,6 +34,14 @@ import org.testcontainers.utility.DockerImageName;
                     + "file:../sql/reservation-service/schema.sql,file:../sql/reservation-service/booking.sql,"
                     + "file:../sql/reservation-service/seat.sql,file:../sql/reservation-service/coupon.sql",
             "reservation.booking.scheduler.enabled=false",
+            "reservation.booking.payment-guard.enabled=true",
+            "reservation.booking.payment-guard.max-concurrent-calls=10",
+            "reservation.booking.payment-guard.window-size=50",
+            "reservation.booking.payment-guard.minimum-calls=20",
+            "reservation.booking.payment-guard.failure-rate-percent=50",
+            "reservation.booking.payment-guard.open-duration=10s",
+            "reservation.booking.payment-guard.half-open-calls=5",
+            "reservation.booking.payment-guard.half-open-max-wait=1m",
             "reservation.queue.enabled=true",
             "reservation.queue.admit-per-second=10",
             "spring.jpa.open-in-view=false"
