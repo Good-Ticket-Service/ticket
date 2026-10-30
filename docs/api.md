@@ -201,12 +201,12 @@
 - 준비에 성공하면 READY다. 일시적 실패는 서버가 같은 requestId로 자동 재시도한다.
 - 재시도 한도를 넘거나 요청 데이터 오류로 실패하면 FAILED다.
 - 판매자용 좌석 준비 재시도 API는 없다. 판매자는 seatSetupStatus와 seatSetupError로 상태를 확인한다.
-- 좌석 준비 호출은 「좌석 내부 API」의 `POST /internal/schedules/{scheduleId}/seat-setups`를 쓴다(#175 합의). MVP는 Feign이다.
+- 좌석 준비 호출은 「좌석 내부 API」의 `POST /internal/schedules/{scheduleId}/seat-setups`를 쓴다(이슈 #175 합의). MVP는 Feign이다.
 - 공연은 응답의 requestId와 configVersion이 회차의 현재 값과 모두 같을 때만 READY로 바꾼다. 다르면 지난 요청의 결과라 무시한다.
 - 409 SEAT_SETUP_STALE_VERSION은 이미 더 높은 구성이 반영됐다는 뜻이라 결과를 무시한다.
 - 400 VALIDATION_ERROR와 409 SEAT_SETUP_IN_USE는 재시도해도 같은 결과라 재시도하지 않고 FAILED로 바꾼다.
 - 연결 실패, 타임아웃, 5xx는 PENDING을 유지하고 스케줄러가 같은 requestId로 다시 보낸다. 횟수와 간격은 공연 구현 때 정한다.
-- Feign 타임아웃은 connect 1초, read 5초로 시작한다. 좌석 담당이 회차당 1,000석 기준 최악 응답 시간을 재서(#173) #175에 공유하면 조정한다.
+- Feign 타임아웃은 connect 1초, read 5초로 시작한다. 좌석 담당이 회차당 1,000석 기준 최악 응답 시간을 재서(이슈 #173) 이슈 #175에 공유하면 조정한다.
 - 공연은 좌석 쪽 400 조건을 보내기 전에 같은 기준으로 거른다. 좌석이 0개인 공연장은 공연 쪽에서 막고 좌석 준비를 보내지 않는다.
 
 판매 중지와 판매 검증
@@ -272,7 +272,7 @@
 
 ### 좌석 내부 API
 
-상태: 회차 좌석 준비는 합의(#175), 구현 전이다. MVP는 공연 → 좌석 Feign 동기 호출이고, 성능 측정 뒤 Kafka로 바꾼다. 바꿔도 요청 내용, 멱등성, 버전 규칙은 그대로 둔다.
+상태: 회차 좌석 준비는 합의(이슈 #175), 구현 전이다. MVP는 공연 → 좌석 Feign 동기 호출이고, 성능 측정 뒤 Kafka로 바꾼다. 바꿔도 요청 내용, 멱등성, 버전 규칙은 그대로 둔다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -280,7 +280,7 @@
 
 - SeatSetupLine = `{venueSeatId:long,venueSeatGradeId:long,gradeName:string[1~20자],basePrice:int|null,isSellable:boolean,section:string[1~20자],rowLabel:string[1~10자],seatNumber:int[1 이상]}`.
 - 요청의 seats는 회차에 만들 좌석 전체다. 일부만 보내지 않는다.
-- requestId는 공연이 만든 UUID다. 공연은 configVersion이 오를 때만 새 requestId를 쓴다(#54).
+- requestId는 공연이 만든 UUID다. 공연은 configVersion이 오를 때만 새 requestId를 쓴다(이슈 #54).
 - 응답은 내부 API라 ApiResponse로 감싸지 않는다.
 - 응답의 requestId는 이번 요청의 값을 그대로 돌려준다. 공연이 결과가 현재 요청의 것인지 확인하는 데 쓴다.
 - seatCount는 회차 좌석 수이고, sellableCount는 그중 isSellable=true인 좌석 수다.
@@ -503,7 +503,7 @@
 - release: 대상이 없거나 이미 되돌렸어도 성공한다. 예매 스케줄러가 같은 예매로 다시 부를 수 있기 때문이다. (#125)
 - 동시성: 회원 쿠폰 행을 SELECT ... FOR UPDATE로 잠그고 읽는다. 같은 쿠폰을 두 예매가 동시에 잡으면 차례로 처리되어 하나만 성공한다. 같은 예매의 쿠폰 호출은 예매가 예약 행을 먼저 잠가 차례로 들어온다. (#159)
 - 예매는 checkout에서 reserve, 결제 성공 확정에서 use, 결제 실패 후 만료·선점 만료·선점 해제·취소 확정에서 release를 부른다. 결제 실패로 HOLD에 돌아가거나 결과를 모르면 부르지 않는다. (#125)
-- 좌석 준비(공연 → seat)는 모듈 계약이 아니라 서비스 간 HTTP 계약이다. 「좌석 내부 API」를 따른다(#175).
+- 좌석 준비(공연 → seat)는 모듈 계약이 아니라 서비스 간 HTTP 계약이다. 「좌석 내부 API」를 따른다(이슈 #175).
 
 - BookingFacade 공통: 상태를 바꾸지 못한 경우(0행)는 예외가 아니라 반환값으로 알린다. 다음 행동은 호출자가 고른다. (원본 복원: shared/modules/booking-facade.md:17, 담당 확인 필요)
 - hold: HoldTarget의 다섯 값 중 하나라도 null이면 INVALID_REQUEST다. performanceId·sellerId(#86)와 scheduleStartAt(KST)·performanceTitle(#126)은 판매 검증(P21) 응답 값이다.
