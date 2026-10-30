@@ -21,7 +21,12 @@ public enum CouponErrorCode implements ErrorCode {
     COUPON_NOT_DELETABLE(HttpStatus.CONFLICT, "이미 발급된 쿠폰은 삭제할 수 없습니다."),
     COUPON_ISSUE_PERIOD_CLOSED(HttpStatus.BAD_REQUEST, "쿠폰 발급 기간이 아닙니다."),
     COUPON_SOLD_OUT(HttpStatus.CONFLICT, "쿠폰이 모두 소진됐습니다."),
-    COUPON_ALREADY_ISSUED(HttpStatus.CONFLICT, "이미 발급받은 쿠폰입니다.");
+    COUPON_ALREADY_ISSUED(HttpStatus.CONFLICT, "이미 발급받은 쿠폰입니다."),
+    /**
+     * 예매에 쓸 수 없는 회원 쿠폰. 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났다(CouponUsage.reserve, #125).
+     * Note: 예매의 ReservationErrorCode에도 같은 이름이 있다. 모듈 경계를 지키려고 따로 두고, 응답 코드는 같게 맞춘다.
+     */
+    COUPON_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "사용할 수 없는 쿠폰입니다.");
 
     private final HttpStatus status;
     private final String message;
