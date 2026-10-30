@@ -2,11 +2,13 @@ package com.sparta.ticket.reservation.coupon.domain;
 
 /**
  * 회원이 받은 쿠폰 한 장의 상태. 이 한 장을 쓸 수 있는지를 뜻한다. 쿠폰을 받을 수 있는 기간은 CouponIssueStatus다.
- * 발급하면 AVAILABLE이고, 나머지 전이는 예매 연동(CouponUsage, #125)과 만료 배치가 맡는다. 둘 다 아직 구현 전이다.
+ * 발급하면 AVAILABLE이고, 예매에 잡고·쓰고·돌려주는 전이는 예매 연동(CouponUsage, #125)이 맡는다.
+ * 저장된 AVAILABLE을 EXPIRED로 바꾸는 만료 배치는 아직 구현 전이다.
  * <pre>
- * AVAILABLE ──예매에 잡힘──▶ RESERVED ──결제 성공──▶ USED
- *     │
- *     └──유효 기간 지남──▶ EXPIRED
+ * AVAILABLE ──reserve(예매에 잡힘)──▶ RESERVED ──use(결제 성공)──▶ USED
+ *     ▲                                 │                           │
+ *     └──release(예매 종료·취소, 기간이 지났으면 EXPIRED)───────────┘
+ * AVAILABLE ──유효 기간 지남(만료 배치)──▶ EXPIRED
  * </pre>
  * Note: 만료 배치 전이라도 화면에는 유효 기간이 지난 AVAILABLE을 EXPIRED로 보여 준다(UserCoupon.displayStatus).
  */
