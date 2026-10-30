@@ -2,6 +2,7 @@ package com.sparta.ticket.performance.presentation.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.sparta.ticket.performance.presentation.support.StrictLongDeserializer;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
