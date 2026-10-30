@@ -103,7 +103,7 @@ class PayoutExecutionIntegrationTest extends PaymentIntegrationTest {
 
     private PayoutExecutionJob jobWith(PayoutAgency payoutAgency, boolean enabled) {
         return new PayoutExecutionJob(
-                payouts, transactions, payoutAgency, new SimpleMeterRegistry(), paymentClock, enabled, 10);
+                payouts, transactions, payoutAgency, new SimpleMeterRegistry(), paymentClock, enabled, 10, 168);
     }
 
     private static PgProperties properties() {
@@ -157,12 +157,21 @@ class PayoutExecutionIntegrationTest extends PaymentIntegrationTest {
                 payoutId);
     }
 
+    /** 다음 조회 시각을 기다리지 않고 지금 조회한다(조회 일정은 따로 시험한다). */
+    private Optional<Applied> recoverNow(PayoutExecutionJob target, long payoutId) {
+        jdbc.update(
+                "UPDATE p_payouts SET next_attempt_at = ? WHERE id = ? AND status = 'REQUESTED'",
+                LocalDateTime.now(paymentClock).minusSeconds(1),
+                payoutId);
+        return target.recover(payoutId);
+    }
+
     /** 지급대행 처리 지연(300ms)이 지나 결과가 확정될 때까지 같은 키로 조회한다. */
     private Applied inquireUntilSettled(long payoutId) throws InterruptedException {
         Applied applied = null;
         for (int i = 0; i < 30; i++) {
             Thread.sleep(100);
-            applied = job.inquire(payoutId).orElseThrow();
+            applied = recoverNow(job, payoutId).orElseThrow();
             if (applied != Applied.IN_PROGRESS) return applied;
         }
         return applied;
@@ -207,7 +216,7 @@ class PayoutExecutionIntegrationTest extends PaymentIntegrationTest {
                 .containsEntry("payable", java.math.BigDecimal.valueOf(43_400));
 
         // 확정된 지급은 다시 조회·실행하지 않고 분개도 늘지 않는다
-        assertThat(job.inquire(payoutId)).isEmpty();
+        assertThat(recoverNow(job, payoutId)).isEmpty();
         assertThat(job.execute(payoutId)).isEmpty();
         assertThat(payoutJournals(payoutId)).isEqualTo(1);
         assertThat(agency.requests).hasSize(1);

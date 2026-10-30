@@ -102,8 +102,29 @@ public class PayoutJpaAdapter implements PayoutRepository {
     }
 
     @Override
-    public Optional<Payout> find(Long payoutId) {
-        return Optional.ofNullable(entityManager.find(Payout.class, payoutId));
+    @SuppressWarnings("unchecked")
+    public List<Long> findDueRequestedIds(LocalDateTime now, int limit) {
+        List<Number> ids = entityManager
+                .createNativeQuery("SELECT id FROM p_payouts WHERE status = 'REQUESTED' AND next_attempt_at <= :now"
+                        + " ORDER BY next_attempt_at, id")
+                .setParameter("now", now)
+                .setMaxResults(limit)
+                .getResultList();
+        return ids.stream().map(Number::longValue).toList();
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Optional<Payout> lockDueRequested(Long payoutId, LocalDateTime now) {
+        List<Payout> rows = entityManager
+                .createNativeQuery(
+                        "SELECT * FROM p_payouts WHERE id = :id AND status = 'REQUESTED' AND next_attempt_at <= :now"
+                                + " FOR UPDATE SKIP LOCKED",
+                        Payout.class)
+                .setParameter("id", payoutId)
+                .setParameter("now", now)
+                .getResultList();
+        return rows.stream().findFirst();
     }
 
     @Override

@@ -15,7 +15,11 @@ public interface PayoutRepository {
     /** 실행할 시각이 된 READY 지급을 잠근다. 다른 실행자가 잡고 있거나 이미 바뀌었으면 비어 있다. */
     Optional<Payout> lockDueReady(Long payoutId, LocalDateTime now);
 
-    Optional<Payout> find(Long payoutId);
+    /** 조회할 시각이 된 REQUESTED 지급 id. 잠그지 않으며 lockDueRequested로 다시 확인한다. */
+    List<Long> findDueRequestedIds(LocalDateTime now, int limit);
+
+    /** 조회할 시각이 된 REQUESTED 지급을 잠근다. 다른 실행자가 잡고 있거나 이미 바뀌었으면 비어 있다. */
+    Optional<Payout> lockDueRequested(Long payoutId, LocalDateTime now);
 
     /** 결과 반영용 잠금. 다른 트랜잭션이 잡고 있으면 기다린다. */
     Optional<Payout> lock(Long payoutId);

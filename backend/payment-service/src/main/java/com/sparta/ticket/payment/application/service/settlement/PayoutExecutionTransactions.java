@@ -34,6 +34,14 @@ public class PayoutExecutionTransactions {
     /** 실행권 획득 결과. 외부 호출과 결과 반영이 같은 attempt·키인지 확인하는 데 쓴다. */
     public record Claim(Long payoutId, int attempt, String idempotencyKey, PayoutOrder order) {}
 
+    /**
+     * recovery가 조회하려고 잡은 REQUESTED 지급.
+     *
+     * @param resendable 미등록(404) 응답일 때 같은 키 재전송을 검토할 수 있는 상태인지. inquiry_only이거나 지급대행이 접수를 확인한
+     *     적이 있으면 false다(확인한 지급의 미등록은 재전송 근거가 아니라 불일치다)
+     */
+    public record InquiryClaim(Claim claim, LocalDateTime requestedAt, boolean resendable) {}
+
     public enum Applied {
         /** 완료 확정. 정산서 PAID와 지급 분개를 함께 남겼다. */
         DONE,
@@ -55,6 +63,7 @@ public class PayoutExecutionTransactions {
     private final SellerPayoutAccountRepository accounts;
     private final LedgerTransactions ledger;
     private final CommittedObservation observation;
+    private final PayoutInquirySchedule schedule;
     private final Clock clock;
 
     @Value("${payment.settlement.payout.lock-timeout-ms:5000}")
@@ -63,9 +72,6 @@ public class PayoutExecutionTransactions {
     /** 실행권 점유 시간. 실행자가 끊기면 이 시간이 지난 뒤 다른 실행자가 같은 키로 조회를 시작한다(next_attempt_at으로 표현). */
     @Value("${payment.settlement.payout.lease-seconds:60}")
     private long leaseSeconds;
-
-    @Value("${payment.settlement.payout.inquiry-delay-seconds:30}")
-    private long inquiryDelaySeconds;
 
     /** 게이트 실패·계좌 미등록 뒤 다시 시도할 때까지의 길이. 실패한 후보를 즉시 다시 잡는 루프를 막는다. */
     @Value("${payment.settlement.payout.retry-after-minutes:60}")
@@ -113,12 +119,19 @@ public class PayoutExecutionTransactions {
                         payout.getAmount()));
     }
 
-    /** REQUESTED 지급의 현재 실행권. 같은 키 조회에 쓴다. */
-    @Transactional(readOnly = true)
-    public Optional<Claim> requested(Long payoutId) {
-        return payouts.find(payoutId)
-                .filter(payout -> payout.getStatus() == PayoutStatus.REQUESTED)
-                .map(PayoutExecutionTransactions::claimOf);
+    /**
+     * 조회할 시각이 된 REQUESTED 지급을 잡는다(Task 20-9). 다른 실행자가 잡고 있으면 건너뛴다. 다음 조회 시각을 점유 시간만큼 미뤄
+     * 커밋하므로, 이 실행자가 조회 중 끊겨도 점유 시간이 지나면 다른 실행자가 같은 키로 다시 조회한다.
+     */
+    @Transactional
+    public Optional<InquiryClaim> claimInquiry(Long payoutId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        payouts.limitLockWait(lockTimeoutMillis);
+        return payouts.lockDueRequested(payoutId, now).map(payout -> {
+            payout.scheduleInquiry(now.plusSeconds(leaseSeconds));
+            return new InquiryClaim(
+                    claimOf(payout), payout.getRequestedAt(), !payout.isInquiryOnly() && !payout.isProviderConfirmed());
+        });
     }
 
     /**
@@ -131,33 +144,34 @@ public class PayoutExecutionTransactions {
         payouts.limitLockWait(lockTimeoutMillis);
         Payout payout = payouts.lock(claim.payoutId()).orElseThrow();
         if (!payout.ownedBy(claim.attempt(), claim.idempotencyKey())) return Applied.STALE;
-        LocalDateTime nextInquiryAt = now.plusSeconds(inquiryDelaySeconds);
 
-        Applied applied = applyResult(payout, result, now, nextInquiryAt);
+        Applied applied = applyResult(payout, result, now);
+        if (payout.getStatus() == PayoutStatus.REQUESTED) payout.scheduleInquiry(schedule.next(payout, now));
         observation.counter("settlement.payout.applied", "result", applied.name());
         return applied;
     }
 
-    private Applied applyResult(
-            Payout payout, PayoutAgencyResult result, LocalDateTime now, LocalDateTime nextInquiryAt) {
+    private Applied applyResult(Payout payout, PayoutAgencyResult result, LocalDateTime now) {
         if (result instanceof PayoutAgencyResult.Observed observed)
-            return applyVerdict(payout, PayoutResultVerifier.verify(payout, observed), now, nextInquiryAt);
+            return applyVerdict(payout, PayoutResultVerifier.verify(payout, observed), now);
         if (result instanceof PayoutAgencyResult.RequestInvalid invalid) {
             payout.fail(PayoutFailure.REQUEST_INVALID, null);
             alert(payout, PayoutFailure.REQUEST_INVALID.name(), invalid.reason());
             return Applied.FAILED;
         }
-        if (result instanceof PayoutAgencyResult.KeyConflict) return inquiryOnly(payout, "KEY_CONFLICT", nextInquiryAt);
-        if (result instanceof PayoutAgencyResult.Malformed)
-            return inquiryOnly(payout, "MALFORMED_RESPONSE", nextInquiryAt);
-        String reason = result instanceof PayoutAgencyResult.Unknown unknown
-                ? truncate(unknown.reason())
-                : "PROVIDER_NOT_FOUND";
-        payout.markUnknown(reason, nextInquiryAt);
+        if (result instanceof PayoutAgencyResult.KeyConflict) return inquiryOnly(payout, "KEY_CONFLICT");
+        if (result instanceof PayoutAgencyResult.Malformed) return inquiryOnly(payout, "MALFORMED_RESPONSE");
+        if (result instanceof PayoutAgencyResult.NotFound) {
+            // 접수를 확인한 지급이 미등록으로 보이면 지급대행 쪽 기록과 어긋난 것이다. 재전송하지 않고 조회만 한다
+            if (payout.isProviderConfirmed()) return inquiryOnly(payout, "NOT_FOUND_AFTER_ACCEPTED");
+            payout.markUnknown("PROVIDER_NOT_FOUND");
+            return Applied.UNKNOWN;
+        }
+        payout.markUnknown(truncate(((PayoutAgencyResult.Unknown) result).reason()));
         return Applied.UNKNOWN;
     }
 
-    private Applied applyVerdict(Payout payout, Verdict verdict, LocalDateTime now, LocalDateTime nextInquiryAt) {
+    private Applied applyVerdict(Payout payout, Verdict verdict, LocalDateTime now) {
         if (verdict instanceof Verdict.Completed completed) {
             SettlementStatement statement =
                     payouts.lockStatement(payout.getStatementId()).orElseThrow();
@@ -173,14 +187,14 @@ public class PayoutExecutionTransactions {
             return Applied.FAILED;
         }
         if (verdict instanceof Verdict.InProgress progress) {
-            payout.observe(progress.status(), progress.externalPayoutId(), nextInquiryAt);
+            payout.observe(progress.status(), progress.externalPayoutId());
             return Applied.IN_PROGRESS;
         }
-        return inquiryOnly(payout, ((Verdict.Mismatch) verdict).reason(), nextInquiryAt);
+        return inquiryOnly(payout, ((Verdict.Mismatch) verdict).reason());
     }
 
-    private Applied inquiryOnly(Payout payout, String reason, LocalDateTime nextInquiryAt) {
-        payout.blockInquiryOnly(reason, nextInquiryAt);
+    private Applied inquiryOnly(Payout payout, String reason) {
+        payout.blockInquiryOnly(reason);
         alert(payout, "INQUIRY_ONLY", reason);
         return Applied.INQUIRY_ONLY;
     }

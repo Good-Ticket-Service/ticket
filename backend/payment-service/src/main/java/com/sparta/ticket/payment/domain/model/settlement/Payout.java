@@ -134,31 +134,45 @@ public class Payout extends BaseEntity {
                 && this.idempotencyKey.equals(idempotencyKey);
     }
 
-    /** 지급대행이 접수·처리 중을 알렸다. 완료가 아니므로 다음 조회 시각을 잡는다. */
-    public void observe(PayoutProviderStatus observed, String externalPayoutId, LocalDateTime nextInquiryAt) {
+    /** 지급대행이 접수·처리 중을 알렸다. 완료가 아니므로 호출한 쪽이 scheduleInquiry로 다음 조회 시각을 잡는다. */
+    public void observe(PayoutProviderStatus observed, String externalPayoutId) {
         requireStatus(PayoutStatus.REQUESTED);
         if (observed == PayoutProviderStatus.UNKNOWN) throw new IllegalArgumentException("결과 불명은 markUnknown으로 남긴다");
         providerStatus = observed;
         if (externalPayoutId != null) this.externalPayoutId = externalPayoutId;
-        release(nextInquiryAt);
         lastError = null;
     }
 
-    /** 응답 유실·장애로 결과를 모른다. 같은 키 조회로만 확정한다. */
-    public void markUnknown(String reason, LocalDateTime nextInquiryAt) {
+    /**
+     * 응답 유실·장애로 이번 결과를 모른다. 같은 키 조회로만 확정한다.
+     * Note: 지급대행이 이미 접수를 확인한 지급(ACCEPTED·PROCESSING)은 조회가 실패해도 UNKNOWN으로 낮추지 않는다. 접수 사실은
+     * 바뀌지 않으며, 낮추면 짧은 백오프와 같은 키 재전송 판단이 잘못 걸린다.
+     */
+    public void markUnknown(String reason) {
         requireStatus(PayoutStatus.REQUESTED);
-        providerStatus = PayoutProviderStatus.UNKNOWN;
-        release(nextInquiryAt);
+        if (!isProviderConfirmed()) providerStatus = PayoutProviderStatus.UNKNOWN;
         lastError = reason;
     }
 
     /** 응답이 스냅샷과 다르다. 다시 요청하지 않고 조회로만 확정한다. */
-    public void blockInquiryOnly(String reason, LocalDateTime nextInquiryAt) {
+    public void blockInquiryOnly(String reason) {
         requireStatus(PayoutStatus.REQUESTED);
         inquiryOnly = true;
         verificationReason = reason;
         providerStatus = PayoutProviderStatus.UNKNOWN;
-        release(nextInquiryAt);
+    }
+
+    /** 다음 조회 시각. 실행권 점유(다른 실행자가 이 시각 전에는 건드리지 않음)도 이 값으로 표현한다. */
+    public void scheduleInquiry(LocalDateTime next) {
+        requireStatus(PayoutStatus.REQUESTED);
+        nextAttemptAt = next;
+    }
+
+    /** 지급대행이 이 키의 지급을 접수했음을 확인한 적이 있는지. 확인했다면 미등록 응답은 재전송 근거가 아니라 불일치다. */
+    public boolean isProviderConfirmed() {
+        return providerStatus == PayoutProviderStatus.ACCEPTED
+                || providerStatus == PayoutProviderStatus.PROCESSING
+                || externalPayoutId != null;
     }
 
     /** 지급 완료. 정산서 PAID·지급 분개와 같은 트랜잭션에서만 부른다. */
