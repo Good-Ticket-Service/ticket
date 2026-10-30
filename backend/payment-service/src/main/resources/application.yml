@@ -23,6 +23,13 @@ payment:
       fixed-delay-ms: 600000
       batch-size: 100
       max-per-run: 1000
+    # 매일 KST 04:00 판매자·회차별 정산서 발행. 환불 반영·보충을 검증한 뒤 켠다. 발행해도 지급 실행은 따로 켠다.
+    statement:
+      enabled: false
+      cron: "0 0 4 * * *"
+      batch-size: 100
+      # 발행 한 건이 행 잠금을 기다리는 최대 시간. 넘으면 그 건만 실패하고 다음 실행이 다시 찾는다
+      lock-timeout-ms: 5000
     policies:
       - version: "2026-10-30-v1"
         effective-from: "2026-01-01T00:00:00"
