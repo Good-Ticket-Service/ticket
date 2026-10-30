@@ -312,6 +312,33 @@ class CouponTest {
     }
 
     @Nested
+    @DisplayName("삭제")
+    class Delete {
+
+        @Test
+        @DisplayName("아무도 받지 않았으면 발급 중이어도 삭제 시각·삭제자를 남기고 삭제된다")
+        void notIssued() {
+            Coupon coupon = issuing();
+
+            coupon.delete("master");
+
+            assertThat(coupon.isDeleted()).isTrue();
+            assertThat(coupon.getDeletedBy()).isEqualTo("master");
+        }
+
+        @Test
+        @DisplayName("한 장이라도 발급됐으면 COUPON_NOT_DELETABLE이고 삭제되지 않는다")
+        void issued() {
+            Coupon coupon = issuing();
+            ReflectionTestUtils.setField(coupon, "issuedQuantity", 1);
+
+            assertError(() -> coupon.delete("master"), CouponErrorCode.COUPON_NOT_DELETABLE);
+
+            assertThat(coupon.isDeleted()).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("발급 중단")
     class Close {
 

@@ -71,23 +71,18 @@ public class CouponService {
     }
 
     /**
-     * 아무도 받지 않은 쿠폰만 논리 삭제한다. 조건 확인과 삭제를 조건부 UPDATE 한 번으로 해서 첫 발급과 경합하지 않는다.
-     * 0행이면 그때 이유를 가른다. 남아 있는 쿠폰이면 이미 발급된 것(409), 없으면 없거나 이미 삭제된 것(404)이다.
-     * Note: 조회를 UPDATE보다 먼저 하면, 그사이 다른 요청이 삭제했을 때 404여야 할 응답이 409가 된다.
+     * 아무도 받지 않은 쿠폰만 논리 삭제한다. 지울 수 있는지는 Coupon.delete가 판단하고, 커밋 때 변경 감지로 저장된다.
+     * 수정·발급 중단과 같이 행을 잠그고 읽어 첫 발급과 경합하지 않는다.
+     * - 삭제가 먼저 잠그면 발급의 수량 UPDATE는 기다린 뒤 deleted_at 조건으로 0행이 되고, 발급은 404다
+     * - 발급이 먼저면 삭제는 기다린 뒤 발급 수량 1을 읽어 409 COUPON_NOT_DELETABLE이다
+     * 없거나 이미 삭제된 쿠폰은 잠금 조회가 비어 404다. 동시에 두 번 지우면 뒤 요청은 앞 삭제가 커밋된 뒤 행을 다시 확인해 404다.
      */
     @Transactional
     public void delete(Long couponId, String username) {
-        // 발급 수량이 0이고 아직 삭제되지 않은 경우에만 삭제 정보를 기록한다
-        int deleted = couponRepository.softDeleteIfNotIssued(couponId, username, now());
-        // 바뀐 행이 0이면 삭제 조건이 맞지 않은 것이다. 실패 이유를 알려고 삭제되지 않은 쿠폰이 있는지 다시 본다.
-        // - 있다: 쿠폰은 있는데 조건(발급 수량 0)에 걸렸다 = 누가 이미 받았다 → 409 COUPON_NOT_DELETABLE
-        // - 없다: 처음부터 없는 ID거나 이미 삭제됐다(existsById는 삭제된 쿠폰을 못 찾는다) → 404 COUPON_NOT_FOUND
-        if (deleted == 0) {
-            throw new BusinessException(
-                    couponRepository.existsById(couponId)
-                            ? CouponErrorCode.COUPON_NOT_DELETABLE
-                            : CouponErrorCode.COUPON_NOT_FOUND);
-        }
+        // 행을 잠그고 읽어, 삭제가 끝날 때까지 발급의 수량 UPDATE가 기다리게 한다
+        Coupon coupon = lockCoupon(couponId);
+        // 지울 수 있는지 판단과 삭제 기록은 Coupon이 한다. 저장은 커밋 때 변경 감지로 되고 updated_at·updated_by도 함께 남는다
+        coupon.delete(username);
     }
 
     /**

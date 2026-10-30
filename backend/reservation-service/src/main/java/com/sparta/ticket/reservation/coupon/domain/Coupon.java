@@ -197,6 +197,20 @@ public class Coupon extends BaseEntity {
         this.issueEndAt = now;
     }
 
+    /**
+     * 논리 삭제. 아무도 받지 않은 쿠폰만 지울 수 있고, 받은 사람이 있으면 409 COUPON_NOT_DELETABLE이다.
+     * 발급 상태는 보지 않는다. 받은 사람이 없으면 발급 중인 쿠폰도 중단 없이 바로 지울 수 있다(잘못 만든 쿠폰 정리).
+     * 받은 쿠폰의 정의가 지워지지 않으므로 회원 쿠폰은 항상 이름·정의를 찾을 수 있다(CouponQueryService, CouponUsageService).
+     * Note: 삭제 시각·삭제자는 BaseEntity.softDelete가, 수정 시각·수정자는 커밋 때 변경 감지의 JPA 감사가 함께 기록한다.
+     */
+    public void delete(String username) {
+        // 누가 받은 쿠폰은 지울 수 없다. 잠그고 읽었으므로 이 발급 수량은 판단하는 동안 바뀌지 않는다
+        if (issuedQuantity > 0) {
+            throw new BusinessException(CouponErrorCode.COUPON_NOT_DELETABLE);
+        }
+        softDelete(username);
+    }
+
     /** 시작 시각 이상, 종료 시각 미만이면 발급 중이다. 종료 시각 정각부터는 끝난 것으로 본다. */
     public CouponIssueStatus issueStatus(LocalDateTime now) {
         // 시작 시각 전

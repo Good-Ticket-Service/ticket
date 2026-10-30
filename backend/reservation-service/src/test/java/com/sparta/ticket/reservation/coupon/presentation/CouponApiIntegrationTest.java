@@ -420,7 +420,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("아무도 받지 않은 쿠폰은 204로 논리 삭제되고, 삭제자는 요청한 관리자다")
+        @DisplayName("아무도 받지 않은 발급 중 쿠폰은 204로 논리 삭제되고, 삭제자와 마지막 수정자는 요청한 관리자다")
         void deleteNotIssued() throws Exception {
             Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
@@ -429,9 +429,11 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                     .andExpect(content().string(""));
 
             Map<String, Object> row = jdbcTemplate.queryForMap(
-                    "SELECT deleted_at, deleted_by FROM p_coupons WHERE coupon_id = ?", coupon.getId());
+                    "SELECT deleted_at, deleted_by, updated_by FROM p_coupons WHERE coupon_id = ?", coupon.getId());
             assertThat(row.get("deleted_at")).isNotNull();
             assertThat(row.get("deleted_by")).isEqualTo(MASTER_EMAIL);
+            // 저장소로 만든 쿠폰은 요청 밖이라 SYSTEM이 수정자였다. 삭제도 행을 바꾼 것이라 마지막 수정자가 관리자로 바뀐다
+            assertThat(row.get("updated_by")).isEqualTo(MASTER_EMAIL);
             assertThat(couponRepository.findById(coupon.getId())).isEmpty();
         }
 

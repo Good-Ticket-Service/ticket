@@ -16,7 +16,7 @@ import org.springframework.data.repository.query.Param;
 
 /**
  * CouponRepository의 구현. Spring Data JPA가 실행 시점에 구현체를 만들어 준다.
- * save·findById·existsById는 JpaRepository가 제공하고, 잠금 조회와 조건부 삭제만 쿼리를 직접 적는다.
+ * save·findById는 JpaRepository가 제공하고, 잠금 조회·발급 수량 증가·목록 조회만 쿼리를 직접 적는다.
  */
 public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, CouponRepository {
 
@@ -25,16 +25,6 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT c FROM Coupon c WHERE c.id = :id")
     Optional<Coupon> lockById(@Param("id") Long id);
-
-    /** 발급 수량이 0이고 아직 삭제되지 않은 쿠폰에만 삭제 시각·삭제자를 기록한다. 바뀐 행 수를 돌려준다. */
-    @Override
-    @Modifying
-    @Query("""
-            UPDATE Coupon c SET c.deletedAt = :deletedAt, c.deletedBy = :deletedBy
-            WHERE c.id = :id AND c.issuedQuantity = 0 AND c.deletedAt IS NULL
-            """)
-    int softDeleteIfNotIssued(
-            @Param("id") Long id, @Param("deletedBy") String deletedBy, @Param("deletedAt") LocalDateTime deletedAt);
 
     /**
      * 조건을 모두 만족할 때만 발급 수량을 1 올린다. 엔티티를 거치지 않고 쿼리로 바로 UPDATE하므로(변경 감지가 아님)
