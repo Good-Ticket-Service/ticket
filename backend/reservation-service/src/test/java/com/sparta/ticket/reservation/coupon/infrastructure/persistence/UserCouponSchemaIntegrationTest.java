@@ -49,7 +49,10 @@ class UserCouponSchemaIntegrationTest extends ReservationIntegrationTest {
         });
     }
 
-    /** 상태·예매 ID·사용 시각만 바꿔 CHECK 제약을 확인한다. 이 전이는 예매 연동(CouponUsage)이 맡으므로 Entity 메서드가 아직 없다. */
+    /**
+     * 상태·예매 ID·사용 시각만 바꿔 CHECK 제약을 확인한다.
+     * Note: 엔티티 메서드(reserve·use·release)는 규칙을 지킨 값만 만들므로, 제약을 어기는 값을 넣어 보려고 SQL로 직접 바꾼다.
+     */
     private int updateState(Long userCouponId, String status, Long reservationId, LocalDateTime usedAt) {
         return jdbcTemplate.update(
                 "UPDATE p_user_coupons SET status = ?, reservation_id = ?, used_at = ? WHERE user_coupon_id = ?",

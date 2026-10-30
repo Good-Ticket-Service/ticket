@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.coupon.domain;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,4 +29,22 @@ public interface UserCouponRepository {
      * 이 경계는 UserCoupon.displayStatus와 같다.
      */
     Page<UserCoupon> findMine(Long userId, UserCouponStatus status, LocalDateTime now, Pageable pageable);
+
+    /**
+     * 회원 쿠폰을 잠그고 읽는다(SELECT ... FOR UPDATE). 예매가 이 쿠폰을 잡을 때(CouponUsage.reserve) 쓴다.
+     * 같은 쿠폰을 동시에 잡으려는 다른 요청은 이 트랜잭션이 끝날 때까지 기다린 뒤 바뀐 상태를 읽는다.
+     */
+    Optional<UserCoupon> lockById(Long userCouponId);
+
+    /**
+     * 이 예매에 잡힌 회원 쿠폰을 잠그고 읽는다. 예매에 잡힌 쿠폰은 RESERVED·USED이고 예매당 한 장이다(uk_p_user_coupons_reservation).
+     * 사용 확정·반환(CouponUsage.use·release)이 쓴다. 잡힌 쿠폰이 없거나 이미 돌려줬으면 비어 있다.
+     */
+    Optional<UserCoupon> lockByReservationId(Long reservationId);
+
+    /**
+     * 이 예매에 다른 회원 쿠폰이 잡혀 있는지. 예매에 쿠폰을 잡기 전에 확인한다(쿠폰을 바꾸려면 예매가 release를 먼저 부른다).
+     * Note: 잠그지 않고 읽는다. 같은 예매의 쿠폰 호출은 예매가 예약 행을 먼저 잠가 차례로 들어오므로 그사이 바뀌지 않는다.
+     */
+    boolean existsOtherOnReservation(Long reservationId, Long userCouponId);
 }

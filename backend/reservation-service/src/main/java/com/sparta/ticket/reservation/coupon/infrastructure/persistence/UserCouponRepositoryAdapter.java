@@ -8,6 +8,7 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -31,6 +32,21 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
     @Override
     public boolean existsByUserIdAndCouponId(Long userId, Long couponId) {
         return jpaRepository.existsByUserIdAndCouponId(userId, couponId);
+    }
+
+    @Override
+    public Optional<UserCoupon> lockById(Long userCouponId) {
+        return jpaRepository.lockById(userCouponId);
+    }
+
+    @Override
+    public Optional<UserCoupon> lockByReservationId(Long reservationId) {
+        return jpaRepository.lockByReservationId(reservationId);
+    }
+
+    @Override
+    public boolean existsOtherOnReservation(Long reservationId, Long userCouponId) {
+        return jpaRepository.existsByReservationIdAndIdNot(reservationId, userCouponId);
     }
 
     @Override
