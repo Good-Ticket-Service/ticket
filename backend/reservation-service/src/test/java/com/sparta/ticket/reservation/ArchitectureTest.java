@@ -50,4 +50,15 @@ class ArchitectureTest {
                     .and(not(resideInAPackage("com.sparta.ticket.reservation.seat.application.facade.."))))
             .because("booking은 seat.application.facade의 타입으로만 seat를 부른다(#34)")
             .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule BOOKING_USES_COUPON_ONLY_THROUGH_FACADE = noClasses()
+            .that()
+            .resideInAPackage("com.sparta.ticket.reservation.booking..")
+            .should()
+            .dependOnClassesThat(resideInAPackage("com.sparta.ticket.reservation.coupon..")
+                    .and(not(resideInAPackage("com.sparta.ticket.reservation.coupon.application.facade.."))))
+            .because("booking은 coupon.application.facade의 타입(CouponUsage, CouponDiscount)으로만 쿠폰을 다룬다(#125). "
+                    + "회원 쿠폰 테이블을 직접 바꾸면 점유·사용·반환 규칙이 예매 쪽으로 흩어진다")
+            .allowEmptyShould(true);
 }
