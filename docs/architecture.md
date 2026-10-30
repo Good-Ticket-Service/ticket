@@ -22,7 +22,7 @@ flowchart LR
     end
     RB ==>|"준비·승인·조회 Feign 동기<br/>환불만 Phase 2 Kafka 가안"| PP["payment :8084<br/>결제·환불·할인액 검증"]
     RB -->|로컬 CouponUsage #125| RC
-    P -->|"회차 좌석 준비·URI 미합의"| RS
+    P -->|"회차 좌석 준비 Feign #175"| RS
     RS -->|판매 검증| P
     PP -->|RestClient HTTP| FPG["fake-pg :8090<br/>토스·카카오 형식"]
 ```
@@ -236,6 +236,7 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | #34 | seat ↔ booking은 facade 패키지의 메서드·타입으로만 서로 부르고, 공유 Clock으로 선점 만료를 계산한다 | 합의 |
 | #86 | 결제 준비의 sellerId·performanceId는 판매 검증(P21) 응답에서 받아 선점 때 예약에 저장한 값을 쓴다 | 합의 |
 | #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
+| #175 | 회차 좌석 준비는 MVP Feign(`POST /internal/schedules/{scheduleId}/seat-setups`)으로 하고 성능 측정 뒤 Kafka로 바꾼다. 좌석은 (scheduleId, configVersion)으로 멱등 판단하고 응답에 requestId를 돌려준다 | 합의 (좌석·공연 담당 확인) |
 | P3·P4 | (Notion) 환불(P3)·승인(P4) Phase 2 전환 안건 | P4는 D16으로 철회, P3는 환불·결과 토픽 미합의 |
 | T3 | (Notion) 취소 상태 이름을 CANCELING·CANCELED로 정한 결정 | 확정 |
 | #25 | (PR) #22 할인액 전달·쿠폰 책임 분리에 예매 담당이 동의한 리뷰 | 합의 근거 |
@@ -271,7 +272,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 금액 타입 | payment_amount 및 원본 discount_amount BIGINT에서 공통 INT 목표로 DDL·DTO 이행 범위·시점 | 예매·결제 |
 | 내부 보안·운영 | 결제 관리자 JWT·MASTER·캐시 우회는 #88 브랜치 구현(api/infra 참조). 서비스 인증 전반·직접 접근 통제·공통 감사 주체·미완료 경보는 별도 확인 | 플랫폼·각 도메인 |
 | 추가 API | 티켓 조회/관리자 예매 목록은 현행 계약 없음. 전체 공연 취소 API는 제공하지 않고 회차별 취소 | 예매·공연 |
-| 좌석 준비 통신 | #54 공연 MVP Feign과 좌석 원본 Kafka 차이. URI·응답·timeout·자동 재시도·영구 실패 운영·전환 일정 확정 | 공연·좌석 |
+| 좌석 준비 통신 | MVP Feign 계약은 #175로 합의했다(api 「좌석 내부 API」). 남은 것: read 타임아웃 조정(#173 측정 뒤), 자동 재시도 횟수·간격, 영구 실패 운영, Kafka 전환 일정·토픽·스키마 | 공연·좌석 |
 | 공연 복원 검토 | 등급/좌석 미존재 오류, 공개 정적배치 권한, 취소 목록 포함, 공개검증, salesStatus/period 대상 회차 확인. 공개 wrapper/숫자ID/UNAUTHORIZED는 공통 기준 유지 | 공연·좌석 |
 | 판매 검증 경계 | 중지 후 기존 유효 HOLD 결제 허용은 기존 정책. 취소 경합·판매 마감 이후 확정 경계·필요한 재검증 확인 | 공연·예매·좌석 |
 | 결과·환불 토픽 | 토픽·스키마·버전, paidAmount/amount 및 reason/failureType/failureCode 명칭, 수신/DB 인계/PG 완료를 구분한 접수 보장 합의. 승인 토픽은 D16으로 철회 | 예매·결제 |
