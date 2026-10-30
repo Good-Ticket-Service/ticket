@@ -6,6 +6,7 @@ import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatQueryService;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
+import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldRequest;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
@@ -15,11 +16,13 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 회차 좌석 API. JWT와 대기열 입장 토큰(X-Queue-Token)은 Gateway가 검사한다. */
@@ -31,6 +34,7 @@ public class SeatController {
 
     private final SelectableSeatQueryService selectableSeatQueryService;
     private final SeatHoldService seatHoldService;
+    private final SeatReleaseService seatReleaseService;
 
     @Operation(summary = "선택 가능 좌석 조회", description = "좌석 배치도에 회차 좌석과 선택 가능 여부를 보여 준다. 조회 결과가 선점 성공을 보장하지는 않는다.")
     @GetMapping
@@ -54,5 +58,17 @@ public class SeatController {
             return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created("좌석을 선점했습니다.", body));
         }
         return ResponseEntity.ok(ApiResponse.ok(body));
+    }
+
+    /**
+     * 결제 전 사용자가 선점한 좌석을 놓는다. 이미 풀렸거나 만료된 선점도 204라 같은 요청을 반복해도 된다.
+     * 결제 중·확정·취소된 예약이면 409 INVALID_STATUS_TRANSITION이다. 입장 토큰은 요구하지 않는다.
+     */
+    @Operation(summary = "선점 해제", description = "결제 전 선점한 좌석을 놓고 예약을 RELEASED로 만든다. 이미 끝난 선점도 204다.")
+    @DeleteMapping("/holds/{reservationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void release(
+            @CurrentUser UserContext user, @PathVariable Long scheduleId, @PathVariable Long reservationId) {
+        seatReleaseService.release(user.userId(), scheduleId, reservationId);
     }
 }
