@@ -125,7 +125,7 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
     private Map<String, Object> schedule(long scheduleId) {
         return jdbcTemplate.queryForMap(
                 "SELECT seat_config_version, seat_setup_status, seat_setup_request_id, seat_setup_error,"
-                        + " seat_setup_attempts, seat_setup_next_attempt_at, operation_status, cancel_reason"
+                        + " seat_setup_attempts, seat_setup_next_attempt_at, operation_status, cancel_reason, version"
                         + " FROM p_schedules WHERE id = ?",
                 scheduleId);
     }
@@ -323,15 +323,17 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("삭제되지 않은 회차(취소 포함)는 구성 버전을 올리고 새 요청 ID로 PENDING이 된다. 삭제된 회차는 그대로다")
+        @DisplayName("삭제되지 않은 회차(취소 포함)는 구성 버전을 올리고 새 요청 ID로 커밋 뒤 다시 준비된다. 삭제된 회차는 그대로다")
         void requiresSeatSetupAgain() throws Exception {
             replacePrices(DRAFT, "\"2\"", prices(VIP, 160000, R, 90000)).andExpect(status().isOk());
 
+            // 가짜 좌석 서비스가 성공으로 답하므로 커밋 뒤 첫 시도(attempts 1)로 READY가 된다
             Map<String, Object> ready = schedule(320);
             assertThat(ready)
                     .containsEntry("seat_config_version", 2L)
-                    .containsEntry("seat_setup_status", "PENDING")
-                    .containsEntry("seat_setup_attempts", 0);
+                    .containsEntry("seat_setup_status", "READY")
+                    .containsEntry("seat_setup_attempts", 1)
+                    .containsEntry("seat_setup_next_attempt_at", null);
             assertThat((String) ready.get("seat_setup_request_id"))
                     .isNotEqualTo("req-320")
                     .hasSize(36);
@@ -339,9 +341,9 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             Map<String, Object> failed = schedule(321);
             assertThat(failed)
                     .containsEntry("seat_config_version", 3L)
-                    .containsEntry("seat_setup_status", "PENDING")
+                    .containsEntry("seat_setup_status", "READY")
                     .containsEntry("seat_setup_error", null)
-                    .containsEntry("seat_setup_attempts", 0);
+                    .containsEntry("seat_setup_attempts", 1);
             assertThat(failed.get("seat_setup_request_id")).isNotEqualTo(ready.get("seat_setup_request_id"));
 
             assertThat(schedule(322))
@@ -352,20 +354,33 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             Map<String, Object> canceled = schedule(323);
             assertThat(canceled)
                     .containsEntry("seat_config_version", 2L)
-                    .containsEntry("seat_setup_status", "PENDING")
+                    .containsEntry("seat_setup_status", "READY")
                     .containsEntry("operation_status", "CANCELED")
-                    .containsEntry("cancel_reason", "공연장 사정");
+                    .containsEntry("cancel_reason", "공연장 사정")
+                    // 재준비는 회차 명령이 아니라 회차 version을 올리지 않는다
+                    .containsEntry("version", 1L);
             assertThat(canceled.get("seat_setup_request_id")).isNotEqualTo("req-323");
 
-            // 재시도 대기 중이던 회차는 새 요청으로 바뀌며 재시도 횟수·다음 시각·오류를 비운다
+            // 재시도 대기 중이던 회차는 새 요청으로 바뀌어 다음 시각을 기다리지 않고 바로 보내고, 이전 오류를 비운다
             Map<String, Object> retrying = schedule(324);
             assertThat(retrying)
                     .containsEntry("seat_config_version", 2L)
-                    .containsEntry("seat_setup_status", "PENDING")
-                    .containsEntry("seat_setup_attempts", 0)
+                    .containsEntry("seat_setup_status", "READY")
+                    .containsEntry("seat_setup_attempts", 1)
                     .containsEntry("seat_setup_next_attempt_at", null)
                     .containsEntry("seat_setup_error", null);
             assertThat(retrying.get("seat_setup_request_id")).isNotEqualTo("req-324");
+
+            // 좌석 서비스에는 새 요청 ID·구성 버전과 바뀐 가격으로 보냈다
+            assertThat(seatSetupClient.requests())
+                    .extracting(request -> request.scheduleId() + ":" + request.configVersion() + ":"
+                            + request.requestId()
+                                    .equals(schedule(request.scheduleId()).get("seat_setup_request_id")))
+                    .containsExactlyInAnyOrder("320:2:true", "321:3:true", "323:2:true", "324:2:true");
+            assertThat(seatSetupClient.requests().get(0).seats())
+                    .filteredOn(seat -> seat.venueSeatId() == 301)
+                    .extracting(seat -> seat.basePrice())
+                    .containsExactly(160000);
         }
 
         @Test

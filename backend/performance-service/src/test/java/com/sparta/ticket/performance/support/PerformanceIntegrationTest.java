@@ -1,7 +1,9 @@
 package com.sparta.ticket.performance.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -17,11 +19,12 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * Note: schema.sql은 컨텍스트가 뜰 때마다 실행되는데 CREATE TABLE이 IF NOT EXISTS가 아니다. 테스트 클래스마다 설정이 다르면
  * 컨텍스트가 따로 떠서 두 번째 실행이 "이미 있음"으로 실패하므로, 설정을 이 클래스 하나에 모은다. 하위 클래스는 @Import 등을 붙이지 않는다.
- * open-in-view는 운영(config-repo/application.yml)과 같이 끈다.
+ * open-in-view는 운영(config-repo/application.yml)과 같이 끈다. 좌석 준비는 가짜 구현체로 받고, 재시도 스케줄러는 끄고 테스트가
+ * 직접 부른다(시각을 MutableClock으로 정하기 위해서다).
  */
 @AutoConfigureMockMvc
 @Import(PerformanceIntegrationTest.ClockTestConfig.class)
-@TestPropertySource(properties = "spring.jpa.open-in-view=false")
+@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "performance.seat-setup.retry.enabled=false"})
 public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest {
 
     /** 테스트 데이터(sql/public-performance-fixture.sql)의 기준 시각. 매 테스트 전에 이 시각으로 되돌린다. */
@@ -33,9 +36,13 @@ public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest
     @Autowired
     protected MutableClock clock;
 
+    @Autowired
+    protected FakeSeatSetupClient seatSetupClient;
+
     @BeforeEach
     void resetClock() {
         clock.set(NOW);
+        seatSetupClient.reset();
     }
 
     @TestConfiguration
@@ -45,6 +52,12 @@ public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest
         @Primary
         MutableClock mutableClock() {
             return new MutableClock(NOW);
+        }
+
+        @Bean
+        @Primary
+        FakeSeatSetupClient fakeSeatSetupClient(DataSource dataSource) throws SQLException {
+            return new FakeSeatSetupClient(dataSource);
         }
     }
 }
