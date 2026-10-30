@@ -121,7 +121,7 @@ public class UserCoupon extends BaseEntity {
         if (status != UserCouponStatus.AVAILABLE) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
         }
-        // 4) 만료 배치 전이라도 만료 시각이 지났으면 쓸 수 없다(displayStatus와 같은 경계: 만료 시각 정각부터 만료)
+        // 4) 만료 배치가 아직 처리하지 않았어도 만료 시각이 지났으면 쓸 수 없다(displayStatus와 같은 경계: 만료 시각 정각부터 만료)
         if (!now.isBefore(expiresAt)) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
         }

@@ -16,7 +16,7 @@ public record UserCouponResult(
         LocalDateTime usedAt) {
 
     /**
-     * 상태는 저장된 값이 아니라 보여 줄 상태(displayStatus)다. 만료 배치 전이어도 기간이 지난 쿠폰은 EXPIRED로 보인다.
+     * 상태는 저장된 값이 아니라 보여 줄 상태(displayStatus)다. 만료 배치가 아직 처리하지 않았어도 기간이 지난 쿠폰은 EXPIRED로 보인다.
      * 쿠폰 이름은 회원 쿠폰에 복사하지 않으므로 호출자가 쿠폰 정의에서 찾아 넘긴다.
      */
     public static UserCouponResult of(UserCoupon userCoupon, String couponName, LocalDateTime now) {
