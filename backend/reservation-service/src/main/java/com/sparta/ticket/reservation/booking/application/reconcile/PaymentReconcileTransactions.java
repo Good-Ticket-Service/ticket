@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.booking.application.reconcile;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -24,20 +25,21 @@ public class PaymentReconcileTransactions {
     public record PendingPayment(Long reservationId, String orderId, String pgAuthToken, long amount) {}
 
     /**
-     * 아직 결제 중이면 이 예약을 확인했다고 남기고(다음 차례에서 뒤로 간다) 다시 보낼 값을 돌려준다.
-     * 그사이 다른 경로로 끝났으면 아무것도 남기지 않고 비어 있다. payment 조회 전에 커밋해야, 조회가 실패해도 같은 예약을 계속 고르지 않는다.
+     * 아직 결제 중이고 checkedBefore 뒤로 아무도 집지 않았으면, 확인했다고 남기고(다음 차례에서 뒤로 간다) 다시 보낼 값을 돌려준다.
+     * 인스턴스가 여러 대면 같은 예약을 함께 고를 수 있다. 조건부 UPDATE로 한 대만 집어 조회와 재전송이 겹치지 않게 한다.
+     * 그사이 다른 경로로 끝났거나 다른 인스턴스가 집었으면 비어 있다. payment 조회 전에 커밋해야, 조회가 실패해도 같은 예약을 계속 고르지 않는다.
      */
     @Transactional
-    public Optional<PendingPayment> claimPendingPayment(Long reservationId) {
-        Optional<PendingPayment> pending = reservationRepository
+    public Optional<PendingPayment> claimPendingPayment(Long reservationId, LocalDateTime checkedBefore) {
+        return reservationRepository
                 .findById(reservationId)
                 .filter(reservation -> reservation.getStatus() == ReservationStatus.PAYMENT_IN_PROGRESS)
+                .filter(reservation ->
+                        reservationRepository.markPaymentChecked(reservationId, changeStamps.now(), checkedBefore) == 1)
                 .map(reservation -> new PendingPayment(
                         reservation.getId(),
                         reservation.getOrderId(),
                         reservation.getPgAuthToken(),
                         reservation.getPaymentAmount()));
-        pending.ifPresent(found -> reservationRepository.markPaymentChecked(reservationId, changeStamps.now()));
-        return pending;
     }
 }

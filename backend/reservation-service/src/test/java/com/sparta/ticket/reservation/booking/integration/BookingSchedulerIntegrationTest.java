@@ -14,12 +14,14 @@ import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Status;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileTransactions;
 import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.ProcessCrash;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CyclicBarrier;
@@ -47,6 +49,9 @@ class BookingSchedulerIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private PaymentReconcileService reconcileService;
+
+    @Autowired
+    private PaymentReconcileTransactions reconcileTransactions;
 
     private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
 
@@ -150,6 +155,78 @@ class BookingSchedulerIntegrationTest extends BookingIntegrationTest {
                 .isZero();
 
         assertThat(payment.lookedUpOrderIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("인스턴스 두 대가 같은 예약을 고르면 한 대만 집어 payment를 조회한다")
+    void onlyOneInstanceClaims() {
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
+        String orderId = paymentInProgress(reservationId);
+        clock.advance(Duration.ofMinutes(2));
+
+        reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
+        reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
+
+        assertThat(payment.lookedUpOrderIds).containsExactly(orderId);
+    }
+
+    @Test
+    @DisplayName("인스턴스 두 대가 동시에 돌아도 예약마다 한 번만 payment를 조회한다")
+    void concurrentReconcileLooksUpOnce() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            paymentInProgress(hold(Duration.ofMinutes(10), TestIds.next()));
+        }
+        clock.advance(Duration.ofMinutes(2));
+
+        CyclicBarrier start = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<Future<Integer>> futures = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            futures.add(executor.submit(() -> {
+                start.await();
+                return reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
+            }));
+        }
+        for (Future<Integer> future : futures) {
+            future.get();
+        }
+        executor.shutdown();
+
+        assertThat(payment.lookedUpOrderIds).hasSize(5).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("고른 뒤 새 결제 시도가 시작된 예약은 지난 확인 시각이 오래됐어도 집지 않는다. 진행 중인 승인을 다시 보내면 안 된다")
+    void doesNotClaimNewAttempt() {
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
+        paymentInProgress(reservationId);
+        LocalDateTime selectedAt = clock.now();
+        clock.advance(Duration.ofMinutes(2));
+        jdbcTemplate.update(
+                "UPDATE p_reservations SET payment_checked_at = ?, updated_at = ? WHERE reservation_id = ?",
+                selectedAt.minusMinutes(5),
+                clock.now(),
+                reservationId);
+
+        assertThat(reconcileTransactions.claimPendingPayment(
+                        reservationId, clock.now().minus(THRESHOLD)))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("환불 대상으로 기록된 예약은 결과 확인이 집지 않아 환불 차례가 밀리지 않는다")
+    void doesNotClaimRefundRequired() {
+        Long reservationId = hold(Duration.ofMinutes(10), TestIds.next());
+        paymentInProgress(reservationId);
+        clock.advance(Duration.ofMinutes(2));
+        jdbcTemplate.update(
+                "UPDATE p_reservations SET refund_required_at = ? WHERE reservation_id = ?",
+                clock.now(),
+                reservationId);
+
+        assertThat(reconcileTransactions.claimPendingPayment(
+                        reservationId, clock.now().minus(THRESHOLD)))
+                .isEmpty();
     }
 
     @Test
