@@ -449,8 +449,8 @@
 - 발급 수량은 조건부 UPDATE로 issued_quantity를 올려 초과 발급을 막는다. (원본 복원: coupon/api.md:228, coupon/tables.md:67, 담당 확인 필요)
 - 같은 회원의 중복 발급은 uk_p_user_coupons_user_coupon 위반으로 막고 409 COUPON_ALREADY_ISSUED로 응답한다. (원본 복원: coupon/api.md:228, coupon/tables.md:118, 담당 확인 필요)
 - 삭제는 행을 지우지 않고 deleted_at·deleted_by를 기록하는 논리 삭제다. 삭제된 쿠폰은 모든 조회와 발급에서 빠진다. (원본 복원: coupon/api.md:156, 담당 확인 필요)
-- 삭제는 `issued_quantity = 0 AND deleted_at IS NULL` 조건부 UPDATE 한 번으로 한다. 삭제와 첫 발급이 동시에 오면 하나만 성공한다. (원본 복원: coupon/api.md:165-170, 담당 확인 필요)
-- 삭제 UPDATE가 0행이면 409 COUPON_NOT_DELETABLE이다. 쿠폰이 없거나 이미 삭제됐으면 먼저 조회해 404 COUPON_NOT_FOUND로 구분한다. (원본 복원: coupon/api.md:172,180-181, 담당 확인 필요)
+- 삭제는 수정·발급 중단과 같이 쿠폰 행을 잠그고 읽은 뒤 판단한다. 삭제와 첫 발급이 동시에 오면 하나만 성공한다. 삭제가 먼저면 발급은 404, 발급이 먼저면 삭제는 409다. (#197)
+- 발급 상태와 상관없이 발급 수량이 0이면 지울 수 있고, 1 이상이면 409 COUPON_NOT_DELETABLE이다. 없거나 이미 삭제된 쿠폰은 404 COUPON_NOT_FOUND다. 삭제도 행의 변경이라 updated_at·updated_by를 함께 남긴다. (#197)
 - 내 쿠폰 조회는 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰을 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. (원본 복원: coupon/api.md:258, 담당 확인 필요)
 
 ## 결제 내부 — payment-service
