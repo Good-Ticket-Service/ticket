@@ -520,8 +520,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | sale_total | BIGINT NOT NULL > 0; 편입 SALE의 판매자 몫 N 합 |
 | offset_total | BIGINT NOT NULL ≥ 0; 미회수 차감 상계액 |
 | payable_amount | BIGINT NOT NULL ≥ 0; sale_total − offset_total CHECK |
-| status | VARCHAR(20) NOT NULL; ISSUED(지급액 > 0)/NO_PAYOUT(지급액 0) CHECK |
+| status | VARCHAR(20) NOT NULL; ISSUED(지급액 > 0, paid_at NULL)/NO_PAYOUT(지급액 0, paid_at NULL)/PAID(지급액 > 0, paid_at NOT NULL) CHECK |
 | issued_at | TIMESTAMP NOT NULL |
+| paid_at | TIMESTAMP; 지급 완료 시각. 지급 DONE·지급 분개와 같은 트랜잭션에서 PAID와 함께 기록 |
 | version | BIGINT NOT NULL DEFAULT 0 |
 
 - `deleted_at IS NULL` CHECK.
@@ -541,7 +542,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 ### p_payouts — payment-service/schema.sql + A (판매자 지급)
 
-정산서 하나에 지급 하나다. 현재는 발행이 만드는 READY까지만 있고, 실행·결과 컬럼은 지급 실행 작업에서 추가한다.
+정산서 하나에 지급 하나다. 발행이 READY로 만들고, 지급 실행이 실행권을 얻을 때 같은 attempt 동안 쓸 멱등 키·계좌 스냅샷을 고정한다(READY → REQUESTED). 지급대행 결과는 키·금액·계좌·거래 ID를 확인한 뒤에만 DONE/FAILED로 확정한다.
 
 | 필드 | 타입·제약 |
 |---|---|
@@ -549,14 +550,28 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | statement_id | BIGINT NOT NULL UNIQUE FK p_settlement_statements |
 | seller_id | BIGINT NOT NULL |
 | amount | BIGINT NOT NULL > 0 |
-| status | VARCHAR(20) NOT NULL; READY CHECK |
-| attempt | INT NOT NULL DEFAULT 0 ≥ 0 |
-| next_attempt_at | TIMESTAMP; 처음 실행할 수 있는 시각(발행 cutoff 이후 첫 영업일 04:10). 달력 범위 밖이면 NULL |
+| status | VARCHAR(20) NOT NULL; READY/REQUESTED/DONE/FAILED CHECK |
+| attempt | INT NOT NULL DEFAULT 0 ≥ 0; 실행권을 얻을 때 1 증가 |
+| next_attempt_at | TIMESTAMP; READY는 다음 실행 시각(처음은 발행 cutoff 이후 첫 영업일 04:10, 게이트 실패·계좌 미등록 뒤 1시간), REQUESTED는 다음 조회 시각. 달력 범위 밖이면 NULL |
+| idempotency_key | VARCHAR(100); `payout:{id}:{attempt}`. NULL이 아니면 UNIQUE(부분 인덱스) |
+| bank_code, account_ref, holder_masked | VARCHAR(10), VARCHAR(100), VARCHAR(100); 실행권 획득 때 판매자 계좌 스냅샷 |
+| account_version | BIGINT; 스냅샷한 판매자 계좌 version |
+| provider_status | VARCHAR(20); REQUESTED의 마지막 지급대행 상태 ACCEPTED/PROCESSING/UNKNOWN(결과 불명) CHECK, 확정 뒤 NULL |
+| external_payout_id | VARCHAR(100); 지급대행 거래 ID. 처음 받은 값을 결합하고 이후 응답과 비교 |
+| failure_code | VARCHAR(40); ACCOUNT_INVALID/REJECTED/REQUEST_INVALID. FAILED일 때만 NOT NULL CHECK |
+| inquiry_only | BOOLEAN NOT NULL DEFAULT FALSE; 응답이 스냅샷과 달라 다시 요청하지 않고 조회만 함 |
+| verification_reason | VARCHAR(80); inquiry_only 사유 |
+| lease_until | TIMESTAMP; 실행권 만료 시각 |
+| requested_at, done_at | TIMESTAMP; 실행권 획득·완료 시각 |
+| last_error | VARCHAR(80); 게이트 실패·계좌 미등록·결과 불명 사유 |
 | version | BIGINT NOT NULL DEFAULT 0 |
 
 - `deleted_at IS NULL` CHECK.
+- READY가 아니면 멱등 키·계좌 스냅샷·account_version·requested_at NOT NULL CHECK. DONE이면 external_payout_id·done_at NOT NULL CHECK.
+- 실행 후보 인덱스: `(next_attempt_at) WHERE status = 'READY'`.
 - 발행 후보 인덱스: `p_settlement_items (eligible_at, schedule_id, seller_id) WHERE kind = 'SALE' AND status = 'PENDING'`, `(seller_id) WHERE kind = 'DEDUCTION' AND status = 'OPEN'`.
 - 008-settlement-statements.sql은 위 테이블과 정산 항목·원장의 정산서·지급 FK를 추가하며, 다시 실행해도 안전하다.
+- 010-payout-execution.sql은 지급 실행 컬럼·CHECK·인덱스와 정산서 paid_at·PAID를 추가하며, 다시 실행해도 안전하다.
 
 ### pg_transaction — fake-pg/schema.sql
 
