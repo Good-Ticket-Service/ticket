@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.application.port;
 
+import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,6 +19,9 @@ public interface ScheduleStore {
 
     /** 같은 공연에 시작 시각이 같은 회차가 있는지. 부모 공연을 잠근 뒤에 부른다. */
     boolean existsByPerformanceIdAndStartAt(Long performanceId, LocalDateTime startAt);
+
+    /** 취소되지 않은 회차의 공연 기간. 그런 회차가 없으면 null이다. 공개 조건(활성 회차)과 공연 응답의 period에 쓴다. */
+    PerformancePeriod findActivePeriod(Long performanceId);
 
     /** 좌석 준비가 PENDING이고 다음 시도 시각이 지난 회차 ID. 오래 기다린 것부터 최대 limit개. */
     List<Long> findSeatSetupDueIds(LocalDateTime now, int limit);

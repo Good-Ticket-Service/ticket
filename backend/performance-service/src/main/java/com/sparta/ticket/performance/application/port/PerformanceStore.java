@@ -14,6 +14,9 @@ public interface PerformanceStore {
     /** 공연을 행 잠금(FOR UPDATE)으로 읽는다. 같은 공연의 구성 변경·공개·회차 등록을 한 줄로 세운다. */
     Optional<Performance> findByIdForUpdate(Long performanceId);
 
+    /** 바꾼 공연을 바로 DB에 반영한다. @Version과 updatedAt이 올라 응답에 새 값을 줄 수 있다. 잠근 공연에만 쓴다. */
+    Performance saveAndFlush(Performance performance);
+
     /** 공연 version을 1 올리고 오른 값을 돌려준다. findByIdForUpdate로 잠근 뒤에만 부른다. */
     long increaseVersion(Long performanceId);
 

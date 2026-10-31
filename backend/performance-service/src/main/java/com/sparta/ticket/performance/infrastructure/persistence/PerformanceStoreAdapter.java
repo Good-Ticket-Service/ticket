@@ -31,6 +31,11 @@ public class PerformanceStoreAdapter implements PerformanceStore {
     }
 
     @Override
+    public Performance saveAndFlush(Performance performance) {
+        return performanceRepository.saveAndFlush(performance);
+    }
+
+    @Override
     public Optional<Performance> findByIdForUpdate(Long performanceId) {
         return performanceRepository.findByIdForUpdate(performanceId);
     }
