@@ -593,6 +593,32 @@ MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트�
 - `deleted_at IS NULL` CHECK. 이력 인덱스 `(payout_id, processed_at DESC, command_id DESC)`.
 - 012-payout-operation-commands.sql은 위 테이블을 추가하며, 다시 실행해도 안전하다.
 
+### p_settlement_reconcile_runs — payment-service/schema.sql + A (정산 전체 대조 실행)
+
+매일 정산 전체 대조의 실행 기록. 대조는 읽기만 하고 고치지 않는다. 마지막 성공 시각과 위반 수를 재시작·인스턴스와 무관하게 경보가 보게 한다. 지급을 막는 보류 상태가 아니다(지급 차단은 정산서 단위 게이트).
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| status | VARCHAR(20) NOT NULL; RUNNING/SUCCEEDED/FAILED CHECK. RUNNING일 때만 finished_at NULL |
+| started_at, finished_at | TIMESTAMP |
+| violations | BIGINT; 항목별 위반 합. SUCCEEDED면 NOT NULL |
+| provider_checked, provider_unreachable | INT; 지급대행 대사 대상 수·확인 못 한 수. SUCCEEDED면 NOT NULL |
+| error | VARCHAR(200); 실패 예외 종류(원문 메시지 없음) |
+
+- 인덱스 `(status, finished_at DESC)`.
+
+### p_settlement_reconcile_results — payment-service/schema.sql + A (대조 항목별 결과)
+
+| 필드 | 타입·제약 |
+|---|---|
+| run_id | BIGINT NOT NULL FK p_settlement_reconcile_runs |
+| check_name | VARCHAR(40) NOT NULL; PK(run_id, check_name) |
+| violations | BIGINT NOT NULL ≥ 0 |
+| sample | VARCHAR(400); 위반 행 ID 일부(최대 10개). 금액·계좌 원문 없음 |
+
+- 013-settlement-reconcile-runs.sql은 위 두 테이블을 추가하며, 다시 실행해도 안전하다.
+
 ### pg_transaction — fake-pg/schema.sql
 
 | 필드 | 타입·제약·기본값 |
