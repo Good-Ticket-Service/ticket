@@ -15,6 +15,7 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -32,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 만료 배치와 예매의 쿠폰 점유(CouponUsage.reserve)가 같은 회원 쿠폰에서 겹칠 때를 실제 PostgreSQL로 확인한다.
  * 한쪽이 행 락을 잡은 채 멈춘 사이 다른 쪽을 보내 락 대기에 들어간 것을 확인한 뒤 풀어 준다. 그래서 어느 쪽이 먼저인지가 매번 같다.
  * 상황은 "만료 시각 직전에 예매가 쿠폰을 잡는 중에 만료 배치가 돈다"이다. 예매는 만료 전 시각, 배치는 만료 시각으로 실행한다.
+ * 만료 배치 두 개가 같은 쿠폰을 동시에 바꾸는 경우도 본다. 서버가 여러 대여도 조건부 UPDATE라 분산 락이 필요 없다는 주장의 확인이다(#225).
  * Note: 다른 테스트의 쿠폰이 섞이지 않도록 과거 시각(2001년)과 이 테스트만 쓰는 회원 ID(943xxx)를 쓰고, 공용 시계는 끝나면 돌린다.
  */
 class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
@@ -79,6 +81,27 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
         Coupon coupon = couponRepository.save(
                 Coupon.create("만료 동시성 쿠폰", 5_000, 100, ISSUED_AT.minusDays(1), ISSUED_AT.plusDays(30), 7, ISSUED_AT));
         return userCouponRepository.saveIssued(UserCoupon.issue(userId, coupon, ISSUED_AT));
+    }
+
+    /** 쿠폰 하나를 회원 count명에게 발급한다. 회원 ID는 firstUserId부터 1씩 늘린다. 모두 EXPIRES_AT에 만료된다. */
+    private List<Long> issueMany(long firstUserId, int count) {
+        Coupon coupon = couponRepository.save(
+                Coupon.create("만료 동시성 쿠폰", 5_000, 1_000, ISSUED_AT.minusDays(1), ISSUED_AT.plusDays(30), 7, ISSUED_AT));
+        List<Long> ids = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            ids.add(userCouponRepository
+                    .saveIssued(UserCoupon.issue(firstUserId + i, coupon, ISSUED_AT))
+                    .getId());
+        }
+        return ids;
+    }
+
+    private int countByStatus(List<Long> userCouponIds, String status) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM p_user_coupons WHERE user_coupon_id = ANY(?) AND status = ?",
+                Integer.class,
+                userCouponIds.toArray(Long[]::new),
+                status);
     }
 
     private String status(Long userCouponId) {
@@ -151,6 +174,72 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
             assertThat(batch.get()).isEqualTo(1);
             assertThat(booking.get()).isEqualTo(CouponErrorCode.COUPON_NOT_AVAILABLE);
             assertThat(status(coupon.getId())).isEqualTo("EXPIRED");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("만료 배치 하나가 묶음을 바꾸는 중이면 다른 배치는 같은 쿠폰을 기다린 뒤 건너뛰어, 쿠폰마다 한 번만 EXPIRED가 된다(#225)")
+    void batchWhileAnotherBatchHolds() throws Exception {
+        List<Long> ids = issueMany(943_101L, 5);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch expired = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            // 인스턴스 A의 배치 한 묶음. 고르고 바꾼 뒤 release 신호가 올 때까지 커밋하지 않는다
+            Future<Integer> first = executor.submit(() -> transactionTemplate.execute(status -> {
+                int changed = userCouponRepository.expire(
+                        userCouponRepository.findExpirableIds(EXPIRES_AT, 10), EXPIRES_AT, HeaderAuditorAware.SYSTEM);
+                expired.countDown();
+                await(release);
+                return changed;
+            }));
+            expired.await();
+
+            // 인스턴스 B의 배치. A가 커밋하기 전이라 같은 쿠폰을 아직 AVAILABLE로 고르고, UPDATE에서 A의 락을 기다린다
+            clock.set(EXPIRES_AT);
+            Future<Integer> second = executor.submit(() -> expiryService.expireDue(10, Duration.ofSeconds(30)));
+            waitForLockWaiters(1);
+
+            release.countDown();
+
+            // A가 커밋한 뒤 B는 WHERE를 다시 보고 AVAILABLE이 아니라 건너뛴다. 분산 락 없이도 두 번 바뀌지 않는다
+            assertThat(first.get()).isEqualTo(5);
+            assertThat(second.get()).isZero();
+            assertThat(countByStatus(ids, "EXPIRED")).isEqualTo(5);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("만료 배치 두 개를 함께 출발시켜도 오류(교착 포함) 없이 바꾼 건수의 합이 대상 수와 같다(5회 반복, #225)")
+    void twoBatchesAtOnce() throws Exception {
+        clock.set(EXPIRES_AT);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 5; round++) {
+                // 라운드마다 새 쿠폰 40장. 묶음 크기를 작게 해 두 배치가 여러 묶음에서 엇갈리게 한다
+                List<Long> ids = issueMany(943_200L + round * 100L, 40);
+                CountDownLatch start = new CountDownLatch(1);
+                List<Future<Integer>> batches = new ArrayList<>();
+                for (int i = 0; i < 2; i++) {
+                    batches.add(executor.submit(() -> {
+                        start.await();
+                        return expiryService.expireDue(7, Duration.ofSeconds(30));
+                    }));
+                }
+                start.countDown();
+
+                // 교착이나 다른 DB 오류가 나면 get()이 ExecutionException을 던져 테스트가 실패한다
+                int total = 0;
+                for (Future<Integer> batch : batches) {
+                    total += batch.get();
+                }
+                assertThat(total).as("라운드 %d의 바꾼 건수 합", round).isEqualTo(40);
+                assertThat(countByStatus(ids, "EXPIRED")).isEqualTo(40);
+            }
         } finally {
             executor.shutdownNow();
         }
