@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.infrastructure.persistence;
 
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
 import com.sparta.ticket.performance.domain.schedule.SeatSetupStatus;
 import jakarta.persistence.LockModeType;
@@ -27,6 +28,17 @@ public interface ScheduleJpaRepository extends JpaRepository<Schedule, Long> {
     Optional<Schedule> findByIdForUpdate(@Param("id") Long id);
 
     boolean existsByPerformanceIdAndStartAt(Long performanceId, LocalDateTime startAt);
+
+    /** 공연의 운영 상태가 status인 회차의 첫·마지막 시작 시각. 회차가 없으면 두 값이 null이다. */
+    @Query("SELECT MIN(s.startAt) AS firstStartAt, MAX(s.startAt) AS lastStartAt FROM Schedule s"
+            + " WHERE s.performanceId = :performanceId AND s.operationStatus = :status")
+    StartAtRange findStartAtRange(@Param("performanceId") Long performanceId, @Param("status") OperationStatus status);
+
+    interface StartAtRange {
+        LocalDateTime getFirstStartAt();
+
+        LocalDateTime getLastStartAt();
+    }
 
     @Query("SELECT s.id FROM Schedule s WHERE s.seatSetupStatus = :status AND s.seatSetupNextAttemptAt <= :now"
             + " ORDER BY s.seatSetupNextAttemptAt, s.id")

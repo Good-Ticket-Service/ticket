@@ -1,6 +1,8 @@
 package com.sparta.ticket.performance.infrastructure.persistence;
 
+import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
 import com.sparta.ticket.performance.domain.schedule.SeatSetupStatus;
 import jakarta.persistence.EntityManager;
@@ -44,6 +46,13 @@ public class ScheduleStoreAdapter implements ScheduleStore {
     @Override
     public boolean existsByPerformanceIdAndStartAt(Long performanceId, LocalDateTime startAt) {
         return scheduleRepository.existsByPerformanceIdAndStartAt(performanceId, startAt);
+    }
+
+    @Override
+    public PerformancePeriod findActivePeriod(Long performanceId) {
+        ScheduleJpaRepository.StartAtRange range =
+                scheduleRepository.findStartAtRange(performanceId, OperationStatus.ACTIVE);
+        return PerformancePeriod.of(range.getFirstStartAt(), range.getLastStartAt());
     }
 
     @Override
