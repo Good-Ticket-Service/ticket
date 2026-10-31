@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,5 +52,5 @@ public interface PublicPerformanceApiSpec {
             summary = "공개 공연 상세 조회",
             description = "로그인 없이 호출한다. 취소된 공개 공연도 취소 안내를 위해 준다. 초안·삭제 공연과 없는 공연은 404 PERFORMANCE_NOT_FOUND다.")
     ApiResponse<PublicPerformanceDetailResponse> getDetail(
-            @Parameter(description = "공연 ID") @PathVariable Long performanceId);
+            @Parameter(description = "공연 ID") @PathVariable @Positive Long performanceId);
 }

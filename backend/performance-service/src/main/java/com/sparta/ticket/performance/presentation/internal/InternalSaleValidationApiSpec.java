@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -24,6 +25,6 @@ public interface InternalSaleValidationApiSpec {
                     + "configVersion 1 미만이나 venueSeatIds가 비었거나 중복이면 400 VALIDATION_ERROR다. "
                     + "ApiResponse로 감싸지 않는다.")
     SaleValidationResponse validate(
-            @Parameter(description = "회차 ID") @PathVariable Long scheduleId,
+            @Parameter(description = "회차 ID") @PathVariable @Positive Long scheduleId,
             @Valid @RequestBody SaleValidationRequest request);
 }
