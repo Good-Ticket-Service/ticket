@@ -52,4 +52,32 @@ public record SellerScheduleDetail(
                 schedule.getCancelReason(),
                 schedule.getVersion());
     }
+
+    /** 판매자 회차 조회의 행으로 만든다. salesStatus 계산은 Entity로 만들 때와 같다. */
+    public static SellerScheduleDetail of(SellerScheduleRow row, LocalDateTime now) {
+        return new SellerScheduleDetail(
+                row.id(),
+                row.performanceId(),
+                row.startAt(),
+                row.bookingOpenAt(),
+                row.bookingCloseAt(),
+                row.operationStatus(),
+                row.seatSetupStatus(),
+                row.salesSuspended(),
+                SalesStatus.of(
+                        row.performanceStatus(),
+                        row.operationStatus(),
+                        row.bookingOpenAt(),
+                        row.bookingCloseAt(),
+                        row.salesSuspended(),
+                        row.seatSetupStatus(),
+                        now),
+                row.canceledAt(),
+                row.seatConfigVersion(),
+                row.seatSetupRequestId(),
+                row.seatSetupError(),
+                row.suspensionReason(),
+                row.cancelReason(),
+                row.version());
+    }
 }
