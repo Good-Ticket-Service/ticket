@@ -2,6 +2,7 @@ package com.sparta.ticket.performance.domain.schedule;
 
 import com.sparta.ticket.common.entity.BaseEntity;
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import jakarta.persistence.Column;
@@ -15,6 +16,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -194,5 +196,37 @@ public class Schedule extends BaseEntity {
         this.seatSetupStatus = SeatSetupStatus.FAILED;
         this.seatSetupError = error;
         this.seatSetupNextAttemptAt = null;
+    }
+
+    /**
+     * 취소된 회차와 취소된 공연의 회차는 판매를 중지·재개할 수 없다. 409 INVALID_STATUS_TRANSITION.
+     * Note: 공연 전체 취소 API는 없어 공연 CANCELED는 생기지 않지만, 공개 조회·판매 검증과 같이 취소로 본다(이슈 #133 결정 3).
+     */
+    public void verifySalesChangeable(OperationStatus performanceStatus) {
+        if (operationStatus == OperationStatus.CANCELED || performanceStatus == OperationStatus.CANCELED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION, "취소된 회차는 판매를 중지하거나 재개할 수 없습니다.");
+        }
+    }
+
+    /** If-Match로 받은 version이 현재 값과 같은지 확인한다. 다르면 409 VERSION_CONFLICT. 회차 행을 잠근 뒤 부른다. */
+    public void verifyVersion(long expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(PerformanceErrorCode.VERSION_CONFLICT);
+        }
+    }
+
+    /**
+     * 판매를 중지하거나 재개한다. 결과가 지금과 같으면(같은 사유로 중지, 판매 중에 재개) 바꾸지 않고 false다(이슈 #133 결정 1).
+     * 중지 중에 다른 사유로 다시 중지하면 사유만 바꾼다. 재개하면 저장된 사유를 지운다.
+     * 사유 형식(중지면 1~500자, 재개면 없음)은 요청 DTO가 확인한 값이다. 바뀌면 커밋(flush) 때 version이 1 오른다.
+     */
+    public boolean changeSalesSuspension(boolean suspended, String reason) {
+        String newReason = suspended ? reason : null;
+        if (salesSuspended == suspended && Objects.equals(suspensionReason, newReason)) {
+            return false;
+        }
+        this.salesSuspended = suspended;
+        this.suspensionReason = newReason;
+        return true;
     }
 }
