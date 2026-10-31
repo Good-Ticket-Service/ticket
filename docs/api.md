@@ -291,11 +291,11 @@
 
 ### 좌석 내부 API
 
-상태: 회차 좌석 준비는 합의(이슈 #175), 구현 전이다. MVP는 공연 → 좌석 Feign 동기 호출이고, 성능 측정 뒤 Kafka로 바꾼다. 바꿔도 요청 내용, 멱등성, 버전 규칙은 그대로 둔다.
+상태: 회차 좌석 준비는 합의(이슈 #175), 구현됨(#190). MVP는 공연 → 좌석 Feign 동기 호출이고, 성능 측정 뒤 Kafka로 바꾼다. 바꿔도 요청 내용, 멱등성, 버전 규칙은 그대로 둔다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
-| POST /internal/schedules/{scheduleId}/seat-setups | 공연 서비스 | 200 | requestId:string,scheduleId:long,configVersion:long[1 이상],seats:SeatSetupLine[][1개 이상] | requestId:string,scheduleId:long,configVersion:long,seatCount:int,sellableCount:int | 409 SEAT_SETUP_STALE_VERSION;409 SEAT_SETUP_IN_USE |
+| POST /internal/schedules/{scheduleId}/seat-setups | 공연 서비스 | 200 | requestId:string,scheduleId:long,configVersion:long[1 이상],seats:SeatSetupLine[][1개 이상] | requestId:string,scheduleId:long,configVersion:long,seatCount:int,sellableCount:int | 409 SEAT_SETUP_STALE_VERSION;409 SEAT_SETUP_IN_USE;503 SERVICE_UNAVAILABLE |
 
 - SeatSetupLine = `{venueSeatId:long,venueSeatGradeId:long,gradeName:string[1~20자],basePrice:int|null,isSellable:boolean,section:string[1~20자],rowLabel:string[1~10자],seatNumber:int[1 이상]}`.
 - 요청의 seats는 회차에 만들 좌석 전체다. 일부만 보내지 않는다.
@@ -323,6 +323,8 @@
 - 저장된 것보다 높은 configVersion이면 기존 좌석이 모두 AVAILABLE일 때만 새 구성으로 교체한다.
 - 교체할 때 AVAILABLE이 아닌 좌석이 있으면 409 SEAT_SETUP_IN_USE다. 만료됐지만 아직 정리되지 않은 HOLD도 AVAILABLE이 아닌 것으로 본다(architecture 10절).
 - 좌석 저장은 한 트랜잭션에서 전부 반영하거나 전부 반영하지 않는다.
+- 교체는 공연장 좌석 ID 기준으로 기존 좌석을 새 값으로 바꾸고, 새 좌석은 추가하고, 빠진 좌석은 논리 삭제한다. 남는 좌석의 id는 그대로다. (구현 #190)
+- 같은 회차의 준비 요청은 차례로 처리한다. 앞 요청이나 선점이 잠금을 쥐어 3초 넘게 기다리면 아무것도 저장하지 않고 503 SERVICE_UNAVAILABLE이다. 공연은 다른 5xx처럼 같은 requestId로 다시 보낸다. (구현 #190)
 - 공연 쪽 결과 처리(READY·FAILED·재시도)와 타임아웃은 공연 「업무 규칙」의 좌석 준비를 따른다.
 - Kafka로 바꿀 때의 토픽, 메시지 스키마, 전환 일정은 따로 합의한다(architecture 14절).
 
