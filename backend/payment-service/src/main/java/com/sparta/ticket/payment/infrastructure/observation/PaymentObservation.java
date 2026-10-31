@@ -1,9 +1,12 @@
 package com.sparta.ticket.payment.infrastructure.observation;
 
+import com.sparta.ticket.payment.application.service.settlement.SettlementReconciliationJob;
+import com.sparta.ticket.payment.infrastructure.persistence.settlement.SettlementReconcileJdbcAdapter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +68,50 @@ public class PaymentObservation {
                 }
             }
         }
+        registerSettlement(environment);
+    }
+
+    /** 정산 지표(Task 20-11). 결제 지표와 같이 빈 DB에서도 모든 라벨 조합을 0으로 내, 0건과 수집 전을 구분한다. */
+    private void registerSettlement(Environment environment) {
+        Map<String, String> switches = Map.of(
+                "statement", "payment.settlement.statement.enabled",
+                "payout", "payment.settlement.payout.enabled",
+                "payout_recovery", "payment.settlement.payout.recovery.enabled",
+                "reconcile", "payment.settlement.reconcile.enabled");
+        switches.forEach((task, property) -> {
+            double enabled = environment.getProperty(property, Boolean.class, false) ? 1 : 0;
+            Gauge.builder("settlement.job.enabled", () -> enabled)
+                    .tag("task", task)
+                    .register(meters);
+        });
+        for (String attention : PaymentObservationTransactions.PAYOUT_ATTENTIONS) {
+            for (String name : List.of(
+                    "settlement.db.payouts",
+                    "settlement.db.payouts.amount.won",
+                    "settlement.db.payouts.oldest.age.seconds"))
+                register(new Key(name, List.of("attention", attention)));
+        }
+        for (String code : PaymentObservationTransactions.PAYOUT_FAILURES)
+            register(new Key("settlement.db.payouts.failed", List.of("failure_code", code)));
+        for (String task : PaymentObservationTransactions.SETTLEMENT_TASKS) {
+            register(new Key("settlement.db.jobs.due", List.of("task", task)));
+            register(new Key("settlement.db.jobs.oldest.due.age.seconds", List.of("task", task)));
+        }
+        for (String reason : PaymentObservationTransactions.HOLD_REASONS) {
+            register(new Key("settlement.db.sales.held", List.of("reason", reason)));
+            register(new Key("settlement.db.sales.held.oldest.age.seconds", List.of("reason", reason)));
+        }
+        for (String name : List.of(
+                "settlement.db.sales.unposted",
+                "settlement.db.deductions.open",
+                "settlement.db.deductions.open.amount.won",
+                "settlement.db.deductions.oldest.age.seconds",
+                "settlement.reconcile.last.success.timestamp.seconds",
+                "settlement.reconcile.provider.unreachable",
+                "settlement.reconcile.last.failed")) register(new Key(name, List.of()));
+        List<String> checks = new ArrayList<>(SettlementReconcileJdbcAdapter.checkNames());
+        checks.add(SettlementReconciliationJob.PROVIDER_CHECK);
+        for (String check : checks) register(new Key("settlement.reconcile.violations", List.of("check", check)));
     }
 
     private record Key(String name, List<String> tags) {}
