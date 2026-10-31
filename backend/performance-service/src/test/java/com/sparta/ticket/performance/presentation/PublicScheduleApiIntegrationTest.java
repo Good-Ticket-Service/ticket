@@ -117,11 +117,13 @@ class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("ID가 숫자가 아니면 400 VALIDATION_ERROR")
-        void rejectsNonNumericId() throws Exception {
-            mockMvc.perform(get("/api/performances/abc/schedules"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        @DisplayName("ID가 숫자가 아니거나 0 이하면 400 VALIDATION_ERROR")
+        void rejectsInvalidId() throws Exception {
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                mockMvc.perform(get("/api/performances/" + id + "/schedules"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
         }
     }
 
@@ -203,11 +205,13 @@ class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("ID가 숫자가 아니면 400 VALIDATION_ERROR")
-        void rejectsNonNumericId() throws Exception {
-            mockMvc.perform(get("/api/schedules/abc"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        @DisplayName("ID가 숫자가 아니거나 0 이하면 400 VALIDATION_ERROR")
+        void rejectsInvalidId() throws Exception {
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                mockMvc.perform(get("/api/schedules/" + id))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
         }
     }
 }

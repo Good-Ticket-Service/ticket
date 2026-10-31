@@ -128,9 +128,9 @@ class PublicSeatLayoutApiIntegrationTest extends PerformanceIntegrationTest {
     }
 
     @Test
-    @DisplayName("숫자가 아니거나 long 범위를 넘는 ID는 400 VALIDATION_ERROR다")
+    @DisplayName("숫자가 아니거나 long 범위를 넘거나 0 이하인 ID는 400 VALIDATION_ERROR다")
     void rejectsInvalidPathId() throws Exception {
-        for (String id : new String[] {"abc", "9223372036854775808"}) {
+        for (String id : new String[] {"abc", "9223372036854775808", "0", "-1"}) {
             mockMvc.perform(get("/api/performances/" + id + "/seat-layout"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
