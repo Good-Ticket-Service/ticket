@@ -330,17 +330,21 @@
 
 ## 예매 — reservation-service / booking
 
-상태: 단건 조회·checkout·confirm·취소는 구현됨. DTO 필드는 아래 표와 같다. checkout의 쿠폰 반영(#143)은 coupon 모듈의 CouponUsage와 연결돼 있다. 취소 확정 때 좌석과 함께 쿠폰을 돌려준다(#127, #125). 목록은 초안이다.
+상태: 단건 조회·checkout·confirm·취소는 구현됨. DTO 필드는 아래 표와 같다. 내 예매 목록도 구현됨. checkout의 쿠폰 반영(#143)은 coupon 모듈의 CouponUsage와 연결돼 있다. 취소 확정 때 좌석과 함께 쿠폰을 돌려준다(#127, #125).
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/reservations/{reservationId} | 본인 USER 또는 MASTER | 200 | 없음 | Reservation | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
 | POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
 | POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;503 SERVICE_UNAVAILABLE |
-| GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC | PageC<ReservationSummary>(항목 필드 미정) | 구현 전 |
+| GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC(createdAt,ASC/DESC) | PageC<ReservationSummary> | 400 VALIDATION_ERROR;403 FORBIDDEN(USER가 아님) |
 | POST /api/reservations/{reservationId}/cancel | 본인 USER | 200 | reason?:string | Reservation(CANCELING/CANCELED) | 409 NOT_CANCELLABLE/INVALID_STATUS_TRANSITION |
 
-- Reservation = `{reservationId:long,scheduleId:long,scheduleSeatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,paymentAmount:long|null}`.
+- Reservation = `{reservationId:long,scheduleId:long,performanceId:long,performanceTitle:string,scheduleStartAt:datetime,scheduleSeatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,totalPrice:long,userCouponId:long|null,discountAmount:long|null,paymentAmount:long|null,tickets:Ticket[]}`.
+- Ticket = `{scheduleSeatId:long,price:int,ticketCode:string|null}`. tickets는 좌석 ID 오름차순이다. ticketCode는 CONFIRMED일 때만 주고, 그 밖의 상태는 null이다.
+- ReservationSummary = `{reservationId:long,scheduleId:long,performanceId:long,performanceTitle:string,scheduleStartAt:datetime,status:string,paymentAmount:long|null,seatCount:int,createdAt:datetime}`.
+- performanceTitle·scheduleStartAt은 선점 시점 값이다. totalPrice는 할인 전 금액이다. userCouponId는 이 예약에 잡힌 회원 쿠폰이다. checkout은 쿠폰을 보내지 않으면 잡은 쿠폰을 빼므로, 결제 실패 뒤 같은 쿠폰으로 다시 결제하려면 이 값을 그대로 보낸다. 좌석 구역·열·번호와 공연장 이름은 응답에 없다.
+- 내 예매 목록: 본인 예약만 준다. status를 보내지 않으면 결제 없이 끝난 EXPIRED·RELEASED를 빼고, 보내면 그 상태만 준다. 같은 시각의 예약은 나중에 만든 것부터다.
 
 - 공통: checkout·confirm·cancel도 없는 예매면 404 RESERVATION_NOT_FOUND, 본인 예매가 아니면 403 FORBIDDEN이다. (원본 복원: reservation/api.md:42-43, 담당 확인 필요)
 - 공통: 지금 상태에서 할 수 없는 요청은 409 INVALID_STATUS_TRANSITION이다. (원본 복원: reservation/api.md:44, reservation/orchestration.md:353, 담당 확인 필요)

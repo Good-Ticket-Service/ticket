@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /**
  * domain이 필요로 하는 저장소 기능만 선언한다. 구현은 infrastructure의 Spring Data 인터페이스가 맡는다.
@@ -17,6 +19,9 @@ public interface ReservationRepository {
     Reservation saveAndFlush(Reservation reservation);
 
     Optional<Reservation> findById(Long id);
+
+    /** 이 회원의 예약 가운데 주어진 상태인 것. 같은 시각의 예약도 페이지마다 순서가 같도록 정렬에 ID를 덧붙인다. */
+    Page<ReservationSummary> findMine(Long userId, Collection<ReservationStatus> statuses, Pageable pageable);
 
     /** 같은 트랜잭션에서 조건부 UPDATE를 한 뒤 DB의 지금 값을 다시 읽는다. */
     Optional<Reservation> reload(Long id);
