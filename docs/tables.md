@@ -78,8 +78,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | age_rating | VARCHAR(20) | NOT NULL; ALL / 12 / 15 / 19 |
 | running_time | INT | NOT NULL; 분, 0 초과 |
 | cast_info | VARCHAR(500) | NULL; 출연진 안내 |
-| description | TEXT | NULL; 공개 시 필수 제안 |
-| poster_url | VARCHAR(500) | NULL; 공개 시 필수 제안 |
+| description | TEXT | NULL; 공개 시 필수(이슈 #130) |
+| poster_url | VARCHAR(500) | NULL; 공개 시 필수(이슈 #130) |
 | publication_status | VARCHAR(20) | NOT NULL DEFAULT 'DRAFT'; DRAFT / PUBLISHED |
 | operation_status | VARCHAR(20) | NOT NULL DEFAULT 'ACTIVE'; ACTIVE / CANCELED.; 공개 여부와 별개 |
 | published_at | TIMESTAMP(3) | NULL; 최초 공개 시각.; 공개 이력·변경 제한 판단 |
