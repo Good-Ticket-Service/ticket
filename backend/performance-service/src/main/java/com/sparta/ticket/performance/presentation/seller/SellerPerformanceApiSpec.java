@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -39,7 +40,7 @@ public interface SellerPerformanceApiSpec {
                     + "등록된 회차는 좌석을 다시 준비한다(PENDING).")
     ApiResponse<GradePricesResponse> replaceGradePrices(
             @CurrentUser UserContext user,
-            @Parameter(description = "공연 ID") @PathVariable Long performanceId,
+            @Parameter(description = "공연 ID") @PathVariable @Positive Long performanceId,
             @Parameter(description = "공연 version. 예: \"0\"", required = true)
                     @RequestHeader(value = IfMatch.HEADER, required = false)
                     String ifMatch,

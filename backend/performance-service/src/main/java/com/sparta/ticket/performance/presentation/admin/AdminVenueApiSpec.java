@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,7 +34,7 @@ public interface AdminVenueApiSpec {
                     + "같은 공연장에 같은 이름이 있으면 409 DUPLICATE_VENUE_GRADE, 공연이 쓰는 공연장이면 409 VENUE_LAYOUT_IN_USE. "
                     + "성공하면 공연장 version이 1 오른다.")
     ApiResponse<VenueGradesResponse> registerGrades(
-            @Parameter(description = "공연장 ID") @PathVariable Long venueId,
+            @Parameter(description = "공연장 ID") @PathVariable @Positive Long venueId,
             @Parameter(description = "공연장 version. 예: \"0\"", required = true)
                     @RequestHeader(value = IfMatch.HEADER, required = false)
                     String ifMatch,
@@ -44,7 +45,7 @@ public interface AdminVenueApiSpec {
             description = "If-Match는 등급 등록과 같다. 다른 공연장 등급이나 없는 등급은 400 VENUE_GRADE_MISMATCH, "
                     + "같은 구역·열·번호(요청 안 중복 포함)는 409 DUPLICATE_VENUE_SEAT이며 전체를 롤백한다.")
     ApiResponse<VenueSeatsResponse> registerSeats(
-            @Parameter(description = "공연장 ID") @PathVariable Long venueId,
+            @Parameter(description = "공연장 ID") @PathVariable @Positive Long venueId,
             @Parameter(description = "공연장 version. 예: \"1\"", required = true)
                     @RequestHeader(value = IfMatch.HEADER, required = false)
                     String ifMatch,

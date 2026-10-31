@@ -6,6 +6,7 @@ import com.sparta.ticket.performance.presentation.dto.PublicScheduleResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Positive;
 import org.springframework.web.bind.annotation.PathVariable;
 
 /**
@@ -21,11 +22,12 @@ public interface PublicScheduleApiSpec {
                     + "판매 상태(salesStatus)는 서버 시각으로 계산한다. "
                     + "초안·삭제 공연과 없는 공연은 404 PERFORMANCE_NOT_FOUND다.")
     ApiResponse<PublicScheduleListResponse> getSchedules(
-            @Parameter(description = "공연 ID") @PathVariable Long performanceId);
+            @Parameter(description = "공연 ID") @PathVariable @Positive Long performanceId);
 
     @Operation(
             summary = "공개 회차 상세 조회",
             description = "로그인 없이 호출한다. 판매 상태(salesStatus)는 서버 시각으로 계산한다. "
                     + "회차가 없거나 삭제됐거나, 부모 공연이 초안·삭제면 404 SCHEDULE_NOT_FOUND다.")
-    ApiResponse<PublicScheduleResponse> getSchedule(@Parameter(description = "회차 ID") @PathVariable Long scheduleId);
+    ApiResponse<PublicScheduleResponse> getSchedule(
+            @Parameter(description = "회차 ID") @PathVariable @Positive Long scheduleId);
 }

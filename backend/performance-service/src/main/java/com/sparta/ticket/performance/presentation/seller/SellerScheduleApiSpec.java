@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,7 +27,7 @@ public interface SellerScheduleApiSpec {
                     + "409 DUPLICATE_SCHEDULE, 취소된 공연은 409 INVALID_STATUS_TRANSITION.")
     ResponseEntity<ApiResponse<SellerScheduleResponse>> register(
             @CurrentUser UserContext user,
-            @Parameter(description = "공연 ID") @PathVariable Long performanceId,
+            @Parameter(description = "공연 ID") @PathVariable @Positive Long performanceId,
             @Valid @RequestBody ScheduleCreateRequest request);
 
     @Operation(
@@ -35,5 +36,5 @@ public interface SellerScheduleApiSpec {
                     + "초안 공연의 회차와 취소된 회차도 조회한다. 좌석 준비 결과는 seatSetupStatus와 seatSetupError로 확인한다. "
                     + "회차나 부모 공연이 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND, 남의 공연의 회차면 403 FORBIDDEN.")
     ResponseEntity<ApiResponse<SellerScheduleResponse>> getSchedule(
-            @CurrentUser UserContext user, @Parameter(description = "회차 ID") @PathVariable Long scheduleId);
+            @CurrentUser UserContext user, @Parameter(description = "회차 ID") @PathVariable @Positive Long scheduleId);
 }
