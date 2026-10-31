@@ -332,11 +332,13 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("ID가 숫자가 아니면 400 VALIDATION_ERROR")
-        void rejectsNonNumericId() throws Exception {
-            mockMvc.perform(get("/api/performances/abc"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        @DisplayName("ID가 숫자가 아니거나 0 이하면 400 VALIDATION_ERROR")
+        void rejectsInvalidId() throws Exception {
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                mockMvc.perform(get("/api/performances/" + id))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
         }
     }
 }

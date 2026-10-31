@@ -229,13 +229,16 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("없거나 삭제된 공연은 404, 남의 공연·SELLER가 아니면 403, 취소된 공연은 409 INVALID_STATUS_TRANSITION")
+        @DisplayName("없거나 삭제된 공연은 404, 남의 공연·SELLER가 아니면 403, 취소된 공연은 409 INVALID_STATUS_TRANSITION, 공연 ID가 0 이하면 400")
         void rejectsByPerformance() throws Exception {
             expectError(register(9999, BODY), 404, "PERFORMANCE_NOT_FOUND");
             expectError(register(DELETED, BODY), 404, "PERFORMANCE_NOT_FOUND");
             expectError(register(OTHER_SELLERS, BODY), 403, "FORBIDDEN");
             expectError(register(SELLER, "MASTER", PERFORMANCE, BODY), 403, "FORBIDDEN");
             expectError(register(CANCELED, BODY), 409, "INVALID_STATUS_TRANSITION");
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                expectError(register(id, BODY), 400, "VALIDATION_ERROR");
+            }
 
             assertThat(seatSetupClient.requests()).isEmpty();
         }
@@ -325,6 +328,14 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
             expectError(detail(433), 404, "SCHEDULE_NOT_FOUND");
             expectError(detail(432), 403, "FORBIDDEN");
             expectError(detail(SELLER, "MASTER", 420), 403, "FORBIDDEN");
+        }
+
+        @Test
+        @DisplayName("회차 ID가 숫자가 아니거나 0 이하면 400 VALIDATION_ERROR")
+        void rejectsInvalidId() throws Exception {
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                expectError(detail(id), 400, "VALIDATION_ERROR");
+            }
         }
     }
 

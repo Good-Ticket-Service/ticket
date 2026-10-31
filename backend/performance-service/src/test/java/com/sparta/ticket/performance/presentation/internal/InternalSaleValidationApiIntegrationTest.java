@@ -173,7 +173,7 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
 
         @Test
         @DisplayName(
-                "configVersion 1 미만·누락, venueSeatIds 비었거나 중복·null 원소, 정수가 아닌 숫자·문자열, Path ID 형식 오류는 400 VALIDATION_ERROR")
+                "configVersion 1 미만·누락, venueSeatIds 비었거나 중복·null 원소, 정수가 아닌 숫자·문자열, Path ID 형식·0 이하는 400 VALIDATION_ERROR")
         void validationError() throws Exception {
             String[] bodies = {
                 "{\"configVersion\":0,\"venueSeatIds\":[1]}",
@@ -193,9 +193,11 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
                         .andExpect(status().isBadRequest())
                         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
             }
-            validate("abc", "{\"configVersion\":1,\"venueSeatIds\":[1]}")
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                validate(id, "{\"configVersion\":1,\"venueSeatIds\":[1]}")
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
         }
 
         @Test

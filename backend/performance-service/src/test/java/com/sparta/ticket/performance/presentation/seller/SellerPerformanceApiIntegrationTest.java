@@ -484,7 +484,7 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("SELLER가 아니면 403, Path ID가 숫자가 아니면 400이다")
+        @DisplayName("SELLER가 아니면 403, Path ID가 숫자가 아니거나 0 이하면 400이다")
         void rejectsRoleAndPath() throws Exception {
             String body = prices(VIP, 150000, R, 90000);
             expectError(
@@ -493,7 +493,9 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                             .content(body)),
                     403,
                     "FORBIDDEN");
-            expectError(replacePrices("abc", "\"2\"", body), 400, "VALIDATION_ERROR");
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                expectError(replacePrices(id, "\"2\"", body), 400, "VALIDATION_ERROR");
+            }
         }
     }
 }

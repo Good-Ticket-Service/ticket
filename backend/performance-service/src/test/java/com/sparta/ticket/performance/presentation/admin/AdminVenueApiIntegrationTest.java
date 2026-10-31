@@ -291,7 +291,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("MASTER가 아니면 403, Path ID가 숫자가 아니면 400이다")
+        @DisplayName("MASTER가 아니면 403, Path ID가 숫자가 아니거나 0 이하면 400이다")
         void rejectsRoleAndPath() throws Exception {
             expectError(
                     mockMvc.perform(as("SELLER", post("/api/admin/venues/201/seat-grades"))
@@ -299,7 +299,9 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
                             .content(grades("S"))),
                     403,
                     "FORBIDDEN");
-            expectError(registerGrades("abc", "\"3\"", grades("S")), 400, "VALIDATION_ERROR");
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                expectError(registerGrades(id, "\"3\"", grades("S")), 400, "VALIDATION_ERROR");
+            }
         }
     }
 
@@ -412,7 +414,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("MASTER가 아니면 403, 인증 헤더가 없으면 401, Path ID가 숫자가 아니면 400이다")
+        @DisplayName("MASTER가 아니면 403, 인증 헤더가 없으면 401, Path ID가 숫자가 아니거나 0 이하면 400이다")
         void rejectsRoleAndPath() throws Exception {
             String body = seats(seat("C", "1", 1, 201));
             for (String role : new String[] {"SELLER", "USER"}) {
@@ -430,7 +432,9 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
                             .content(body)),
                     401,
                     "UNAUTHORIZED");
-            expectError(registerSeats("abc", "\"3\"", body), 400, "VALIDATION_ERROR");
+            for (String id : new String[] {"abc", "0", "-1"}) {
+                expectError(registerSeats(id, "\"3\"", body), 400, "VALIDATION_ERROR");
+            }
             assertThat(liveSeatCount(EDITABLE)).isEqualTo(1);
         }
 
