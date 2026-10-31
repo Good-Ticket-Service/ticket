@@ -4,13 +4,17 @@ import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.ReservationSummary;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -25,6 +29,31 @@ import org.springframework.data.repository.query.Param;
  */
 public interface ReservationJpaRepository
         extends JpaRepository<Reservation, Long>, ReservationRepository, ReservationReloader {
+
+    @Override
+    default Page<ReservationSummary> findMine(Long userId, Collection<ReservationStatus> statuses, Pageable pageable) {
+        Sort.Direction direction = pageable.getSort().stream()
+                .reduce((first, second) -> second)
+                .map(Sort.Order::getDirection)
+                .orElse(Sort.Direction.DESC);
+        Sort sort = pageable.getSort().and(Sort.by(direction, "id"));
+        Page<ReservationSummary> page = querySummaries(
+                userId, statuses, PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort));
+        // 응답 sort는 요청과 같은 정렬을 돌려주는 계약이라, 덧붙인 ID를 드러내지 않게 요청 값으로 되돌린다
+        return new PageImpl<>(page.getContent(), pageable, page.getTotalElements());
+    }
+
+    @Query(
+            value = """
+                    SELECT new com.sparta.ticket.reservation.booking.domain.ReservationSummary(
+                        r.id, r.scheduleId, r.performanceId, r.performanceTitle, r.scheduleStartAt,
+                        r.status, r.paymentAmount, SIZE(r.tickets), r.createdAt)
+                    FROM Reservation r
+                    WHERE r.userId = :userId AND r.status IN :statuses
+                    """,
+            countQuery = "SELECT COUNT(r) FROM Reservation r WHERE r.userId = :userId AND r.status IN :statuses")
+    Page<ReservationSummary> querySummaries(
+            @Param("userId") Long userId, @Param("statuses") Collection<ReservationStatus> statuses, Pageable pageable);
 
     @Override
     default int recordCheckout(

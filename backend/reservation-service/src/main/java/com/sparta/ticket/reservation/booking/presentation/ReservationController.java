@@ -1,25 +1,32 @@
 package com.sparta.ticket.reservation.booking.presentation;
 
 import com.sparta.ticket.common.auth.CurrentUser;
+import com.sparta.ticket.common.auth.RequireRole;
+import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.common.response.PageResponse;
 import com.sparta.ticket.reservation.booking.application.cancel.ReservationCancelService;
 import com.sparta.ticket.reservation.booking.application.payment.ReservationPaymentService;
 import com.sparta.ticket.reservation.booking.application.query.ReservationQueryService;
+import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.presentation.dto.CancelRequest;
 import com.sparta.ticket.reservation.booking.presentation.dto.CheckoutRequest;
 import com.sparta.ticket.reservation.booking.presentation.dto.CheckoutResponse;
 import com.sparta.ticket.reservation.booking.presentation.dto.ConfirmRequest;
 import com.sparta.ticket.reservation.booking.presentation.dto.ReservationResponse;
+import com.sparta.ticket.reservation.booking.presentation.dto.ReservationSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "예약")
@@ -31,6 +38,17 @@ public class ReservationController {
     private final ReservationQueryService reservationQueryService;
     private final ReservationPaymentService reservationPaymentService;
     private final ReservationCancelService reservationCancelService;
+
+    @Operation(summary = "내 예매 목록", description = "최신순이다. 상태를 고르지 않으면 결제 없이 끝난 EXPIRED·RELEASED는 빼고 보여 준다.")
+    @RequireRole(Role.USER)
+    @GetMapping
+    public ApiResponse<PageResponse<ReservationSummaryResponse>> findMine(
+            @CurrentUser UserContext user,
+            @RequestParam(required = false) ReservationStatus status,
+            Pageable pageable) {
+        return ApiResponse.ok(PageResponse.from(
+                reservationQueryService.findMine(user.userId(), status, pageable), ReservationSummaryResponse::from));
+    }
 
     @Operation(summary = "예약 상태 조회", description = "결제 승인 뒤 PAYMENT_IN_PROGRESS를 받았으면 이 API로 폴링한다.")
     @GetMapping("/{reservationId}")

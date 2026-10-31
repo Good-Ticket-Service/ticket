@@ -196,6 +196,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) WHERE status = 'HOLD';`
 
+- `CREATE INDEX ix_p_reservations_user_created ON p_reservations (user_id, created_at DESC, reservation_id DESC);` 내 예매 목록용이다.
+
 - `CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';`
 
 - `CREATE INDEX ix_p_reservations_cancel_stale ON p_reservations (updated_at) WHERE status = 'CANCELING';`
