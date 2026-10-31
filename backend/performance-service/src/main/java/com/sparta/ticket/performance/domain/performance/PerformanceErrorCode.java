@@ -26,6 +26,7 @@ public enum PerformanceErrorCode implements ErrorCode {
     PERFORMANCE_CONFIGURATION_LOCKED(HttpStatus.CONFLICT, "공개된 공연은 가격·판매 제외 같은 구성을 바꿀 수 없습니다."),
     DUPLICATE_SCHEDULE(HttpStatus.CONFLICT, "같은 시작 시각의 회차가 이미 있습니다."),
     VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 먼저 변경했습니다. 최신 정보를 다시 조회해 주세요."),
+    PUBLICATION_REQUIREMENTS_NOT_MET(HttpStatus.CONFLICT, "공개 필수 조건이 부족합니다."),
     PRECONDITION_REQUIRED(HttpStatus.PRECONDITION_REQUIRED, "If-Match 헤더가 필요합니다.");
 
     private final HttpStatus status;
