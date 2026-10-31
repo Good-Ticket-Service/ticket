@@ -14,6 +14,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -140,6 +142,38 @@ public class Performance extends BaseEntity {
         if (operationStatus == OperationStatus.CANCELED) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION, "취소된 공연에는 회차를 추가할 수 없습니다.");
         }
+    }
+
+    /** 취소된 공연은 공개할 수 없다. 409 INVALID_STATUS_TRANSITION. 이미 공개된 뒤 취소된 공연도 같다. */
+    public void verifyPublishable() {
+        if (operationStatus == OperationStatus.CANCELED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION, "취소된 공연은 공개할 수 없습니다.");
+        }
+    }
+
+    public boolean isPublished() {
+        return publicationStatus == PublicationStatus.PUBLISHED;
+    }
+
+    /** 공연 정보 중 공개에 필요한데 비어 있는 항목. 회차·좌석·가격 조건은 다른 테이블을 봐야 해서 application이 확인한다. */
+    public List<PublicationRequirement> missingPublicationInfo() {
+        List<PublicationRequirement> missing = new ArrayList<>();
+        if (description == null || description.isBlank()) {
+            missing.add(PublicationRequirement.DESCRIPTION);
+        }
+        if (posterUrl == null || posterUrl.isBlank()) {
+            missing.add(PublicationRequirement.POSTER_URL);
+        }
+        return missing;
+    }
+
+    /**
+     * 초안을 공개한다. 필수 조건 확인은 부른 쪽이 끝낸 상태다. publishedAt은 최초 공개 시각이며, 공개된 공연은 다시 부르지 않는다.
+     * version은 커밋(flush) 때 @Version으로 오른다.
+     */
+    public void publish(LocalDateTime now) {
+        this.publicationStatus = PublicationStatus.PUBLISHED;
+        this.publishedAt = now;
     }
 
     /** 가격·판매 제외 같은 좌석 구성은 공개 전에만 바꿀 수 있다. 공개됐으면 409 PERFORMANCE_CONFIGURATION_LOCKED. */
