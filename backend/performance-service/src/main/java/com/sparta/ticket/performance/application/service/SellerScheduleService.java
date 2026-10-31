@@ -1,10 +1,13 @@
 package com.sparta.ticket.performance.application.service;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.performance.application.dto.NewSchedule;
 import com.sparta.ticket.performance.application.dto.SellerScheduleDetail;
+import com.sparta.ticket.performance.application.dto.SellerScheduleRow;
 import com.sparta.ticket.performance.application.port.PerformanceStore;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
+import com.sparta.ticket.performance.application.port.SellerScheduleReader;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
@@ -14,20 +17,25 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자 회차 명령: 회차 등록. 명세는 .local/performance/api.md 「POST /api/seller/performances/{performanceId}/schedules」다.
+ * 판매자 회차: 회차 등록과 회차 상세 조회. 명세는 .local/performance/api.md 「POST /api/seller/performances/{performanceId}/schedules」
+ * 「GET /api/seller/schedules/{scheduleId}」다.
  * 회차 저장은 트랜잭션 안에서, 좌석 준비 요청은 트랜잭션이 끝난 뒤 SeatSetupDispatcher가 한다. 응답은 등록 결과(PENDING)다.
- * Note: 메서드에 @Transactional을 붙이지 않고 TransactionTemplate으로 트랜잭션 범위를 직접 정한다. 좌석 호출이 트랜잭션 밖이라는 것을
+ * Note: 등록은 @Transactional을 붙이지 않고 TransactionTemplate으로 트랜잭션 범위를 직접 정한다. 좌석 호출이 트랜잭션 밖이라는 것을
  * 코드에서 바로 보이게 하려는 것이다. 다른 트랜잭션 안에서 부르면 안 된다(그 트랜잭션에 합류해 호출 동안 커넥션을 쥔다).
  */
 @Service
 @RequiredArgsConstructor
 public class SellerScheduleService {
 
+    private static final String NOT_OWNER_SCHEDULE = "본인 공연의 회차만 조회할 수 있습니다.";
+
     private final PerformanceStore performanceStore;
     private final ScheduleStore scheduleStore;
+    private final SellerScheduleReader reader;
     private final SeatSetupDispatcher seatSetupDispatcher;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
@@ -37,6 +45,20 @@ public class SellerScheduleService {
                 transactionTemplate.execute(status -> registerInTransaction(sellerId, performanceId, input));
         seatSetupDispatcher.dispatch(List.of(schedule.id()));
         return schedule;
+    }
+
+    /**
+     * 본인 공연의 회차를 관리용으로 조회한다. 초안 공연의 회차, 취소된 공연·회차도 조회한다.
+     * Note: 확인 순서는 404 SCHEDULE_NOT_FOUND(회차나 부모 공연이 없거나 삭제됨) → 403이다. 회차 등록과 같다.
+     */
+    @Transactional(readOnly = true)
+    public SellerScheduleDetail getSchedule(Long sellerId, Long scheduleId) {
+        SellerScheduleRow row = reader.findSchedule(scheduleId)
+                .orElseThrow(() -> new BusinessException(PerformanceErrorCode.SCHEDULE_NOT_FOUND));
+        if (!row.sellerId().equals(sellerId)) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, NOT_OWNER_SCHEDULE);
+        }
+        return SellerScheduleDetail.of(row, LocalDateTime.now(clock));
     }
 
     /**
