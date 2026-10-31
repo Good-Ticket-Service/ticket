@@ -188,6 +188,29 @@ public class Payout extends BaseEntity {
         lastError = null;
     }
 
+    /**
+     * 운영 retry(Task 20-10). 지급대행이 실패를 확정한(돈이 나가지 않은) FAILED만 READY로 되돌린다. 이전 시도의 키·스냅샷·결과는
+     * 지우고 운영 명령 기록에 남긴다. attempt와 새 키·새 계좌 스냅샷은 다음 실행권 획득(claim)이 만든다. 늦게 도착한 이전 attempt
+     * 응답은 ownedBy에서 버려진다.
+     */
+    public void retry(LocalDateTime now) {
+        requireStatus(PayoutStatus.FAILED);
+        status = PayoutStatus.READY;
+        failureCode = null;
+        idempotencyKey = null;
+        bankCode = null;
+        accountRef = null;
+        holderMasked = null;
+        accountVersion = null;
+        providerStatus = null;
+        externalPayoutId = null;
+        inquiryOnly = false;
+        verificationReason = null;
+        requestedAt = null;
+        lastError = null;
+        nextAttemptAt = now;
+    }
+
     /** 지급대행이 실패를 확정했다. 돈은 나가지 않았다. */
     public void fail(PayoutFailure code, String externalPayoutId) {
         requireStatus(PayoutStatus.REQUESTED);
