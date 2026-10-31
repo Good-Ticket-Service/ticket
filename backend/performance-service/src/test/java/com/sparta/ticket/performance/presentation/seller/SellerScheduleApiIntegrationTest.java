@@ -3,8 +3,10 @@ package com.sparta.ticket.performance.presentation.seller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasLength;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -236,6 +238,93 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
             expectError(register(CANCELED, BODY), 409, "INVALID_STATUS_TRANSITION");
 
             assertThat(seatSetupClient.requests()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/seller/schedules/{scheduleId} 판매자 회차 상세")
+    class Detail {
+
+        private ResultActions detail(long userId, String role, Object scheduleId) throws Exception {
+            return mockMvc.perform(as(userId, role, get("/api/seller/schedules/" + scheduleId)));
+        }
+
+        private ResultActions detail(Object scheduleId) throws Exception {
+            return detail(SELLER, "SELLER", scheduleId);
+        }
+
+        @Test
+        @DisplayName("P13과 ETag를 준다. 좌석 준비 실패 요약과 판매 중지 사유를 보여 주고, 판매 중지된 예매 기간이면 UNAVAILABLE이다")
+        void returnsScheduleWithETag() throws Exception {
+            detail(430)
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("ETag", "\"2\""))
+                    .andExpect(jsonPath("$.status").value(200))
+                    .andExpect(jsonPath("$.data.id").value(430))
+                    .andExpect(jsonPath("$.data.performanceId").value(NO_SEATS))
+                    .andExpect(jsonPath("$.data.startAt").value("2026-12-20T19:00:00+09:00"))
+                    .andExpect(jsonPath("$.data.bookingOpenAt").value("2026-10-20T14:00:00+09:00"))
+                    .andExpect(jsonPath("$.data.bookingCloseAt").value("2026-12-20T18:00:00+09:00"))
+                    .andExpect(jsonPath("$.data.operationStatus").value("ACTIVE"))
+                    .andExpect(jsonPath("$.data.seatSetupStatus").value("FAILED"))
+                    .andExpect(jsonPath("$.data.salesSuspended").value(true))
+                    .andExpect(jsonPath("$.data.salesStatus").value("UNAVAILABLE"))
+                    .andExpect(jsonPath("$.data.canceledAt").value(nullValue()))
+                    .andExpect(jsonPath("$.data.seatConfigVersion").value(2))
+                    .andExpect(jsonPath("$.data.seatSetupRequestId").value("req-430"))
+                    .andExpect(jsonPath("$.data.seatSetupError").value("공연장에 좌석이 없습니다."))
+                    .andExpect(jsonPath("$.data.suspensionReason").value("좌석 점검"))
+                    .andExpect(jsonPath("$.data.cancelReason").value(nullValue()))
+                    .andExpect(jsonPath("$.data.version").value(2));
+        }
+
+        @Test
+        @DisplayName("취소된 회차, 초안 공연의 회차, 취소된 공연의 회차도 조회한다")
+        void returnsCanceledAndDraftSchedules() throws Exception {
+            detail(431)
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("ETag", "\"3\""))
+                    .andExpect(jsonPath("$.data.operationStatus").value("CANCELED"))
+                    .andExpect(jsonPath("$.data.salesStatus").value("CANCELED"))
+                    .andExpect(jsonPath("$.data.canceledAt").value("2026-10-20T10:00:00+09:00"))
+                    .andExpect(jsonPath("$.data.cancelReason").value("공연장 사정"));
+
+            // 공연 410은 초안이다. 공개 조회에서는 404지만 판매자 조회는 된다
+            detail(420)
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("ETag", "\"0\""))
+                    .andExpect(jsonPath("$.data.performanceId").value(PERFORMANCE))
+                    .andExpect(jsonPath("$.data.salesStatus").value("BEFORE_OPEN"));
+
+            // 공연이 취소되면 회차의 operationStatus는 ACTIVE여도 판매 상태는 CANCELED다
+            detail(434)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.operationStatus").value("ACTIVE"))
+                    .andExpect(jsonPath("$.data.salesStatus").value("CANCELED"));
+        }
+
+        @Test
+        @DisplayName("회차 등록의 Location으로 조회하면 좌석 준비 결과(READY)와 등록 때와 같은 version을 준다")
+        void followsRegistrationLocation() throws Exception {
+            MvcResult registered =
+                    register(PERFORMANCE, BODY).andExpect(status().isCreated()).andReturn();
+            String location = registered.getResponse().getHeader("Location");
+
+            mockMvc.perform(as(SELLER, "SELLER", get(location)))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("ETag", "\"0\""))
+                    .andExpect(jsonPath("$.data.seatSetupStatus").value("READY"))
+                    .andExpect(jsonPath("$.data.version").value(0));
+        }
+
+        @Test
+        @DisplayName("회차나 부모 공연이 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND, 남의 공연의 회차·SELLER가 아니면 403")
+        void rejects() throws Exception {
+            expectError(detail(9999), 404, "SCHEDULE_NOT_FOUND");
+            expectError(detail(421), 404, "SCHEDULE_NOT_FOUND");
+            expectError(detail(433), 404, "SCHEDULE_NOT_FOUND");
+            expectError(detail(432), 403, "FORBIDDEN");
+            expectError(detail(SELLER, "MASTER", 420), 403, "FORBIDDEN");
         }
     }
 
