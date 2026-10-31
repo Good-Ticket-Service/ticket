@@ -75,6 +75,7 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         jdbc.update("DELETE FROM p_ledger_entries");
         jdbc.update("DELETE FROM p_ledger_transactions");
         jdbc.update("DELETE FROM p_settlement_statement_lines");
+        jdbc.update("DELETE FROM p_payout_operation_commands");
         jdbc.update("DELETE FROM p_payouts");
         jdbc.update("DELETE FROM p_settlement_items");
         jdbc.update("DELETE FROM p_settlement_statements");
