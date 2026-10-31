@@ -34,6 +34,11 @@ public class ScheduleStoreAdapter implements ScheduleStore {
     }
 
     @Override
+    public Schedule saveAndFlush(Schedule schedule) {
+        return scheduleRepository.saveAndFlush(schedule);
+    }
+
+    @Override
     public Optional<Schedule> findByIdForUpdate(Long scheduleId) {
         return scheduleRepository.findByIdForUpdate(scheduleId);
     }

@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.application.port;
 
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceGradePrice;
 import java.util.List;
@@ -16,6 +17,9 @@ public interface PerformanceStore {
 
     /** 바꾼 공연을 바로 DB에 반영한다. @Version과 updatedAt이 올라 응답에 새 값을 줄 수 있다. 잠근 공연에만 쓴다. */
     Performance saveAndFlush(Performance performance);
+
+    /** 공연의 운영 상태. 잠그지 않는다. 없거나 삭제된 공연은 empty. 회차 명령이 부모 공연의 취소 여부를 볼 때 쓴다. */
+    Optional<OperationStatus> findOperationStatus(Long performanceId);
 
     /** 공연 version을 1 올리고 오른 값을 돌려준다. findByIdForUpdate로 잠근 뒤에만 부른다. */
     long increaseVersion(Long performanceId);

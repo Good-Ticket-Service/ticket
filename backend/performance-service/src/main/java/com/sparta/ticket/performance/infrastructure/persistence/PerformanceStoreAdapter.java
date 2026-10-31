@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.infrastructure.persistence;
 
 import com.sparta.ticket.performance.application.port.PerformanceStore;
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceGradePrice;
 import jakarta.persistence.EntityManager;
@@ -38,6 +39,11 @@ public class PerformanceStoreAdapter implements PerformanceStore {
     @Override
     public Optional<Performance> findByIdForUpdate(Long performanceId) {
         return performanceRepository.findByIdForUpdate(performanceId);
+    }
+
+    @Override
+    public Optional<OperationStatus> findOperationStatus(Long performanceId) {
+        return performanceRepository.findOperationStatus(performanceId);
     }
 
     /**
