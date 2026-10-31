@@ -11,6 +11,9 @@ public interface ScheduleStore {
 
     Schedule save(Schedule schedule);
 
+    /** 바꾼 회차를 바로 DB에 반영한다. @Version이 올라 응답에 새 version을 줄 수 있다. 잠근 회차에만 쓴다. */
+    Schedule saveAndFlush(Schedule schedule);
+
     /** 회차 행을 FOR UPDATE로 잠그고 읽는다. 좌석 준비 시도 시작과 결과 반영을 한 줄로 세운다. */
     Optional<Schedule> findByIdForUpdate(Long scheduleId);
 
