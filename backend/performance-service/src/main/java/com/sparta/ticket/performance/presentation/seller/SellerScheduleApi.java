@@ -16,11 +16,12 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 판매자 회차 명령 API. 바인딩과 Swagger 문서는 ApiSpec에 둔다. 요청 시각은 여기서 KST로 바꾼다. */
+/** 판매자 회차 API(등록, 상세 조회). 바인딩과 Swagger 문서는 ApiSpec에 둔다. 요청 시각은 여기서 KST로 바꾼다. */
 @RestController
 @RequiredArgsConstructor
 @RequireRole(Role.SELLER)
@@ -44,6 +45,15 @@ public class SellerScheduleApi implements SellerScheduleApiSpec {
                         toKst(request.startAt()), toKst(request.bookingOpenAt()), toKst(request.bookingCloseAt())));
         return ResponseEntity.created(URI.create(SCHEDULE_LOCATION + schedule.id()))
                 .body(ApiResponse.created(SUCCESS, SellerScheduleResponse.from(schedule)));
+    }
+
+    @Override
+    @GetMapping("/schedules/{scheduleId}")
+    public ResponseEntity<ApiResponse<SellerScheduleResponse>> getSchedule(UserContext user, Long scheduleId) {
+        SellerScheduleDetail schedule = service.getSchedule(user.userId(), scheduleId);
+        return ResponseEntity.ok()
+                .eTag("\"" + schedule.version() + "\"")
+                .body(ApiResponse.ok(SUCCESS, SellerScheduleResponse.from(schedule)));
     }
 
     /**

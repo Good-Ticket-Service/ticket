@@ -13,7 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
-/** 판매자 회차 명령의 Swagger 문서와 파라미터 바인딩. 모두 SELLER 전용이다. */
+/** 판매자 회차 API의 Swagger 문서와 파라미터 바인딩. 모두 SELLER 전용이다. */
 @Tag(name = "판매자 회차")
 public interface SellerScheduleApiSpec {
 
@@ -28,4 +28,12 @@ public interface SellerScheduleApiSpec {
             @CurrentUser UserContext user,
             @Parameter(description = "공연 ID") @PathVariable Long performanceId,
             @Valid @RequestBody ScheduleCreateRequest request);
+
+    @Operation(
+            summary = "판매자 회차 상세 조회",
+            description = "본인 공연의 회차를 관리용으로 조회한다. 응답 헤더 ETag: \"{version}\"을 회차 명령의 If-Match에 쓴다. "
+                    + "초안 공연의 회차와 취소된 회차도 조회한다. 좌석 준비 결과는 seatSetupStatus와 seatSetupError로 확인한다. "
+                    + "회차나 부모 공연이 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND, 남의 공연의 회차면 403 FORBIDDEN.")
+    ResponseEntity<ApiResponse<SellerScheduleResponse>> getSchedule(
+            @CurrentUser UserContext user, @Parameter(description = "회차 ID") @PathVariable Long scheduleId);
 }
