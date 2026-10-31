@@ -27,7 +27,7 @@
 
 ## 공연 — performance-service
 
-상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices, POST /api/seller/performances/{performanceId}/schedules, GET /api/seller/schedules/{scheduleId}는 구현됨(#83, #107, #108, #109, #128, #129, 이슈 #131, 이슈 #132). 나머지 2개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
+상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices, POST /api/seller/performances/{performanceId}/schedules, GET /api/seller/schedules/{scheduleId}, POST /api/seller/performances/{performanceId}/publication은 구현됨(#83, #107, #108, #109, #128, #129, 이슈 #131, 이슈 #132, 이슈 #130). 나머지 1개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
 
 33개 계약 중 이번 프로젝트 기간에는 아래 표의 15개를 구현한다. 나머지 18개는 「추후 구현 예정 API」에 경로만 남긴다.
 
@@ -146,7 +146,7 @@
 - 공연은 팀 공통 코드 409 INVALID_STATUS_TRANSITION도 쓴다. 취소된 공연에 회차를 등록하거나 공연을 공개할 때, 취소된 회차의 판매를 중지하거나 재개할 때다.
 - 공연 초안 등록에서 venueId의 공연장이 없거나 삭제됐으면 404 VENUE_NOT_FOUND다.
 - 좌석 등록과 가격 설정에서 없는 등급 ID는 400 VENUE_GRADE_MISMATCH로 응답한다. 등급 미존재 전용 코드는 두지 않는다.
-- PUBLICATION_REQUIREMENTS_NOT_MET 응답에는 부족한 항목을 함께 준다.
+- PUBLICATION_REQUIREMENTS_NOT_MET은 부족한 항목을 message 끝에 "부족한 항목: a, b" 형식으로 준다. 항목은 description, posterUrl, schedules, sellableSeats, gradePrices이고 이 순서로 나열한다(이슈 #130).
 - DUPLICATE_VENUE_SEAT가 나면 좌석 일괄 등록 전체를 롤백한다.
 
 판매 거절 사유 (P21.reasonCode)
@@ -202,6 +202,8 @@
 - 공개 후에는 등급별 가격을 바꿀 수 없다(409 PERFORMANCE_CONFIGURATION_LOCKED).
 - 공연이 참조한 공연장에는 등급과 좌석을 추가할 수 없다(409 VENUE_LAYOUT_IN_USE).
 - 공연 공개는 멱등이다. 이미 공개된 공연에 다시 요청하면 If-Match가 달라도 200과 현재 결과를 준다. 최초 publishedAt은 바뀌지 않는다.
+- 공개 필수 조건: description·posterUrl이 있고, 취소되지 않은 회차가 하나 이상 있고, 판매 대상 좌석이 하나 이상 있고, 판매 대상 좌석이 쓰는 등급에 모두 가격이 있다(이슈 #130).
+- 취소된 공연은 이미 공개됐어도 공개 요청에 409 INVALID_STATUS_TRANSITION이다.
 - DRAFT로 되돌리는 API는 없다.
 - 좌석 준비가 PENDING이나 FAILED여도 공연을 공개할 수 있다.
 - 취소되지 않은 공연에는 공개 후에도 회차를 추가할 수 있다.
