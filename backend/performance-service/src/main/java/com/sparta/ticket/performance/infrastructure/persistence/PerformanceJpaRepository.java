@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.infrastructure.persistence;
 
+import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
@@ -15,4 +16,8 @@ public interface PerformanceJpaRepository extends JpaRepository<Performance, Lon
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Performance p WHERE p.id = :id AND p.deletedAt IS NULL")
     Optional<Performance> findByIdForUpdate(@Param("id") Long id);
+
+    /** 공연의 운영 상태만 잠그지 않고 읽는다. 삭제된 공연은 empty. */
+    @Query("SELECT p.operationStatus FROM Performance p WHERE p.id = :id AND p.deletedAt IS NULL")
+    Optional<OperationStatus> findOperationStatus(@Param("id") Long id);
 }
