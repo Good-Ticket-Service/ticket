@@ -53,6 +53,8 @@ CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) W
 CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';
 -- 취소 확인 스케줄러가 취소 중으로 오래 머문 예약을 고른다
 CREATE INDEX ix_p_reservations_cancel_stale ON p_reservations (updated_at) WHERE status = 'CANCELING';
+-- 내 예매 목록은 회원별 최신순으로 읽는다
+CREATE INDEX ix_p_reservations_user_created ON p_reservations (user_id, created_at DESC, reservation_id DESC);
 -- 한 회원은 한 회차에 진행 중인 예약을 하나만 가진다. 1인 매수 제한의 마지막 방어선이다.
 -- seat가 이 이름의 위반을 보고 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다. 취소 중에도 좌석은 판매된 그대로라 진행 중으로 센다
 CREATE UNIQUE INDEX uk_p_reservations_active_user_schedule

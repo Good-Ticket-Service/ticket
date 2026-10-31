@@ -15,6 +15,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -117,6 +118,13 @@ public class Reservation extends BaseEntity {
     /** 좌석 id를 오름차순으로 돌려준다. 좌석은 이 순서로 잠근다. */
     public List<Long> getSeatIds() {
         return tickets.stream().map(Ticket::getScheduleSeatId).sorted().toList();
+    }
+
+    /** 티켓을 좌석 id 오름차순으로 돌려준다. 응답마다 순서가 같도록 정렬한다. */
+    public List<Ticket> ticketsBySeat() {
+        return tickets.stream()
+                .sorted(Comparator.comparing(Ticket::getScheduleSeatId))
+                .toList();
     }
 
     /** 티켓 가격의 합계. 할인 전 결제 기본 금액이다. */
