@@ -5,6 +5,7 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.performance.application.dto.GradePriceSet;
 import com.sparta.ticket.performance.application.dto.NewGradePrice;
 import com.sparta.ticket.performance.application.dto.NewPerformance;
+import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.application.dto.SellerPerformanceDetail;
 import com.sparta.ticket.performance.application.port.PerformanceStore;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
@@ -12,6 +13,7 @@ import com.sparta.ticket.performance.application.port.VenueStore;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
 import com.sparta.ticket.performance.domain.performance.PerformanceGradePrice;
+import com.sparta.ticket.performance.domain.performance.PublicationRequirement;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
 import com.sparta.ticket.performance.domain.venue.Venue;
 import com.sparta.ticket.performance.domain.venue.VenueSeatGrade;
@@ -30,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 판매자 공연 명령: 공연 초안 등록, 등급별 가격 설정. 명세는 .local/performance/api.md 5.3·5.4다.
+ * 판매자 공연 명령: 공연 초안 등록, 등급별 가격 설정, 공연 공개. 명세는 .local/performance/api.md 5.3·5.4·5.6이다.
  * 가격 설정은 공연 행을 잠근 뒤 소유·If-Match·공개 여부를 확인하고, 성공하면 공연 version을 1 올린다.
  * Note: 가격 설정은 트랜잭션이 끝난 뒤 회차 좌석을 다시 준비해야 해서 @Transactional 대신 TransactionTemplate으로 범위를 정한다
  * (SellerScheduleService와 같은 이유).
@@ -130,6 +132,62 @@ public class SellerPerformanceService {
                 version);
         return new PricesReplaced(
                 priceSet, schedules.stream().map(Schedule::getId).toList());
+    }
+
+    /**
+     * 초안 공연을 공개한다. 이미 공개된 공연이면 If-Match와 관계없이 현재 결과를 준다(응답 유실 뒤 재요청이 409가 되지 않게).
+     * Note: 확인 순서는 404 → 403 → 409 INVALID_STATUS_TRANSITION(취소 공연) → 이미 공개면 200 → 409 VERSION_CONFLICT
+     * → 409 PUBLICATION_REQUIREMENTS_NOT_MET이다. 공연 행을 FOR UPDATE로 잠그므로 회차 등록·가격 설정(같은 행 FOR UPDATE)과
+     * 차례로 처리된다. 그래서 확인한 회차·가격이 공개 커밋 전에 바뀌지 않는다. 좌석 준비 상태(PENDING·FAILED)는 공개를 막지 않는다.
+     */
+    @Transactional
+    public SellerPerformanceDetail publish(Long sellerId, Long performanceId, long expectedVersion) {
+        Performance performance = performanceStore
+                .findByIdForUpdate(performanceId)
+                .orElseThrow(() -> new BusinessException(PerformanceErrorCode.PERFORMANCE_NOT_FOUND));
+        performance.verifyOwner(sellerId);
+        performance.verifyPublishable();
+
+        PerformancePeriod period = scheduleStore.findActivePeriod(performanceId);
+        if (!performance.isPublished()) {
+            performance.verifyVersion(expectedVersion);
+            verifyPublicationRequirements(performance, period);
+            performance.publish(LocalDateTime.now(clock));
+            performance = performanceStore.saveAndFlush(performance);
+        }
+        // 공연이 공연장을 참조하는 동안 공연장은 삭제되지 않는다(공연장 삭제 API 없음). 없으면 데이터 오류라 500으로 둔다
+        Venue venue = venueStore
+                .findByIdForShare(performance.getVenueId())
+                .orElseThrow(() -> new IllegalStateException("공연의 공연장이 없습니다. performanceId=" + performanceId));
+        return SellerPerformanceDetail.of(performance, venue, period);
+    }
+
+    /** 부족한 공개 필수 조건을 모두 모아 한 번에 알려 준다. 판매 대상 좌석이 없으면 가격 조건은 따지지 않는다. */
+    private void verifyPublicationRequirements(Performance performance, PerformancePeriod period) {
+        List<PublicationRequirement> missing = new ArrayList<>(performance.missingPublicationInfo());
+        if (period == null) {
+            missing.add(PublicationRequirement.SCHEDULES);
+        }
+        Set<Long> sellableGradeIds =
+                performanceStore.findSellableGradeIds(performance.getId(), performance.getVenueId());
+        if (sellableGradeIds.isEmpty()) {
+            missing.add(PublicationRequirement.SELLABLE_SEATS);
+        } else {
+            Set<Long> pricedGradeIds = performanceStore.findGradePrices(performance.getId()).stream()
+                    .map(PerformanceGradePrice::getVenueSeatGradeId)
+                    .collect(Collectors.toSet());
+            if (!pricedGradeIds.containsAll(sellableGradeIds)) {
+                missing.add(PublicationRequirement.GRADE_PRICES);
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new BusinessException(
+                    PerformanceErrorCode.PUBLICATION_REQUIREMENTS_NOT_MET,
+                    PerformanceErrorCode.PUBLICATION_REQUIREMENTS_NOT_MET.message() + " 부족한 항목: "
+                            + missing.stream()
+                                    .map(PublicationRequirement::getItem)
+                                    .collect(Collectors.joining(", ")));
+        }
     }
 
     /** 가격 설정 결과와, 트랜잭션이 끝난 뒤 좌석을 다시 준비할 회차 ID. */

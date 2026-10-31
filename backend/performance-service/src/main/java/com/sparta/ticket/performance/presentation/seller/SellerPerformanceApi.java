@@ -69,4 +69,13 @@ public class SellerPerformanceApi implements SellerPerformanceApiSpec {
                 GradePricesResponse.from(service.replaceGradePrices(
                         user.userId(), user.username(), performanceId, expectedVersion, prices)));
     }
+
+    @Override
+    @PostMapping("/{performanceId}/publication")
+    public ApiResponse<SellerPerformanceResponse> publish(UserContext user, Long performanceId, String ifMatch) {
+        long expectedVersion = IfMatch.parse(ifMatch);
+        return ApiResponse.ok(
+                SUCCESS,
+                SellerPerformanceResponse.from(service.publish(user.userId(), performanceId, expectedVersion)));
+    }
 }

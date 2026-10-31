@@ -45,4 +45,18 @@ public interface SellerPerformanceApiSpec {
                     @RequestHeader(value = IfMatch.HEADER, required = false)
                     String ifMatch,
             @Valid @RequestBody GradePricesUpdateRequest request);
+
+    @Operation(
+            summary = "공연 공개",
+            description = "초안 공연을 공개해 일반 사용자에게 보이게 한다. 요청 본문은 없고 If-Match에 공연 version을 넣는다. "
+                    + "공개 필수 조건(description, posterUrl, 활성 회차, 판매 대상 좌석, 판매 대상 등급의 가격)이 부족하면 "
+                    + "409 PUBLICATION_REQUIREMENTS_NOT_MET이고 메시지에 부족한 항목을 나열한다. 좌석 준비가 PENDING·FAILED여도 "
+                    + "공개할 수 있다. 이미 공개된 공연은 If-Match가 달라도 200과 현재 결과를 주며 최초 publishedAt은 바뀌지 않는다. "
+                    + "취소된 공연은 409 INVALID_STATUS_TRANSITION. 성공하면 공연 version이 1 오른다.")
+    ApiResponse<SellerPerformanceResponse> publish(
+            @CurrentUser UserContext user,
+            @Parameter(description = "공연 ID") @PathVariable @Positive Long performanceId,
+            @Parameter(description = "공연 version. 예: \"1\"", required = true)
+                    @RequestHeader(value = IfMatch.HEADER, required = false)
+                    String ifMatch);
 }
