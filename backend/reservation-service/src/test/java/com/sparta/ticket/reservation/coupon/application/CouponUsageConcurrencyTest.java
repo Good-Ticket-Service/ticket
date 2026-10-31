@@ -143,6 +143,111 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
         }
     }
 
+    /**
+     * 같은 예매에 사용 확정(결제 확정)과 반환(선점 만료·취소)이 겹칠 때(#225). 둘 다 예매 ID로 회원 쿠폰 행을 잠그고 읽으므로 차례로 처리된다.
+     * 한쪽이 행을 잡은 채 멈춘 사이 다른 쪽을 보내고, 락 대기에 들어간 것을 pg_stat_activity로 확인한 뒤 풀어 순서를 고정한다.
+     * Note: 실제로는 예매가 예약 행을 먼저 잠가 같은 예매의 쿠폰 호출이 겹치지 않는다. 여기서는 쿠폰 쪽만으로도 상태가 일관되는지 본다.
+     */
+    @Nested
+    @DisplayName("사용 확정과 반환이 겹칠 때")
+    class UseAndRelease {
+
+        @Test
+        @DisplayName("사용 확정이 먼저 행을 잡으면 반환은 기다린 뒤 USED를 돌려줘 AVAILABLE이 된다")
+        void useFirst() throws Exception {
+            UserCoupon issued = issue(990_101L);
+            couponUsage.reserve(issued.getId(), 990_101L, 991_101L);
+
+            String result = runInOrder(() -> couponUsage.use(991_101L), () -> couponUsage.release(991_101L));
+
+            // 사용 확정이 커밋된 뒤 반환이 USED를 읽어 돌려준다(결제 확정 직후 취소와 같다)
+            assertThat(result).isEqualTo("DONE");
+            assertThat(usageRow(issued.getId()))
+                    .containsEntry("status", "AVAILABLE")
+                    .containsEntry("reservation_id", null)
+                    .containsEntry("used_at", null);
+        }
+
+        @Test
+        @DisplayName("반환이 먼저 행을 잡으면 사용 확정은 기다린 뒤 이 예매의 쿠폰을 찾지 못해 아무것도 하지 않는다")
+        void releaseFirst() throws Exception {
+            UserCoupon issued = issue(990_111L);
+            couponUsage.reserve(issued.getId(), 990_111L, 991_111L);
+
+            String result = runInOrder(() -> couponUsage.release(991_111L), () -> couponUsage.use(991_111L));
+
+            // 반환이 예매 ID를 지운 뒤라, 기다리던 잠금 조회는 WHERE를 다시 보고 행을 찾지 못한다. 오류 없이 끝나고 USED가 되지 않는다
+            assertThat(result).isEqualTo("DONE");
+            assertThat(usageRow(issued.getId()))
+                    .containsEntry("status", "AVAILABLE")
+                    .containsEntry("reservation_id", null)
+                    .containsEntry("used_at", null);
+        }
+
+        /**
+         * first를 한 트랜잭션에서 실행하고 커밋하지 않은 채 멈춘 사이 second를 보낸다. second가 락 대기에 들어간 것을 확인한 뒤
+         * first를 커밋하고, second의 결과를 "DONE" 또는 예외 클래스 이름으로 돌려준다.
+         */
+        private String runInOrder(Runnable first, Runnable second) throws Exception {
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                CountDownLatch held = new CountDownLatch(1);
+                CountDownLatch release = new CountDownLatch(1);
+                Future<?> holder = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                    first.run();
+                    held.countDown();
+                    await(release);
+                }));
+                held.await();
+
+                Future<String> waiter = executor.submit(() -> {
+                    try {
+                        second.run();
+                        return "DONE";
+                    } catch (RuntimeException e) {
+                        return e.getClass().getSimpleName();
+                    }
+                });
+                waitForLockWaiters(1);
+
+                release.countDown();
+                holder.get();
+                return waiter.get();
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    private Map<String, Object> usageRow(Long userCouponId) {
+        return jdbcTemplate.queryForMap(
+                "SELECT status, reservation_id, used_at FROM p_user_coupons WHERE user_coupon_id = ?", userCouponId);
+    }
+
+    /** p_user_coupons의 행 락을 기다리는 세션이 count개가 될 때까지 기다린다. 10초가 지나면 실패한다. */
+    private void waitForLockWaiters(int count) throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            Integer waiting = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock' AND query ILIKE '%p_user_coupons%'
+                    """, Integer.class);
+            if (waiting != null && waiting >= count) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("락 대기 세션이 " + count + "개가 되지 않았다");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
     @Nested
     @DisplayName("호출자 트랜잭션 합류(REQUIRED)")
     class CallerTransaction {
