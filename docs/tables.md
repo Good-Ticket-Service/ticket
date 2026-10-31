@@ -573,6 +573,26 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - 010-payout-execution.sql은 지급 실행 컬럼·CHECK·인덱스와 정산서 paid_at·PAID를 추가하며, 다시 실행해도 안전하다.
 - 011-drop-payout-lease.sql은 010의 lease_until을 지운다(점유 만료는 next_attempt_at으로 표현). 다시 실행해도 안전하다.
 
+### p_payout_operation_commands — payment-service/schema.sql + A (지급 운영 명령)
+
+MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트랜잭션에 저장한다. 같은 command_id·같은 입력은 결과를 재현하고, 다른 입력은 충돌이다.
+
+| 필드 | 타입·제약 |
+|---|---|
+| command_id | VARCHAR(80) PK |
+| input_hash | VARCHAR(64) NOT NULL; 입력·실행자 SHA-256 |
+| payout_id | BIGINT NOT NULL FK p_payouts |
+| action | VARCHAR(10) NOT NULL; RETRY CHECK |
+| actor | VARCHAR(200) NOT NULL; 인증 컨텍스트의 실행자 |
+| reason, note | VARCHAR(40), VARCHAR(200) NOT NULL; 사유 코드와 원인 확인 메모 |
+| result | VARCHAR(20) NOT NULL; APPLIED/DENIED/STALE CHECK |
+| explanation | VARCHAR(80) NOT NULL |
+| expected_state, before_state, after_state | VARCHAR(160) NOT NULL; `상태:version:attempt` 등 |
+| processed_at | TIMESTAMP NOT NULL |
+
+- `deleted_at IS NULL` CHECK. 이력 인덱스 `(payout_id, processed_at DESC, command_id DESC)`.
+- 012-payout-operation-commands.sql은 위 테이블을 추가하며, 다시 실행해도 안전하다.
+
 ### pg_transaction — fake-pg/schema.sql
 
 | 필드 | 타입·제약·기본값 |

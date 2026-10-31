@@ -518,7 +518,27 @@
 - StatementSummary=`{statementId:long,scheduleId:long,scheduleStartAt:datetime,sequence:int,saleTotal:long,offsetTotal:long,payableAmount:long,status:ISSUED/NO_PAYOUT/PAID,issuedAt:datetime,paidAt:datetime|null,payoutStatus:string|null}`. 지급이 없는 NO_PAYOUT은 payoutStatus가 null이다. paidAt은 지급 완료(PAID)일 때만 있다. 목록은 issuedAt·statementId 내림차순으로 고정한다(sort=`issuedAt,DESC;id,DESC`).
 - StatementDetail=StatementSummary + `lines:[{itemId:long,kind:SALE/DEDUCTION,paymentId:long,grossAmount:int|null,commission:int|null,commissionVat:int|null,sellerAmount:int|null,amount:long}]`. SALE의 amount는 판매자 몫 전액, DEDUCTION의 amount는 이 정산서에서 실제 상계한 몫이며 금액 내역은 null이다.
 - receivable은 아직 상계하지 못한 차감 잔액 합(미지급액과 별개), oldestAt은 가장 오래된 미회수 차감의 생성 시각이다.
-- 지급 확정 시각(paidAt)은 지급 실행 구현 때 추가한다.
+
+## 정산 관리자 — payment-service (#208)
+
+권한: MASTER. 외부 ApiResponse/ErrorResponse 적용. Gateway는 `/api/admin/settlements/**`를 결제 관리자 체인(MASTER·사용자 재확인)에 연결한다(#174).
+
+| Method URI | 성공 | 입력 | data | 추가 오류 |
+|---|---|---|---|---|
+| GET /api/admin/settlements/payouts | 200 | Q: after:long>=0=0,limit:int[1,100]=20,status?:PayoutStatus,attention?:PayoutAttention | items:PayoutOperationView[],nextCursor:long\|null | 400 VALIDATION_ERROR |
+| GET /api/admin/settlements/payouts/{payoutId} | 200 | 없음 | current:PayoutOperationView,commands:PayoutOperationHistory[최대20] | 404 PAYOUT_NOT_FOUND |
+| POST /api/admin/settlements/payouts/{payoutId}/retry | 200 | B: PayoutRetryInput | PayoutRetryOutcome | 404 PAYOUT_NOT_FOUND;409 PAYOUT_COMMAND_CONFLICT/INVALID_STATUS_TRANSITION |
+| GET /api/admin/settlements/receivables | 200 | Q: after:long>=0=0,limit:int[1,100]=20 | items:SellerReceivable[],nextCursor:long\|null | 400 VALIDATION_ERROR |
+
+- PayoutStatus=READY/REQUESTED/DONE/FAILED. PayoutAttention(서버 계산)=ACCOUNT_MISSING(READY·계좌 미등록)/GATE_BLOCKED(READY·지급 직전 게이트 실패)/READY_UNSCHEDULED(READY·영업일 달력 범위 밖)/READY/RESULT_UNKNOWN(REQUESTED·결과 불명)/INQUIRY_ONLY(REQUESTED·응답 불일치로 조회만)/IN_PROGRESS(REQUESTED·지급대행 접수·처리 중)/FAILED/DONE.
+- 목록은 status·attention이 없으면 DONE을 뺀 미완료 지급만 반환한다. after/nextCursor는 payout ID 오름차순이다.
+- PayoutOperationView=`{payoutId:long,statementId:long,sellerId:long,amount:long,status:PayoutStatus,attention:PayoutAttention,attempt:int,version:long,providerStatus:string|null,inquiryOnly:boolean,verificationReason:string|null,failureCode:string|null,lastError:string|null,nextAttemptAt/requestedAt/doneAt:datetime|null,bankCode:string|null,holderMasked:string|null,accountVersion:long|null}`. 멱등 키·계좌 참조·지급대행 거래 ID는 응답하지 않는다.
+- PayoutOperationHistory=`{commandId:string,action:RETRY,actor:string,reason:string,note:string,result:APPLIED/DENIED/STALE,explanation:string,beforeState:string,afterState:string,processedAt:datetime}`.
+- PayoutRetryInput=`{commandId:string[8,80](영숫자·_·-),note:string[1,200],expectedVersion:long>=0,expectedAttempt:int>=0}` 모든 필드 필수. 기대 상태는 FAILED로 서버가 고정한다.
+- PayoutRetryOutcome=`{commandId:string,result:APPLIED,explanation:string,status:PayoutStatus,attempt:int,version:long,processedAt:datetime}`.
+- retry는 지급대행이 실패를 확정한 FAILED(돈이 나가지 않음)만 READY로 되돌린다. 결과 불명(REQUESTED)·inquiry_only·DONE은 새 키로 보내면 이중 지급이 될 수 있어 거절한다. attempt와 새 멱등 키·계좌 스냅샷은 다음 실행권 획득 때 만든다. 금액 수정·DONE 강제·키 교체는 없다.
+- 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는 409 PAYOUT_COMMAND_CONFLICT. 기대 version·attempt가 다르면 STALE, FAILED가 아니면 DENIED이며 둘 다 409 INVALID_STATUS_TRANSITION이고 명령 결과는 저장한다.
+- SellerReceivable=`{sellerId:long,receivable:long,openCount:int,oldestAt:datetime}`. 아직 상계하지 못한 차감(OPEN DEDUCTION)이 있는 판매자만, sellerId 오름차순(after/nextCursor는 sellerId).
 
 ## 서비스 내부 모듈 계약
 
