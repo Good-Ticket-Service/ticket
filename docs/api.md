@@ -27,7 +27,7 @@
 
 ## 공연 — performance-service
 
-상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices, POST /api/seller/performances/{performanceId}/schedules, GET /api/seller/schedules/{scheduleId}, POST /api/seller/performances/{performanceId}/publication은 구현됨(#83, #107, #108, #109, #128, #129, 이슈 #131, 이슈 #132, 이슈 #130). 나머지 1개는 초안(구현 전)이다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
+상태: GET /api/performances, GET /api/performances/{performanceId}, GET /api/performances/{performanceId}/schedules, GET /api/schedules/{scheduleId}, GET /api/performances/{performanceId}/seat-layout, POST /internal/schedules/{scheduleId}/sale-validations, POST /api/admin/venues, POST /api/admin/venues/{venueId}/seat-grades, POST /api/admin/venues/{venueId}/seats, POST /api/seller/performances, PUT /api/seller/performances/{performanceId}/grade-prices, POST /api/seller/performances/{performanceId}/schedules, GET /api/seller/schedules/{scheduleId}, POST /api/seller/performances/{performanceId}/publication, PUT /api/admin/schedules/{scheduleId}/sales-suspension은 구현됨(#83, #107, #108, #109, #128, #129, 이슈 #131, 이슈 #132, 이슈 #130, 이슈 #133). 이번 기간 구현 API 15개가 모두 구현됐다. 공연장 고정 등급과 공연별 공통 가격 정책은 합의다.
 
 33개 계약 중 이번 프로젝트 기간에는 아래 표의 15개를 구현한다. 나머지 18개는 「추후 구현 예정 API」에 경로만 남긴다.
 
@@ -82,7 +82,7 @@
 - PerformanceInput = `{venueId:long,title:string[1~200자],genre:Genre,ageRating:AgeRating,runningTime:int[1 이상],castInfo?:string|null[최대 500자],description?:string|null,posterUrl?:string|null[HTTPS URL, 최대 500자]}`.
 - PriceInput = `{venueSeatGradeId:long,price:int[0 초과]}`. 요청 안에서 등급 ID가 겹치면 400 VALIDATION_ERROR다.
 - sales-suspension의 reason은 중지(suspended=true)할 때 필수이고 trim 후 1~500자다.
-- 재개(suspended=false)할 때 reason은 생략하거나 null로 보낸다. 저장된 중지 사유는 지운다.
+- 재개(suspended=false)할 때 reason은 생략하거나 null로 보낸다. 저장된 중지 사유는 지운다. 재개에 reason 글자(빈 문자열 포함)를 보내면 400 VALIDATION_ERROR다(이슈 #133).
 - GET /api/performances의 from과 to는 KST 날짜이고 양 끝을 포함한다. from이 to보다 늦으면 400 INVALID_TIME_RANGE다.
 - Location은 생성한 리소스의 관리용 GET 경로다. 공연장은 `/api/seller/venues/{venueId}`, 공연은 `/api/seller/performances/{performanceId}`, 회차는 `/api/seller/schedules/{scheduleId}`다.
 - 등급 등록과 좌석 등록은 일괄 생성이라 Location을 주지 않는다. 생성된 ID는 응답 본문(P3, P5)에 있다.
@@ -143,7 +143,7 @@
 | 428 | PRECONDITION_REQUIRED | If-Match가 없음 |
 
 - 428 PRECONDITION_REQUIRED와 409 VERSION_CONFLICT는 공연 전용 코드다. 다른 도메인은 If-Match를 쓰지 않으므로 팀 공통 코드에 넣지 않는다.
-- 공연은 팀 공통 코드 409 INVALID_STATUS_TRANSITION도 쓴다. 취소된 공연에 회차를 등록하거나 공연을 공개할 때, 취소된 회차의 판매를 중지하거나 재개할 때다.
+- 공연은 팀 공통 코드 409 INVALID_STATUS_TRANSITION도 쓴다. 취소된 공연에 회차를 등록하거나 공연을 공개할 때, 취소된 회차(취소된 공연의 회차 포함)의 판매를 중지하거나 재개할 때다.
 - 공연 초안 등록에서 venueId의 공연장이 없거나 삭제됐으면 404 VENUE_NOT_FOUND다.
 - 좌석 등록과 가격 설정에서 없는 등급 ID는 400 VENUE_GRADE_MISMATCH로 응답한다. 등급 미존재 전용 코드는 두지 않는다.
 - PUBLICATION_REQUIREMENTS_NOT_MET은 부족한 항목을 message 끝에 "부족한 항목: a, b" 형식으로 준다. 항목은 description, posterUrl, schedules, sellableSeats, gradePrices이고 이 순서로 나열한다(이슈 #130).
@@ -231,6 +231,9 @@
 판매 중지와 판매 검증
 - 판매 중지는 신규 선점만 막는다. 이미 잡힌 유효 HOLD는 원래 만료 시각까지 결제할 수 있다.
 - 판매를 재개해도 오픈 전, 마감 후, 좌석 미준비, 취소 조건은 그대로 적용된다.
+- 판매 중지·재개는 결과가 지금과 같으면(같은 사유로 중지, 판매 중에 재개) 바꾸지 않고 200과 현재 결과를 준다. version도 그대로다. If-Match는 이때도 확인한다(이슈 #133).
+- 중지 중에 다른 사유로 다시 중지하면 사유만 바꾸고 schedule.version이 1 오른다. 부모 performance.version은 바뀌지 않는다.
+- 판매 중지·재개의 확인 순서는 400(본문) → 428(If-Match 누락) → 404 → 409 INVALID_STATUS_TRANSITION(취소) → 409 VERSION_CONFLICT다. 초안 공연의 회차도 중지·재개할 수 있다.
 - 판매 검증의 업무 거절은 HTTP 200, allowed=false, reasonCode로 준다. 이때 seats는 빈 배열이다.
 - 판매 검증의 회차, 부모 공연, 공연장 중 하나라도 없거나 삭제됐으면 404 SCHEDULE_NOT_FOUND다.
 - 판매 검증이 허용이면 요청 좌석의 등급과 가격을 준다. 가격은 공연별 등급 가격이다.
