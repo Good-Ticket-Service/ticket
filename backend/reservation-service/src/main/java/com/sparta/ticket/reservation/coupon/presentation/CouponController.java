@@ -21,7 +21,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -105,12 +108,16 @@ public class CouponController {
      * 회원마다 다른 값은 issuedByMe(이미 받았는지)이고, "받기"·"받음" 버튼 표시에 쓴다.
      * 역할 제한이 없어 로그인한 모든 사용자가 볼 수 있고, 사용자 헤더가 없으면 @CurrentUser가 401을 낸다.
      * page·size·sort 보정은 공통 SearchPageableArgumentResolver가 하고, 정렬 허용 필드는 서비스가 검사한다.
+     * Note: @ParameterObject가 없으면 springdoc이 Pageable을 pageable이라는 객체 파라미터 하나로 문서화한다. 그러면 Swagger UI가
+     * 객체 안의 sort 배열을 풀지 못해 sort=["..."]처럼 JSON 글자로 보내 400이 된다. 붙이면 page·size·sort가 각각의 파라미터가 되고
+     * sort는 sort=a&sort=b로 나간다. @PageableDefault는 문서에 실제 기본값을 보이려고 공통 기본값(10, createdAt DESC)과 같게 둔다(#225).
      */
     @Operation(summary = "쿠폰 목록", description = "issueStatus를 보내지 않으면 지금 받을 수 있는(ISSUING) 쿠폰만 보여 준다.")
     @GetMapping
     public ApiResponse<PageResponse<CouponDetailResult>> search(
             @RequestParam(defaultValue = "ISSUING") CouponIssueStatus issueStatus,
-            Pageable pageable,
+            @ParameterObject @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
+                    Pageable pageable,
             @CurrentUser UserContext user) {
         // issueStatus가 정의에 없는 값이면 Spring이 타입 변환에 실패해 400 VALIDATION_ERROR가 된다
         return ApiResponse.ok(
@@ -141,7 +148,10 @@ public class CouponController {
     @Operation(summary = "내 쿠폰 목록", description = "예매에 쓸 userCouponId를 여기서 얻는다.")
     @GetMapping("/me")
     public ApiResponse<PageResponse<UserCouponResult>> findMine(
-            @RequestParam(required = false) UserCouponStatus status, Pageable pageable, @CurrentUser UserContext user) {
+            @RequestParam(required = false) UserCouponStatus status,
+            @ParameterObject @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
+                    Pageable pageable,
+            @CurrentUser UserContext user) {
         // 받는 회원과 같이 조회 대상도 요청 값이 아니라 사용자 헤더로 정해, 다른 회원의 쿠폰을 볼 수 없다
         return ApiResponse.ok(PageResponse.from(couponQueryService.findMyCoupons(user.userId(), status, pageable)));
     }
