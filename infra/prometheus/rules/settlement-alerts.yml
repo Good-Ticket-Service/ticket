@@ -1,0 +1,224 @@
+# 정산 위험 경보(Task 20-11, settlement-design 8.3절). Alertmanager가 결제 Slack으로 보낸다(application="payment-service").
+#
+# 위험 순위: ① 돈이 잘못 나감(이중·과다·다른 계좌) ② 나갔는지 모름 ③ 장부가 틀림(조용히 쌓여 결국 ①·덜 지급이 됨)
+# ④ 돈이 안 나감(판매자 피해, 복구 가능) ⑤ 회수 못함. ①·②·③은 CRITICAL, ④·⑤는 WARNING이 기본이다.
+# - 같은 경보 이름 안에서 reason(또는 check) 라벨로 위험을 나눈다. 억제는 reason·check가 같을 때만 한다(alertmanager.yml).
+# - 임계값은 초기 운영안이다. 업계 표준이 아니며 운영 기록을 보고 조정한다.
+# - 판매자·지급 ID나 오류 원문을 라벨·주석에 넣지 않는다. 개별 건은 MASTER 운영 조회와 대조 실행 기록에서 찾는다.
+# - 해소 알림은 위험 조건이 풀렸다는 뜻이다. 판매자 실제 입금이나 전체 금융 대사 완료를 뜻하지 않는다.
+groups:
+  - name: settlement-alerts
+    interval: 15s
+    rules:
+      # ② 지급대행 결과를 모른다(응답 유실·조회 장애). 같은 키 조회가 계속되지만 15분이 넘으면 지급대행 상태를 직접 확인한다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts_oldest_age_seconds:max{attention="RESULT_UNKNOWN"}) >= 900
+        labels:
+          severity: critical
+          application: payment-service
+          reason: result_unknown
+        annotations:
+          summary: "지급 결과 불명 15분 초과"
+          category: "정산 · 지급"
+          detail: "결과 불명 {{ with query \"max(settlement:payouts:max{attention='RESULT_UNKNOWN'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "새 키 재요청 금지. recovery 실행·지급대행 상태 확인"
+
+      # ① 지급대행 응답이 키·금액·계좌·거래 ID 스냅샷과 다르다. 돈이 장부와 다르게 움직였을 수 있다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts:max{attention="INQUIRY_ONLY"}) > 0
+        labels:
+          severity: critical
+          application: payment-service
+          reason: inquiry_only
+        annotations:
+          summary: "지급 응답 불일치"
+          category: "정산 · 지급"
+          detail: "조회 전용 지급 {{ $value | printf \"%.0f\" }}건"
+          action: "운영 조회 verificationReason과 지급대행 기록 대조 (재요청 금지)"
+
+      # ③ 지급 직전 게이트가 정산서·명세·원장 불일치로 지급을 막았다. 장부 오류 신호라 바로 알린다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts:max{attention="GATE_BLOCKED"}) > 0
+        labels:
+          severity: critical
+          application: payment-service
+          reason: gate_blocked
+        annotations:
+          summary: "지급 직전 대조 실패"
+          category: "정산 · 지급"
+          detail: "게이트 차단 {{ $value | printf \"%.0f\" }}건 (READY 유지, 1시간 간격 재시도)"
+          action: "운영 조회 lastError로 불일치 데이터 확인·수정"
+
+      # ④ 지급대행이 접수했지만 1영업일(초기안 26시간) 넘게 완료·실패를 알리지 않는다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts_oldest_age_seconds:max{attention="IN_PROGRESS"}) >= 93600
+        labels:
+          severity: warning
+          application: payment-service
+          reason: processing_delayed
+        annotations:
+          summary: "지급대행 처리 지연 26시간 초과"
+          category: "정산 · 지급"
+          detail: "처리 중 {{ with query \"max(settlement:payouts:max{attention='IN_PROGRESS'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "지급대행 처리 상태 문의"
+
+      # ④ 계좌 미등록으로 지급을 못 하고 있다. 판매자에게 등록을 안내한다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts_oldest_age_seconds:max{attention="ACCOUNT_MISSING"}) >= 86400
+        labels:
+          severity: warning
+          application: payment-service
+          reason: account_missing
+        annotations:
+          summary: "계좌 미등록 지급 1일 초과"
+          category: "정산 · 지급"
+          detail: "{{ with query \"max(settlement:payouts:max{attention='ACCOUNT_MISSING'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "판매자 계좌 등록 안내"
+
+      # ④ 영업일 달력 범위를 넘어 지급 시각을 정하지 못했다. 달력 버전을 추가해야 한다.
+      - alert: SettlementPayoutStuck
+        expr: max(settlement:payouts:max{attention="READY_UNSCHEDULED"}) > 0
+        labels:
+          severity: warning
+          application: payment-service
+          reason: calendar_not_covered
+        annotations:
+          summary: "영업일 달력 범위 초과"
+          category: "정산 · 지급"
+          detail: "지급 시각 미정 {{ $value | printf \"%.0f\" }}건"
+          action: "정산 설정에 다음 영업일 달력 추가"
+
+      # ④ 지급대행이 실패를 확정했다(돈은 안 나감). 원인을 확인한 뒤 운영 retry로 다시 보낸다.
+      - alert: SettlementPayoutStuck
+        expr: sum(settlement:payouts_failed:max) > 0
+        labels:
+          severity: warning
+          application: payment-service
+          reason: payout_failed
+        annotations:
+          summary: "지급 실패 확정"
+          category: "정산 · 지급"
+          detail: "실패 {{ $value | printf \"%.0f\" }}건 (송금 없음)"
+          action: "반려 사유·요청 오류 수정 후 MASTER retry"
+
+      # ④ 켜진 지급 실행·recovery가 실행 시각을 10분 넘게 놓쳤다(스케줄러 멈춤·DB 병목).
+      - alert: SettlementPayoutStuck
+        expr: |
+          max by (task) (settlement:jobs_oldest_due_age_seconds:max{task=~"payout|payout_recovery"}) >= 600
+          and on (task) settlement:job_enabled:max == 1
+        labels:
+          severity: warning
+          application: payment-service
+          reason: job_overdue
+        annotations:
+          summary: "{{ $labels.task }} 작업 지연 10분 초과"
+          category: "정산 · 잡"
+          detail: "최장 {{ $value | humanizeDuration }}"
+          action: "스케줄러·DB·지급대행 지연 점검"
+
+      # ③ 전체 대조 위반. 항목(check)마다 따로 알린다. 자동 수정하지 않는다.
+      - alert: SettlementCheckFailed
+        expr: max by (check) (settlement:reconcile_violations:max) > 0
+        labels:
+          severity: critical
+          application: payment-service
+          reason: violation
+        annotations:
+          summary: "정산 대조 위반 · {{ $labels.check }}"
+          category: "정산 · 대조"
+          detail: "위반 {{ $value | printf \"%.0f\" }}건"
+          action: "p_settlement_reconcile_results sample·[RECONCILE] 로그로 원인 확인"
+
+      # ③ 켜진 대조가 26시간 넘게 성공하지 않았다(미실행·중단·실패를 성공으로 치지 않는다). 성공한 적이 없으면 바로 뜬다.
+      - alert: SettlementCheckFailed
+        expr: |
+          (time() - max(settlement:reconcile_last_success_timestamp_seconds:max)) > 93600
+          and on () max(settlement:job_enabled:max{task="reconcile"}) == 1
+        labels:
+          severity: critical
+          application: payment-service
+          reason: stale
+        annotations:
+          summary: "정산 대조 26시간 미성공"
+          category: "정산 · 대조"
+          detail: "마지막 성공 {{ $value | humanizeDuration }} 전"
+          action: "대조 실행 기록 error·로그 점검 (위반 0건 표시도 정상 아님)"
+
+      - alert: SettlementCheckFailed
+        expr: max(settlement:reconcile_last_failed:max) == 1
+        labels:
+          severity: warning
+          application: payment-service
+          reason: run_failed
+        annotations:
+          summary: "정산 대조 실행 실패"
+          category: "정산 · 대조"
+          detail: "마지막 실행 FAILED (위반 수는 이전 성공 기준)"
+          action: "실행 기록 error·로그 점검"
+
+      # ③ 결제는 성공했지만 정산 계산이 실패해 정산에 들어가지 않았다(덜 지급).
+      - alert: SettlementCheckFailed
+        expr: max(settlement:sales_unposted:max) > 0
+        labels:
+          severity: warning
+          application: payment-service
+          reason: unposted
+        annotations:
+          summary: "정산 계산 실패 판매"
+          category: "정산 · 판매"
+          detail: "UNPOSTED {{ $value | printf \"%.0f\" }}건"
+          action: "정책·달력 설정 수정 후 보충 잡 재계산"
+
+      # 지급대행 대사 중 확인하지 못한 지급. 위반은 아니지만 다음 대사까지 검증되지 않은 지급이 남는다.
+      - alert: SettlementCheckFailed
+        expr: max(settlement:reconcile_provider_unreachable:max) > 0
+        labels:
+          severity: warning
+          application: payment-service
+          reason: provider_unconfirmed
+        annotations:
+          summary: "지급대행 대사 미확인"
+          category: "정산 · 대조"
+          detail: "확인 못 한 지급 {{ $value | printf \"%.0f\" }}건"
+          action: "지급대행 상태 확인 (다음 대사에서 재확인)"
+
+      # ③ 켜진 정산서 발행이 정산 가능일 04:00을 1시간 넘게 지나도록 판매를 담지 않았다(발행 잡 미실행).
+      - alert: SettlementCheckFailed
+        expr: |
+          max by (task) (settlement:jobs_oldest_due_age_seconds:max{task="statement"}) >= 3600
+          and on (task) settlement:job_enabled:max == 1
+        labels:
+          severity: warning
+          application: payment-service
+          reason: statement_overdue
+        annotations:
+          summary: "정산서 발행 지연 1시간 초과"
+          category: "정산 · 발행"
+          detail: "발행 대상 {{ with query \"max(settlement:jobs_due:max{task='statement'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "04:00 발행 잡 실행 기록 확인 (재실행 안전)"
+
+      # ⑤ 발행 뒤 환불 차감이 7일 넘게 상계되지 않았다(다음 매출이 없는 판매자). 상계는 회수 완료가 아니다.
+      - alert: SettlementAging
+        expr: max(settlement:deductions_oldest_age_seconds:max) >= 604800
+        labels:
+          severity: warning
+          application: payment-service
+          reason: receivable
+        annotations:
+          summary: "미회수 차감 7일 초과"
+          category: "정산 · 회수"
+          detail: "미회수 {{ with query \"max(settlement:deductions_open:max) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · {{ with query \"max(settlement:deductions_open_amount_won:max) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}원 · 최장 {{ $value | humanizeDuration }}"
+          action: "판매자별 미회수 조회 후 회수 수단 결정"
+
+      # ④ 보류(HELD) 판매가 3일 넘게 풀리지 않았다. 환불 진행·회차 시각 누락·달력 범위 밖 중 무엇인지 reason으로 본다.
+      - alert: SettlementAging
+        expr: max by (hold_reason) (label_replace(settlement:sales_held_oldest_age_seconds:max, "hold_reason", "$1", "reason", "(.*)")) >= 259200
+        labels:
+          severity: warning
+          application: payment-service
+          reason: held
+        annotations:
+          summary: "정산 보류 3일 초과 · {{ $labels.hold_reason }}"
+          category: "정산 · 보류"
+          detail: "최장 {{ $value | humanizeDuration }}"
+          action: "환불 완료·회차 시각 보정·달력 추가 여부 확인"

@@ -1,0 +1,113 @@
+# 정산 경보가 보는 중복 제거 지표(Task 20-11). 수집 방식은 payment-recording.yml과 같다.
+#
+# Note: payment 인스턴스마다 같은 DB 전체를 집계해 같은 값을 낸다. 스냅샷이 신선한 인스턴스만 남기고(payment:observation_fresh_age_seconds)
+# 같은 분류끼리 max로 하나만 센다. 판매자·지급 ID는 라벨에 없다. 개별 건은 MASTER 운영 조회(/api/admin/settlements)에서 찾는다.
+groups:
+  - name: settlement-recording
+    interval: 15s
+    rules:
+      # 완료 전 지급의 볼 이유별 건수·금액·최장 나이. 나이 기준: READY 계열은 지급 생성, REQUESTED 계열은 최초 요청, FAILED는 실패 확정.
+      - record: settlement:payouts:max
+        expr: |
+          max by (attention) (
+            settlement_db_payouts{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:payouts_amount_won:max
+        expr: |
+          max by (attention) (
+            settlement_db_payouts_amount_won{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:payouts_oldest_age_seconds:max
+        expr: |
+          max by (attention) (
+            settlement_db_payouts_oldest_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:payouts_failed:max
+        expr: |
+          max by (failure_code) (
+            settlement_db_payouts_failed{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 실행 시각이 지났는데 처리하지 않은 정산 작업(statement: 정산 가능일 04:00부터, payout·payout_recovery: next_attempt_at부터).
+      - record: settlement:jobs_due:max
+        expr: |
+          max by (task) (
+            settlement_db_jobs_due{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:jobs_oldest_due_age_seconds:max
+        expr: |
+          max by (task) (
+            settlement_db_jobs_oldest_due_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      # 켜진 정산 역할. 꺼진 역할의 밀림·미실행은 경보하지 않는다.
+      - record: settlement:job_enabled:max
+        expr: max by (task) (settlement_job_enabled{application="payment-service"})
+
+      - record: settlement:sales_unposted:max
+        expr: |
+          max(
+            settlement_db_sales_unposted{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:sales_held:max
+        expr: |
+          max by (reason) (
+            settlement_db_sales_held{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:sales_held_oldest_age_seconds:max
+        expr: |
+          max by (reason) (
+            settlement_db_sales_held_oldest_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:deductions_open:max
+        expr: |
+          max(
+            settlement_db_deductions_open{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:deductions_open_amount_won:max
+        expr: |
+          max(
+            settlement_db_deductions_open_amount_won{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:deductions_oldest_age_seconds:max
+        expr: |
+          max(
+            settlement_db_deductions_oldest_age_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+
+      # 마지막 성공 대조와 그 결과. 실행 기록이 DB에 있어 인스턴스·재시작과 무관하다. 성공한 적이 없으면 0이다.
+      - record: settlement:reconcile_last_success_timestamp_seconds:max
+        expr: |
+          max(
+            settlement_reconcile_last_success_timestamp_seconds{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:reconcile_violations:max
+        expr: |
+          max by (check) (
+            settlement_reconcile_violations{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:reconcile_last_failed:max
+        expr: |
+          max(
+            settlement_reconcile_last_failed{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:reconcile_provider_unreachable:max
+        expr: |
+          max(
+            settlement_reconcile_provider_unreachable{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )

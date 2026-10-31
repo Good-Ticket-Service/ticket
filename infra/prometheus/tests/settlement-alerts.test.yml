@@ -1,0 +1,186 @@
+# 정산 경보 단위 시험(Task 20-11). 실행: promtool test rules infra/prometheus/tests/settlement-alerts.test.yml
+# 스냅샷 성공 시각은 시험 시각과 같이 늘려 항상 신선하게 둔다. 인스턴스 2대가 같은 값을 내도 한 번만 센다.
+rule_files:
+  - ../rules/payment-recording.yml
+  - ../rules/settlement-recording.yml
+  - ../rules/settlement-alerts.yml
+evaluation_interval: 15s
+tests:
+  # ② 결과 불명 15분 CRITICAL. 14분 45초에는 없고 15분에 뜬다.
+  - name: payout-result-unknown-boundary-and-dedup
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x70'
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="b"}'
+        values: '0+15x70'
+      - series: 'settlement_db_payouts_oldest_age_seconds{application="payment-service",instance="a",attention="RESULT_UNKNOWN"}'
+        values: '0+15x70'
+      - series: 'settlement_db_payouts_oldest_age_seconds{application="payment-service",instance="b",attention="RESULT_UNKNOWN"}'
+        values: '0+15x70'
+      - series: 'settlement_db_payouts{application="payment-service",instance="a",attention="RESULT_UNKNOWN"}'
+        values: '2+0x70'
+      - series: 'settlement_db_payouts{application="payment-service",instance="b",attention="RESULT_UNKNOWN"}'
+        values: '2+0x70'
+    promql_expr_test:
+      - expr: sum(settlement:payouts:max)
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 2
+    alert_rule_test:
+      - eval_time: 14m45s
+        alertname: SettlementPayoutStuck
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SettlementPayoutStuck
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service, reason: result_unknown}
+            exp_annotations:
+              summary: "지급 결과 불명 15분 초과"
+              category: "정산 · 지급"
+              detail: "결과 불명 2건 · 최장 15m 0s"
+              action: "새 키 재요청 금지. recovery 실행·지급대행 상태 확인"
+
+  # ① 응답 불일치(inquiry_only)와 ③ 게이트 차단은 1건이라도 바로 CRITICAL. 실패 확정은 WARNING.
+  - name: payout-inquiry-only-gate-and-failed
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x10'
+      - series: 'settlement_db_payouts{application="payment-service",instance="a",attention="INQUIRY_ONLY"}'
+        values: '1+0x10'
+      - series: 'settlement_db_payouts{application="payment-service",instance="a",attention="GATE_BLOCKED"}'
+        values: '3+0x10'
+      - series: 'settlement_db_payouts_failed{application="payment-service",instance="a",failure_code="REJECTED"}'
+        values: '1+0x10'
+      - series: 'settlement_db_payouts_failed{application="payment-service",instance="a",failure_code="REQUEST_INVALID"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementPayoutStuck
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service, reason: inquiry_only}
+            exp_annotations:
+              summary: "지급 응답 불일치"
+              category: "정산 · 지급"
+              detail: "조회 전용 지급 1건"
+              action: "운영 조회 verificationReason과 지급대행 기록 대조 (재요청 금지)"
+          - exp_labels: {severity: critical, application: payment-service, reason: gate_blocked}
+            exp_annotations:
+              summary: "지급 직전 대조 실패"
+              category: "정산 · 지급"
+              detail: "게이트 차단 3건 (READY 유지, 1시간 간격 재시도)"
+              action: "운영 조회 lastError로 불일치 데이터 확인·수정"
+          - exp_labels: {severity: warning, application: payment-service, reason: payout_failed}
+            exp_annotations:
+              summary: "지급 실패 확정"
+              category: "정산 · 지급"
+              detail: "실패 2건 (송금 없음)"
+              action: "반려 사유·요청 오류 수정 후 MASTER retry"
+
+  # 지급 작업 밀림은 켜진 역할만 본다. 꺼진 payout_recovery는 밀려도 경보하지 않는다.
+  - name: payout-job-overdue-only-when-enabled
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x10'
+      - series: 'settlement_job_enabled{application="payment-service",instance="a",task="payout"}'
+        values: '1+0x10'
+      - series: 'settlement_job_enabled{application="payment-service",instance="a",task="payout_recovery"}'
+        values: '0+0x10'
+      - series: 'settlement_db_jobs_oldest_due_age_seconds{application="payment-service",instance="a",task="payout"}'
+        values: '700+0x10'
+      - series: 'settlement_db_jobs_oldest_due_age_seconds{application="payment-service",instance="a",task="payout_recovery"}'
+        values: '700+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementPayoutStuck
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, reason: job_overdue, task: payout}
+            exp_annotations:
+              summary: "payout 작업 지연 10분 초과"
+              category: "정산 · 잡"
+              detail: "최장 11m 40s"
+              action: "스케줄러·DB·지급대행 지연 점검"
+
+  # ③ 대조 위반은 항목마다 CRITICAL. 켜진 대조가 성공한 지 26시간이 넘으면 CRITICAL(성공 기록 없음 포함).
+  - name: reconcile-violations-and-stale
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x10'
+      - series: 'settlement_reconcile_violations{application="payment-service",instance="a",check="SALE_MISSING"}'
+        values: '3+0x10'
+      - series: 'settlement_reconcile_violations{application="payment-service",instance="a",check="LEDGER_UNBALANCED"}'
+        values: '0+0x10'
+      - series: 'settlement_reconcile_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '-100000+0x10'
+      - series: 'settlement_job_enabled{application="payment-service",instance="a",task="reconcile"}'
+        values: '1+0x10'
+      - series: 'settlement_reconcile_last_failed{application="payment-service",instance="a"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementCheckFailed
+        exp_alerts:
+          - exp_labels: {severity: critical, application: payment-service, reason: violation, check: SALE_MISSING}
+            exp_annotations:
+              summary: "정산 대조 위반 · SALE_MISSING"
+              category: "정산 · 대조"
+              detail: "위반 3건"
+              action: "p_settlement_reconcile_results sample·[RECONCILE] 로그로 원인 확인"
+          - exp_labels: {severity: critical, application: payment-service, reason: stale}
+            exp_annotations:
+              summary: "정산 대조 26시간 미성공"
+              category: "정산 · 대조"
+              detail: "마지막 성공 1d 3h 47m 40s 전"
+              action: "대조 실행 기록 error·로그 점검 (위반 0건 표시도 정상 아님)"
+
+  # 대조가 꺼져 있으면 성공 기록이 없어도 stale 경보를 내지 않는다.
+  - name: reconcile-disabled-no-stale
+    interval: 15s
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+15x10'
+      - series: 'settlement_reconcile_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+0x10'
+      - series: 'settlement_job_enabled{application="payment-service",instance="a",task="reconcile"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementCheckFailed
+        exp_alerts: []
+
+  # ⑤ 미회수 7일, ④ 보류 3일. 보류는 사유별로 따로 뜬다.
+  - name: aging-receivable-and-held
+    interval: 1m
+    input_series:
+      - series: 'payment_observation_last_success_timestamp_seconds{application="payment-service",instance="a"}'
+        values: '0+60x10'
+      - series: 'settlement_db_deductions_oldest_age_seconds{application="payment-service",instance="a"}'
+        values: '604800+0x10'
+      - series: 'settlement_db_deductions_open{application="payment-service",instance="a"}'
+        values: '2+0x10'
+      - series: 'settlement_db_deductions_open_amount_won{application="payment-service",instance="a"}'
+        values: '86800+0x10'
+      - series: 'settlement_db_sales_held_oldest_age_seconds{application="payment-service",instance="a",reason="MISSING_SCHEDULE_START"}'
+        values: '259200+0x10'
+      - series: 'settlement_db_sales_held_oldest_age_seconds{application="payment-service",instance="a",reason="REFUND_IN_PROGRESS"}'
+        values: '100+0x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: SettlementAging
+        exp_alerts:
+          - exp_labels: {severity: warning, application: payment-service, reason: receivable}
+            exp_annotations:
+              summary: "미회수 차감 7일 초과"
+              category: "정산 · 회수"
+              detail: "미회수 2건 · 86800원 · 최장 7d 0h 0m 0s"
+              action: "판매자별 미회수 조회 후 회수 수단 결정"
+          - exp_labels: {severity: warning, application: payment-service, reason: held, hold_reason: MISSING_SCHEDULE_START}
+            exp_annotations:
+              summary: "정산 보류 3일 초과 · MISSING_SCHEDULE_START"
+              category: "정산 · 보류"
+              detail: "최장 3d 0h 0m 0s"
+              action: "환불 완료·회차 시각 보정·달력 추가 여부 확인"

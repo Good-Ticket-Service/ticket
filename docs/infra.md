@@ -256,7 +256,7 @@ flowchart LR
 - 결제 운영 대시보드는 `infra/grafana/provisioning/dashboards/`에서 자동 등록한다. 히스토그램·DB 수집 주기는 `backend/config-repo/payment-service.yml`에 있으며 Config Server 재빌드·재배포 후 적용한다.
 - 결제 DB 상태는 별도 관측 스레드에서 15초마다 읽고 scrape는 메모리만 읽는다. 대시보드는 마지막 성공이 45초 이상 지난 값을 제외하며, 같은 DB를 보는 인스턴스의 상태 게이지는 합산하지 않는다.
 - 관측 대상: CPU·메모리·DB 풀·락·HTTP 지연·PG 호출·가장 오래된 Unknown의 나이·미환불 금액. 고도화 후 Outbox·DB 작업 대기·Kafka lag.
-- 경보는 Prometheus 규칙(`infra/prometheus/rules/`) → Alertmanager(`infra/alertmanager/`) → Slack으로 보낸다. 거래마다 보내지 않고 환경·서비스·PG·경보 종류로 묶으며, 같은 위험의 CRITICAL이 WARNING을 억제한다. 임계값은 초기 운영안이고 기준선 측정 뒤 조정한다.
+- 경보는 Prometheus 규칙(`infra/prometheus/rules/`) → Alertmanager(`infra/alertmanager/`) → Slack으로 보낸다. 거래마다 보내지 않고 환경·서비스·PG·경보 종류로 묶으며, 같은 위험의 CRITICAL이 WARNING을 억제한다. 정산 경보(`settlement-*.yml`)는 한 경보 이름 안에서 `reason`·`check` 라벨로 위험을 나누므로 억제도 이 라벨이 같을 때만 한다. 임계값은 초기 운영안이고 기준선 측정 뒤 조정한다.
 - Slack webhook URL은 저장소에 두지 않는다. URL 한 줄짜리 파일을 `infra/alertmanager/secrets/`(Git 비추적)에 두고 `SLACK_WEBHOOK_URL_FILE`로 지정한다. 지정하지 않으면 모의 수신기 `alert-mock`(127.0.0.1:9094, `GET /messages`)으로 보낸다.
 - 알림 전송 실패는 금융 처리에 영향을 주지 않는다. 실패는 `alertmanager_notifications_failed_total`과 `AlertmanagerNotificationsFailing` 경보로 따로 본다.
 - k6는 VPC 안에서 Gateway E2E 모드와 서비스 직접 호출 모드를 구분한다. SSM 터널·노트북 네트워크를 부하 경로에 넣지 않는다.
