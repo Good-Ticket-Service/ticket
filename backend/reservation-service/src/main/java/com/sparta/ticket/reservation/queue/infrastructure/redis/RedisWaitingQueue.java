@@ -72,14 +72,16 @@ public class RedisWaitingQueue implements WaitingQueue {
         execute(LEAVE_SCRIPT, keys, String.valueOf(userId));
     }
 
-    /** 정리·인원 계산·꺼내기·입장 등록을 Lua 하나로 처리한다. 순서와 이유는 admit.lua 주석에 있다. */
+    /** 정리·인원 계산·꺼내기·입장 등록·닫기를 Lua 하나로 처리한다. 순서와 이유는 admit.lua 주석에 있다. */
     @Override
     public AdmissionResult admit(long performanceId, AdmissionPolicy policy) {
         List<String> keys = List.of(
                 QueueKeys.waiting(performanceId),
                 QueueKeys.seen(performanceId),
                 QueueKeys.active(performanceId),
-                QueueKeys.lastAdmit(performanceId));
+                QueueKeys.lastAdmit(performanceId),
+                QueueKeys.seq(performanceId),
+                QueueKeys.PERFORMANCES);
         List<?> result = execute(
                 ADMIT_SCRIPT,
                 keys,
@@ -88,8 +90,9 @@ public class RedisWaitingQueue implements WaitingQueue {
                 String.valueOf(policy.maxActive()),
                 String.valueOf(policy.entryTtl().toMillis()),
                 String.valueOf(policy.leaveAfter().toMillis()),
-                String.valueOf(policy.leaveBatchSize()));
-        return new AdmissionResult(number(result, 0), number(result, 1), number(result, 2));
+                String.valueOf(policy.leaveBatchSize()),
+                String.valueOf(performanceId));
+        return new AdmissionResult(number(result, 0), number(result, 1), number(result, 2), number(result, 3) == 1);
     }
 
     private static long number(List<?> values, int index) {

@@ -3,9 +3,11 @@
 -- KEYS[2] 마지막 조회 시각(Sorted Set, score = 시각 ms)
 -- KEYS[3] 입장 목록(Sorted Set, score = 입장 만료 시각 ms)
 -- KEYS[4] 마지막 입장 시각(ms). 토큰 버킷의 기준점이다
+-- KEYS[5] 번호 발급 카운터
+-- KEYS[6] 대기열이 있는 공연 목록(Set)
 -- ARGV[1] 초당 입장 인원, ARGV[2] 한 번에 쌓아 둘 수 있는 입장 시간(ms), ARGV[3] 입장 인원 상한, ARGV[4] 입장 유효 시간(ms)
--- ARGV[5] 이탈 기준(ms), ARGV[6] 한 번에 정리할 이탈자 수
--- 반환: { 입장 인원, 만료로 빠진 입장자 수, 이탈로 빠진 대기자 수 }
+-- ARGV[5] 이탈 기준(ms), ARGV[6] 한 번에 정리할 이탈자 수, ARGV[7] 공연 ID
+-- 반환: { 입장 인원, 만료로 빠진 입장자 수, 이탈로 빠진 대기자 수, 대기열을 닫았으면 1 }
 -- 꺼내기와 입장 등록을 한 스크립트에서 하므로 그 사이에 장애가 나도 회원이 사라지지 않고, 서버가 여러 대여도 같은 공연을 겹쳐 처리하지 않는다
 local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
@@ -56,4 +58,13 @@ if count > 0 then
 end
 redis.call('SET', KEYS[4], string.format('%.3f', last))
 
-return { admitted, expired, #stale + leftAtFront }
+-- 5. 대기자도 입장자도 없으면 대기열을 닫는다. 키를 모두 지우므로 다시 열리면 번호가 1부터 시작한다.
+-- 입장자가 남아 있으면 닫지 않는다. 만료 정리와 상한 계산을 계속해야 하기 때문이다
+local closed = 0
+if redis.call('ZCARD', KEYS[1]) == 0 and redis.call('ZCARD', KEYS[3]) == 0 then
+    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5])
+    redis.call('SREM', KEYS[6], ARGV[7])
+    closed = 1
+end
+
+return { admitted, expired, #stale + leftAtFront, closed }
