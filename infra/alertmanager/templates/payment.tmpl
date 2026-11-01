@@ -16,8 +16,9 @@
 {{ if eq .Status "firing" }}[경보 {{ .Alerts.Firing | len }}건]{{ else }}[해제]{{ end }} {{ with .CommonAnnotations.category }}{{ . }}{{ else }}{{ .CommonLabels.alertname }}{{ end }} ({{ .CommonLabels.environment }})
 {{- end }}
 
+{{/* 한 묶음에 CRITICAL과 WARNING이 섞이면 공통 심각도가 없다. 울리는 경보 중 CRITICAL이 하나라도 있으면 빨강으로 보낸다 */}}
 {{ define "payment.slack.color" -}}
-{{ if eq .Status "resolved" }}good{{ else if eq .CommonLabels.severity "critical" }}danger{{ else }}warning{{ end }}
+{{ if eq .Status "resolved" }}good{{ else }}{{ $color := "warning" }}{{ range .Alerts.Firing }}{{ if eq .Labels.severity "critical" }}{{ $color = "danger" }}{{ end }}{{ end }}{{ $color }}{{ end }}
 {{- end }}
 
 {{ define "payment.slack.alert" -}}
