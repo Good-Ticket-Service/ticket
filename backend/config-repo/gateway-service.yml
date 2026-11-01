@@ -20,7 +20,10 @@ spring:
               uri: lb://performance-service
               predicates:
                 # Note: 회차 단건은 한 단계 경로만 받는다. /api/schedules/{id}/queue(대기열)는 reservation-service 경로라 ** 로 넓히지 않는다.
-                - Path=/api/performances/**, /api/schedules/{scheduleId}
+                # 판매자·관리자는 리소스별로 나열한다. /api/seller/**·/api/admin/** 로 넓히면 아래 payment-service의
+                # /api/seller/settlements/**·/api/admin/payments/** 까지 여기서 먼저 잡힌다(이슈 #134). 아직 없는 venues 조회·관리자 공연 조회도 명세 경로라 넣어 둔다.
+                # 이 경로들은 인증 예외가 아니다. Gateway는 로그인만 확인하고 역할은 공연 서비스가 확인한다(Gateway 역할 검사는 이슈 #236에서 결정).
+                - Path=/api/performances/**, /api/schedules/{scheduleId}, /api/seller/performances/**, /api/seller/schedules/**, /api/seller/venues/**, /api/admin/venues/**, /api/admin/schedules/**, /api/admin/performances/**
             - id: reservation-service
               uri: lb://reservation-service
               predicates:
