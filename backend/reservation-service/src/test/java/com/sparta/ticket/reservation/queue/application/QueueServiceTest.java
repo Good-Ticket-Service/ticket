@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
 import com.sparta.ticket.reservation.queue.application.dto.QueueStatusResult;
+import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
+import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
 import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.QueueStatus;
@@ -48,6 +50,11 @@ class QueueServiceTest {
         @Override
         public void leave(long performanceId, long userId) {
             calls.incrementAndGet();
+        }
+
+        @Override
+        public AdmissionResult admit(long performanceId, AdmissionPolicy policy) {
+            throw new UnsupportedOperationException("순번 서비스는 입장 처리를 부르지 않는다");
         }
     }
 

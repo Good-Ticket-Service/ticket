@@ -2,6 +2,8 @@ package com.sparta.ticket.reservation.queue.infrastructure.redis;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
+import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import java.util.List;
@@ -25,9 +27,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class RedisWaitingQueue implements WaitingQueue {
 
-    private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua");
-    private static final RedisScript<Long> POSITION_SCRIPT = loadScript("queue/position.lua");
-    private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua");
+    private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua", Long.class);
+    private static final RedisScript<Long> POSITION_SCRIPT = loadScript("queue/position.lua", Long.class);
+    private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua", Long.class);
+
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> ADMIT_SCRIPT = loadScript("queue/admit.lua", List.class);
 
     /** position.lua가 줄에 없을 때 돌려주는 값. */
     private static final long NOT_IN_QUEUE = -1;
@@ -67,6 +72,28 @@ public class RedisWaitingQueue implements WaitingQueue {
         execute(LEAVE_SCRIPT, keys, String.valueOf(userId));
     }
 
+    /** 정리·인원 계산·꺼내기·입장 등록을 Lua 하나로 처리한다. 순서와 이유는 admit.lua 주석에 있다. */
+    @Override
+    public AdmissionResult admit(long performanceId, AdmissionPolicy policy) {
+        List<String> keys = List.of(
+                QueueKeys.waiting(performanceId),
+                QueueKeys.seen(performanceId),
+                QueueKeys.active(performanceId),
+                QueueKeys.lastAdmit(performanceId));
+        List<?> result = execute(
+                ADMIT_SCRIPT,
+                keys,
+                String.valueOf(policy.admitPerSecond()),
+                String.valueOf(policy.burst().toMillis()),
+                String.valueOf(policy.maxActive()),
+                String.valueOf(policy.entryTtl().toMillis()));
+        return new AdmissionResult(number(result, 0), number(result, 1));
+    }
+
+    private static long number(List<?> values, int index) {
+        return ((Number) values.get(index)).longValue();
+    }
+
     /** Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503으로 거절한다(fail-closed). 통과시키면 막으려던 요청이 예매 서버로 몰린다. */
     private <T> T execute(RedisScript<T> script, List<String> keys, String... args) {
         try {
@@ -76,10 +103,10 @@ public class RedisWaitingQueue implements WaitingQueue {
         }
     }
 
-    private static RedisScript<Long> loadScript(String path) {
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+    private static <T> RedisScript<T> loadScript(String path, Class<T> resultType) {
+        DefaultRedisScript<T> script = new DefaultRedisScript<>();
         script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
-        script.setResultType(Long.class);
+        script.setResultType(resultType);
         return script;
     }
 }

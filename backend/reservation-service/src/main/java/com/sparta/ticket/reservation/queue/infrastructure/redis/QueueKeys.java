@@ -22,4 +22,14 @@ final class QueueKeys {
     static String seen(long performanceId) {
         return "queue:performance:" + performanceId + ":seen";
     }
+
+    /** 입장 목록(Sorted Set). member는 회원 ID, score는 입장 만료 시각(ms)이다. 입장 인원 상한을 이 크기로 센다. */
+    static String active(long performanceId) {
+        return "queue:performance:" + performanceId + ":active";
+    }
+
+    /** 마지막 입장 시각(ms). 초당 입장 인원을 지키는 토큰 버킷의 기준점이다. */
+    static String lastAdmit(long performanceId) {
+        return "queue:performance:" + performanceId + ":last-admit";
+    }
 }
