@@ -281,6 +281,48 @@ class GatewaySecurityTest {
                 .isEqualTo("USER");
     }
 
+    /**
+     * 공연 판매자·관리자 경로는 인증 예외가 아니다. Gateway는 로그인만 확인하고 역할(SELLER·MASTER)은 공연 서비스가 확인한다(이슈 #134).
+     * Note: Gateway에서도 역할을 막을지는 이슈 #236에서 팀이 정한다. 정해지면 이 테스트의 USER 통과 기대를 바꾼다.
+     */
+    @Test
+    @DisplayName("공연 판매자·관리자 경로는 토큰이 없으면 401이고, 토큰이 있으면 역할과 관계없이 검증된 헤더를 붙여 넘긴다")
+    void performanceSellerAndAdminRequireLoginOnly() throws Exception {
+        String[] paths = {
+            "/api/seller/performances",
+            "/api/seller/performances/1/publication",
+            "/api/seller/schedules/1",
+            "/api/seller/venues/1",
+            "/api/admin/venues",
+            "/api/admin/venues/1/seats",
+            "/api/admin/schedules/1/sales-suspension",
+            "/api/admin/performances/1"
+        };
+        given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
+        for (String path : paths) {
+            client.get()
+                    .uri(path)
+                    .exchange()
+                    .expectStatus()
+                    .isUnauthorized()
+                    .expectBody()
+                    .jsonPath("$.code")
+                    .isEqualTo("UNAUTHORIZED");
+            client.get()
+                    .uri(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                    .header(UserHeaders.ROLE, "MASTER")
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody()
+                    .jsonPath("$['X-User-Id']")
+                    .isEqualTo("1")
+                    .jsonPath("$['X-User-Role']")
+                    .isEqualTo("USER");
+        }
+    }
+
     @Test
     @DisplayName("토큰이 없으면 401 UNAUTHORIZED (공통 에러 형식)")
     void missingToken() {
