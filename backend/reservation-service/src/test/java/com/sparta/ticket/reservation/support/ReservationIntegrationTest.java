@@ -44,6 +44,11 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.booking.payment-guard.half-open-max-wait=1m",
             "reservation.queue.enabled=true",
             "reservation.queue.admit-per-second=10",
+            "reservation.queue.admission.max-active=1000",
+            "reservation.queue.admission.burst=2s",
+            "reservation.queue.admission.leave-after=2m",
+            "reservation.queue.admission.entry-ttl=10m",
+            "reservation.queue.admission.leave-batch-size=1000",
             "spring.jpa.open-in-view=false"
         })
 public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {

@@ -8,6 +8,8 @@ import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -70,6 +72,18 @@ public class RedisWaitingQueue implements WaitingQueue {
     public void leave(long performanceId, long userId) {
         List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
         execute(LEAVE_SCRIPT, keys, String.valueOf(userId));
+    }
+
+    @Override
+    public Set<Long> performances() {
+        try {
+            Set<String> members = redis.opsForSet().members(QueueKeys.PERFORMANCES);
+            return members == null
+                    ? Set.of()
+                    : members.stream().map(Long::valueOf).collect(Collectors.toUnmodifiableSet());
+        } catch (DataAccessException e) {
+            throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE);
+        }
     }
 
     /** 정리·인원 계산·꺼내기·입장 등록·닫기를 Lua 하나로 처리한다. 순서와 이유는 admit.lua 주석에 있다. */
