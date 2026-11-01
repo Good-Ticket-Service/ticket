@@ -145,6 +145,43 @@ class RedisAdmissionIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("대기자도 입장자도 없으면 대기열을 닫고 키를 지우며, 다시 열리면 번호가 1부터 시작한다")
+    void closesEmptyQueue() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        redis.opsForZSet().add(QueueKeys.seen(performanceId), "7", 0);
+
+        AdmissionResult result = waitingQueue.admit(performanceId, policy(10, 1000));
+
+        assertThat(result.closed()).isTrue();
+        assertThat(isOpen(performanceId)).isFalse();
+        assertThat(redis.hasKey(QueueKeys.seq(performanceId))).isFalse();
+        assertThat(redis.hasKey(QueueKeys.lastAdmit(performanceId))).isFalse();
+
+        waitingQueue.enter(performanceId, 8L);
+
+        assertThat(redis.opsForValue().get(QueueKeys.seq(performanceId))).isEqualTo("1");
+        assertThat(isOpen(performanceId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("입장자가 남아 있으면 줄이 비어도 대기열을 닫지 않는다")
+    void keepsQueueWhileEntriesRemain() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+
+        AdmissionResult result = waitingQueue.admit(performanceId, policy(10, 1000));
+
+        assertThat(result.admitted()).isEqualTo(1);
+        assertThat(result.closed()).isFalse();
+        assertThat(isOpen(performanceId)).isTrue();
+    }
+
+    private boolean isOpen(long performanceId) {
+        return Boolean.TRUE.equals(redis.opsForSet().isMember(QueueKeys.PERFORMANCES, String.valueOf(performanceId)));
+    }
+
+    @Test
     @DisplayName("입장 처리가 동시에 여러 번 돌아도 초당 입장 인원을 넘지 않는다")
     void concurrentAdmissionsRespectRate() throws Exception {
         long performanceId = newPerformanceId();

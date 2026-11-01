@@ -20,6 +20,9 @@ public interface WaitingQueue {
     /** 줄에서 빠진다. 줄에 없어도 오류가 아니다(여러 번 불러도 결과가 같다). 뒤에 선 회원의 순번이 그만큼 당겨진다. */
     void leave(long performanceId, long userId);
 
-    /** 공연 하나의 입장을 처리한다. 만료된 입장자와 떠난 대기자를 빼고, 규칙이 허락하는 만큼 줄 앞에서 입장시킨다. */
+    /**
+     * 공연 하나의 입장을 처리한다. 만료된 입장자와 떠난 대기자를 빼고, 규칙이 허락하는 만큼 줄 앞에서 입장시킨다.
+     * 대기자도 입장자도 없으면 대기열을 닫고 그 공연의 키를 지운다.
+     */
     AdmissionResult admit(long performanceId, AdmissionPolicy policy);
 }
