@@ -37,7 +37,14 @@ import org.springframework.test.context.TestPropertySource;
             "payment.recovery.refund.enabled=false",
             "payment.observation.enabled=false",
             // 운영 기본값은 OFF지만, 모든 결제 통합 시험이 정산 포착을 켠 상태로 돌아 회귀 관문이 되게 한다.
-            "payment.settlement.capture-enabled=true"
+            "payment.settlement.capture-enabled=true",
+            // 운영 기본값은 정산 잡을 모두 켠다. 시험에서는 스케줄러가 공유 DB의 정산서·지급을 건드리지 않도록 끄고,
+            // 각 시험이 잡·트랜잭션을 직접 부른다.
+            "payment.settlement.backfill.enabled=false",
+            "payment.settlement.statement.enabled=false",
+            "payment.settlement.payout.enabled=false",
+            "payment.settlement.payout.recovery.enabled=false",
+            "payment.settlement.reconcile.enabled=false"
         })
 public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
