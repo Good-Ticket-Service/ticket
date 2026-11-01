@@ -15,21 +15,30 @@ spring:
 # 요율은 팀 합의 전 시험용 제안이다(profit-policy.md). 값이 틀리면 기동하지 않는다.
 payment:
   settlement:
-    # 결제 승인 때 정산 항목·판매 분개 포착. 환불 반영(Task 20-4)까지 검증한 뒤 함께 켠다. 끄면 포착이 빠진 결제는 보충 잡이 메운다.
-    capture-enabled: false
+    # 결제 승인 때 정산 항목·판매 분개 포착. 끄면 포착이 빠진 결제는 보충 잡이 메운다(긴급 우회용).
+    # Task 20-12 장애 정합성·성능 시험을 마친 뒤 정산 스위치를 모두 켰다(2026-11-01).
+    capture-enabled: true
     # 포착이 빠진 결제와 계산 실패(UNPOSTED) SALE을 10분마다 메운다. 포착 스위치와 따로 켜고 끈다. 환불 반영은 스위치 없이 항상 동작한다.
     backfill:
-      enabled: false
+      enabled: true
       fixed-delay-ms: 600000
       batch-size: 100
       max-per-run: 1000
-    # 매일 KST 04:00 판매자·회차별 정산서 발행. 환불 반영·보충을 검증한 뒤 켠다. 발행해도 지급 실행은 따로 켠다.
+    # 매일 KST 04:00 판매자·회차별 정산서 발행. 지급 실행은 따로 켜고 끈다.
     statement:
-      enabled: false
+      enabled: true
       cron: "0 0 4 * * *"
       batch-size: 100
       # 발행 한 건이 행 잠금을 기다리는 최대 시간. 넘으면 그 건만 실패하고 다음 실행이 다시 찾는다
       lock-timeout-ms: 5000
+    # 판매자 지급(모의 PG 지급대행). enabled=false는 새 지급 요청·같은 키 재전송만 막는 긴급 차단이고, 이미 보낸 지급의 결과 조회(recovery)는 따로 켠다.
+    payout:
+      enabled: true
+      recovery:
+        enabled: true
+    # 매일 KST 03:00 정산 전체 대조(읽기 전용). 기동 1분 뒤에도 1회 돈다.
+    reconcile:
+      enabled: true
     policies:
       - version: "2026-10-30-v1"
         effective-from: "2026-01-01T00:00:00"
