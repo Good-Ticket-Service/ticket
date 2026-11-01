@@ -28,6 +28,10 @@
 //   hot  인기석 경합: VU마다 다른 회원이 "같은 좌석"을 한 번씩 동시에 선점한다.
 //        정답은 201(선점 성공) 정확히 1건, 나머지는 모두 409 SEAT_ALREADY_TAKEN이다.
 //   loop 조회 → 선점 → 해제 반복: 정해진 시간 동안 VU마다 비어 있는 좌석을 골라 선점하고 바로 해제한다.
+//        매 반복 좌석 조회를 부르므로 조회 비용과 같은 좌석을 노리는 경합이 함께 섞인다.
+//   spread 서로 다른 좌석 처리량: 1,000석 부하용 회차(900, #173)에서 VU마다 "자기 좌석" 하나를 정해 선점 → 해제를 반복한다.
+//        VU 수가 좌석 수(996석) 이하면 서로 겹치지 않아, 경합 없이 선점·해제 자체의 처리량과 응답 시간을 잰다.
+//        좌석 조회는 setup에서 한 번만 한다(조회 응답이 1,000석이라 크다. 조회 비용은 loop로 따로 본다).
 //        해제로 좌석이 다시 비므로 좌석 수가 적어도(회차당 40석) 부하를 계속 줄 수 있다.
 //   두 시나리오 모두 좌석·예약 상태를 바꾼다. 실행 전마다 reservation-service를 재시작해 처음 상태로 돌린다
 //   (local은 기동할 때마다 테이블을 새로 만들고 시드를 다시 넣는다).
@@ -35,11 +39,11 @@
 // [실행] script/seat-load/README.md를 본다.
 //
 // [환경 변수] k6 실행 때 -e 이름=값 으로 넘긴다. 모두 기본값이 있다
-//   SCENARIO         hot | loop                                       (기본 hot)
+//   SCENARIO         hot | loop | spread                              (기본 hot)
 //   RESERVATION_URL  reservation-service 주소                          (기본 http://reservation-service:8083)
-//   SCHEDULE_ID      대상 회차                                         (기본 hot=1, loop=2)
-//   VUS              동시에 움직이는 가상 사용자 수                     (기본 hot=100, loop=50)
-//   DURATION         loop를 돌리는 시간                                (기본 1m)
+//   SCHEDULE_ID      대상 회차                                         (기본 hot=1, loop=2, spread=900)
+//   VUS              동시에 움직이는 가상 사용자 수                     (기본 hot=100, loop=50, spread=500)
+//   DURATION         loop·spread를 돌리는 시간                          (기본 1m)
 //   USER_ID_BASE     가상 회원 ID 시작값. VU 번호를 더해 회원 ID를 만든다 (기본 10000)
 // =====================================================================================================
 
@@ -54,9 +58,14 @@ import { Counter } from 'k6/metrics';
 const SCENARIO = __ENV.SCENARIO || 'hot';
 // compose 네트워크 안에서는 서비스 이름(reservation-service)이 곧 호스트 이름이다
 const BASE = __ENV.RESERVATION_URL || 'http://reservation-service:8083';
-// local 시드(#124)에서 판매 중인 회차는 1~3이다. 두 시나리오가 서로의 좌석을 건드리지 않게 회차를 나눈다
-const SCHEDULE_ID = Number(__ENV.SCHEDULE_ID || (SCENARIO === 'hot' ? 1 : 2));
-const VUS = Number(__ENV.VUS || (SCENARIO === 'hot' ? 100 : 50));
+// local 시드(#124)에서 판매 중인 회차는 1~3이고, 부하용 시드(#173)의 1,000석 회차는 900이다.
+// 시나리오끼리 서로의 좌석을 건드리지 않게 회차를 나눈다
+const DEFAULT_SCHEDULE = { hot: 1, loop: 2, spread: 900 };
+const DEFAULT_VUS = { hot: 100, loop: 50, spread: 500 };
+const SCHEDULE_ID = Number(__ENV.SCHEDULE_ID || DEFAULT_SCHEDULE[SCENARIO] || 1);
+const VUS = Number(__ENV.VUS || DEFAULT_VUS[SCENARIO] || 100);
+// 부하용 회차 900의 판매 가능 좌석 수(1,000석 - 판매 제외 4석, #173 시드). spread의 VU 수가 이보다 많으면 좌석을 나눠 쓴다
+const LOAD_SCHEDULE_SELLABLE_SEATS = 996;
 // 좌석은 회원·회차당 1장만 잡을 수 있다(1인 1장). VU마다 다른 회원 ID를 써야 제한에 걸리지 않는다.
 // 다른 시험 데이터의 회원 ID와 겹치지 않도록 큰 수에서 시작한다
 const USER_ID_BASE = Number(__ENV.USER_ID_BASE || 10000);
@@ -106,11 +115,18 @@ const scenarios = {
     duration: __ENV.DURATION || '1m',
     exec: 'holdAndRelease',
   },
+  spread: {
+    // loop와 같이 VU 수를 유지하며 duration 동안 반복한다. 다른 점은 VU마다 정해진 자기 좌석만 쓴다는 것이다
+    executor: 'constant-vus',
+    vus: VUS,
+    duration: __ENV.DURATION || '1m',
+    exec: 'spreadHoldAndRelease',
+  },
 };
 
 if (!scenarios[SCENARIO]) {
   // 초기화 단계에서 예외를 던지면 k6가 시험을 시작하지 않고 바로 끝난다
-  throw new Error(`SCENARIO는 hot 또는 loop다: ${SCENARIO}`);
+  throw new Error(`SCENARIO는 hot, loop, spread 중 하나다: ${SCENARIO}`);
 }
 
 // -----------------------------------------------------------------------------------------------------
@@ -137,6 +153,10 @@ if (SCENARIO === 'hot') {
   thresholds.seat_purchase_limit_exceeded = ['count==0'];
   // 해제가 실제로 한 번 이상 성공했어야 시험이 의미 있다(전부 409로 끝나면 해제 경로를 못 잰 것)
   thresholds['seat_release_outcome{outcome:204}'] = ['count>0'];
+  if (SCENARIO === 'spread' && VUS <= LOAD_SCHEDULE_SELLABLE_SEATS) {
+    // VU마다 다른 좌석을 쓰므로 VU 수가 판매 가능 좌석 수 이하면 경합이 없다. 409가 나오면 좌석 배정이 겹친 것이다
+    thresholds['seat_hold_outcome{outcome:409:SEAT_ALREADY_TAKEN}'] = ['count==0'];
+  }
 }
 
 // options는 k6가 읽는 시험 설정이다. export해야 k6가 찾는다
@@ -204,6 +224,18 @@ function hold(scheduleSeatId) {
   return res;
 }
 
+// 선점을 해제하고 결과를 집계한다. 선점 응답의 reservationId로 부른다. 해제해야 같은 회원(VU)이 다음 반복에서 다시 선점할 수 있다
+function release(reservationId) {
+  const res = http.del(
+    `${BASE}/api/seats/schedules/${SCHEDULE_ID}/holds/${reservationId}`,
+    // DELETE는 본문이 없다
+    null,
+    Object.assign(userHeaders(), { tags: { name: 'release' } }),
+  );
+  releaseOutcome.add(1, { outcome: outcomeOf(res) });
+  check(res, { 'release 204': (r) => r.status === 204 });
+}
+
 // -----------------------------------------------------------------------------------------------------
 // setup: 시험 전체에서 한 번만 실행된다. 돌려준 값은 모든 VU 함수에 data 인자로 복사돼 전달된다
 // -----------------------------------------------------------------------------------------------------
@@ -214,8 +246,9 @@ export function setup() {
     // fail()은 지금 실행을 중단한다. setup에서 부르면 시험 전체가 시작되지 않는다
     fail(`회차 ${SCHEDULE_ID}에 선택 가능한 좌석이 없다. reservation-service를 재시작해 시드를 다시 넣는다`);
   }
-  // hot 시나리오에서 모든 VU가 노릴 좌석. 선택 가능한 첫 좌석을 쓴다
-  return { hotSeatId: seatIds[0] };
+  // hotSeatId: hot 시나리오에서 모든 VU가 노릴 좌석(선택 가능한 첫 좌석)
+  // seatIds: spread 시나리오에서 VU마다 하나씩 나눠 줄 좌석 목록
+  return { hotSeatId: seatIds[0], seatIds };
 }
 
 // -----------------------------------------------------------------------------------------------------
@@ -242,13 +275,15 @@ export function holdAndRelease() {
   if (res.status !== 201) return;
 
   // 3. 잡은 좌석을 바로 해제한다. 선점 응답의 reservationId로 부른다. 해제해야 같은 회원(VU)이 다음 반복에서 다시 선점할 수 있다
-  const reservationId = res.json('data.reservationId');
-  const release = http.del(
-    `${BASE}/api/seats/schedules/${SCHEDULE_ID}/holds/${reservationId}`,
-    // DELETE는 본문이 없다
-    null,
-    Object.assign(userHeaders(), { tags: { name: 'release' } }),
-  );
-  releaseOutcome.add(1, { outcome: outcomeOf(release) });
-  check(release, { 'release 204': (r) => r.status === 204 });
+  release(res.json('data.reservationId'));
+}
+
+// 서로 다른 좌석 처리량: VU마다 setup이 준 좌석 목록에서 자기 좌석 하나를 정해 선점 → 해제를 반복한다.
+// __VU는 1부터라 (__VU - 1)번째 좌석을 쓴다. VU 수가 좌석 수보다 많으면 나머지 연산으로 좌석을 나눠 쓰고, 그때는 409가 섞인다
+export function spreadHoldAndRelease(data) {
+  const seatId = data.seatIds[(__VU - 1) % data.seatIds.length];
+  const res = hold(seatId);
+  check(res, { 'hold 201 or 409': (r) => r.status === 201 || r.status === 409 });
+  if (res.status !== 201) return;
+  release(res.json('data.reservationId'));
 }
