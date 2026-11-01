@@ -86,8 +86,10 @@ public class RedisWaitingQueue implements WaitingQueue {
                 String.valueOf(policy.admitPerSecond()),
                 String.valueOf(policy.burst().toMillis()),
                 String.valueOf(policy.maxActive()),
-                String.valueOf(policy.entryTtl().toMillis()));
-        return new AdmissionResult(number(result, 0), number(result, 1));
+                String.valueOf(policy.entryTtl().toMillis()),
+                String.valueOf(policy.leaveAfter().toMillis()),
+                String.valueOf(policy.leaveBatchSize()));
+        return new AdmissionResult(number(result, 0), number(result, 1), number(result, 2));
     }
 
     private static long number(List<?> values, int index) {

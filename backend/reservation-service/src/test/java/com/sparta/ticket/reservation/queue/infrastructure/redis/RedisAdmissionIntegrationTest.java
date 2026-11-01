@@ -39,7 +39,8 @@ class RedisAdmissionIntegrationTest extends ReservationIntegrationTest {
 
     /** 초당 입장 인원과 상한만 바꾸고 나머지는 운영 임시값과 같게 둔다. */
     private static AdmissionPolicy policy(int admitPerSecond, int maxActive) {
-        return new AdmissionPolicy(admitPerSecond, Duration.ofSeconds(1), maxActive, Duration.ofMinutes(10));
+        return new AdmissionPolicy(
+                admitPerSecond, Duration.ofSeconds(1), maxActive, Duration.ofMinutes(2), Duration.ofMinutes(10), 1000);
     }
 
     private void enterAll(long performanceId, int count) {
@@ -105,6 +106,42 @@ class RedisAdmissionIntegrationTest extends ReservationIntegrationTest {
         assertThat(result.admitted()).isEqualTo(1);
         assertThat(redis.opsForZSet().range(QueueKeys.active(performanceId), 0, -1))
                 .containsExactlyInAnyOrder("2", "3");
+    }
+
+    @Test
+    @DisplayName("조회가 이탈 기준보다 오래 끊긴 대기자는 입장시키지 않고 줄에서 뺀다")
+    void removesLeaversBeforeAdmitting() {
+        long performanceId = newPerformanceId();
+        enterAll(performanceId, 3);
+        redis.opsForZSet().add(QueueKeys.seen(performanceId), "1", 0);
+
+        AdmissionResult result = waitingQueue.admit(performanceId, policy(100, 1000));
+
+        assertThat(result.left()).isEqualTo(1);
+        assertThat(result.admitted()).isEqualTo(2);
+        assertThat(redis.opsForZSet().range(QueueKeys.active(performanceId), 0, -1))
+                .containsExactlyInAnyOrder("2", "3");
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "1")).isNull();
+    }
+
+    @Test
+    @DisplayName("한 번에 정리하지 못한 이탈자가 줄 앞에 남아 있어도 입장시키지 않고 뺀다")
+    void skipsLeaversLeftAtFront() {
+        long performanceId = newPerformanceId();
+        enterAll(performanceId, 3);
+        redis.opsForZSet().add(QueueKeys.seen(performanceId), "1", 0);
+        redis.opsForZSet().add(QueueKeys.seen(performanceId), "2", 1);
+        // 한 번에 1명만 정리하므로 1번만 미리 빠지고, 2번은 줄 앞에 남은 채로 꺼내진다
+        AdmissionPolicy onePerCleanup =
+                new AdmissionPolicy(100, Duration.ofSeconds(1), 1000, Duration.ofMinutes(2), Duration.ofMinutes(10), 1);
+
+        AdmissionResult result = waitingQueue.admit(performanceId, onePerCleanup);
+
+        assertThat(result.left()).isEqualTo(2);
+        assertThat(result.admitted()).isEqualTo(1);
+        assertThat(redis.opsForZSet().range(QueueKeys.active(performanceId), 0, -1))
+                .containsExactly("3");
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "2")).isNull();
     }
 
     @Test
