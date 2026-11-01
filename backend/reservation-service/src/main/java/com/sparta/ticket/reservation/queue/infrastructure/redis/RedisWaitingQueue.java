@@ -40,8 +40,11 @@ public class RedisWaitingQueue implements WaitingQueue {
 
     @Override
     public QueuePosition enter(long performanceId, long userId) {
-        List<String> keys =
-                List.of(QueueKeys.waiting(performanceId), QueueKeys.seq(performanceId), QueueKeys.PERFORMANCES);
+        List<String> keys = List.of(
+                QueueKeys.waiting(performanceId),
+                QueueKeys.seq(performanceId),
+                QueueKeys.PERFORMANCES,
+                QueueKeys.seen(performanceId));
         Long rank = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(performanceId));
         return new QueuePosition(rank);
     }

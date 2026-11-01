@@ -77,6 +77,33 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("줄을 서면 마지막 조회 시각도 Redis 시각으로 남는다")
+    void enterRecordsSeen() {
+        long performanceId = newPerformanceId();
+        long before = redis.execute(
+                (RedisCallback<Long>) connection -> connection.serverCommands().time());
+
+        waitingQueue.enter(performanceId, 7L);
+
+        Double seen = redis.opsForZSet().score(QueueKeys.seen(performanceId), "7");
+        assertThat(seen).isNotNull();
+        assertThat(seen.longValue()).isGreaterThanOrEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("이미 줄에 있는 회원이 다시 진입하면 순번은 그대로이고 마지막 조회 시각만 갱신된다")
+    void reenterRefreshesSeen() {
+        long performanceId = newPerformanceId();
+        waitingQueue.enter(performanceId, 7L);
+        redis.opsForZSet().add(QueueKeys.seen(performanceId), "7", 0);
+
+        waitingQueue.enter(performanceId, 7L);
+
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "7")).isGreaterThan(0);
+        assertThat(redis.opsForValue().get(QueueKeys.seq(performanceId))).isEqualTo("1");
+    }
+
+    @Test
     @DisplayName("순번을 조회하면 지금 위치를 돌려주고, 앞사람이 빠지면 순번이 줄어든다")
     void findPosition() {
         long performanceId = newPerformanceId();
