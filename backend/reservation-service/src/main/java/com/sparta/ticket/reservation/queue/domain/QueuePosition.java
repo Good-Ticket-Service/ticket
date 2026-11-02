@@ -5,7 +5,7 @@ package com.sparta.ticket.reservation.queue.domain;
  *
  * @param aheadCount 내 앞에 선 인원. 맨 앞이면 0이다
  */
-public record QueuePosition(long aheadCount) {
+public record QueuePosition(long aheadCount) implements QueueState {
 
     /** 1부터 세는 내 순번. */
     public long position() {

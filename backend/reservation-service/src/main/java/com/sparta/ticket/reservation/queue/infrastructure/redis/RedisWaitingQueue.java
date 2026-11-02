@@ -4,8 +4,11 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
+import com.sparta.ticket.reservation.queue.domain.QueueAdmission;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
+import com.sparta.ticket.reservation.queue.domain.QueueState;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -30,14 +33,18 @@ import org.springframework.stereotype.Component;
 public class RedisWaitingQueue implements WaitingQueue {
 
     private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua", Long.class);
-    private static final RedisScript<Long> POSITION_SCRIPT = loadScript("queue/position.lua", Long.class);
     private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua", Long.class);
+
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> POSITION_SCRIPT = loadScript("queue/position.lua", List.class);
 
     @SuppressWarnings("rawtypes")
     private static final RedisScript<List> ADMIT_SCRIPT = loadScript("queue/admit.lua", List.class);
 
-    /** position.lua가 줄에 없을 때 돌려주는 값. */
-    private static final long NOT_IN_QUEUE = -1;
+    /** position.lua가 돌려주는 { 종류, 값 }의 종류. 줄에 서 있으면 값이 앞 인원, 입장해 있으면 입장 만료 시각(ms)이다. */
+    private static final long WAITING = 0;
+
+    private static final long ENTERED = 1;
 
     private final StringRedisTemplate redis;
 
@@ -58,10 +65,24 @@ public class RedisWaitingQueue implements WaitingQueue {
 
     /** 위치 확인과 조회 시각 기록을 Lua 하나로 묶는다. 따로 하면 그 사이 줄에서 빠진 회원의 조회 시각이 남는다. */
     @Override
-    public Optional<QueuePosition> findPosition(long performanceId, long userId) {
-        List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
-        Long rank = execute(POSITION_SCRIPT, keys, String.valueOf(userId));
-        return rank == NOT_IN_QUEUE ? Optional.empty() : Optional.of(new QueuePosition(rank));
+    public Optional<QueueState> find(long performanceId, long userId) {
+        List<String> keys = List.of(
+                QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId), QueueKeys.active(performanceId));
+        List<?> result = execute(POSITION_SCRIPT, keys, String.valueOf(userId));
+        return toState(result);
+    }
+
+    /** Lua가 돌려준 { 종류, 값 }을 대기열 상태로 바꾼다. 줄에도 입장 목록에도 없으면 비어 있다. */
+    private static Optional<QueueState> toState(List<?> result) {
+        long kind = number(result, 0);
+        long value = number(result, 1);
+        if (kind == WAITING) {
+            return Optional.of(new QueuePosition(value));
+        }
+        if (kind == ENTERED) {
+            return Optional.of(new QueueAdmission(Instant.ofEpochMilli(value)));
+        }
+        return Optional.empty();
     }
 
     /**

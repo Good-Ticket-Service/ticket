@@ -28,7 +28,7 @@ class RedisWaitingQueueTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(CommonErrorCode.SERVICE_UNAVAILABLE);
-        assertThatThrownBy(() -> waitingQueue.findPosition(1L, 7L))
+        assertThatThrownBy(() -> waitingQueue.find(1L, 7L))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(CommonErrorCode.SERVICE_UNAVAILABLE);

@@ -13,10 +13,10 @@ public interface WaitingQueue {
     QueuePosition enter(long performanceId, long userId);
 
     /**
-     * 지금 위치를 확인한다. 줄에 있으면 마지막 조회 시각도 남긴다(이탈자 판단용). 줄에 없으면 비어 있다.
+     * 지금 위치나 입장 상태를 확인한다. 줄에 있으면 마지막 조회 시각도 남긴다(이탈자 판단용). 줄에도 입장 목록에도 없으면 비어 있다.
      * 조회 시각은 서버가 남기는 관리 기록이라 읽기 요청의 안전성을 해치지 않는다.
      */
-    Optional<QueuePosition> findPosition(long performanceId, long userId);
+    Optional<QueueState> find(long performanceId, long userId);
 
     /** 줄에서 빠진다. 줄에 없어도 오류가 아니다(여러 번 불러도 결과가 같다). 뒤에 선 회원의 순번이 그만큼 당겨진다. */
     void leave(long performanceId, long userId);

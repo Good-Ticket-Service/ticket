@@ -29,11 +29,16 @@ public class QueueService {
                 position.position(), position.aheadCount(), estimatedWaitSeconds(position.aheadCount()));
     }
 
-    /** 내 순번을 확인한다. 조회할 때마다 마지막 조회 시각이 남아 이탈자 판단에 쓰인다. */
+    /**
+     * 내 순번을 확인한다. 조회할 때마다 마지막 조회 시각이 남아 이탈자 판단에 쓰인다.
+     * 입장한 회원은 아직 줄에 없는 회원과 같이 404다. 입장 토큰을 주는 응답은 다음에 더한다.
+     */
     public QueueStatusResult findMyStatus(long performanceId, long userId) {
         requireEnabled();
         QueuePosition position = waitingQueue
-                .findPosition(performanceId, userId)
+                .find(performanceId, userId)
+                .filter(QueuePosition.class::isInstance)
+                .map(QueuePosition.class::cast)
                 .orElseThrow(() -> new BusinessException(QueueErrorCode.NOT_IN_QUEUE));
         return new QueueStatusResult(
                 QueueStatus.WAITING,
