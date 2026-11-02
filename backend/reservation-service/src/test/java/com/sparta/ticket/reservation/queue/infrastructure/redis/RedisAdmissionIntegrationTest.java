@@ -58,6 +58,8 @@ class RedisAdmissionIntegrationTest extends ReservationIntegrationTest {
         AdmissionResult result = waitingQueue.admit(performanceId, policy(10, 1000));
 
         assertThat(result.admitted()).isEqualTo(10);
+        assertThat(result.waiting()).isEqualTo(5);
+        assertThat(result.active()).isEqualTo(10);
         assertThat(redis.opsForZSet().range(QueueKeys.active(performanceId), 0, -1))
                 .containsExactlyInAnyOrder("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
         assertThat(redis.opsForZSet().range(QueueKeys.waiting(performanceId), 0, -1))
@@ -154,6 +156,8 @@ class RedisAdmissionIntegrationTest extends ReservationIntegrationTest {
         AdmissionResult result = waitingQueue.admit(performanceId, policy(10, 1000));
 
         assertThat(result.closed()).isTrue();
+        assertThat(result.waiting()).isZero();
+        assertThat(result.active()).isZero();
         assertThat(isOpen(performanceId)).isFalse();
         assertThat(redis.hasKey(QueueKeys.seq(performanceId))).isFalse();
         assertThat(redis.hasKey(QueueKeys.lastAdmit(performanceId))).isFalse();

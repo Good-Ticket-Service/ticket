@@ -131,7 +131,13 @@ public class RedisWaitingQueue implements WaitingQueue {
                 String.valueOf(policy.leaveAfter().toMillis()),
                 String.valueOf(policy.leaveBatchSize()),
                 String.valueOf(performanceId));
-        return new AdmissionResult(number(result, 0), number(result, 1), number(result, 2), number(result, 3) == 1);
+        return new AdmissionResult(
+                number(result, 0),
+                number(result, 1),
+                number(result, 2),
+                number(result, 3) == 1,
+                number(result, 4),
+                number(result, 5));
     }
 
     private static long number(List<?> values, int index) {
