@@ -117,7 +117,7 @@ docker compose exec -T postgres psql -U postgres -d ticket \
   -c "ALTER ROLE fake_pg_app SET search_path = fake_pg_schema"
 ```
 
-IDE로 서비스 하나만 띄울 때는 `docker compose up -d postgres redis kafka config-server eureka-server`로 기반만 올리고, 실행 설정에 `JWT_SECRET`(user-service), `QUEUE_TOKEN_SECRET`(reservation-service)을 넣는다. 서비스보다 config-server를 먼저 띄운다.
+IDE로 서비스 하나만 띄울 때는 `docker compose up -d postgres redis kafka config-server eureka-server`로 기반만 올리고, 실행 설정에 `JWT_SECRET`(user-service), `QUEUE_TOKEN_SECRET`(reservation-service, gateway-service)을 넣는다. 서비스보다 config-server를 먼저 띄운다.
 
 ## 빌드·테스트
 

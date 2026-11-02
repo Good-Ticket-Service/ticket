@@ -43,6 +43,7 @@ import reactor.core.publisher.Mono;
             "spring.cloud.config.enabled=false",
             "eureka.client.enabled=false",
             "jwt.secret=" + GatewaySecurityTest.SECRET,
+            "queue.token-secret=" + GatewaySecurityTest.QUEUE_SECRET,
             "auth.whitelist[0]=/api/auth/signup",
             "auth.whitelist[1]=/api/auth/login",
             "auth.user-cache-ttl=60s",
@@ -56,6 +57,7 @@ import reactor.core.publisher.Mono;
 class GatewaySecurityTest {
 
     static final String SECRET = "test-only-jwt-secret-key-0123456789abcdef";
+    static final String QUEUE_SECRET = "test-only-queue-token-secret-0123456789abcdef";
     private static final Long USER_ID = 1L;
     private static final UserSnapshot STORED_USER = new UserSnapshot(USER_ID, "hong@ticket.com", "USER");
 

@@ -202,6 +202,9 @@ services:
     environment:
       <<: *service-env
       JWT_SECRET: ${JWT_SECRET}
+      # 입장 토큰 검사. reservation-service와 같은 값을 넘긴다
+      QUEUE_ENABLED: ${QUEUE_ENABLED:-false}
+      QUEUE_TOKEN_SECRET: ${QUEUE_TOKEN_SECRET}
     depends_on:
       config-server:
         condition: service_healthy
