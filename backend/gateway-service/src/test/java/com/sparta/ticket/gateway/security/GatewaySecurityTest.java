@@ -226,6 +226,25 @@ class GatewaySecurityTest {
         verify(userServiceClient, never()).fetch(any());
     }
 
+    @Test
+    @DisplayName("대기열이 꺼져 있으면(기본값) 좌석 조회·선점이 입장 토큰 없이 통과한다")
+    void queueOffSkipsEntryToken() throws Exception {
+        given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
+
+        client.get()
+                .uri("/api/seats/schedules/42")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                .exchange()
+                .expectStatus()
+                .isOk();
+        client.post()
+                .uri("/api/seats/schedules/42/holds")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                .exchange()
+                .expectStatus()
+                .isOk();
+    }
+
     @TestConfiguration
     static class EchoConfig {
 
