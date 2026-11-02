@@ -203,7 +203,8 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 - 매수 제한 사전 count + DB 부분 UNIQUE로 최종 방어. 유니크 위반은 전체 선점 롤백, 제약 이름이 맞을 때만 트랜잭션 밖409 변환. 본인 만료 HOLD는 옛 좌석 잠금→예약 EXPIRED→좌석 반환 뒤 재선점.
 - 같은 회원/좌석의 만료 전 HOLD 재요청은 기존 예약200. 가격은 seat.base_price→ticket.price로 복사, 결제 totalPrice는 티켓 합. 클라이언트 가격 신뢰 금지.
 - 만료 `HOLD AND expires<=:now`, 결제 시작 `HOLD AND expires>:now`. PAYMENT_IN_PROGRESS는 만료 정리 대상 아님. 상태 변경0행은 재조회/분기, 성공 가정 금지.
-- 선택 가능/잔여석 = 판매 가능 AVAILABLE + 만료됐고 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD. 만료 HOLD의 예약ID를 모아 findPaymentInProgress 한 번 호출, 다른 모듈 테이블 JOIN 안 함. 실제 재선점은 expireIfDue 조건부 변경으로 최종 방어.
+- 선택 가능(좌석 배치도) = 판매 가능 AVAILABLE + 만료됐고 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD. 만료 HOLD의 예약ID를 모아 findPaymentInProgress 한 번 호출, 다른 모듈 테이블 JOIN 안 함. 실제 재선점은 expireIfDue 조건부 변경으로 최종 방어.
+- 잔여석 = 판매 가능 AVAILABLE만 등급별로 센다. 만료됐지만 정리 전인 HOLD는 booking에 묻지 않고 제외한다(안내용, 좌석이 적게 보이는 쪽으로만 차이). 서버 메모리 캐시 TTL 3초(이슈 #241).
 - SeatFacade.sell은 HOLD+reservation_id 일치, release도 reservation_id 일치. 갱신 행 수가 요청 수와 다르면 확정 성공으로 처리하지 않는다. 가격 재조회(priceSnapshot) 없음.
 - release 결과 RELEASED/EXPIRED/ALREADY_CLOSED만 좌석 반환. NOT_RELEASABLE은409, PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/CANCELED 좌석은 해제하지 않음.
 
@@ -265,7 +266,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 삭제 전 조회 | 공연/회차 삭제의 예매 존재 확인·오류·의존 조회 불가 정책 계약 | 공연·예매 |
 | 연령·탈퇴 | 미달 차단에 필요한 생년월일/기준시각/ageRating 전달, 진행 거래·공연 보유 회원 탈퇴 정책 | 회원·공연·예매 |
 | 시각·페이징 | +09:00 Offset 공통 목표의 DTO별 이행, Page DTO/size 통일. 감사 주체 정책과 직렬화 형식은 구분 | 전 도메인 |
-| 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답은 api 대기열 절(#227). 회차→공연 검증·오픈 전 진입·잔여석 캐시TTL 결정 | 대기열·좌석·Gateway |
+| 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답은 api 대기열 절(#227). 잔여석 캐시는 서버 메모리 TTL 3초로 확정(이슈 #241, 부하 측정 뒤 조정). 회차→공연 검증·오픈 전 진입 결정 | 대기열·좌석·Gateway |
 | 만료 직전 요청 | payment.expiresAt=holdExpiresAt 경계·전송 중 만료 처리·grace 합의 | 예매·결제 |
 | Feign timeout | 현행 예매15초와 결제20초 제안의 실행 예산 조율 | 예매·결제 |
 | 조회404 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409. NOT_CANCELLABLE은 409로 합의(#127) | 예매·결제 |
