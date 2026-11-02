@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.autoconfigure.CommonFeignAutoConfiguration;
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.reservation.infrastructure.config.JacksonConfig;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
 import java.io.BufferedReader;
@@ -63,7 +64,8 @@ class SaleValidationFeignAdapterTest {
         CommonFeignAutoConfiguration.class
     })
     @EnableFeignClients(clients = SaleValidationClient.class)
-    @Import(SaleValidationFeignAdapter.class)
+    // 운영과 같은 JSON 읽기 규칙(숫자·boolean 강제 변환 금지, 이슈 #233)으로 응답을 읽는다
+    @Import({SaleValidationFeignAdapter.class, JacksonConfig.class})
     static class Config {}
 
     @DynamicPropertySource
