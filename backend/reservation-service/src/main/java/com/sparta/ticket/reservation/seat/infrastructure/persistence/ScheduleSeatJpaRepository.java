@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.infrastructure.persistence;
 
+import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import jakarta.persistence.LockModeType;
@@ -27,6 +28,24 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Override
     @Query("SELECT s FROM ScheduleSeat s WHERE s.scheduleId = :scheduleId ORDER BY s.id")
     List<ScheduleSeat> findAllBySchedule(@Param("scheduleId") Long scheduleId);
+
+    /**
+     * 판매 대상 좌석만 등급별로 묶어 그중 AVAILABLE을 센다. 판매 대상 조건으로 거르므로 판매 대상이 없는 등급은 결과에 없고,
+     * 판매 대상이 있는데 모두 선점·판매됐으면 0이다. ix_p_schedule_seats_selectable(schedule_id, is_sellable, status)를 탄다.
+     * Note: 만료됐지만 아직 정리되지 않은 HOLD는 세지 않는다. 좌석 배치도와 달리 결제 중인지 booking에 묻지 않고, 만료 스케줄러가
+     * 곧 AVAILABLE로 돌려놓는다. 차이는 좌석이 적게 보이는 쪽으로만 난다(#241).
+     */
+    @Override
+    @Query("""
+            SELECT new com.sparta.ticket.reservation.seat.domain.GradeRemaining(
+                       s.venueSeatGradeId, s.gradeName,
+                       SUM(CASE WHEN s.status = com.sparta.ticket.reservation.seat.domain.SeatStatus.AVAILABLE THEN 1L ELSE 0L END))
+              FROM ScheduleSeat s
+             WHERE s.scheduleId = :scheduleId AND s.sellable = true
+             GROUP BY s.venueSeatGradeId, s.gradeName
+             ORDER BY s.venueSeatGradeId
+            """)
+    List<GradeRemaining> countRemainingByGrade(@Param("scheduleId") Long scheduleId);
 
     /**
      * Note: reservation_id 조건이 있어 이미 다른 예약에 넘어간 좌석은 바뀌지 않는다. 늦게 도착한 결제 결과가 새 선점을 SOLD로 만들지 못한다.

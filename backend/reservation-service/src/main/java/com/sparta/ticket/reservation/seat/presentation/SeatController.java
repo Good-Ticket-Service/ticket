@@ -7,6 +7,8 @@ import com.sparta.ticket.reservation.seat.application.SelectableSeatQueryService
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
+import com.sparta.ticket.reservation.seat.application.remaining.RemainingSeatService;
+import com.sparta.ticket.reservation.seat.presentation.dto.RemainingSeatsResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldRequest;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
@@ -35,6 +37,19 @@ public class SeatController {
     private final SelectableSeatQueryService selectableSeatQueryService;
     private final SeatHoldService seatHoldService;
     private final SeatReleaseService seatReleaseService;
+    private final RemainingSeatService remainingSeatService;
+
+    /**
+     * 등급별로 남은 좌석 수를 준다. 로그인·입장 토큰 없이 부르는 공개 API다(Gateway whitelist).
+     * 판매 대상 좌석 중 AVAILABLE만 세고, 몇 초 동안 캐시한 값일 수 있다. 실제로 선점할 수 있는지는 좌석 조회·선점이 다시 확인한다.
+     */
+    @Operation(
+            summary = "등급별 잔여석 조회",
+            description = "판매 대상 좌석 중 비어 있는 좌석 수를 등급별로 준다. 화면 안내용이라 몇 초 늦을 수 있다(cached·asOf로 알린다).")
+    @GetMapping("/remaining")
+    public ApiResponse<RemainingSeatsResponse> getRemaining(@PathVariable Long scheduleId) {
+        return ApiResponse.ok(RemainingSeatsResponse.from(remainingSeatService.getRemaining(scheduleId)));
+    }
 
     @Operation(summary = "선택 가능 좌석 조회", description = "좌석 배치도에 회차 좌석과 선택 가능 여부를 보여 준다. 조회 결과가 선점 성공을 보장하지는 않는다.")
     @GetMapping

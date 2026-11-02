@@ -50,6 +50,7 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.queue.admission.entry-ttl=10m",
             "reservation.queue.admission.leave-batch-size=1000",
             "reservation.queue.token.secret=test-only-queue-token-secret-0123456789abcdef",
+            "reservation.seat.remaining.cache-ttl=3s",
             "spring.jpa.open-in-view=false"
         })
 public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {
