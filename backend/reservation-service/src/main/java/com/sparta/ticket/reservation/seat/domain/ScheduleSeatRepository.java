@@ -22,6 +22,12 @@ public interface ScheduleSeatRepository {
     /** 회차의 좌석을 id 순서로 읽는다. 잠그지 않는다. 삭제된 좌석은 빠진다. */
     List<ScheduleSeat> findAllBySchedule(Long scheduleId);
 
+    /**
+     * 회차의 등급별 남은 좌석 수를 등급 id 오름차순으로 센다. 판매 대상 좌석 중 AVAILABLE만 세고, 판매 대상 좌석이 없는 등급은 빠진다.
+     * 잠그지 않는다. 삭제된 좌석은 빠진다.
+     */
+    List<GradeRemaining> countRemainingByGrade(Long scheduleId);
+
     /** 이 예약의 HOLD 좌석만 SOLD로 바꾸고 만료 시각을 비운다. 바뀐 행 수를 돌려준다. */
     int sell(Collection<Long> ids, Long reservationId, LocalDateTime at, String by);
 

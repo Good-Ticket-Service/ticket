@@ -22,6 +22,8 @@ dependencies {
     implementation 'io.github.resilience4j:resilience4j-bulkhead'
     implementation 'io.github.resilience4j:resilience4j-circuitbreaker'
     implementation 'io.github.resilience4j:resilience4j-micrometer'
+    // 등급별 잔여석 조회 결과를 서버 메모리에 짧게 캐시한다(#241). gateway의 사용자 조회 캐시와 같은 라이브러리다. 버전은 Spring Boot가 정한다
+    implementation 'com.github.ben-manes.caffeine:caffeine'
 
     runtimeOnly 'org.postgresql:postgresql'
     // 제약 위반의 제약 이름을 드라이버가 받은 서버 오류 정보에서 읽는다(좌석 선점의 부분 UNIQUE 판별). Hibernate는 이름을 영문
