@@ -398,32 +398,37 @@
 
 ## 대기열 — reservation-service / queue
 
-상태: 진입(#100), 순번 조회(#101), 대기 취소(#102)는 구현. 공연 단위 입장 토큰 정책과 구현 완료를 구분한다.
+상태: 진입(#100), 순번 조회(#101), 대기 취소(#102), 입장 처리·입장 토큰 발급(#227)은 구현. Gateway의 입장 토큰 검사는 #228(구현 전)이다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
-| POST /api/queues/performances/{performanceId} | JWT | 200 | 없음 | position:long,aheadCount:long,estimatedWaitSeconds:long | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
-| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | status:string(WAITING),position:long,aheadCount:long,estimatedWaitSeconds:long | 404 NOT_IN_QUEUE;503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
+| POST /api/queues/performances/{performanceId} | JWT | 200 | 없음 | QueueStatus | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
+| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | QueueStatus | 404 NOT_IN_QUEUE;503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
 | DELETE /api/queues/performances/{performanceId}/me | JWT | 204 | 없음 | 없음 | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
 
+- QueueStatus = `{status:string(WAITING|ENTERED),position:long,aheadCount:long,estimatedWaitSeconds:long,entryToken:string|null,entryExpiresAt:datetime|null}`. ENTERED면 position·aheadCount·estimatedWaitSeconds는 0(줄에 없음)이고, WAITING이면 entryToken·entryExpiresAt은 null이다. entryExpiresAt은 +09:00 오프셋이다.
 - 줄은 공연 단위로 하나다. 입장 토큰 범위가 공연이고, 회차들이 같은 서버 자원을 쓰기 때문이다.
 - 대기열 경로는 공연 경로(/api/performances) 아래가 아니라 대기열 영역(/api/queues)에 둔다. 대기열은 reservation-service 소유라 공연 담당과 경로를 조율하지 않기 위해서다.
 - 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더로 정한다.
 - 진입은 이미 서 있으면 원래 순번을 돌려준다. 새로 만들지 않으므로 201이 아니라 200이다.
+- 이미 입장한 회원이 진입하면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다. 입장 만료가 지났으면 새로 줄 맨 뒤에 선다.
 - position은 1부터 센다. aheadCount는 내 앞 인원이다. estimatedWaitSeconds는 aheadCount ÷ 초당 입장 인원을 올림한 초다.
-- 순번 조회는 줄을 선 회원이 몇 초마다 부르는 폴링 API다. status는 지금 WAITING뿐이고, 입장 차례가 된 상태(ENTERED)는 입장 토큰과 함께 추가한다.
+- 순번 조회는 줄을 선 회원이 몇 초마다 부르는 폴링 API다. 입장 차례가 되면 ENTERED와 입장 토큰을 받는다. 입장 만료가 지나면 404 NOT_IN_QUEUE다.
+- 입장은 입장 스케줄러가 공연마다 초당 입장 인원과 동시 입장 인원 상한 안에서 줄 앞부터 처리한다. 마지막 조회 뒤 이탈 기준 시간이 지난 대기자는 입장시키지 않고 줄에서 뺀다. 값은 config-repo `reservation.queue.*`(측정 전 임시값)다.
 - 순번 조회는 부를 때마다 마지막 조회 시각을 남긴다. 이탈자(창을 닫고 떠난 회원)를 찾는 데 쓰는 서버 관리 기록이라 GET으로 둔다.
 - 순번 조회 응답에는 Cache-Control: no-store를 붙인다. 캐시되면 요청이 서버에 오지 않아 이탈자로 잘못 판단하기 때문이다.
 - 대기 취소는 대기 줄과 마지막 조회 시각에서 함께 빠진다. 뒤에 선 회원의 순번이 그만큼 당겨진다.
 - 대기 취소는 이미 줄에 없어도 204다. 응답이 유실돼 다시 보낸 요청이 실패로 보이지 않도록 여러 번 불러도 같은 결과를 준다.
 - 취소한 뒤 다시 진입하면 원래 자리가 아니라 맨 뒤에 선다.
-- 입장한 회원의 입장권 반납(일찍 나가기)은 대기 취소에 포함하지 않는다. 입장 토큰과 함께 정한다.
+- 입장한 회원의 입장권 반납(일찍 나가기)은 없다. 입장은 입장 만료(10분)로만 끝나며, 대기 취소는 입장한 회원에게 영향이 없다.
 - 대기열이 꺼져 있으면(reservation.queue.enabled=false) 503 QUEUE_DISABLED다.
 - Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
 - 오픈 전 진입과 판매 중지 공연의 진입은 아직 막지 않는다. 공연 서비스 확인 방식이 architecture 14절 미합의 항목이기 때문이다.
 
-입장 토큰 조회/전달 응답과 세부 오류는 미합의이며 architecture 14절을 따른다. 존재하지 않는 발급 API를 추가하지 않는다.
+입장 토큰은 별도 발급 API 없이 진입·순번 조회의 ENTERED 응답 entryToken으로 받는다. 회차→공연 검증과 Gateway 세부 오류는 architecture 14절 미합의를 따른다.
 
+- 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), performanceId(long), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
+- 만료는 입장 시각에 고정된다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다.
 - 입장 토큰 X-Queue-Token은 공연(performanceId) 단위이고 TTL은 10분이다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - 좌석 선점 여부에 따라 입장 토큰 TTL을 늘리거나 없애지 않는다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - Gateway는 토큰의 회원과 공연 범위를 검증하고, 공연 범위는 경로의 scheduleId로 확인한다. (원본 복원: seat/api.md:17, seat/plan.md:109, 담당 확인 필요)
