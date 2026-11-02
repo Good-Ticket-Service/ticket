@@ -76,6 +76,12 @@ reservation:
         threshold: 1m
         batch-size: 20
         time-budget: 20s
+      schedule-cancel:
+        interval: 10s
+        batch-size: 100
+        # 취소 기록을 보기 전에 시작한 결제 시작 트랜잭션이 끝날 만큼 기다린 뒤 기록을 완료한다
+        complete-after: 1m
+        time-budget: 20s
 
     # 사용자 요청의 결제 준비·승인 보호. payment가 느리거나 멈추면 승인 대기가 Tomcat 스레드를 모두 잡아 결제와 무관한 조회까지 늦어진다.
     # 동시에 기다리는 결제 호출 수를 묶고(Bulkhead), 응답 없음이 이어지면 아예 부르지 않는다(Circuit Breaker). 막으면 바로 503이다.

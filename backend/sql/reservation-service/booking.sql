@@ -35,6 +35,8 @@ CREATE TABLE p_reservations
     refund_required_at TIMESTAMP,
     -- 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각. 결과가 안 바뀌는 예약이 앞자리를 계속 막지 않게 한다
     cancel_checked_at TIMESTAMP,
+    -- 왜 취소 중이 됐는가. 취소 중이 될 때 한 번 쓰고, 환불을 다시 요청할 때 같은 사유를 보낸다
+    cancel_cause    VARCHAR(20),
     created_at      TIMESTAMP    NOT NULL,
     created_by      VARCHAR(100) NOT NULL,
     updated_at      TIMESTAMP    NOT NULL,
@@ -44,7 +46,8 @@ CREATE TABLE p_reservations
 
     CONSTRAINT uk_p_reservations_order_id UNIQUE (order_id),
     CONSTRAINT ck_p_reservations_status
-        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING', 'EXPIRED', 'RELEASED', 'CANCELED'))
+        CHECK (status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING', 'EXPIRED', 'RELEASED', 'CANCELED')),
+    CONSTRAINT ck_p_reservations_cancel_cause CHECK (cancel_cause IN ('USER', 'SCHEDULE'))
 );
 
 -- 만료 스케줄러가 시간이 지난 HOLD를 고른다
@@ -53,6 +56,10 @@ CREATE INDEX ix_p_reservations_hold_expiry ON p_reservations (hold_expires_at) W
 CREATE INDEX ix_p_reservations_payment_stale ON p_reservations (updated_at) WHERE status = 'PAYMENT_IN_PROGRESS';
 -- 취소 확인 스케줄러가 취소 중으로 오래 머문 예약을 고른다
 CREATE INDEX ix_p_reservations_cancel_stale ON p_reservations (updated_at) WHERE status = 'CANCELING';
+-- 회차 취소 정리가 회차의 진행 중인 예약을 고르고 센다
+CREATE INDEX ix_p_reservations_active_schedule
+    ON p_reservations (schedule_id, reservation_id)
+    WHERE status IN ('HOLD', 'PAYMENT_IN_PROGRESS', 'CONFIRMED', 'CANCELING');
 -- 내 예매 목록은 회원별 최신순으로 읽는다
 CREATE INDEX ix_p_reservations_user_created ON p_reservations (user_id, created_at DESC, reservation_id DESC);
 -- 한 회원은 한 회차에 진행 중인 예약을 하나만 가진다. 1인 매수 제한의 마지막 방어선이다.

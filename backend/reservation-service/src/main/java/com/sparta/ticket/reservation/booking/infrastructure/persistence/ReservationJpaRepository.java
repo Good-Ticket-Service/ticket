@@ -125,6 +125,23 @@ public interface ReservationJpaRepository
     }
 
     @Override
+    default int startScheduleCancel(Long id, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.START_CANCEL;
+        return updateStartScheduleCancel(id, t.from(), t.to(), stamp.at(), stamp.by());
+    }
+
+    @Override
+    default int cancelHold(Long id, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.CANCEL_HOLD;
+        return updateCancelHold(id, t.from(), t.to(), stamp.at(), stamp.by());
+    }
+
+    @Override
+    default List<Long> findCancelableIds(Long scheduleId, int limit) {
+        return selectCancelableIds(scheduleId, PageRequest.of(0, limit));
+    }
+
+    @Override
     default int cancel(Long id, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.CANCEL;
         return updateStatus(id, t.from(), t.to(), stamp.at(), stamp.by());
@@ -205,6 +222,7 @@ public interface ReservationJpaRepository
                SET r.status = :to, r.pgAuthToken = :pgAuthToken, r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.userId = :userId
                AND r.orderId = :orderId AND r.holdExpiresAt > :at
+               AND NOT EXISTS (SELECT 1 FROM ScheduleCancellationRow c WHERE c.scheduleId = r.scheduleId)
             """)
     int updateStartPayment(
             @Param("id") Long id,
@@ -296,7 +314,8 @@ public interface ReservationJpaRepository
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
-               SET r.status = :to, r.updatedAt = :at, r.updatedBy = :by
+               SET r.status = :to, r.cancelCause = com.sparta.ticket.reservation.booking.domain.CancelCause.USER,
+                   r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.userId = :userId AND r.scheduleStartAt > :at
             """)
     int updateStartCancel(
@@ -304,6 +323,34 @@ public interface ReservationJpaRepository
             @Param("from") ReservationStatus from,
             @Param("to") ReservationStatus to,
             @Param("userId") Long userId,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.cancelCause = com.sparta.ticket.reservation.booking.domain.CancelCause.SCHEDULE,
+                   r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from
+            """)
+    int updateStartScheduleCancel(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
+            @Param("at") LocalDateTime at,
+            @Param("by") String by);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+               SET r.status = :to, r.orderId = NULL, r.paymentAmount = NULL, r.pgAuthToken = NULL,
+                   r.updatedAt = :at, r.updatedBy = :by
+             WHERE r.id = :id AND r.status = :from
+            """)
+    int updateCancelHold(
+            @Param("id") Long id,
+            @Param("from") ReservationStatus from,
+            @Param("to") ReservationStatus to,
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
@@ -424,6 +471,27 @@ public interface ReservationJpaRepository
                                 com.sparta.ticket.reservation.booking.domain.ReservationStatus.CANCELING)
             """)
     long countActiveTickets(@Param("userId") Long userId, @Param("scheduleId") Long scheduleId);
+
+    /** 상태를 리터럴로 써야 booking.sql의 부분 인덱스 ix_p_reservations_active_schedule을 탈 수 있다. */
+    @Query("""
+            SELECT r.id FROM Reservation r
+             WHERE r.scheduleId = :scheduleId
+               AND r.status IN (com.sparta.ticket.reservation.booking.domain.ReservationStatus.HOLD,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.CONFIRMED)
+             ORDER BY r.id
+            """)
+    List<Long> selectCancelableIds(@Param("scheduleId") Long scheduleId, Pageable pageable);
+
+    @Override
+    @Query("""
+            SELECT COUNT(r) FROM Reservation r
+             WHERE r.scheduleId = :scheduleId
+               AND r.status IN (com.sparta.ticket.reservation.booking.domain.ReservationStatus.HOLD,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.CONFIRMED,
+                                com.sparta.ticket.reservation.booking.domain.ReservationStatus.CANCELING)
+            """)
+    long countActive(@Param("scheduleId") Long scheduleId);
 
     @Override
     @Query("""

@@ -4,6 +4,8 @@ package com.sparta.ticket.reservation.booking.application.port;
 public enum RefundReason {
     /** 확정한 예약을 사용자가 취소했다. */
     USER_CANCEL,
+    /** 회차가 취소되어 확정한 예약을 돌려준다. */
+    SCHEDULE_CANCELED,
     /** 결제는 성공했는데 예약을 확정하지 못했다. 사용자는 돈을 냈지만 표가 없다. */
     CONFIRM_FAILED
 }

@@ -34,16 +34,16 @@ public class ReservationCancelService {
         if (!start.started()) {
             return start.current();
         }
-        refundAndFinish(reservationId, start.orderId());
+        refundAndFinish(reservationId, start.orderId(), RefundReason.USER_CANCEL);
         return transactions.read(reservationId);
     }
 
     /**
      * 환불을 요청하고, payment가 받았으면 취소를 확정한다. 확정했으면 true다.
-     * 취소 시작과 취소 확인 스케줄러가 같은 orderId로 부른다. payment는 orderId 기준으로 멱등이라 두 번 와도 환불은 한 번이다.
+     * 취소 시작, 회차 취소 정리, 취소 확인 스케줄러가 같은 orderId로 부른다. payment는 orderId 기준으로 멱등이라 두 번 와도 환불은 한 번이다.
      */
-    public boolean refundAndFinish(Long reservationId, String orderId) {
-        return switch (requestRefund(reservationId, orderId).result()) {
+    public boolean refundAndFinish(Long reservationId, String orderId, RefundReason reason) {
+        return switch (requestRefund(reservationId, orderId, reason).result()) {
             case ACCEPTED -> finish(reservationId, orderId);
             case UNKNOWN -> false;
             case UNKNOWN_ORDER -> {
@@ -57,9 +57,9 @@ public class ReservationCancelService {
         };
     }
 
-    private RefundOutcome requestRefund(Long reservationId, String orderId) {
+    private RefundOutcome requestRefund(Long reservationId, String orderId, RefundReason reason) {
         try {
-            return paymentPort.refund(orderId, RefundReason.USER_CANCEL);
+            return paymentPort.refund(orderId, reason);
         } catch (RuntimeException e) {
             log.warn("환불 요청의 결과를 모른다. 취소 확인 스케줄러가 마무리한다. reservationId={}, orderId={}", reservationId, orderId, e);
             return RefundOutcome.unknown();

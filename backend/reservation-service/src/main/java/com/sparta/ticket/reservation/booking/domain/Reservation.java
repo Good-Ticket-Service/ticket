@@ -81,6 +81,10 @@ public class Reservation extends BaseEntity {
 
     private LocalDateTime cancelCheckedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private CancelCause cancelCause;
+
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.PERSIST)
     private List<Ticket> tickets = new ArrayList<>();

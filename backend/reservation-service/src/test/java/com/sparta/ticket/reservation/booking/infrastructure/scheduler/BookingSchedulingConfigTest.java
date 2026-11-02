@@ -15,6 +15,7 @@ import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileS
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
+import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ class BookingSchedulingConfigTest {
     private final PaymentReconcileService reconcileService = mock(PaymentReconcileService.class);
     private final UnconfirmedRefundService unconfirmedRefundService = mock(UnconfirmedRefundService.class);
     private final CancelReconcileService cancelReconcileService = mock(CancelReconcileService.class);
+    private final ScheduleCancellationService scheduleCancellationService = mock(ScheduleCancellationService.class);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
@@ -39,6 +41,7 @@ class BookingSchedulingConfigTest {
             .withBean(PaymentReconcileService.class, () -> reconcileService)
             .withBean(UnconfirmedRefundService.class, () -> unconfirmedRefundService)
             .withBean(CancelReconcileService.class, () -> cancelReconcileService)
+            .withBean(ScheduleCancellationService.class, () -> scheduleCancellationService)
             .withPropertyValues(
                     "reservation.booking.scheduler.hold-expiry.interval=50ms",
                     "reservation.booking.scheduler.hold-expiry.batch-size=100",
@@ -51,7 +54,11 @@ class BookingSchedulingConfigTest {
                     "reservation.booking.scheduler.cancel-reconcile.interval=50ms",
                     "reservation.booking.scheduler.cancel-reconcile.threshold=2m",
                     "reservation.booking.scheduler.cancel-reconcile.batch-size=20",
-                    "reservation.booking.scheduler.cancel-reconcile.time-budget=40ms");
+                    "reservation.booking.scheduler.cancel-reconcile.time-budget=40ms",
+                    "reservation.booking.scheduler.schedule-cancel.interval=50ms",
+                    "reservation.booking.scheduler.schedule-cancel.batch-size=30",
+                    "reservation.booking.scheduler.schedule-cancel.complete-after=1m",
+                    "reservation.booking.scheduler.schedule-cancel.time-budget=40ms");
 
     @Test
     @DisplayName("컨텍스트가 뜨면 만료, 결과 확인과 확정 못 한 결제의 환불, 취소 확인을 설정값으로 돌린다")
@@ -66,7 +73,16 @@ class BookingSchedulingConfigTest {
                     .refund(eq(Duration.ofMinutes(1)), anyInt(), eq(Duration.ofMillis(40)));
             verify(cancelReconcileService, timeout(2_000).atLeastOnce())
                     .reconcile(Duration.ofMinutes(2), 20, Duration.ofMillis(40));
+            verify(scheduleCancellationService, timeout(2_000).atLeastOnce())
+                    .cleanUp(30, Duration.ofMinutes(1), Duration.ofMillis(40));
         });
+    }
+
+    @Test
+    @DisplayName("회차 취소 기록의 완료 대기가 0이면 기동하지 않는다")
+    void rejectsZeroCompleteAfter() {
+        runner.withPropertyValues("reservation.booking.scheduler.schedule-cancel.complete-after=0s")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test

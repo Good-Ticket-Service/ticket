@@ -6,6 +6,8 @@ import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
+import com.sparta.ticket.reservation.booking.application.port.RefundReason;
+import com.sparta.ticket.reservation.booking.domain.CancelCause;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -33,6 +35,9 @@ public class CancelTransactions {
 
     /** 취소 시작 결과. started가 false면 이미 취소 중이거나 취소됐고 current가 지금 상태다. */
     public record CancelStart(boolean started, String orderId, ReservationResult current) {}
+
+    /** 환불을 다시 요청할 취소. 처음 요청과 같은 사유를 보낸다. payment가 처음 요청을 받지 못했을 수 있기 때문이다. */
+    public record PendingCancel(String orderId, RefundReason reason) {}
 
     /**
      * CONFIRMED → CANCELING. 환불을 요청하기 전에 커밋해야, 환불 결과를 모를 때도 취소 확인 스케줄러가 이 예약을 찾아 마무리한다.
@@ -83,13 +88,20 @@ public class CancelTransactions {
      * 환불 요청 전에 커밋해야, 요청이 실패해도 같은 예약을 계속 앞에서 고르지 않는다.
      */
     @Transactional
-    public Optional<String> claimPendingCancel(Long reservationId, LocalDateTime checkedBefore) {
+    public Optional<PendingCancel> claimPendingCancel(Long reservationId, LocalDateTime checkedBefore) {
         return reservationRepository
                 .findById(reservationId)
                 .filter(reservation -> reservation.getStatus() == ReservationStatus.CANCELING)
                 .filter(reservation ->
                         reservationRepository.markCancelChecked(reservationId, changeStamps.now(), checkedBefore) == 1)
-                .map(Reservation::getOrderId);
+                .map(reservation -> new PendingCancel(reservation.getOrderId(), refundReason(reservation)));
+    }
+
+    /** 원인 컬럼을 추가하기 전에 취소 중이 된 예약은 값이 없고, 그때는 사용자 취소만 있었다. */
+    private static RefundReason refundReason(Reservation reservation) {
+        return reservation.getCancelCause() == CancelCause.SCHEDULE
+                ? RefundReason.SCHEDULE_CANCELED
+                : RefundReason.USER_CANCEL;
     }
 
     @Transactional(readOnly = true)
