@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
 import com.sparta.ticket.reservation.queue.application.dto.QueueStatusResult;
 import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
@@ -43,9 +42,9 @@ class QueueServiceTest {
         }
 
         @Override
-        public QueuePosition enter(long performanceId, long userId) {
+        public QueueState enter(long performanceId, long userId) {
             calls.incrementAndGet();
-            return (QueuePosition) state;
+            return state;
         }
 
         @Override
@@ -94,9 +93,9 @@ class QueueServiceTest {
     @Test
     @DisplayName("예상 대기 시간은 앞 인원 ÷ 초당 입장 인원을 올림한 초다")
     void estimatedWaitSeconds() {
-        assertThat(service(new QueuePosition(0), true).enter(1L, 7L)).isEqualTo(new QueueEntryResult(1, 0, 0));
-        assertThat(service(new QueuePosition(10), true).enter(1L, 7L)).isEqualTo(new QueueEntryResult(11, 10, 1));
-        assertThat(service(new QueuePosition(11), true).enter(1L, 7L)).isEqualTo(new QueueEntryResult(12, 11, 2));
+        assertThat(service(new QueuePosition(0), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(1, 0, 0));
+        assertThat(service(new QueuePosition(10), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(11, 10, 1));
+        assertThat(service(new QueuePosition(11), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(12, 11, 2));
     }
 
     @Test
@@ -120,6 +119,14 @@ class QueueServiceTest {
                         "7|1|2026-11-02T11:00:00Z|2026-11-02T11:10:00Z",
                         OffsetDateTime.of(2026, 11, 2, 20, 10, 0, 0, ZoneOffset.ofHours(9))));
         assertThat(result.position()).isZero();
+    }
+
+    @Test
+    @DisplayName("입장해 있는 회원이 다시 진입하면 순번 조회와 같은 ENTERED 응답을 준다")
+    void enterWhileEntered() {
+        QueueService service = service(new QueueAdmission(Instant.parse("2026-11-02T11:10:00Z")), true);
+
+        assertThat(service.enter(1L, 7L)).isEqualTo(service.findMyStatus(1L, 7L));
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.sparta.ticket.reservation.queue.application;
 
 import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
 import com.sparta.ticket.reservation.queue.application.dto.QueueStatusResult;
 import com.sparta.ticket.reservation.queue.domain.QueueAdmission;
 import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
@@ -27,12 +26,10 @@ public class QueueService {
     private final QueueAdmissionProperties admissionProperties;
     private final EntryTokenIssuer entryTokenIssuer;
 
-    /** 줄을 선다. 이미 서 있으면 원래 순번을 돌려준다. */
-    public QueueEntryResult enter(long performanceId, long userId) {
+    /** 줄을 선다. 이미 서 있으면 원래 순번을, 입장해 있으면 줄에 다시 세우지 않고 입장 토큰을 돌려준다. */
+    public QueueStatusResult enter(long performanceId, long userId) {
         requireEnabled();
-        QueuePosition position = waitingQueue.enter(performanceId, userId);
-        return new QueueEntryResult(
-                position.position(), position.aheadCount(), estimatedWaitSeconds(position.aheadCount()));
+        return toResult(performanceId, userId, waitingQueue.enter(performanceId, userId));
     }
 
     /** 내 순번을 확인한다. 조회할 때마다 마지막 조회 시각이 남아 이탈자 판단에 쓰인다. 입장해 있으면 입장 토큰을 돌려준다. */

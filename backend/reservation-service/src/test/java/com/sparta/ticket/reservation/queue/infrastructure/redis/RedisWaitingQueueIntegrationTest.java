@@ -39,6 +39,11 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         return PERFORMANCE_IDS.incrementAndGet();
     }
 
+    /** 줄에 서는 경우만 보는 테스트용. 입장해 있지 않은 회원의 진입 결과는 항상 줄 위치다. */
+    private QueuePosition enterWaiting(long performanceId, long userId) {
+        return (QueuePosition) waitingQueue.enter(performanceId, userId);
+    }
+
     private long redisNowMillis() {
         return redis.execute(
                 (RedisCallback<Long>) connection -> connection.serverCommands().time());
@@ -49,8 +54,8 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     void enterInOrder() {
         long performanceId = newPerformanceId();
 
-        QueuePosition first = waitingQueue.enter(performanceId, 7L);
-        QueuePosition second = waitingQueue.enter(performanceId, 3L);
+        QueuePosition first = enterWaiting(performanceId, 7L);
+        QueuePosition second = enterWaiting(performanceId, 3L);
 
         assertThat(first.position()).isEqualTo(1);
         assertThat(first.aheadCount()).isZero();
@@ -65,7 +70,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         waitingQueue.enter(performanceId, 7L);
         waitingQueue.enter(performanceId, 3L);
 
-        QueuePosition again = waitingQueue.enter(performanceId, 7L);
+        QueuePosition again = enterWaiting(performanceId, 7L);
 
         assertThat(again.position()).isEqualTo(1);
         assertThat(redis.opsForZSet().zCard(QueueKeys.waiting(performanceId))).isEqualTo(2);
@@ -168,6 +173,32 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("입장해 있는 회원이 다시 진입하면 줄에 다시 서지 않고 입장 상태를 돌려준다")
+    void enterWhileAdmitted() {
+        long performanceId = newPerformanceId();
+        long expireAt = redisNowMillis() + 600_000;
+        redis.opsForZSet().add(QueueKeys.active(performanceId), "7", expireAt);
+
+        assertThat(waitingQueue.enter(performanceId, 7L)).isEqualTo(new QueueAdmission(Instant.ofEpochMilli(expireAt)));
+        assertThat(redis.opsForZSet().zCard(QueueKeys.waiting(performanceId))).isZero();
+        assertThat(redis.hasKey(QueueKeys.seq(performanceId))).isFalse();
+    }
+
+    @Test
+    @DisplayName("입장 만료가 지난 회원이 진입하면 입장 목록에서 빠지고 줄 맨 뒤에 선다")
+    void enterAfterAdmissionExpired() {
+        long performanceId = newPerformanceId();
+        enterWaiting(performanceId, 3L);
+        redis.opsForZSet().add(QueueKeys.active(performanceId), "7", redisNowMillis() - 1);
+
+        QueuePosition position = enterWaiting(performanceId, 7L);
+
+        assertThat(position.position()).isEqualTo(2);
+        assertThat(redis.opsForZSet().score(QueueKeys.active(performanceId), "7"))
+                .isNull();
+    }
+
+    @Test
     @DisplayName("대기를 취소하면 줄과 조회 시각에서 함께 빠지고, 뒤 회원의 순번이 당겨진다")
     void leave() {
         long performanceId = newPerformanceId();
@@ -202,7 +233,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         waitingQueue.enter(performanceId, 3L);
 
         waitingQueue.leave(performanceId, 7L);
-        QueuePosition again = waitingQueue.enter(performanceId, 7L);
+        QueuePosition again = enterWaiting(performanceId, 7L);
 
         assertThat(again.position()).isEqualTo(2);
     }
@@ -212,7 +243,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     void sameUserConcurrently() throws Exception {
         long performanceId = newPerformanceId();
 
-        List<QueuePosition> results = runConcurrently(50, i -> waitingQueue.enter(performanceId, 7L));
+        List<QueuePosition> results = runConcurrently(50, i -> enterWaiting(performanceId, 7L));
 
         assertThat(results).allMatch(result -> result.position() == 1);
         assertThat(redis.opsForZSet().zCard(QueueKeys.waiting(performanceId))).isEqualTo(1);
@@ -224,7 +255,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     void differentUsersConcurrently() throws Exception {
         long performanceId = newPerformanceId();
 
-        List<QueuePosition> results = runConcurrently(100, userId -> waitingQueue.enter(performanceId, userId));
+        List<QueuePosition> results = runConcurrently(100, userId -> enterWaiting(performanceId, userId));
 
         assertThat(results)
                 .extracting(QueuePosition::position)
