@@ -39,6 +39,10 @@ reservation:
       entry-ttl: 10m
       # 입장 처리 한 번에 정리할 이탈자 수
       leave-batch-size: 1000
+    # 입장 토큰 서명 키(HS256, 32바이트 이상). 로그인 JWT 키와 다른 값을 쓴다. Gateway도 같은 키로 검사한다(#228).
+    # 서명 키는 저장소에 두지 않는다. compose는 .env의 QUEUE_TOKEN_SECRET을 넘기고, 로컬 실행은 환경 변수로 지정한다.
+    token:
+      secret: ${QUEUE_TOKEN_SECRET}
     # 입장 스케줄러. 앞 처리가 끝난 뒤 interval만큼 쉬고 다시 돈다
     scheduler:
       enabled: true
