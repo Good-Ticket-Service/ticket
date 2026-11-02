@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.queue.presentation;
 
+import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,7 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
+import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
+import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +32,9 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private WaitingQueue waitingQueue;
 
     /** 사용자 헤더를 붙여 줄을 선다. 헤더 값은 Gateway가 인증 뒤 넣어 주는 값이다. */
     private ResultActions enter(long performanceId, long userId) throws Exception {
@@ -85,6 +92,32 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.position").value(2))
                 .andExpect(jsonPath("$.data.aheadCount").value(1))
                 .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(1));
+    }
+
+    /** 입장 스케줄러가 한 번 돈 것처럼 줄 앞 회원을 입장시킨다. 스케줄러는 테스트에서 꺼져 있다. */
+    private void admit(long performanceId) {
+        waitingQueue.admit(
+                performanceId,
+                new AdmissionPolicy(
+                        10, Duration.ofSeconds(2), 1000, Duration.ofMinutes(2), Duration.ofMinutes(10), 1000));
+    }
+
+    @Test
+    @DisplayName("입장한 회원이 순번을 조회하면 ENTERED와 입장 토큰, +09:00 만료 시각을 주고 순번 필드는 0이다")
+    void findMyStatusEntered() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+        enter(performanceId, 1L);
+        admit(performanceId);
+
+        findMyStatus(performanceId, 1L)
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.data.status").value("ENTERED"))
+                .andExpect(jsonPath("$.data.entryToken").isString())
+                .andExpect(jsonPath("$.data.entryExpiresAt").value(endsWith("+09:00")))
+                .andExpect(jsonPath("$.data.position").value(0))
+                .andExpect(jsonPath("$.data.aheadCount").value(0))
+                .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(0));
     }
 
     @Test
