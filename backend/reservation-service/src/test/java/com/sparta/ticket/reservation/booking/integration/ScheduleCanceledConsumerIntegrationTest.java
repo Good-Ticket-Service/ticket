@@ -24,6 +24,8 @@ class ScheduleCanceledConsumerIntegrationTest extends BookingIntegrationTest {
     private static final String TOPIC = "schedule.canceled";
     private static final String DLT = "schedule.canceled.DLT";
     private static final Duration WAIT = Duration.ofSeconds(60);
+    private static final String DEAD_LETTER_METER = "reservation.schedule_cancel.dead_letter";
+    private static final String DELIVERY_FAILED_METER = "reservation.schedule_cancel.delivery_failed";
 
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
@@ -99,6 +101,8 @@ class ScheduleCanceledConsumerIntegrationTest extends BookingIntegrationTest {
         Long tooLongEventId = TestIds.next();
         String longEventId = message(UUID.randomUUID() + "-longer-than-a-uuid", tooLongEventId);
 
+        double deadLettersBefore = count(DEAD_LETTER_METER);
+
         send(scheduleId, broken);
         send(unknownVersion, futureVersion);
         send(missingField, noCanceledAt);
@@ -112,16 +116,23 @@ class ScheduleCanceledConsumerIntegrationTest extends BookingIntegrationTest {
         await().atMost(WAIT)
                 .untilAsserted(
                         () -> assertThat(deadLetters()).contains(broken, futureVersion, noCanceledAt, longEventId));
+        assertThat(count(DEAD_LETTER_METER) - deadLettersBefore)
+                .as("DLT로 옮긴 메시지를 경보가 볼 수 있게 센다")
+                .isGreaterThanOrEqualTo(4);
     }
 
     @Test
     @DisplayName("기록 저장이 실패하면 메시지를 잃지 않고 DB가 돌아온 뒤 기록한다")
     void retriesUntilDatabaseRecovers() throws Exception {
         Long scheduleId = TestIds.next();
+        double failedBefore = count(DELIVERY_FAILED_METER);
         jdbcTemplate.execute("ALTER TABLE p_schedule_cancellations RENAME TO p_schedule_cancellations_down");
         try {
             send(scheduleId, message(UUID.randomUUID().toString(), scheduleId));
             Thread.sleep(3_000);
+            assertThat(count(DELIVERY_FAILED_METER) - failedBefore)
+                    .as("파티션이 멈춘 동안 실패를 경보가 볼 수 있게 센다")
+                    .isGreaterThan(0);
         } finally {
             jdbcTemplate.execute("ALTER TABLE p_schedule_cancellations_down RENAME TO p_schedule_cancellations");
         }

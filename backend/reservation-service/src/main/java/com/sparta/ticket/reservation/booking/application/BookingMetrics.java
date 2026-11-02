@@ -18,6 +18,9 @@ public class BookingMetrics {
     private final Counter resentRefunds;
     private final Counter unknownRefundOrders;
     private final Counter unconfirmedRefunds;
+    private final Counter scheduleCancelDeadLetters;
+    private final Counter scheduleCancelDeliveryFailures;
+    private final AtomicLong confirmedAfterCompleted = new AtomicLong();
     private final AtomicLong paymentsInProgress = new AtomicLong();
     private final AtomicLong stuckPayments = new AtomicLong();
 
@@ -45,6 +48,15 @@ public class BookingMetrics {
                 .register(registry);
         this.unconfirmedRefunds = Counter.builder("reservation.payment.unconfirmed_refunded")
                 .description("결제는 성공했는데 확정하지 못해, payment가 환불 요청을 받고 CANCELED로 끝낸 예약 수")
+                .register(registry);
+        this.scheduleCancelDeadLetters = Counter.builder("reservation.schedule_cancel.dead_letter")
+                .description("해석하지 못해 DLT로 옮긴 회차 취소 메시지 수. 그 회차는 예약 정리가 시작되지 않으므로 관리자가 확인한다")
+                .register(registry);
+        this.scheduleCancelDeliveryFailures = Counter.builder("reservation.schedule_cancel.delivery_failed")
+                .description("회차 취소 메시지 처리 실패 수. 계속 늘면 재시도로 파티션이 멈춘 것이다")
+                .register(registry);
+        Gauge.builder("reservation.schedule_cancel.confirmed_after_completed", confirmedAfterCompleted, AtomicLong::get)
+                .description("정리를 완료한 회차에 남은 확정 예약 수. 0보다 크면 환불이 빠진 것이라 관리자가 확인한다")
                 .register(registry);
         Gauge.builder("reservation.payment.in_progress", paymentsInProgress, AtomicLong::get)
                 .description("결제 중 예약 수. 결과 확인 스케줄러가 실행마다 갱신한다")
@@ -84,6 +96,18 @@ public class BookingMetrics {
 
     public void unconfirmedRefunded() {
         unconfirmedRefunds.increment();
+    }
+
+    public void scheduleCancelDeadLetter() {
+        scheduleCancelDeadLetters.increment();
+    }
+
+    public void scheduleCancelDeliveryFailed() {
+        scheduleCancelDeliveryFailures.increment();
+    }
+
+    public void confirmedAfterCompleted(long count) {
+        confirmedAfterCompleted.set(count);
     }
 
     public void paymentBacklog(long inProgress, long stuck) {

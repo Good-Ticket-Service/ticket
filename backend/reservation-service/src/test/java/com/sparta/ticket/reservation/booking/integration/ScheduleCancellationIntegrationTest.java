@@ -361,6 +361,34 @@ class ScheduleCancellationIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
+    @DisplayName("기록을 완료한 회차에 확정 예약이 남으면 환불이 빠졌다는 뜻이라 건수를 지표로 내보낸다")
+    void reportsConfirmedAfterCompletion() {
+        Long reservationId = confirmed(newUser(), scheduleId, seat(scheduleId));
+        receive(scheduleId);
+
+        cancellationService.cleanUp(BATCH, NO_WAIT, Duration.ofNanos(-1));
+        assertThat(confirmedAfterCompleted())
+                .as("끝나지 않은 기록의 확정 예약은 정리가 처리할 일이다")
+                .isZero();
+
+        jdbcTemplate.update(
+                "UPDATE p_schedule_cancellations SET status = 'COMPLETED', completed_at = ? WHERE schedule_id = ?",
+                clock.now(),
+                scheduleId);
+        cancellationService.cleanUp(BATCH, NO_WAIT, BUDGET);
+
+        assertThat(confirmedAfterCompleted()).isEqualTo(1);
+        assertThat(statusOf(reservationId)).as("경보만 내고 자동으로 환불하지 않는다").isEqualTo("CONFIRMED");
+    }
+
+    private double confirmedAfterCompleted() {
+        return meterRegistry
+                .get("reservation.schedule_cancel.confirmed_after_completed")
+                .gauge()
+                .value();
+    }
+
+    @Test
     @DisplayName("같은 회차의 메시지가 완료 뒤 다시 와도 기록은 완료 그대로다")
     void redeliveryKeepsCompletedRecord() {
         receive(scheduleId);
