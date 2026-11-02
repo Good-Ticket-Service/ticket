@@ -50,6 +50,12 @@ public class ReservationTransitionExecutor {
         return closeAndRelease(reservationId, seatIds, conditionalUpdate);
     }
 
+    /** 회차가 취소된 선점을 끝내고 좌석과 잡아 둔 쿠폰을 돌려준다. 조건부 UPDATE가 0행이면 아무것도 돌려주지 않고 false다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean cancelHoldAndRelease(Long reservationId, List<Long> seatIds, IntSupplier conditionalUpdate) {
+        return closeAndRelease(reservationId, seatIds, conditionalUpdate);
+    }
+
     /**
      * 취소를 확정하고 판매된 좌석과 사용한 쿠폰을 돌려준다. 조건부 UPDATE가 0행이면 아무것도 돌려주지 않고 false다.
      * 쿠폰은 환불 완료를 기다리지 않고 이때 돌려준다(#125).

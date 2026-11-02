@@ -11,6 +11,7 @@ import com.sparta.ticket.reservation.booking.domain.DiscountCap;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.ScheduleCancellationRepository;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentRequestTransactions {
 
     private final ReservationRepository reservationRepository;
+    private final ScheduleCancellationRepository scheduleCancellationRepository;
     private final ChangeStamps changeStamps;
     private final CouponPort couponPort;
 
@@ -75,6 +77,10 @@ public class PaymentRequestTransactions {
         }
         if (reservation.isHoldExpiredAt(changeStamps.now())) {
             throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
+        }
+        // Note: 쿠폰을 잡고 결제를 준비하기 전에 거른다. 이 확인 뒤에 취소 기록이 들어와도 결제 시작의 조건부 UPDATE가 막는다
+        if (scheduleCancellationRepository.existsById(reservation.getScheduleId())) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS_TRANSITION);
         }
         return new CheckoutTarget(
                 reservation.getId(),

@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.booking.application.cancel;
 
 import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
+import com.sparta.ticket.reservation.booking.application.cancel.CancelTransactions.PendingCancel;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -49,11 +50,12 @@ public class CancelReconcileService {
     }
 
     private boolean reconcileOne(Long reservationId, LocalDateTime staleBefore) {
-        Optional<String> orderId = transactions.claimPendingCancel(reservationId, staleBefore);
-        if (orderId.isEmpty()) {
+        Optional<PendingCancel> pending = transactions.claimPendingCancel(reservationId, staleBefore);
+        if (pending.isEmpty()) {
             return false;
         }
         metrics.resentRefund();
-        return cancelService.refundAndFinish(reservationId, orderId.get());
+        return cancelService.refundAndFinish(
+                reservationId, pending.get().orderId(), pending.get().reason());
     }
 }

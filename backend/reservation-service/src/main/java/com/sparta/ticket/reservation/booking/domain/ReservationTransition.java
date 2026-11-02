@@ -15,6 +15,7 @@ public enum ReservationTransition {
     START_PAYMENT(ReservationStatus.HOLD, ReservationStatus.PAYMENT_IN_PROGRESS),
     EXPIRE_HOLD(ReservationStatus.HOLD, ReservationStatus.EXPIRED),
     RELEASE_HOLD(ReservationStatus.HOLD, ReservationStatus.RELEASED),
+    CANCEL_HOLD(ReservationStatus.HOLD, ReservationStatus.CANCELED),
     CONFIRM(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.CONFIRMED),
     RETURN_TO_HOLD(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.HOLD),
     EXPIRE_AFTER_FAILURE(ReservationStatus.PAYMENT_IN_PROGRESS, ReservationStatus.EXPIRED),

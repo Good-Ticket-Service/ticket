@@ -49,7 +49,10 @@ public interface ReservationRepository {
     /** 바꾼 쿠폰의 할인액을 기록한다. 같은 트랜잭션에서 changeCoupon이 1행을 바꾼 뒤에만 부른다. */
     int recordDiscount(Long id, long discountAmount);
 
-    /** HOLD → PAYMENT_IN_PROGRESS. 본인, 만료 전, 마지막 준비의 orderId일 때만 바꾼다. */
+    /**
+     * HOLD → PAYMENT_IN_PROGRESS. 본인, 만료 전, 마지막 준비의 orderId이고 회차 취소 기록이 없을 때만 바꾼다.
+     * 판매 검증은 새 선점만 막으므로, 이미 선점한 예약이 취소된 회차를 결제하지 못하게 여기서 막는다.
+     */
     int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp);
 
     /** PAYMENT_IN_PROGRESS → CONFIRMED. 결과의 orderId가 지금 시도일 때만 바꾼다. */
@@ -74,6 +77,18 @@ public interface ReservationRepository {
     /** CONFIRMED → CANCELING. 본인 예약이고 회차 시작 전일 때만 바꾼다. 좌석은 판매된 그대로다. */
     int startCancel(Long id, Long userId, ChangeStamp stamp);
 
+    /**
+     * CONFIRMED → CANCELING. 회차가 취소된 예약을 정리할 때 부른다. 회차가 취소됐으므로 본인과 기한을 보지 않는다.
+     * 사용자가 먼저 취소했으면 0행이라 처음 사유가 남는다.
+     */
+    int startScheduleCancel(Long id, ChangeStamp stamp);
+
+    /**
+     * HOLD → CANCELED. 회차가 취소된 선점을 끝낸다. 돈이 오가지 않았으므로 환불이 없다.
+     * 지난 준비의 orderId를 지운다. 취소된 예약의 orderId는 그 주문으로 확정된 적이 있다는 뜻으로 읽기 때문이다.
+     */
+    int cancelHold(Long id, ChangeStamp stamp);
+
     /** CANCELING → CANCELED. payment가 환불 요청을 받은 뒤 부른다. 회차가 시작됐어도 바꾼다. */
     int cancel(Long id, ChangeStamp stamp);
 
@@ -85,6 +100,12 @@ public interface ReservationRepository {
 
     /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약이 가진 티켓 수. */
     long countActiveTickets(Long userId, Long scheduleId);
+
+    /** 이 회차에서 회차 취소 정리가 지금 처리할 수 있는 예약(HOLD·확정)을 고른다. 잠그지 않는다. */
+    List<Long> findCancelableIds(Long scheduleId, int limit);
+
+    /** 이 회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약 수. */
+    long countActive(Long scheduleId);
 
     /** 이 회원·회차의 HOLD 예약. 진행 중인 예약은 부분 UNIQUE로 하나뿐이므로 많아야 하나다. 만료 여부는 보지 않는다. */
     Optional<Reservation> findHold(Long userId, Long scheduleId);
