@@ -84,3 +84,17 @@ CREATE TABLE p_tickets
     CONSTRAINT uk_p_tickets_ticket_code UNIQUE (ticket_code),
     CONSTRAINT ck_p_tickets_price CHECK (price >= 0)
 );
+
+-- 취소된 회차. 이벤트를 받으면 한 행만 남기고, 예약 정리는 스케줄러가 이 행을 읽어 이어 간다.
+-- 회차는 한번 취소되면 다시 열리지 않으므로 schedule_id가 곧 중복 소비를 막는 키다
+CREATE TABLE p_schedule_cancellations
+(
+    schedule_id  BIGINT       PRIMARY KEY,
+    event_id     VARCHAR(36)  NOT NULL,
+    canceled_at  TIMESTAMP    NOT NULL,
+    received_at  TIMESTAMP    NOT NULL,
+    status       VARCHAR(20)  NOT NULL,
+    completed_at TIMESTAMP,
+
+    CONSTRAINT ck_p_schedule_cancellations_status CHECK (status IN ('RECEIVED', 'COMPLETED'))
+);

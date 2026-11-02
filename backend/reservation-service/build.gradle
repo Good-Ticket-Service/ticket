@@ -18,6 +18,8 @@ dependencies {
     implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
+    // 회차 취소 이벤트 수신. 연결 정보는 config-repo/application.yml의 spring.kafka
+    implementation 'org.springframework.kafka:spring-kafka'
     // 결제 호출 보호(Bulkhead, Circuit Breaker). 사용자 요청의 결제 준비·승인만 감싼다. 버전은 Spring Cloud BOM이 정한다
     implementation 'io.github.resilience4j:resilience4j-bulkhead'
     implementation 'io.github.resilience4j:resilience4j-circuitbreaker'
@@ -31,4 +33,6 @@ dependencies {
     compileOnly 'org.postgresql:postgresql'
 
     testImplementation(testFixtures(project(':common')))
+    testImplementation 'org.testcontainers:kafka'
+    testImplementation 'org.awaitility:awaitility'
 }
