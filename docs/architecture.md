@@ -55,7 +55,7 @@ flowchart LR
 |---|---|---|
 | 클라이언트 → 서비스 | Gateway → Eureka lb 라우팅. 실 라우트 차이는 infra 10절 | 기반 구현됨 |
 | gateway → user | WebClient GET /internal/users/{userId}, 일반 요청 캐시60초. 결제 관리자 요청은 캐시 우회·MASTER 검사 | 일반 인증 구현됨. 관리자 예외는 #88 브랜치 구현 |
-| gateway → performance | 입장 토큰 검사 때 WebClient GET /api/schedules/{scheduleId}(공개 회차 상세)의 performanceId로 회차의 공연 확인. 1시간 캐시, 404는 캐시하지 않음, 실패는 503 | 구현됨(#228). 응답의 performanceId 의존은 공연 담당 확인 대기 |
+| gateway → performance | 입장 토큰 검사 때 WebClient GET /api/schedules/{scheduleId}(공개 회차 상세)의 performanceId로 회차의 공연 확인. 1시간 캐시, 404는 캐시하지 않음, 실패는 503 | 구현됨(#228). 공개 API를 그대로 쓰며 공연 담당에게 사용 사실(performanceId, 404 조건)을 알림 |
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. POST /internal/schedules/{scheduleId}/seat-setups (api 「좌석 내부 API」). 성능 측정 뒤 Kafka 전환 | 합의(이슈 #175). 공연 쪽 호출 구현됨(이슈 #131), 좌석 쪽 엔드포인트 구현됨(이슈 #190) |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
@@ -267,7 +267,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 삭제 전 조회 | 공연/회차 삭제의 예매 존재 확인·오류·의존 조회 불가 정책 계약 | 공연·예매 |
 | 연령·탈퇴 | 미달 차단에 필요한 생년월일/기준시각/ageRating 전달, 진행 거래·공연 보유 회원 탈퇴 정책 | 회원·공연·예매 |
 | 시각·페이징 | +09:00 Offset 공통 목표의 DTO별 이행, Page DTO/size 통일. 감사 주체 정책과 직렬화 형식은 구분 | 전 도메인 |
-| 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답은 api 대기열 절(#227), 회차→공연 검증은 3절 gateway → performance(#228, 공연 담당 확인 대기). 잔여석 캐시는 서버 메모리 TTL 3초로 확정(이슈 #241, 부하 측정 뒤 조정). 오픈 전 진입 결정 | 대기열·좌석·Gateway |
+| 입장·캐시 | 공연 범위·TTL10분·좌석조회/선점 적용은 확정. 발급/전달 응답은 api 대기열 절(#227), 회차→공연 검증은 3절 gateway → performance(#228). 잔여석 캐시는 서버 메모리 TTL 3초로 확정(이슈 #241, 부하 측정 뒤 조정). 오픈 전 진입 결정 | 대기열·좌석·Gateway |
 | 만료 직전 요청 | payment.expiresAt=holdExpiresAt 경계·전송 중 만료 처리·grace 합의 | 예매·결제 |
 | Feign timeout | 현행 예매15초와 결제20초 제안의 실행 예산 조율 | 예매·결제 |
 | 조회404 | 진행 중 결제 조회404는 알림·상태 유지. 준비 재시도 안내와 구분. ORDER_ID_MISMATCH는 현행409. NOT_CANCELLABLE은 409로 합의(#127) | 예매·결제 |
