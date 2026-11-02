@@ -89,6 +89,7 @@ script/run.sh --reset         # DB 볼륨까지 지우고 새로 시작
 - Kafka: 컨테이너 안의 앱은 `kafka:29092`, IDE로 띄운 앱은 `localhost:9092` (`spring.kafka.bootstrap-servers`는 `config-repo/application.yml`에 있다)
 - 초기 MASTER 계정: `.env`의 `MASTER_EMAIL` / `MASTER_PASSWORD`
 - logistics-management와 함께 띄우면 호스트 포트가 겹친다. `.env`에서 포트와 `COMPOSE_PROJECT_NAME`을 바꾼다. Docker 네트워크 대역(10.220.10.0/24)은 logistics(10.210.10.0/24)와 겹치지 않게 잡았다.
+- 대기열: `.env`의 `QUEUE_ENABLED=true`로 띄우면 reservation-service(대기열)와 gateway-service(좌석 조회·선점의 입장 토큰 검사)가 같은 값으로 함께 켜진다. 두 값이 다르면 좌석 조회·선점이 모두 403이 되거나 대기열을 건너뛸 수 있다. 프런트는 빌드할 때 값이 들어가므로, 대기열을 켤 때는 `frontend/.env`의 `VITE_QUEUE_ENABLED=true`로 다시 빌드한다.
 
 - fake PG: http://localhost:8090/fake/admin/faults (장애 설정), http://localhost:8090/fake/admin/transactions (PG 쪽 거래 기록)
 
@@ -117,7 +118,7 @@ docker compose exec -T postgres psql -U postgres -d ticket \
   -c "ALTER ROLE fake_pg_app SET search_path = fake_pg_schema"
 ```
 
-IDE로 서비스 하나만 띄울 때는 `docker compose up -d postgres redis kafka config-server eureka-server`로 기반만 올리고, 실행 설정에 `JWT_SECRET`(user-service), `QUEUE_TOKEN_SECRET`(reservation-service, gateway-service)을 넣는다. 서비스보다 config-server를 먼저 띄운다.
+IDE로 서비스 하나만 띄울 때는 `docker compose up -d postgres redis kafka config-server eureka-server`로 기반만 올리고, 실행 설정에 `JWT_SECRET`(user-service), `QUEUE_TOKEN_SECRET`(reservation-service, gateway-service)을 넣는다. 대기열을 켤 때는 두 서비스 모두 `QUEUE_ENABLED=true`를 넣는다. 서비스보다 config-server를 먼저 띄운다.
 
 ## 빌드·테스트
 
