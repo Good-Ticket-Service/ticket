@@ -401,7 +401,7 @@
 
 ## 대기열 — reservation-service / queue
 
-상태: 진입(#100), 순번 조회(#101), 대기 취소(#102), 입장 처리·입장 토큰 발급(#227)은 구현. Gateway의 입장 토큰 검사는 #228(구현 전)이다.
+상태: 진입(#100), 순번 조회(#101), 대기 취소(#102), 입장 처리·입장 토큰 발급(#227)은 구현. Gateway의 입장 토큰 검사(#228)도 구현.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -428,10 +428,13 @@
 - Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
 - 오픈 전 진입과 판매 중지 공연의 진입은 아직 막지 않는다. 공연 서비스 확인 방식이 architecture 14절 미합의 항목이기 때문이다.
 
-입장 토큰은 별도 발급 API 없이 진입·순번 조회의 ENTERED 응답 entryToken으로 받는다. 회차→공연 검증과 Gateway 세부 오류는 architecture 14절 미합의를 따른다.
+입장 토큰은 별도 발급 API 없이 진입·순번 조회의 ENTERED 응답 entryToken으로 받는다. 좌석 조회·선점 요청의 X-Queue-Token 헤더에 넣으면 Gateway가 검사한다.
 
 - 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), performanceId(long), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
 - 만료는 입장 시각에 고정된다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다.
+- Gateway 검사 순서는 토큰 있음 → 서명·만료 → 토큰 회원이 로그인 회원과 같은지 → 토큰 공연이 요청한 회차의 공연과 같은지다. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다.
+- 회차의 공연은 Gateway가 공연 서비스의 공개 회차 상세(GET /api/schedules/{scheduleId})의 performanceId로 확인하고 1시간 캐시한다. 회차가 없으면(404) 토큰의 공연과 맞을 수 없으므로 403이고, 회차를 확인하지 못하면 통과시키지 않고 503 SERVICE_UNAVAILABLE이다.
+- 대기열이 꺼져 있으면(QUEUE_ENABLED=false) Gateway는 입장 토큰을 검사하지 않는다.
 - 입장 토큰 X-Queue-Token은 공연(performanceId) 단위이고 TTL은 10분이다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - 좌석 선점 여부에 따라 입장 토큰 TTL을 늘리거나 없애지 않는다. (원본 복원: seat/api.md:17, 담당 확인 필요)
 - Gateway는 토큰의 회원과 공연 범위를 검증하고, 공연 범위는 경로의 scheduleId로 확인한다. (원본 복원: seat/api.md:17, seat/plan.md:109, 담당 확인 필요)
