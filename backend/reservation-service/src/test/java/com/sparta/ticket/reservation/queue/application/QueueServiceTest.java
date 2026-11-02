@@ -10,6 +10,7 @@ import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
 import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
+import com.sparta.ticket.reservation.queue.domain.QueueState;
 import com.sparta.ticket.reservation.queue.domain.QueueStatus;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import java.util.Optional;
@@ -43,7 +44,7 @@ class QueueServiceTest {
         }
 
         @Override
-        public Optional<QueuePosition> findPosition(long performanceId, long userId) {
+        public Optional<QueueState> find(long performanceId, long userId) {
             calls.incrementAndGet();
             return inQueue ? Optional.of(new QueuePosition(aheadCount)) : Optional.empty();
         }

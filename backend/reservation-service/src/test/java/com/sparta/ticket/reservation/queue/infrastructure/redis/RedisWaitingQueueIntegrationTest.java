@@ -2,8 +2,10 @@ package com.sparta.ticket.reservation.queue.infrastructure.redis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sparta.ticket.reservation.queue.domain.QueueAdmission;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -35,6 +37,11 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
 
     private long newPerformanceId() {
         return PERFORMANCE_IDS.incrementAndGet();
+    }
+
+    private long redisNowMillis() {
+        return redis.execute(
+                (RedisCallback<Long>) connection -> connection.serverCommands().time());
     }
 
     @Test
@@ -80,8 +87,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("줄을 서면 마지막 조회 시각도 Redis 시각으로 남는다")
     void enterRecordsSeen() {
         long performanceId = newPerformanceId();
-        long before = redis.execute(
-                (RedisCallback<Long>) connection -> connection.serverCommands().time());
+        long before = redisNowMillis();
 
         waitingQueue.enter(performanceId, 7L);
 
@@ -110,11 +116,11 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         waitingQueue.enter(performanceId, 7L);
         waitingQueue.enter(performanceId, 3L);
 
-        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(1));
+        assertThat(waitingQueue.find(performanceId, 3L)).contains(new QueuePosition(1));
 
         redis.opsForZSet().remove(QueueKeys.waiting(performanceId), "7");
 
-        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(0));
+        assertThat(waitingQueue.find(performanceId, 3L)).contains(new QueuePosition(0));
     }
 
     @Test
@@ -122,10 +128,9 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
     void findPositionRecordsSeen() {
         long performanceId = newPerformanceId();
         waitingQueue.enter(performanceId, 7L);
-        long before = redis.execute(
-                (RedisCallback<Long>) connection -> connection.serverCommands().time());
+        long before = redisNowMillis();
 
-        waitingQueue.findPosition(performanceId, 7L);
+        waitingQueue.find(performanceId, 7L);
 
         Double seen = redis.opsForZSet().score(QueueKeys.seen(performanceId), "7");
         assertThat(seen).isNotNull();
@@ -138,8 +143,28 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         long performanceId = newPerformanceId();
         waitingQueue.enter(performanceId, 7L);
 
-        assertThat(waitingQueue.findPosition(performanceId, 3L)).isEmpty();
+        assertThat(waitingQueue.find(performanceId, 3L)).isEmpty();
         assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "3")).isNull();
+    }
+
+    @Test
+    @DisplayName("입장해 있는 회원을 조회하면 입장 만료 시각을 돌려주고, 조회 시각은 남기지 않는다")
+    void findAdmitted() {
+        long performanceId = newPerformanceId();
+        long expireAt = redisNowMillis() + 600_000;
+        redis.opsForZSet().add(QueueKeys.active(performanceId), "7", expireAt);
+
+        assertThat(waitingQueue.find(performanceId, 7L)).contains(new QueueAdmission(Instant.ofEpochMilli(expireAt)));
+        assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "7")).isNull();
+    }
+
+    @Test
+    @DisplayName("입장 만료가 지났으면 스케줄러가 아직 정리하지 않았어도 조회 결과는 비어 있다")
+    void findExpiredAdmission() {
+        long performanceId = newPerformanceId();
+        redis.opsForZSet().add(QueueKeys.active(performanceId), "7", redisNowMillis() - 1);
+
+        assertThat(waitingQueue.find(performanceId, 7L)).isEmpty();
     }
 
     @Test
@@ -148,13 +173,13 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         long performanceId = newPerformanceId();
         waitingQueue.enter(performanceId, 7L);
         waitingQueue.enter(performanceId, 3L);
-        waitingQueue.findPosition(performanceId, 7L);
+        waitingQueue.find(performanceId, 7L);
 
         waitingQueue.leave(performanceId, 7L);
 
-        assertThat(waitingQueue.findPosition(performanceId, 7L)).isEmpty();
+        assertThat(waitingQueue.find(performanceId, 7L)).isEmpty();
         assertThat(redis.opsForZSet().score(QueueKeys.seen(performanceId), "7")).isNull();
-        assertThat(waitingQueue.findPosition(performanceId, 3L)).contains(new QueuePosition(0));
+        assertThat(waitingQueue.find(performanceId, 3L)).contains(new QueuePosition(0));
     }
 
     @Test
@@ -166,7 +191,7 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         waitingQueue.leave(performanceId, 3L);
         waitingQueue.leave(performanceId, 3L);
 
-        assertThat(waitingQueue.findPosition(performanceId, 7L)).contains(new QueuePosition(0));
+        assertThat(waitingQueue.find(performanceId, 7L)).contains(new QueuePosition(0));
     }
 
     @Test
