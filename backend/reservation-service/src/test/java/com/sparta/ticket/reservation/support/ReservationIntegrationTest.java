@@ -8,6 +8,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -60,7 +61,12 @@ public abstract class ReservationIntegrationTest extends PostgresIntegrationTest
     protected static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:7.4")).withExposedPorts(6379);
 
+    /** 회차 취소 이벤트 수신용. 운영 Compose와 같은 버전이다. 대기열의 Redis와 같은 이유로 여기서 한 번만 띄운다. */
+    @ServiceConnection
+    protected static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.1"));
+
     static {
         REDIS.start();
+        KAFKA.start();
     }
 }
