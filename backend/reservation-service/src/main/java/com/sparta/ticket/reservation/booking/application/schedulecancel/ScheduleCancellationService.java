@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.booking.application.schedulecancel;
 
+import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.cancel.ReservationCancelService;
 import com.sparta.ticket.reservation.booking.application.port.RefundReason;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -23,6 +24,7 @@ public class ScheduleCancellationService {
     private final ReservationRepository reservationRepository;
     private final ScheduleCancellationTransactions transactions;
     private final ReservationCancelService cancelService;
+    private final BookingMetrics metrics;
 
     /**
      * 끝나지 않은 회차를 받은 순서로 정리하고 처리한 예약 수를 돌려준다. 시간 예산이 다 되면 다음 예약을 시작하지 않는다.
@@ -35,7 +37,17 @@ public class ScheduleCancellationService {
             processed += cleanUpSchedule(scheduleId, batchSize, deadline);
             completeIfDone(scheduleId, completeAfter);
         }
+        reportConfirmedAfterCompleted();
         return processed;
+    }
+
+    /** 완료한 회차는 다시 고르지 않으므로 여기 남은 확정 예약은 정리가 끝내지 못한다. 사람이 환불해야 하니 알리기만 한다. */
+    private void reportConfirmedAfterCompleted() {
+        long count = reservationRepository.countConfirmedAfterCompleted();
+        metrics.confirmedAfterCompleted(count);
+        if (count > 0) {
+            log.error("정리를 완료한 회차에 확정 예약이 남았다. 환불이 빠졌으므로 관리자가 확인한다. count={}", count);
+        }
     }
 
     private int cleanUpSchedule(Long scheduleId, int batchSize, long deadline) {

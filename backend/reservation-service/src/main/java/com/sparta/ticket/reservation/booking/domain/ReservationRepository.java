@@ -98,6 +98,9 @@ public interface ReservationRepository {
      */
     int cancelUnconfirmed(Long id, String orderId, ChangeStamp stamp);
 
+    /** 회차 취소 정리를 완료한 회차에 남은 확정 예약 수. */
+    long countConfirmedAfterCompleted();
+
     /** 이 회원·회차의 진행 중인(HOLD·결제 중·확정·취소 중) 예약이 가진 티켓 수. */
     long countActiveTickets(Long userId, Long scheduleId);
 

@@ -472,6 +472,14 @@ public interface ReservationJpaRepository
             """)
     long countActiveTickets(@Param("userId") Long userId, @Param("scheduleId") Long scheduleId);
 
+    @Override
+    @Query("""
+            SELECT COUNT(r) FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.CONFIRMED
+               AND r.scheduleId IN (SELECT c.scheduleId FROM ScheduleCancellationRow c WHERE c.status = 'COMPLETED')
+            """)
+    long countConfirmedAfterCompleted();
+
     /** 상태를 리터럴로 써야 booking.sql의 부분 인덱스 ix_p_reservations_active_schedule을 탈 수 있다. */
     @Query("""
             SELECT r.id FROM Reservation r
