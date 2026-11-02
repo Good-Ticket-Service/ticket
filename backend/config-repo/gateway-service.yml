@@ -58,6 +58,12 @@ spring:
 jwt:
   secret: ${JWT_SECRET}
 
+# 대기열 입장 토큰 검사(좌석 조회·선점). 꺼져 있으면 검사하지 않는다. reservation-service와 같은 QUEUE_ENABLED를 쓴다.
+# 서명 키는 reservation-service가 발급에 쓰는 QUEUE_TOKEN_SECRET과 같은 값이고 저장소에 두지 않는다
+queue:
+  enabled: ${QUEUE_ENABLED:false}
+  token-secret: ${QUEUE_TOKEN_SECRET}
+
 auth:
   # 인증 없이 통과시키는 경로
   whitelist:
