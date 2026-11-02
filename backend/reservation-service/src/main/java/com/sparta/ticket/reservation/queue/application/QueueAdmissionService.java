@@ -4,6 +4,7 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class QueueAdmissionService {
     private final WaitingQueue waitingQueue;
     private final QueueProperties queueProperties;
     private final QueueAdmissionProperties admissionProperties;
+    private final QueueAdmissionMetrics metrics;
 
     /** 열린 공연을 하나씩 처리한다. 대기열이 꺼져 있으면 아무것도 하지 않는다. 한 공연이 실패해도 다음 공연은 처리한다. */
     public void admitAll() {
@@ -29,9 +31,15 @@ public class QueueAdmissionService {
             return;
         }
         AdmissionPolicy policy = policy();
+        long waiting = 0;
+        long active = 0;
         for (long performanceId : waitingQueue.performances()) {
+            Timer.Sample sample = metrics.start();
             try {
                 AdmissionResult result = waitingQueue.admit(performanceId, policy);
+                metrics.recorded(sample, result);
+                waiting += result.waiting();
+                active += result.active();
                 log.debug(
                         "공연 {} 입장 처리: 입장 {}, 만료 {}, 이탈 {}, 닫힘 {}",
                         performanceId,
@@ -40,9 +48,11 @@ public class QueueAdmissionService {
                         result.left(),
                         result.closed());
             } catch (BusinessException e) {
+                metrics.failed(sample);
                 log.warn("공연 {} 입장 처리에 실패했다. 다음 주기에 다시 처리한다.", performanceId, e);
             }
         }
+        metrics.cycleFinished(waiting, active);
     }
 
     private AdmissionPolicy policy() {

@@ -7,5 +7,7 @@ package com.sparta.ticket.reservation.queue.domain;
  * @param expired 입장 유효 시간이 지나 입장 목록에서 빠진 인원
  * @param left 조회가 끊겨 줄에서 빠진 인원
  * @param closed 대기자도 입장자도 없어 대기열을 닫았는지
+ * @param waiting 처리 뒤 줄에 남은 인원
+ * @param active 처리 뒤 입장해 있는 인원
  */
-public record AdmissionResult(long admitted, long expired, long left, boolean closed) {}
+public record AdmissionResult(long admitted, long expired, long left, boolean closed, long waiting, long active) {}
