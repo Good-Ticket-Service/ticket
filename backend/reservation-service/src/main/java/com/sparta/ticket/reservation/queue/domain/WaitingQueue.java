@@ -9,8 +9,8 @@ import java.util.Set;
  */
 public interface WaitingQueue {
 
-    /** 줄을 선다. 이미 서 있으면 새로 서지 않고 원래 위치를 돌려준다. */
-    QueuePosition enter(long performanceId, long userId);
+    /** 줄을 선다. 이미 서 있으면 새로 서지 않고 원래 위치를, 입장해 있으면 줄에 다시 세우지 않고 입장 상태를 돌려준다. */
+    QueueState enter(long performanceId, long userId);
 
     /**
      * 지금 위치나 입장 상태를 확인한다. 줄에 있으면 마지막 조회 시각도 남긴다(이탈자 판단용). 줄에도 입장 목록에도 없으면 비어 있다.

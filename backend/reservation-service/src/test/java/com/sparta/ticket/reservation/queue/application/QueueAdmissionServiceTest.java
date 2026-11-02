@@ -6,7 +6,6 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.AdmissionResult;
-import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.QueueState;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
 import java.time.Duration;
@@ -37,7 +36,7 @@ class QueueAdmissionServiceTest {
         }
 
         @Override
-        public QueuePosition enter(long performanceId, long userId) {
+        public QueueState enter(long performanceId, long userId) {
             throw new UnsupportedOperationException();
         }
 

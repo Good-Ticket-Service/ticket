@@ -32,16 +32,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class RedisWaitingQueue implements WaitingQueue {
 
-    private static final RedisScript<Long> ENTER_SCRIPT = loadScript("queue/enter.lua", Long.class);
-    private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua", Long.class);
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> ENTER_SCRIPT = loadScript("queue/enter.lua", List.class);
 
     @SuppressWarnings("rawtypes")
     private static final RedisScript<List> POSITION_SCRIPT = loadScript("queue/position.lua", List.class);
 
+    private static final RedisScript<Long> LEAVE_SCRIPT = loadScript("queue/leave.lua", Long.class);
+
     @SuppressWarnings("rawtypes")
     private static final RedisScript<List> ADMIT_SCRIPT = loadScript("queue/admit.lua", List.class);
 
-    /** position.lua가 돌려주는 { 종류, 값 }의 종류. 줄에 서 있으면 값이 앞 인원, 입장해 있으면 입장 만료 시각(ms)이다. */
+    /** enter.lua·position.lua가 돌려주는 { 종류, 값 }의 종류. 줄에 서 있으면 값이 앞 인원, 입장해 있으면 입장 만료 시각(ms)이다. */
     private static final long WAITING = 0;
 
     private static final long ENTERED = 1;
@@ -52,15 +54,17 @@ public class RedisWaitingQueue implements WaitingQueue {
         this.redis = redis;
     }
 
+    /** 입장 확인과 줄 서기를 Lua 하나로 묶는다. 따로 하면 그 사이 입장한 회원이 줄 끝에 다시 서서 입장을 두 번 받는다. */
     @Override
-    public QueuePosition enter(long performanceId, long userId) {
+    public QueueState enter(long performanceId, long userId) {
         List<String> keys = List.of(
                 QueueKeys.waiting(performanceId),
                 QueueKeys.seq(performanceId),
                 QueueKeys.PERFORMANCES,
-                QueueKeys.seen(performanceId));
-        Long rank = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(performanceId));
-        return new QueuePosition(rank);
+                QueueKeys.seen(performanceId),
+                QueueKeys.active(performanceId));
+        List<?> result = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(performanceId));
+        return toState(result).orElseThrow();
     }
 
     /** 위치 확인과 조회 시각 기록을 Lua 하나로 묶는다. 따로 하면 그 사이 줄에서 빠진 회원의 조회 시각이 남는다. */

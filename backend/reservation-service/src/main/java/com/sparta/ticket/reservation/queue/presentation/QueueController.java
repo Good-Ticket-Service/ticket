@@ -4,7 +4,6 @@ import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.queue.application.QueueService;
-import com.sparta.ticket.reservation.queue.application.dto.QueueEntryResult;
 import com.sparta.ticket.reservation.queue.application.dto.QueueStatusResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,10 +32,13 @@ public class QueueController {
 
     private final QueueService queueService;
 
-    /** 공연 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다. */
+    /**
+     * 공연 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다.
+     * 이미 입장해 있으면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다.
+     */
     @Operation(summary = "대기열 진입")
     @PostMapping("/performances/{performanceId}")
-    public ApiResponse<QueueEntryResult> enter(@PathVariable Long performanceId, @CurrentUser UserContext user) {
+    public ApiResponse<QueueStatusResult> enter(@PathVariable Long performanceId, @CurrentUser UserContext user) {
         return ApiResponse.ok(queueService.enter(performanceId, user.userId()));
     }
 

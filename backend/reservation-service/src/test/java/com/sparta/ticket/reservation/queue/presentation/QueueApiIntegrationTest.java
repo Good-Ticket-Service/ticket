@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
@@ -53,6 +54,7 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
         enter(performanceId, 2L)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.status").value("WAITING"))
                 .andExpect(jsonPath("$.data.position").value(2))
                 .andExpect(jsonPath("$.data.aheadCount").value(1))
                 .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(1));
@@ -118,6 +120,22 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.position").value(0))
                 .andExpect(jsonPath("$.data.aheadCount").value(0))
                 .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(0));
+    }
+
+    @Test
+    @DisplayName("입장한 회원이 다시 진입하면 줄에 다시 서지 않고 순번 조회와 같은 토큰을 받는다")
+    void enterWhileEntered() throws Exception {
+        long performanceId = PERFORMANCE_IDS.incrementAndGet();
+        enter(performanceId, 1L);
+        admit(performanceId);
+        String token = JsonPath.read(
+                findMyStatus(performanceId, 1L).andReturn().getResponse().getContentAsString(), "$.data.entryToken");
+
+        enter(performanceId, 1L)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ENTERED"))
+                .andExpect(jsonPath("$.data.entryToken").value(token));
+        enter(performanceId, 2L).andExpect(jsonPath("$.data.position").value(1));
     }
 
     @Test
