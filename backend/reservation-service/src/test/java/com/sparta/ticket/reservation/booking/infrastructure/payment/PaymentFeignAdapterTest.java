@@ -13,6 +13,7 @@ import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequ
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
 import com.sparta.ticket.reservation.booking.application.port.RefundOutcome;
 import com.sparta.ticket.reservation.booking.application.port.RefundReason;
+import com.sparta.ticket.reservation.infrastructure.config.JacksonConfig;
 import feign.RetryableException;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -67,7 +68,8 @@ class PaymentFeignAdapterTest {
         CommonFeignAutoConfiguration.class
     })
     @EnableFeignClients(clients = {PaymentCommandClient.class, PaymentQueryClient.class})
-    @Import(PaymentFeignAdapter.class)
+    // 운영과 같은 JSON 읽기 규칙(숫자·boolean 강제 변환 금지, 이슈 #233)으로 응답을 읽는다
+    @Import({PaymentFeignAdapter.class, JacksonConfig.class})
     static class Config {}
 
     @DynamicPropertySource
