@@ -3,6 +3,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, setToken } from '../api/client';
 import { ErrorNotice, Title } from '../components/Common';
+import { ROLE_LABEL } from '../components/Layout';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -11,7 +12,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const next = params.get('next');
   const login = useMutation({
-    mutationFn: () => api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: { email, password } }),
+    mutationFn: (credentials: { email: string; password: string }) =>
+      api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: credentials }),
     onSuccess: (result) => {
       setToken(result.accessToken);
       // 외부 주소로 보내지 않도록 앱 안의 경로만 따른다.
@@ -20,7 +22,7 @@ export function LoginPage() {
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    login.mutate();
+    login.mutate({ email, password });
   };
   return (
     <main className="content narrow">
@@ -42,6 +44,26 @@ export function LoginPage() {
           회원가입
         </Link>
       </form>
+      {__DEV_ACCOUNTS__.length > 0 && (
+        <section className="stack dev-login" aria-label="테스트 계정으로 로그인">
+          <p className="muted">개발 서버 전용 · 테스트 계정으로 로그인</p>
+          <div className="dev-login-buttons">
+            {__DEV_ACCOUNTS__.map((account) => (
+              <button
+                key={account.role}
+                type="button"
+                className="btn btn-ghost"
+                disabled={login.isPending}
+                title={account.email}
+                aria-label={`${ROLE_LABEL[account.role]} 테스트 계정으로 로그인`}
+                onClick={() => login.mutate({ email: account.email, password: account.password })}
+              >
+                {ROLE_LABEL[account.role]}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

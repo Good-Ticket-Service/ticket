@@ -14,6 +14,7 @@ http://localhost:5173 에서 열린다. `/api`는 Gateway(8080), `/fake-pg`는 F
 - 로그인 응답에 역할이 없어 `GET /api/users/me`로 읽는다. 메뉴와 화면 진입은 역할을 따르지만 길 안내일 뿐이고, 권한 검사는 서버가 한다.
 - 예매·쿠폰함·내 예매는 일반 회원(USER)만 쓴다. 판매자는 `/seller/signup`에서 가입한다.
 - MASTER 계정은 가입 API가 없다. 루트 README의 초기 계정을 쓴다.
+- 개발 서버(`npm run dev`)의 로그인 화면에는 회원·판매자·관리자 버튼이 있어 누르면 그 계정으로 바로 로그인한다. 계정은 `script/seed-accounts.sh`와 같이 루트 `.env`(없으면 `.env.example`)의 `SEED_USER_*`·`SEED_SELLER_*`·`MASTER_*`를 쓰고, 값을 바꿨으면 개발 서버를 다시 띄운다. 비밀번호가 번들에 들어가므로 빌드본에는 넣지 않는다.
 
 ## 대기열
 
