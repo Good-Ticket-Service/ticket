@@ -11,6 +11,7 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.common.exception.SimpleErrorCode;
 import com.sparta.ticket.performance.application.dto.SeatSetupCommand;
 import com.sparta.ticket.performance.application.dto.SeatSetupOutcome;
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
 import feign.Request;
 import feign.RetryableException;
 import java.nio.charset.StandardCharsets;
@@ -107,7 +108,8 @@ class SeatSetupFeignAdapterTest {
         fail(seatError(HttpStatus.CONFLICT, "SEAT_SETUP_IN_USE"));
 
         assertThat(adapter.request(COMMAND))
-                .isEqualTo(new SeatSetupOutcome.Unavailable("SEAT_SETUP_IN_USE", SeatSetupFeignAdapter.IN_USE));
+                .isEqualTo(new SeatSetupOutcome.Unavailable(
+                        "SEAT_SETUP_IN_USE", SeatSetupFeignAdapter.IN_USE, SeatSetupFailureKind.SEAT_IN_USE));
     }
 
     @Test

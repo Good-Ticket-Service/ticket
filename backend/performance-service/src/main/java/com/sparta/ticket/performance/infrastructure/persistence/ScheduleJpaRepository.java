@@ -2,6 +2,7 @@ package com.sparta.ticket.performance.infrastructure.persistence;
 
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
 import com.sparta.ticket.performance.domain.schedule.SeatSetupStatus;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -27,6 +28,20 @@ public interface ScheduleJpaRepository extends JpaRepository<Schedule, Long> {
     @Query("SELECT s FROM Schedule s WHERE s.id = :id")
     Optional<Schedule> findByIdForUpdate(@Param("id") Long id);
 
+    @Query("SELECT s.performanceId FROM Schedule s WHERE s.id = :id")
+    Optional<Long> findPerformanceId(@Param("id") Long id);
+
+    @Query("SELECT s.id FROM Schedule s WHERE s.seatSetupStatus = 'FAILED'"
+            + " AND s.seatSetupFailureKind = 'RESULT_UNKNOWN' AND s.seatSetupRecoveryNextAt <= :now"
+            + " ORDER BY s.seatSetupRecoveryNextAt, s.id")
+    List<Long> findRecoveryDue(@Param("now") LocalDateTime now, Limit limit);
+
+    @Query("SELECT COUNT(s) FROM Schedule s WHERE s.seatSetupStatus = 'FAILED'"
+            + " AND s.seatSetupFailureKind = 'RESULT_UNKNOWN' AND s.seatSetupRecoveryNextAt IS NULL"
+            + " AND s.operationStatus = 'ACTIVE' AND EXISTS (SELECT p.id FROM Performance p"
+            + " WHERE p.id = s.performanceId AND p.operationStatus = 'ACTIVE')")
+    long countRecoveryActionRequired();
+
     boolean existsByPerformanceIdAndStartAt(Long performanceId, LocalDateTime startAt);
 
     /** 공연의 운영 상태가 status인 회차의 첫·마지막 시작 시각. 회차가 없으면 두 값이 null이다. */
@@ -49,7 +64,9 @@ public interface ScheduleJpaRepository extends JpaRepository<Schedule, Long> {
     @Modifying
     @Query("UPDATE Schedule s SET s.seatSetupStatus = :status, s.seatConfigVersion = :configVersion,"
             + " s.seatSetupRequestId = :requestId, s.seatSetupError = :error, s.seatSetupAttempts = :attempts,"
-            + " s.seatSetupNextAttemptAt = :nextAttemptAt, s.updatedAt = :updatedAt, s.updatedBy = :updatedBy"
+            + " s.seatSetupNextAttemptAt = :nextAttemptAt, s.seatSetupFailureKind = :failureKind,"
+            + " s.seatSetupRecoveryAttempts = :recoveryAttempts, s.seatSetupRecoveryLimit = :recoveryLimit,"
+            + " s.seatSetupRecoveryNextAt = :recoveryNextAt, s.updatedAt = :updatedAt, s.updatedBy = :updatedBy"
             + " WHERE s.id = :id")
     int updateSeatSetup(
             @Param("id") Long id,
@@ -59,6 +76,10 @@ public interface ScheduleJpaRepository extends JpaRepository<Schedule, Long> {
             @Param("error") String error,
             @Param("attempts") int attempts,
             @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
+            @Param("failureKind") SeatSetupFailureKind failureKind,
+            @Param("recoveryAttempts") int recoveryAttempts,
+            @Param("recoveryLimit") int recoveryLimit,
+            @Param("recoveryNextAt") LocalDateTime recoveryNextAt,
             @Param("updatedAt") LocalDateTime updatedAt,
             @Param("updatedBy") String updatedBy);
 }

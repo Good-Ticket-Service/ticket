@@ -4,6 +4,7 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.performance.application.dto.SeatSetupCommand;
 import com.sparta.ticket.performance.application.dto.SeatSetupOutcome;
 import com.sparta.ticket.performance.application.port.SeatSetupClient;
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -71,7 +72,7 @@ public class SeatSetupFeignAdapter implements SeatSetupClient {
             return new SeatSetupOutcome.Rejected(code, VALIDATION_REJECTED);
         }
         if (status == 409 && "SEAT_SETUP_IN_USE".equals(code)) {
-            return new SeatSetupOutcome.Unavailable(code, IN_USE);
+            return new SeatSetupOutcome.Unavailable(code, IN_USE, SeatSetupFailureKind.SEAT_IN_USE);
         }
         if (status == 409 && "SEAT_SETUP_STALE_VERSION".equals(code)) {
             return new SeatSetupOutcome.Stale();

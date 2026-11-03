@@ -44,6 +44,16 @@ public class ScheduleStoreAdapter implements ScheduleStore {
     }
 
     @Override
+    public Optional<Long> findPerformanceId(Long scheduleId) {
+        return scheduleRepository.findPerformanceId(scheduleId);
+    }
+
+    @Override
+    public List<Long> findSeatSetupRecoveryDueIds(LocalDateTime now, int limit) {
+        return scheduleRepository.findRecoveryDue(now, Limit.of(limit));
+    }
+
+    @Override
     public List<Schedule> findByPerformanceIdForUpdate(Long performanceId) {
         return scheduleRepository.findByPerformanceIdForUpdate(performanceId);
     }
@@ -80,6 +90,10 @@ public class ScheduleStoreAdapter implements ScheduleStore {
                 schedule.getSeatSetupError(),
                 schedule.getSeatSetupAttempts(),
                 schedule.getSeatSetupNextAttemptAt(),
+                schedule.getSeatSetupFailureKind(),
+                schedule.getSeatSetupRecoveryAttempts(),
+                schedule.getSeatSetupRecoveryLimit(),
+                schedule.getSeatSetupRecoveryNextAt(),
                 LocalDateTime.now(),
                 auditorAware.getCurrentAuditor().orElse(SYSTEM));
     }

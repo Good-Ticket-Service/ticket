@@ -138,6 +138,10 @@ CREATE TABLE p_schedules
     cancel_reason              VARCHAR(500),
     seat_setup_attempts        INT          NOT NULL DEFAULT 0,
     seat_setup_next_attempt_at TIMESTAMP(3),
+    seat_setup_failure_kind    VARCHAR(32),
+    seat_setup_recovery_attempts INT NOT NULL DEFAULT 0,
+    seat_setup_recovery_limit    INT NOT NULL DEFAULT 0,
+    seat_setup_recovery_next_at TIMESTAMP(3),
     version                    BIGINT       NOT NULL DEFAULT 0,
     created_at                 TIMESTAMP    NOT NULL,
     created_by                 VARCHAR(100) NOT NULL,
@@ -150,9 +154,16 @@ CREATE TABLE p_schedules
     CONSTRAINT ck_p_schedules_booking_period CHECK (booking_open_at < booking_close_at AND booking_close_at <= start_at),
     CONSTRAINT ck_p_schedules_operation_status CHECK (operation_status IN ('ACTIVE', 'CANCELED')),
     CONSTRAINT ck_p_schedules_seat_setup_status CHECK (seat_setup_status IN ('PENDING', 'READY', 'FAILED')),
+    CONSTRAINT ck_p_schedules_recovery_counts CHECK (seat_setup_recovery_attempts >= 0 AND seat_setup_recovery_limit >= 0),
+    CONSTRAINT ck_p_schedules_failure_kind CHECK (seat_setup_failure_kind IN
+        ('RESULT_UNKNOWN','INVALID_REQUEST','INVALID_CONFIGURATION','SEAT_IN_USE','STALE_VERSION')),
     CONSTRAINT ck_p_schedules_seat_config_version CHECK (seat_config_version > 0),
     CONSTRAINT ck_p_schedules_seat_setup_attempts CHECK (seat_setup_attempts >= 0)
 );
+
+-- 결과 불명 회차의 복구 일정과 운영 조치 대상을 조회한다
+CREATE INDEX ix_p_schedules_recovery_due ON p_schedules (seat_setup_recovery_next_at, id)
+    WHERE seat_setup_status = 'FAILED' AND seat_setup_failure_kind = 'RESULT_UNKNOWN' AND deleted_at IS NULL;
 
 -- 삭제한 회차와 같은 시각으로 다시 등록할 수 있게 미삭제 행만 검사한다
 CREATE UNIQUE INDEX uq_p_schedules_start

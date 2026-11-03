@@ -2,10 +2,12 @@ package com.sparta.ticket.performance.application.service;
 
 import com.sparta.ticket.performance.application.dto.SeatSetupCommand;
 import com.sparta.ticket.performance.application.dto.SeatSetupOutcome;
+import com.sparta.ticket.performance.application.dto.SeatSetupRecoveryPolicy;
 import com.sparta.ticket.performance.application.dto.SeatSetupRetryPolicy;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
 import com.sparta.ticket.performance.application.port.SeatSetupReader;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +35,7 @@ public class SeatSetupAttempts {
     private final ScheduleStore scheduleStore;
     private final SeatSetupReader seatSetupReader;
     private final SeatSetupRetryPolicy policy;
+    private final SeatSetupRecoveryPolicy recoveryPolicy;
     private final Clock clock;
 
     /**
@@ -52,7 +55,8 @@ public class SeatSetupAttempts {
         }
         // 마지막 시도 중 서버가 멈춰 결과를 반영하지 못한 채 임대 시간이 지난 회차
         if (schedule.getSeatSetupAttempts() >= policy.maxAttempts()) {
-            failRepeatedly(schedule, "마지막 시도의 결과를 반영하지 못한 채 임대 시간이 지남", REPEATED_FAILURE);
+            failRepeatedly(
+                    schedule, "마지막 시도의 결과를 반영하지 못한 채 임대 시간이 지남", REPEATED_FAILURE, SeatSetupFailureKind.RESULT_UNKNOWN);
             scheduleStore.saveSeatSetup(schedule);
             return Optional.empty();
         }
@@ -90,18 +94,22 @@ public class SeatSetupAttempts {
             if (ready.requestId().equals(command.requestId()) && ready.configVersion() == command.configVersion()) {
                 schedule.completeSeatSetup();
             } else {
-                retryLater(schedule, "응답의 requestId·configVersion이 요청과 다름: " + ready, null);
+                retryLater(
+                        schedule,
+                        "응답의 requestId·configVersion이 요청과 다름: " + ready,
+                        null,
+                        SeatSetupFailureKind.RESULT_UNKNOWN);
             }
         } else if (outcome instanceof SeatSetupOutcome.Rejected rejected) {
             log.warn("좌석 준비가 거절됐다. scheduleId={}, code={}", schedule.getId(), rejected.code());
-            schedule.failSeatSetup(rejected.reason());
+            schedule.failSeatSetup(rejected.reason(), SeatSetupFailureKind.INVALID_REQUEST);
         } else if (outcome instanceof SeatSetupOutcome.Stale) {
             log.warn(
                     "좌석 쪽에 더 높은 구성 버전이 있어 결과를 무시한다. scheduleId={}, configVersion={}",
                     schedule.getId(),
                     command.configVersion());
         } else if (outcome instanceof SeatSetupOutcome.Unavailable unavailable) {
-            retryLater(schedule, unavailable.detail(), unavailable.failureReason());
+            retryLater(schedule, unavailable.detail(), unavailable.failureReason(), unavailable.kind());
         }
         scheduleStore.saveSeatSetup(schedule);
     }
@@ -110,9 +118,9 @@ public class SeatSetupAttempts {
      * 일시 실패. 다음 시도 시각은 start에서 이미 옮겼으므로 PENDING을 유지한다. 한도에 닿았으면 FAILED.
      * failureReason이 있으면(예: 좌석이 선점·판매 중) FAILED 사유로 그 값을 남겨 판매자가 원인을 알 수 있게 한다.
      */
-    private void retryLater(Schedule schedule, String detail, String failureReason) {
+    private void retryLater(Schedule schedule, String detail, String failureReason, SeatSetupFailureKind kind) {
         if (schedule.getSeatSetupAttempts() >= policy.maxAttempts()) {
-            failRepeatedly(schedule, detail, failureReason == null ? REPEATED_FAILURE : failureReason);
+            failRepeatedly(schedule, detail, failureReason == null ? REPEATED_FAILURE : failureReason, kind);
             return;
         }
         log.warn(
@@ -123,13 +131,18 @@ public class SeatSetupAttempts {
                 detail);
     }
 
-    /** Note: 운영 알림은 우선 ERROR 로그로 남긴다. 공개 후 FAILED 회차의 운영 절차는 정하지 않았다(architecture 14절). */
-    private void failRepeatedly(Schedule schedule, String detail, String reason) {
+    /** Note: 결과를 확인하지 못한 실패만 별도 복구 일정에 넣고, 확정 오류는 원인 수정 대상으로 남긴다. */
+    private void failRepeatedly(Schedule schedule, String detail, String reason, SeatSetupFailureKind kind) {
         log.error(
                 "좌석 준비 재시도 한도 초과로 FAILED. scheduleId={}, attempts={}, detail={}",
                 schedule.getId(),
                 schedule.getSeatSetupAttempts(),
                 detail);
-        schedule.failSeatSetup(reason);
+        if (kind == SeatSetupFailureKind.RESULT_UNKNOWN) {
+            schedule.requireSeatSetupRecovery(
+                    reason, LocalDateTime.now(clock), recoveryPolicy.firstDelay(), recoveryPolicy.maxAttempts());
+        } else {
+            schedule.failSeatSetup(reason, kind);
+        }
     }
 }

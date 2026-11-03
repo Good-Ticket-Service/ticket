@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.infrastructure.config;
 
+import com.sparta.ticket.performance.application.dto.SeatSetupRecoveryPolicy;
 import com.sparta.ticket.performance.application.dto.SeatSetupRetryPolicy;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +15,15 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class SeatSetupConfig {
+
+    @Bean
+    public SeatSetupRecoveryPolicy seatSetupRecoveryPolicy(
+            @Value("${performance.seat-setup.recovery.max-attempts:3}") int maxAttempts,
+            @Value("${performance.seat-setup.recovery.first-delay:30s}") Duration firstDelay,
+            @Value("${performance.seat-setup.recovery.max-delay:120s}") Duration maxDelay,
+            @Value("${performance.seat-setup.recovery.lease:15s}") Duration lease) {
+        return new SeatSetupRecoveryPolicy(maxAttempts, firstDelay, maxDelay, lease);
+    }
 
     @Bean
     public SeatSetupRetryPolicy seatSetupRetryPolicy(
