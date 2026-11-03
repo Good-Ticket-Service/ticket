@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PerformanceDetail, RemainingGrade, SalesStatus, Schedule } from '../api/types';
 import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, SectionTitle } from '../components/Common';
+import { entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
 
 const SALES: Record<SalesStatus, string> = {
@@ -13,8 +14,6 @@ const SALES: Record<SalesStatus, string> = {
   CLOSED: '예매 종료',
   CANCELED: '회차 취소',
 };
-
-const queueEnabled = import.meta.env.VITE_QUEUE_ENABLED === 'true';
 
 function scheduleNote(schedule: Schedule): string {
   if (schedule.salesStatus === 'BEFORE_OPEN') return `${formatDateTime(schedule.bookingOpenAt)} 오픈`;
@@ -44,7 +43,8 @@ export function PerformanceDetailPage() {
   if (performance.isError) return <main className="content"><ErrorNotice error={performance.error} /></main>;
   const item = performance.data;
   const seatsPath = `/performances/${item.id}/schedules/${scheduleId}/seats`;
-  const next = queueEnabled ? `/performances/${item.id}/queue?scheduleId=${scheduleId}` : seatsPath;
+  // 대기열이 꺼져 있으면 대기열 화면이 바로 좌석으로 넘긴다. 이미 입장했으면 줄을 다시 서지 않는다.
+  const next = entryToken(item.id) ? seatsPath : `/performances/${item.id}/queue?scheduleId=${scheduleId}`;
   return (
     <main className="content">
       <div className="split">

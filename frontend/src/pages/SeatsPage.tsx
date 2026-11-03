@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { Hold, Seat } from '../api/types';
 import { ErrorNotice, Loading, Title } from '../components/Common';
+import { clearEntryToken, entryToken } from '../lib/entryTokens';
 import { won } from '../lib/format';
 import { saveSeatLabel } from '../lib/seatLabels';
 
@@ -39,18 +40,39 @@ export function SeatsPage() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const [picked, setPicked] = useState<Seat | null>(null);
+  // 대기열을 끈 환경에서는 토큰 없이 보내고, Gateway도 검사하지 않는다.
+  const queueHeaders = (): Record<string, string> => {
+    const token = entryToken(performanceId!);
+    return token ? { 'X-Queue-Token': token } : {};
+  };
+  const backToQueue = (error: unknown) => {
+    if (!(error instanceof ApiError && error.code === 'QUEUE_TOKEN_INVALID')) return false;
+    clearEntryToken(performanceId!);
+    // 남겨 두면 다시 줄을 서고 돌아왔을 때 이 오류가 먼저 보여 또 대기열로 보낸다.
+    client.removeQueries({ queryKey: ['seats', scheduleId] });
+    navigate(`/performances/${performanceId}/queue?scheduleId=${scheduleId}`, { replace: true, state: { expired: true } });
+    return true;
+  };
   const seats = useQuery({
     queryKey: ['seats', scheduleId],
-    queryFn: () => api<{ seats: Seat[] }>(`/api/seats/schedules/${scheduleId}`),
+    queryFn: () => api<{ seats: Seat[] }>(`/api/seats/schedules/${scheduleId}`, { headers: queueHeaders() }),
   });
+  useEffect(() => {
+    if (seats.isError) backToQueue(seats.error);
+  }, [seats.isError, seats.error]);
   const hold = useMutation({
     mutationFn: (seat: Seat) =>
-      api<Hold>(`/api/seats/schedules/${scheduleId}/holds`, { method: 'POST', body: { scheduleSeatId: seat.scheduleSeatId } }),
+      api<Hold>(`/api/seats/schedules/${scheduleId}/holds`, {
+        method: 'POST',
+        body: { scheduleSeatId: seat.scheduleSeatId },
+        headers: queueHeaders(),
+      }),
     onSuccess: (result, seat) => {
       saveSeatLabel(result.reservationId, nameOf(seat));
       navigate(`/reservations/${result.reservationId}/checkout`);
     },
-    onError: () => {
+    onError: (error) => {
+      if (backToQueue(error)) return;
       // 다른 사람이 먼저 잡았을 수 있으니 지도를 새로 읽고 선택을 푼다.
       setPicked(null);
       client.invalidateQueries({ queryKey: ['seats', scheduleId] });

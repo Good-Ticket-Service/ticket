@@ -162,11 +162,14 @@ export interface UserCoupon {
   usedAt: string | null;
 }
 
-export interface QueuePosition {
-  status?: string;
+/** ENTERED면 position·aheadCount·estimatedWaitSeconds가 0이고, WAITING이면 entryToken·entryExpiresAt이 null이다. */
+export interface QueueStatus {
+  status: 'WAITING' | 'ENTERED';
   position: number;
   aheadCount: number;
   estimatedWaitSeconds: number;
+  entryToken: string | null;
+  entryExpiresAt: string | null;
 }
 
 export type PgProvider = 'TOSS' | 'KAKAO';

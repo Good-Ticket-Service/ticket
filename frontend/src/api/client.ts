@@ -1,3 +1,5 @@
+import { clearEntryTokens } from '../lib/entryTokens';
+
 const TOKEN_KEY = 'ticket.accessToken';
 
 export class ApiError extends Error {
@@ -25,6 +27,8 @@ export function setToken(token: string | null): void {
   } catch {
     // 저장소를 쓸 수 없는 브라우저에서는 이번 화면에서만 로그인이 유지되지 않는다.
   }
+  // 입장 토큰은 발급받은 회원에게만 유효하다.
+  clearEntryTokens();
   window.dispatchEvent(new Event('ticket-auth-changed'));
 }
 
@@ -96,5 +100,6 @@ const MESSAGES: Record<string, string> = {
   LOGIN_FAILED: '이메일이나 비밀번호가 맞지 않아요.',
   DUPLICATE_EMAIL: '이미 가입한 이메일이에요.',
   QUEUE_TOKEN_INVALID: '입장 시간이 끝났어요. 다시 줄을 서 주세요.',
+  NOT_IN_QUEUE: '대기열에서 빠졌어요. 다시 줄을 서 주세요.',
   SERVICE_UNAVAILABLE: '요청이 몰리고 있어요. 잠시 뒤 다시 시도해 주세요.',
 };
