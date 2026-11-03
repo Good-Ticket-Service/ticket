@@ -35,11 +35,12 @@ export function useMe() {
 
 export const ROLE_LABEL: Record<Role, string> = { USER: '회원', SELLER: '판매자', MASTER: '관리자' };
 
-// 예매·쿠폰 발급은 USER만 할 수 있어 다른 역할에는 메뉴를 보이지 않는다.
+// 예매·쿠폰 발급은 USER만 할 수 있어 다른 역할에는 메뉴를 보이지 않는다. 관리 메뉴는 MASTER에만 보인다.
 const links: { to: string; label: string; end: boolean; roles: Role[] }[] = [
   { to: '/', label: '공연', end: true, roles: ['USER', 'SELLER', 'MASTER'] },
   { to: '/coupons', label: '쿠폰함', end: false, roles: ['USER'] },
   { to: '/reservations', label: '내 예매', end: false, roles: ['USER'] },
+  { to: '/admin/coupons', label: '쿠폰 관리', end: false, roles: ['MASTER'] },
 ];
 
 function navClass({ isActive }: { isActive: boolean }) {
