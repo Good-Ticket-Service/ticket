@@ -129,6 +129,10 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | cancel_reason | VARCHAR(500) | NULL; 취소 사유 |
 | seat_setup_attempts | INT | NOT NULL DEFAULT 0, 0 이상; 현재 requestId로 좌석 준비를 호출한 횟수.; 새 requestId를 발급하면 0으로 초기화한다.; 최대 횟수를 넘기면 FAILED로 바꾼다. 최대 횟수는 구현 시 결정한다. |
 | seat_setup_next_attempt_at | TIMESTAMP(3) | NULL; PENDING 회차를 스케줄러가 같은 requestId로 다시 보낼 시각.; READY·FAILED이면 NULL. 재시도 간격은 구현 시 결정한다. |
+| seat_setup_failure_kind | VARCHAR(32) | NULL; RESULT_UNKNOWN / INVALID_REQUEST / INVALID_CONFIGURATION / SEAT_IN_USE / STALE_VERSION. 과거 미분류 실패는 NULL로 유지 |
+| seat_setup_recovery_attempts | INT | NOT NULL DEFAULT 0; 같은 구성의 복구 시도 누적 횟수. 운영자 재접수 때 초기화하지 않음 |
+| seat_setup_recovery_limit | INT | NOT NULL DEFAULT 0; 현재 허용한 복구 누적 상한 |
+| seat_setup_recovery_next_at | TIMESTAMP(3) | NULL; 결과 불명 FAILED의 복구 예정 또는 진행 중 임대 만료 시각 |
 | version | BIGINT | NOT NULL DEFAULT 0; 회차 수정·삭제·취소·판매 중지 시 증가.; 회차 명령의 If-Match 기준이며 부모 performance.version과 별개다.; 좌석 준비 진행(seat_setup_*, seat_config_version 변경)으로는 오르지 않는다. |
 
 제약·인덱스:
@@ -138,6 +142,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `CONSTRAINT ck_p_schedules_seat_setup_status CHECK (seat_setup_status IN ('PENDING', 'READY', 'FAILED'))`
 - `CONSTRAINT ck_p_schedules_seat_config_version CHECK (seat_config_version > 0)`
 - `CONSTRAINT ck_p_schedules_seat_setup_attempts CHECK (seat_setup_attempts >= 0)`
+- `CONSTRAINT ck_p_schedules_recovery_counts CHECK (seat_setup_recovery_attempts >= 0 AND seat_setup_recovery_limit >= 0)`
+- `CONSTRAINT ck_p_schedules_failure_kind CHECK (seat_setup_failure_kind IN ('RESULT_UNKNOWN','INVALID_REQUEST','INVALID_CONFIGURATION','SEAT_IN_USE','STALE_VERSION'))`
+- `CREATE INDEX ix_p_schedules_recovery_due ON p_schedules (seat_setup_recovery_next_at,id) WHERE seat_setup_status='FAILED' AND seat_setup_failure_kind='RESULT_UNKNOWN' AND deleted_at IS NULL;`
 - `CREATE UNIQUE INDEX uq_p_schedules_start ON p_schedules (performance_id, start_at) WHERE deleted_at IS NULL;`
 - booking_period CHECK 때문에 공연 시작 후에는 판매하지 않는다.
 - 회차 UNIQUE는 미삭제 행만 검사한다. 삭제한 회차와 같은 시각으로 다시 등록할 수 있게 하기 위해서다.
