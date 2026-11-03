@@ -35,11 +35,13 @@ export function useMe() {
 
 export const ROLE_LABEL: Record<Role, string> = { USER: '회원', SELLER: '판매자', MASTER: '관리자' };
 
-// 예매·쿠폰 발급은 USER만 할 수 있어 다른 역할에는 메뉴를 보이지 않는다. 관리 메뉴는 MASTER에만 보인다.
+// 예매·쿠폰 발급은 USER만 할 수 있어 다른 역할에는 메뉴를 보이지 않는다. 판매·관리 메뉴는 그 역할에만 보인다.
 const links: { to: string; label: string; end: boolean; roles: Role[] }[] = [
   { to: '/', label: '공연', end: true, roles: ['USER', 'SELLER', 'MASTER'] },
   { to: '/coupons', label: '쿠폰함', end: false, roles: ['USER'] },
   { to: '/reservations', label: '내 예매', end: false, roles: ['USER'] },
+  { to: '/seller', label: '판매 관리', end: true, roles: ['SELLER'] },
+  { to: '/seller/settlements', label: '정산', end: false, roles: ['SELLER'] },
   { to: '/admin', label: '관리', end: true, roles: ['MASTER'] },
   { to: '/admin/coupons', label: '쿠폰 관리', end: false, roles: ['MASTER'] },
 ];
@@ -71,9 +73,9 @@ export function Layout() {
         {loggedIn ? (
           <span className="account">
             {me.data && (
-              <span className="muted">
+              <Link to="/me" className="muted">
                 {me.data.name} · {ROLE_LABEL[me.data.role]}
-              </span>
+              </Link>
             )}
             <button
               type="button"

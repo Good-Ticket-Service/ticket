@@ -15,10 +15,16 @@ import { BookingsPage } from './pages/BookingsPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { CouponsPage } from './pages/CouponsPage';
 import { LoginPage } from './pages/LoginPage';
+import { MyPage } from './pages/MyPage';
 import { PerformanceDetailPage } from './pages/PerformanceDetailPage';
 import { PerformancesPage } from './pages/PerformancesPage';
 import { QueuePage } from './pages/QueuePage';
 import { SeatsPage } from './pages/SeatsPage';
+import { SellerHomePage } from './pages/seller/SellerHomePage';
+import { SellerPerformancePage } from './pages/seller/SellerPerformancePage';
+import { SellerSchedulePage } from './pages/seller/SellerSchedulePage';
+import { SellerSettlementsPage } from './pages/seller/SellerSettlementsPage';
+import { SellerStatementPage } from './pages/seller/SellerStatementPage';
 import { SignupPage } from './pages/SignupPage';
 
 export function App() {
@@ -38,6 +44,15 @@ export function App() {
             <Route path="/reservations/:reservationId" element={<BookingDetailPage />} />
             <Route path="/reservations" element={<BookingsPage />} />
             <Route path="/coupons" element={<CouponsPage />} />
+          </Route>
+          <Route path="/me" element={<MyPage />} />
+          <Route element={<RequireRole roles={['SELLER']} />}>
+            <Route path="/seller" element={<SellerHomePage />} />
+            <Route path="/seller/performances/new" element={<SellerPerformancePage key="new" />} />
+            <Route path="/seller/performances/:performanceId" element={<SellerPerformancePage />} />
+            <Route path="/seller/schedules/:scheduleId" element={<SellerSchedulePage />} />
+            <Route path="/seller/settlements" element={<SellerSettlementsPage />} />
+            <Route path="/seller/settlements/:statementId" element={<SellerStatementPage />} />
           </Route>
           <Route element={<RequireRole roles={['MASTER']} />}>
             <Route path="/admin" element={<AdminHomePage />} />
