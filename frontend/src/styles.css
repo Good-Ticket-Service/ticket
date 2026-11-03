@@ -73,6 +73,24 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .pill.on { color: var(--accent); border-color: var(--accent); }
 .pill.solid { color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 500; }
 .notice { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--accent); font-size: 14px; line-height: 1.6; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+textarea.input { min-height: 96px; padding: 12px 16px; line-height: 1.5; resize: vertical; }
+select.input { appearance: auto; }
+.panel-title { font-size: 18px; font-weight: 700; }
+.panel-note { margin-top: 4px; font-size: 13px; line-height: 1.6; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions .btn { min-height: 46px; }
+.done { padding: 12px 14px; border-radius: 12px; background: rgba(255, 140, 50, 0.12); font-size: 14px; line-height: 1.6; }
+.item { padding: 16px 18px; background: var(--surface); border-radius: 18px; color: var(--text); text-decoration: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+a.item:hover { color: var(--text); background: #333; }
+.item .name { font-size: 16px; font-weight: 700; }
+.item .sub { font-size: 13px; color: var(--muted); }
+.hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px; }
+.hub a { padding: 22px; background: var(--surface); border-radius: 20px; color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 6px; }
+.hub a:hover { color: var(--text); background: #333; }
+.hub .name { font-size: 18px; font-weight: 700; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
 .dev-login { margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--line); }
 .dev-login-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
 

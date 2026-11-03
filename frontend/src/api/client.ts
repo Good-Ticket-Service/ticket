@@ -58,10 +58,13 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
 async function toError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => null);
   if (response.status === 401 && getToken()) setToken(null);
+  // 관리 화면의 입력 오류는 어느 칸이 틀렸는지 알아야 고칠 수 있어 필드 오류를 메시지에 붙인다.
+  const fields: { field: string; reason: string }[] = body?.errors ?? [];
+  const detail = fields.length > 0 ? ` (${fields.map((e) => `${e.field}: ${e.reason}`).join(', ')})` : '';
   return new ApiError(
     response.status,
     body?.code ?? `HTTP_${response.status}`,
-    body?.message ?? '요청을 처리하지 못했어요.',
+    `${body?.message ?? '요청을 처리하지 못했어요.'}${detail}`,
   );
 }
 
@@ -72,6 +75,19 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   if (response.status === 204) return undefined as T;
   const body = await response.json();
   return body.data as T;
+}
+
+/** 관리용 단건 조회. 응답의 ETag를 다음 명령의 If-Match에 그대로 쓴다. */
+export async function apiWithEtag<T>(path: string, options: RequestOptions = {}): Promise<{ data: T; etag: string | null }> {
+  const response = await send(path, options);
+  if (!response.ok) throw await toError(response);
+  const body = await response.json();
+  return { data: body.data as T, etag: response.headers.get('ETag') };
+}
+
+/** If-Match는 version을 큰따옴표로 감싼 값이다. ETag를 받았으면 그대로 넘긴다. */
+export function ifMatch(version: number | string): Record<string, string> {
+  return { 'If-Match': typeof version === 'number' ? `"${version}"` : version };
 }
 
 /** Fake PG처럼 ApiResponse로 감싸지 않은 응답을 돌려주는 호출. */
@@ -102,4 +118,7 @@ const MESSAGES: Record<string, string> = {
   QUEUE_TOKEN_INVALID: '입장 시간이 끝났어요. 다시 줄을 서 주세요.',
   NOT_IN_QUEUE: '대기열에서 빠졌어요. 다시 줄을 서 주세요.',
   SERVICE_UNAVAILABLE: '요청이 몰리고 있어요. 잠시 뒤 다시 시도해 주세요.',
+  VERSION_CONFLICT: '그사이 다른 곳에서 바뀌었어요. 최신 버전을 확인한 뒤 다시 시도해 주세요.',
+  PRECONDITION_REQUIRED: '버전(If-Match)을 알 수 없어요. 버전을 입력해 주세요.',
+  FORBIDDEN: '이 계정으로는 할 수 없는 요청이에요.',
 };

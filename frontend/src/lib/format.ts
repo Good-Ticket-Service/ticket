@@ -36,3 +36,19 @@ export function clock(seconds: number): string {
   const safe = Math.max(0, seconds);
   return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
 }
+
+/** datetime-local 입력값(서울 시각)을 오프셋이 있는 ISO 8601로 바꾼다. */
+export function seoulInputToOffset(value: string): string {
+  return `${value.length === 16 ? `${value}:00` : value}+09:00`;
+}
+
+/** datetime-local 입력값(서울 시각)을 오프셋 없는 서울 시각으로 바꾼다. LocalDateTime을 받는 API에 쓴다. */
+export function seoulInputToLocal(value: string): string {
+  return value.length === 16 ? `${value}:00` : value;
+}
+
+/** 서버 시각을 datetime-local 입력값(서울 시각)으로 바꾼다. 기본값은 지금부터 minutes분 뒤다. */
+export function toSeoulInput(value?: string, minutes = 0): string {
+  const base = value ? parseTime(value) : new Date(Date.now() + minutes * 60 * 1000);
+  return new Date(base.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}

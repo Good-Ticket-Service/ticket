@@ -1,5 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout, RequireLogin, RequireRole } from './components/Layout';
+import { AdminCouponPage } from './pages/admin/AdminCouponPage';
+import { AdminCouponsPage } from './pages/admin/AdminCouponsPage';
+import { AdminSchedulesPage } from './pages/admin/AdminSchedulesPage';
+import { AdminVenuePage } from './pages/admin/AdminVenuePage';
+import { AdminVenuesPage } from './pages/admin/AdminVenuesPage';
 import { BookingDetailPage } from './pages/BookingDetailPage';
 import { BookingsPage } from './pages/BookingsPage';
 import { CheckoutPage } from './pages/CheckoutPage';
@@ -28,6 +33,13 @@ export function App() {
             <Route path="/reservations/:reservationId" element={<BookingDetailPage />} />
             <Route path="/reservations" element={<BookingsPage />} />
             <Route path="/coupons" element={<CouponsPage />} />
+          </Route>
+          <Route element={<RequireRole roles={['MASTER']} />}>
+            <Route path="/admin/venues" element={<AdminVenuesPage />} />
+            <Route path="/admin/venues/:venueId" element={<AdminVenuePage />} />
+            <Route path="/admin/schedules" element={<AdminSchedulesPage />} />
+            <Route path="/admin/coupons" element={<AdminCouponsPage />} />
+            <Route path="/admin/coupons/:couponId" element={<AdminCouponPage />} />
           </Route>
         </Route>
       </Route>
