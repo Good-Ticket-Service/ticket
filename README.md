@@ -79,6 +79,8 @@ cp .env.example .env          # script/run.sh는 .env가 없으면 만든다
 script/run.sh                 # 전체 빌드·기동
 script/run.sh user-service    # 지정한 서비스와 의존 서비스만
 script/run.sh --reset         # DB 볼륨까지 지우고 새로 시작
+script/run.sh --no-seed       # 테스트 계정을 만들지 않고 바로 끝낸다
+script/seed-accounts.sh       # 테스트 계정만 다시 만든다(user-service만 다시 띄운 뒤)
 ```
 
 - Swagger: http://localhost:8080/swagger-ui.html
@@ -88,6 +90,7 @@ script/run.sh --reset         # DB 볼륨까지 지우고 새로 시작
 - Grafana: http://localhost:3000 (`admin` / `.env`의 `GRAFANA_ADMIN_PASSWORD`, Prometheus 데이터 소스 자동 등록)
 - Kafka: 컨테이너 안의 앱은 `kafka:29092`, IDE로 띄운 앱은 `localhost:9092` (`spring.kafka.bootstrap-servers`는 `config-repo/application.yml`에 있다)
 - 초기 MASTER 계정: `.env`의 `MASTER_EMAIL` / `MASTER_PASSWORD`
+- 테스트 USER·SELLER 계정: `.env`의 `SEED_USER_*` / `SEED_SELLER_*`. `script/run.sh`가 기동 끝에 user-service가 요청을 받을 때까지 기다렸다가 가입 API로 만든다. local 프로필은 user-service를 다시 띄울 때마다 테이블을 새로 만들어 계정이 사라지므로, user-service만 다시 띄웠다면 `script/seed-accounts.sh`를 실행한다.
 - logistics-management와 함께 띄우면 호스트 포트가 겹친다. `.env`에서 포트와 `COMPOSE_PROJECT_NAME`을 바꾼다. Docker 네트워크 대역(10.220.10.0/24)은 logistics(10.210.10.0/24)와 겹치지 않게 잡았다.
 - 대기열: `.env`의 `QUEUE_ENABLED=true`로 띄우면 reservation-service(대기열)와 gateway-service(좌석 조회·선점의 입장 토큰 검사)가 같은 값으로 함께 켜진다. 두 값이 다르면 좌석 조회·선점이 모두 403이 되거나 대기열을 건너뛸 수 있다. 프런트는 따로 설정하지 않는다. 예매할 때 항상 대기열 진입을 요청하고, 꺼져 있다는 응답(`QUEUE_DISABLED`)이 오면 바로 좌석 화면으로 간다.
 

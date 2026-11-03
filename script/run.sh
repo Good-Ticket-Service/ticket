@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# 로컬 실행 진입점. .env 준비 → 이미지 빌드·기동 → 상태와 접속 주소 출력.
+# 로컬 실행 진입점. .env 준비 → 이미지 빌드·기동 → 상태와 접속 주소 출력 → 테스트 계정(USER·SELLER) 생성.
 # 사용: script/run.sh                                   전체 기동
 #      script/run.sh user-service performance-service  지정한 서비스와 그 의존 서비스만 기동
 #      script/run.sh --scale performance-service=2     인스턴스 수 지정 (docker compose에 그대로 전달)
 #      script/run.sh --reset                           DB 볼륨까지 지우고 새로 시작 (DB 데이터 삭제)
 #      script/run.sh --no-build                        이미지를 다시 빌드하지 않고 기동
+#      script/run.sh --no-seed                         테스트 계정을 만들지 않고 바로 끝냄(계정 생성은 서비스 기동을 기다린다)
 # 옵션은 함께 쓸 수 있다. 예: script/run.sh --reset user-service
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 reset=false
 build=true
+seed=true
 services=()
 scale_args=()
 
@@ -18,12 +20,13 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --reset) reset=true ;;
     --no-build) build=false ;;
+    --no-seed) seed=false ;;
     --scale)
       [[ $# -ge 2 ]] || { echo "--scale 다음에 서비스=개수를 적는다. 예: --scale performance-service=2" >&2; exit 2; }
       scale_args+=("$1" "$2")
       shift ;;
     --scale=*) scale_args+=("$1") ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "알 수 없는 옵션: $1 (script/run.sh --help)" >&2; exit 2 ;;
     *) services+=("$1") ;;
   esac
@@ -76,3 +79,9 @@ if prometheus=$(host_url prometheus 9090); then echo "Prometheus   $prometheus/t
 if grafana=$(host_url grafana 3000); then echo "Grafana      $grafana (admin / .env의 GRAFANA_ADMIN_PASSWORD)"; fi
 if fake_pg=$(host_url fake-pg 8090); then echo "fake PG      $fake_pg/fake/admin/faults (장애 설정)"; fi
 echo "서비스가 Eureka에 등록될 때까지 수십 초 걸린다. 로그: docker compose logs -f {서비스}"
+
+# 계정을 못 만들어도 기동은 끝났으므로 실패로 끝내지 않는다.
+if [[ "$seed" == true ]]; then
+  echo
+  script/seed-accounts.sh || echo "테스트 계정을 만들지 못했다. 서비스가 뜬 뒤 script/seed-accounts.sh를 다시 실행한다." >&2
+fi
