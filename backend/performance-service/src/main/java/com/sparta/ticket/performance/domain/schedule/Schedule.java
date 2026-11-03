@@ -93,6 +93,19 @@ public class Schedule extends BaseEntity {
     @Column(columnDefinition = "TIMESTAMP(3)")
     private LocalDateTime seatSetupNextAttemptAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private SeatSetupFailureKind seatSetupFailureKind;
+
+    @Column(nullable = false)
+    private int seatSetupRecoveryAttempts;
+
+    @Column(nullable = false)
+    private int seatSetupRecoveryLimit;
+
+    @Column(columnDefinition = "TIMESTAMP(3)")
+    private LocalDateTime seatSetupRecoveryNextAt;
+
     /** 회차 명령(수정, 삭제, 취소, 판매 중지)의 If-Match 기준. 부모 공연의 version과 별개다. */
     @Version
     @Column(nullable = false)
@@ -148,6 +161,10 @@ public class Schedule extends BaseEntity {
      * READY·FAILED였던 회차도 다시 준비한다. 다음 시도 시각을 지금으로 둬 커밋 뒤 바로 보낼 수 있게 한다.
      */
     public void requireSeatSetupForNewConfig(String newRequestId, LocalDateTime now) {
+        this.seatSetupFailureKind = null;
+        this.seatSetupRecoveryAttempts = 0;
+        this.seatSetupRecoveryLimit = 0;
+        this.seatSetupRecoveryNextAt = null;
         this.seatConfigVersion++;
         this.seatSetupStatus = SeatSetupStatus.PENDING;
         this.seatSetupRequestId = newRequestId;
@@ -186,6 +203,8 @@ public class Schedule extends BaseEntity {
     }
 
     public void completeSeatSetup() {
+        this.seatSetupFailureKind = null;
+        this.seatSetupRecoveryNextAt = null;
         this.seatSetupStatus = SeatSetupStatus.READY;
         this.seatSetupError = null;
         this.seatSetupNextAttemptAt = null;
@@ -193,9 +212,70 @@ public class Schedule extends BaseEntity {
 
     /** 다시 보내도 같은 결과라 멈춘다. error는 판매자에게 보이는 안전한 요약이다(내부 오류 내용을 넣지 않는다). */
     public void failSeatSetup(String error) {
+        failSeatSetup(error, SeatSetupFailureKind.INVALID_CONFIGURATION);
+    }
+
+    public void failSeatSetup(String error, SeatSetupFailureKind kind) {
         this.seatSetupStatus = SeatSetupStatus.FAILED;
+        this.seatSetupFailureKind = kind;
+        this.seatSetupRecoveryNextAt = null;
         this.seatSetupError = error;
         this.seatSetupNextAttemptAt = null;
+    }
+
+    /** 일반 시도를 종료하면서 결과 확인 의도도 같은 트랜잭션에 저장한다. */
+    public void requireSeatSetupRecovery(String error, LocalDateTime now, Duration delay, int limit) {
+        failSeatSetup(error, SeatSetupFailureKind.RESULT_UNKNOWN);
+        this.seatSetupRecoveryLimit = limit;
+        this.seatSetupRecoveryNextAt = now.plus(delay);
+    }
+
+    public boolean startSeatSetupRecovery(LocalDateTime now, Duration lease) {
+        if (seatSetupStatus != SeatSetupStatus.FAILED
+                || seatSetupFailureKind != SeatSetupFailureKind.RESULT_UNKNOWN
+                || seatSetupRecoveryNextAt == null
+                || seatSetupRecoveryNextAt.isAfter(now)) {
+            return false;
+        }
+        if (seatSetupRecoveryAttempts >= seatSetupRecoveryLimit) {
+            seatSetupRecoveryNextAt = null;
+            return false;
+        }
+        seatSetupRecoveryAttempts++;
+        seatSetupRecoveryNextAt = now.plus(lease);
+        return true;
+    }
+
+    public boolean isCurrentSeatSetupRecovery(String requestId, long configVersion, int attempt) {
+        return seatSetupStatus == SeatSetupStatus.FAILED
+                && seatSetupFailureKind == SeatSetupFailureKind.RESULT_UNKNOWN
+                && seatSetupRequestId.equals(requestId)
+                && seatConfigVersion == configVersion
+                && seatSetupRecoveryAttempts == attempt;
+    }
+
+    public void retrySeatSetupRecovery(LocalDateTime now, Duration delay) {
+        seatSetupRecoveryNextAt = seatSetupRecoveryAttempts < seatSetupRecoveryLimit ? now.plus(delay) : null;
+    }
+
+    public void stopSeatSetupRecovery() {
+        seatSetupRecoveryNextAt = null;
+    }
+
+    /** 운영자도 기존 시도 번호를 초기화하지 않고 추가 기회만 부여한다. */
+    public boolean queueSeatSetupRecovery(String requestId, long configVersion, LocalDateTime now, int extraAttempts) {
+        if (seatSetupStatus != SeatSetupStatus.FAILED
+                || seatSetupFailureKind != SeatSetupFailureKind.RESULT_UNKNOWN
+                || !seatSetupRequestId.equals(requestId)
+                || seatConfigVersion != configVersion) {
+            throw new IllegalStateException("현재 결과 불명 작업만 재처리할 수 있습니다.");
+        }
+        if (seatSetupRecoveryNextAt != null) {
+            return false;
+        }
+        seatSetupRecoveryLimit = Math.addExact(seatSetupRecoveryAttempts, extraAttempts);
+        seatSetupRecoveryNextAt = now;
+        return true;
     }
 
     /**

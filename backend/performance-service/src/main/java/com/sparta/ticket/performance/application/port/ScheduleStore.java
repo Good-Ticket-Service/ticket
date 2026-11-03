@@ -17,6 +17,10 @@ public interface ScheduleStore {
     /** 회차 행을 FOR UPDATE로 잠그고 읽는다. 좌석 준비 시도 시작과 결과 반영을 한 줄로 세운다. */
     Optional<Schedule> findByIdForUpdate(Long scheduleId);
 
+    Optional<Long> findPerformanceId(Long scheduleId);
+
+    List<Long> findSeatSetupRecoveryDueIds(LocalDateTime now, int limit);
+
     /** 공연의 회차 전체를 ID 순서로 FOR UPDATE로 잠그고 읽는다. 취소된 회차도 포함한다. 부모 공연을 잠근 뒤에 부른다. */
     List<Schedule> findByPerformanceIdForUpdate(Long performanceId);
 

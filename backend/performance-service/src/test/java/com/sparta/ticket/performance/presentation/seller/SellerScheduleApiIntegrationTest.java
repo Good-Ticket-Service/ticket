@@ -15,6 +15,7 @@ import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.performance.application.dto.SeatSetupCommand;
 import com.sparta.ticket.performance.application.dto.SeatSetupOutcome;
 import com.sparta.ticket.performance.application.service.SeatSetupProcessor;
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
 import com.sparta.ticket.performance.support.FakeSeatSetupClient;
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
 import java.sql.Timestamp;
@@ -411,7 +412,8 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("409 SEAT_SETUP_IN_USE는 좌석이 풀리길 기다리며 다시 보내고, 풀리면 READY가 된다")
         void retriesWhileSeatsInUse() throws Exception {
-            seatSetupClient.answer(new SeatSetupOutcome.Unavailable("SEAT_SETUP_IN_USE", "선점·판매 중인 좌석이 있습니다."));
+            seatSetupClient.answer(new SeatSetupOutcome.Unavailable(
+                    "SEAT_SETUP_IN_USE", "선점·판매 중인 좌석이 있습니다.", SeatSetupFailureKind.SEAT_IN_USE));
 
             long id = registerOk(PERFORMANCE, BODY);
             assertThat(schedule(id))
@@ -428,7 +430,8 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("409 SEAT_SETUP_IN_USE가 한도까지 이어지면 FAILED이고, 사유는 선점·판매 중인 좌석이다")
         void failsWithInUseReason() throws Exception {
             for (int i = 0; i < 8; i++) {
-                seatSetupClient.answer(new SeatSetupOutcome.Unavailable("SEAT_SETUP_IN_USE", "선점·판매 중인 좌석이 있습니다."));
+                seatSetupClient.answer(new SeatSetupOutcome.Unavailable(
+                        "SEAT_SETUP_IN_USE", "선점·판매 중인 좌석이 있습니다.", SeatSetupFailureKind.SEAT_IN_USE));
             }
             long id = registerOk(PERFORMANCE, BODY);
 

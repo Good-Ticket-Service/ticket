@@ -1,5 +1,7 @@
 package com.sparta.ticket.performance.application.dto;
 
+import com.sparta.ticket.performance.domain.schedule.SeatSetupFailureKind;
+
 /**
  * 좌석 준비 호출 한 번의 결과. 전달 방식(Feign·Kafka)과 무관하게 이 네 가지로 나눠 회차 상태를 정한다.
  * 결과별 처리는 docs/api.md 공연 「업무 규칙」의 좌석 준비를 따른다.
@@ -20,10 +22,14 @@ public sealed interface SeatSetupOutcome {
      * detail은 로그용이다. failureReason은 재시도 한도에 닿아 FAILED가 될 때 판매자에게 보일 사유이고, null이면 일반 사유를 쓴다.
      * Note: IN_USE는 만료됐지만 정리 전인 HOLD, 결제 중인 좌석처럼 시간이 지나면 풀릴 수 있어 재시도한다(이슈 #175, 좌석 담당 제안).
      */
-    record Unavailable(String detail, String failureReason) implements SeatSetupOutcome {
+    record Unavailable(String detail, String failureReason, SeatSetupFailureKind kind) implements SeatSetupOutcome {
+
+        public Unavailable(String detail, String failureReason) {
+            this(detail, failureReason, SeatSetupFailureKind.RESULT_UNKNOWN);
+        }
 
         public Unavailable(String detail) {
-            this(detail, null);
+            this(detail, null, SeatSetupFailureKind.RESULT_UNKNOWN);
         }
     }
 }

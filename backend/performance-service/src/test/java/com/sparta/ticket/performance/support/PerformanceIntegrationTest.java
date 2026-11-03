@@ -24,7 +24,12 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @AutoConfigureMockMvc
 @Import(PerformanceIntegrationTest.ClockTestConfig.class)
-@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "performance.seat-setup.retry.enabled=false"})
+@TestPropertySource(
+        properties = {
+            "spring.jpa.open-in-view=false",
+            "performance.seat-setup.retry.enabled=false",
+            "performance.seat-setup.recovery.enabled=false"
+        })
 public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest {
 
     /** 테스트 데이터(sql/public-performance-fixture.sql)의 기준 시각. 매 테스트 전에 이 시각으로 되돌린다. */

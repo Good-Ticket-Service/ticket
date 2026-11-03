@@ -33,3 +33,14 @@ performance:
       # 재시도 스케줄러: 5초마다 다음 시도 시각이 지난 PENDING 회차를 최대 50개 보낸다
       fixed-delay-ms: 5000
       batch-size: 50
+    recovery:
+      # 일반 시도를 마친 결과 불명 작업만 확인한다. 준비 상태는 성공 확인 전까지 FAILED를 유지한다.
+      enabled: true
+      max-attempts: 3
+      first-delay: 30s
+      max-delay: 120s
+      # 복구 호출 중 다른 실행이 같은 작업을 잡지 못하게 하는 임대. HTTP 대기와 DB 처리 여유를 포함한다.
+      # connect + read 타임아웃(현재 6초)보다 길게 두고, 타임아웃 변경 시 함께 검토한다.
+      lease: 15s
+      fixed-delay-ms: 5000
+      batch-size: 20
