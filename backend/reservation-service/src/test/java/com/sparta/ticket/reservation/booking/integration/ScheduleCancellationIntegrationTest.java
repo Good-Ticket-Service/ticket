@@ -527,4 +527,51 @@ class ScheduleCancellationIntegrationTest extends BookingIntegrationTest {
         assertThat(payment.refundReasons).containsExactly(RefundReason.SCHEDULE_CANCELED);
         assertThat(seatStatus(seatId)).isEqualTo("AVAILABLE");
     }
+
+    @Test
+    @DisplayName("DLT로 간 회차는 고친 메시지를 다시 넣으면 환불까지 끝나고, 또 넣어도 환불은 한 번이다")
+    void republishAfterDeadLetterRefundsOnce() throws Exception {
+        Long seatId = seat(scheduleId);
+        Long reservationId = confirmed(newUser(), scheduleId, seatId);
+        double deadLettersBefore = count("reservation.schedule_cancel.dead_letter");
+
+        publish(scheduleId, "{not-json-" + UUID.randomUUID());
+        await().atMost(Duration.ofSeconds(60))
+                .until(() -> count("reservation.schedule_cancel.dead_letter") > deadLettersBefore);
+        cleanUp();
+        assertThat(statusOf(reservationId))
+                .as("DLT로 간 회차는 다시 넣기 전까지 정리가 시작되지 않는다")
+                .isEqualTo("CONFIRMED");
+
+        publish(scheduleId, canceledMessage(scheduleId));
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+            cleanUp();
+            assertThat(statusOf(reservationId)).isEqualTo("CANCELED");
+        });
+
+        Long marker = TestIds.next();
+        publish(scheduleId, canceledMessage(scheduleId));
+        publish(marker, canceledMessage(marker));
+        await().atMost(Duration.ofSeconds(60))
+                .until(() -> jdbcTemplate.queryForObject(
+                                "SELECT count(*) FROM p_schedule_cancellations WHERE schedule_id = ?",
+                                Integer.class,
+                                marker)
+                        == 1);
+        cleanUp();
+
+        assertThat(payment.refundReasons).containsExactly(RefundReason.SCHEDULE_CANCELED);
+        assertThat(seatStatus(seatId)).isEqualTo("AVAILABLE");
+    }
+
+    private void publish(Long schedule, String payload) throws Exception {
+        kafkaTemplate
+                .send("schedule.canceled", String.valueOf(schedule), payload)
+                .get();
+    }
+
+    private static String canceledMessage(Long schedule) {
+        return """
+                {"eventId":"%s","schemaVersion":1,"scheduleId":%d,"canceledAt":"2026-11-01T10:00:00+09:00"}""".formatted(UUID.randomUUID(), schedule);
+    }
 }
