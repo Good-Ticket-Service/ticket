@@ -216,12 +216,17 @@
 - 회차 등록 응답의 seatSetupStatus는 등록 시점 값(PENDING)이다. 준비 결과는 판매자 회차 조회(`GET /api/seller/schedules/{scheduleId}`)로 확인한다.
 - 준비에 성공하면 READY다. 일시적 실패는 서버가 같은 requestId로 자동 재시도한다.
 - 재시도 한도를 넘거나 요청 데이터 오류로 실패하면 FAILED다.
+- 결과를 확인하지 못한 통신 실패·마지막 시도 중 종료는 내부 원인 RESULT_UNKNOWN으로 구분한다. FAILED 상태에서 같은 요청·버전으로 제한된 자동 복구를 진행하고, 성공 응답을 검증한 뒤 READY로 바꾼다(이슈 #252).
+- 판매자 화면은 FAILED를 영구 종료로 단정하지 않는다. 자동 확인이나 운영자 재접수 뒤 READY로 바뀔 수 있으므로 회차 조회를 다시 제공한다.
+- 자동 복구는 기본 3회·30/60/120초 간격이다. 가격 누락·HTTP 400·IN_USE 한도 초과는 자동 복구 대상이 아니다. 과거 미분류 FAILED도 자동 복구하지 않는다.
+- 결과 불명 복구 중 409 SEAT_SETUP_STALE_VERSION 또는 SEAT_SETUP_IN_USE를 받으면 FAILED를 유지하고 각각 STALE_VERSION·SEAT_IN_USE 원인을 기록한 뒤 복구를 종료한다. 결과 불명 전용 운영자 명령의 재접수 대상에서도 제외한다.
+- 복구 기회를 소진하면 오류·운영 조치 필요를 유지한다. 운영자 명령 `script/seat-setup-recover.ps1`로 현재 회차·요청·버전을 검증해 다시 확인할 수 있다. 복구 HTTP API는 추가하지 않는다.
 - 판매자용 좌석 준비 재시도 API는 없다. 판매자는 seatSetupStatus와 seatSetupError로 상태를 확인한다.
 - 좌석 준비 호출은 「좌석 내부 API」의 `POST /internal/schedules/{scheduleId}/seat-setups`를 쓴다(이슈 #175 합의). MVP는 Feign이다.
 - 공연은 응답의 requestId와 configVersion이 회차의 현재 값과 모두 같을 때만 READY로 바꾼다. 다르면 지난 요청의 결과라 무시한다.
-- 409 SEAT_SETUP_STALE_VERSION은 이미 더 높은 구성이 반영됐다는 뜻이라 결과를 무시한다.
+- 일반 PENDING 재시도에서 409 SEAT_SETUP_STALE_VERSION은 이미 더 높은 구성이 반영됐다는 뜻이라 결과를 무시한다.
 - 400 VALIDATION_ERROR는 재시도해도 같은 결과라 재시도하지 않고 FAILED로 바꾼다.
-- 409 SEAT_SETUP_IN_USE는 PENDING을 유지하고 같은 requestId로 다시 보낸다. 만료됐지만 정리 전인 HOLD와 결제 중인 좌석은 시간이 지나면 풀리기 때문이다(이슈 #175 좌석 담당 제안). 한도를 넘으면 FAILED이고, 사유에 선점·판매 중인 좌석이 있다고 남긴다.
+- 일반 PENDING 재시도에서 409 SEAT_SETUP_IN_USE는 PENDING을 유지하고 같은 requestId로 다시 보낸다. 만료됐지만 정리 전인 HOLD와 결제 중인 좌석은 시간이 지나면 풀리기 때문이다(이슈 #175 좌석 담당 제안). 한도를 넘으면 FAILED이고, 사유에 선점·판매 중인 좌석이 있다고 남긴다.
 - 연결 실패, 타임아웃, 5xx도 PENDING을 유지하고 스케줄러가 같은 requestId로 다시 보낸다.
 - 재시도는 최대 8회이고 간격은 10초에서 두 배씩 늘린다(상한 5분, 첫 시도부터 약 15분, 이슈 #131). 선점(10분)이 만료·정리되기를 기다릴 수 있는 길이다.
 - Feign 타임아웃은 connect 1초, read 5초로 시작한다. 좌석 담당이 좌석 준비 API를 구현할 때 회차당 1,000석 기준 최악 응답 시간을 재서 이슈 #175에 공유하면 조정한다.
