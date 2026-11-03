@@ -40,6 +40,7 @@ const links: { to: string; label: string; end: boolean; roles: Role[] }[] = [
   { to: '/', label: '공연', end: true, roles: ['USER', 'SELLER', 'MASTER'] },
   { to: '/coupons', label: '쿠폰함', end: false, roles: ['USER'] },
   { to: '/reservations', label: '내 예매', end: false, roles: ['USER'] },
+  { to: '/admin', label: '관리', end: true, roles: ['MASTER'] },
   { to: '/admin/coupons', label: '쿠폰 관리', end: false, roles: ['MASTER'] },
 ];
 
