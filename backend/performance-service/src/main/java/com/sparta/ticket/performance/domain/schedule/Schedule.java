@@ -20,6 +20,7 @@ import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.SQLRestriction;
 
 /**
@@ -98,9 +99,11 @@ public class Schedule extends BaseEntity {
     private SeatSetupFailureKind seatSetupFailureKind;
 
     @Column(nullable = false)
+    @ColumnDefault("0")
     private int seatSetupRecoveryAttempts;
 
     @Column(nullable = false)
+    @ColumnDefault("0")
     private int seatSetupRecoveryLimit;
 
     @Column(columnDefinition = "TIMESTAMP(3)")
