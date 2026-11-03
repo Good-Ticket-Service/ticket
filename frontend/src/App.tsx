@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { Layout, RequireLogin } from './components/Layout';
+import { Layout, RequireLogin, RequireRole } from './components/Layout';
 import { BookingDetailPage } from './pages/BookingDetailPage';
 import { BookingsPage } from './pages/BookingsPage';
 import { CheckoutPage } from './pages/CheckoutPage';
@@ -18,14 +18,17 @@ export function App() {
         <Route path="/" element={<PerformancesPage />} />
         <Route path="/performances/:performanceId" element={<PerformanceDetailPage />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/signup" element={<SignupPage key="user" />} />
+        <Route path="/seller/signup" element={<SignupPage key="seller" seller />} />
         <Route element={<RequireLogin />}>
-          <Route path="/performances/:performanceId/queue" element={<QueuePage />} />
-          <Route path="/performances/:performanceId/schedules/:scheduleId/seats" element={<SeatsPage />} />
-          <Route path="/reservations/:reservationId/checkout" element={<CheckoutPage />} />
-          <Route path="/reservations/:reservationId" element={<BookingDetailPage />} />
-          <Route path="/reservations" element={<BookingsPage />} />
-          <Route path="/coupons" element={<CouponsPage />} />
+          <Route element={<RequireRole roles={['USER']} />}>
+            <Route path="/performances/:performanceId/queue" element={<QueuePage />} />
+            <Route path="/performances/:performanceId/schedules/:scheduleId/seats" element={<SeatsPage />} />
+            <Route path="/reservations/:reservationId/checkout" element={<CheckoutPage />} />
+            <Route path="/reservations/:reservationId" element={<BookingDetailPage />} />
+            <Route path="/reservations" element={<BookingsPage />} />
+            <Route path="/coupons" element={<CouponsPage />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

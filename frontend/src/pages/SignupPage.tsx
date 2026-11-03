@@ -1,14 +1,15 @@
 import { useMutation } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ErrorNotice, Title } from '../components/Common';
 
-export function SignupPage() {
+/** 회원과 판매자는 같은 양식이고, 역할은 서버가 경로로 정한다. */
+export function SignupPage({ seller = false }: { seller?: boolean }) {
   const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
   const navigate = useNavigate();
   const signup = useMutation({
-    mutationFn: () => api('/api/auth/signup', { method: 'POST', body: form }),
+    mutationFn: () => api(seller ? '/api/auth/seller/signup' : '/api/auth/signup', { method: 'POST', body: form }),
     onSuccess: () => navigate('/login', { replace: true }),
   });
   const submit = (event: FormEvent) => {
@@ -24,7 +25,7 @@ export function SignupPage() {
   });
   return (
     <main className="content narrow">
-      <Title en="Join" ko="회원가입" />
+      <Title en={seller ? 'Seller' : 'Join'} ko={seller ? '판매자 가입' : '회원가입'} />
       <form className="stack" onSubmit={submit}>
         {signup.isError && <ErrorNotice error={signup.error} />}
         <div className="field">
@@ -46,6 +47,9 @@ export function SignupPage() {
         <button className="btn btn-primary" disabled={signup.isPending}>
           가입하기
         </button>
+        <Link to={seller ? '/signup' : '/seller/signup'} className="btn btn-ghost">
+          {seller ? '일반 회원으로 가입하기' : '공연을 판매하려면 판매자로 가입하기'}
+        </Link>
       </form>
     </main>
   );

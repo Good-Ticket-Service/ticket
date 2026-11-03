@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PerformanceDetail, RemainingGrade, SalesStatus, Schedule } from '../api/types';
 import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, SectionTitle } from '../components/Common';
+import { useMe } from '../components/Layout';
 import { entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
 
@@ -24,6 +25,7 @@ function scheduleNote(schedule: Schedule): string {
 export function PerformanceDetailPage() {
   const { performanceId } = useParams();
   const [picked, setPicked] = useState<number | null>(null);
+  const me = useMe();
   const performance = useQuery({
     queryKey: ['performance', performanceId],
     queryFn: () => api<PerformanceDetail>(`/api/performances/${performanceId}`),
@@ -45,6 +47,7 @@ export function PerformanceDetailPage() {
   const seatsPath = `/performances/${item.id}/schedules/${scheduleId}/seats`;
   // 대기열이 꺼져 있으면 대기열 화면이 바로 좌석으로 넘긴다. 이미 입장했으면 줄을 다시 서지 않는다.
   const next = entryToken(item.id) ? seatsPath : `/performances/${item.id}/queue?scheduleId=${scheduleId}`;
+  const bookable = !me.data || me.data.role === 'USER';
   return (
     <main className="content">
       <div className="split">
@@ -124,7 +127,11 @@ export function PerformanceDetailPage() {
           )}
           {item.description && <p className="muted" style={{ lineHeight: 1.7 }}>{item.description}</p>}
           <div className="sticky-cta">
-            {scheduleId === null ? (
+            {!bookable ? (
+              <button className="btn btn-primary btn-block" disabled>
+                일반 회원만 예매할 수 있어요
+              </button>
+            ) : scheduleId === null ? (
               <button className="btn btn-primary btn-block" disabled>
                 예매할 수 있는 회차가 없어요
               </button>
