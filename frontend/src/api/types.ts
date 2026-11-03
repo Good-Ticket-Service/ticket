@@ -172,4 +172,17 @@ export interface QueueStatus {
   entryExpiresAt: string | null;
 }
 
+export type Role = 'USER' | 'SELLER' | 'MASTER';
+
+export interface User {
+  userId: number;
+  email: string;
+  name: string;
+  phone: string;
+  role: Role;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type PgProvider = 'TOSS' | 'KAKAO';

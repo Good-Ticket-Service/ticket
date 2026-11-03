@@ -9,6 +9,12 @@ npm run dev
 
 http://localhost:5173 에서 열린다. `/api`는 Gateway(8080), `/fake-pg`는 Fake PG(8090)로 중계한다. 주소가 다르면 `VITE_GATEWAY_URL`, `VITE_FAKE_PG_URL`로 바꾼다.
 
+## 역할
+
+- 로그인 응답에 역할이 없어 `GET /api/users/me`로 읽는다. 메뉴와 화면 진입은 역할을 따르지만 길 안내일 뿐이고, 권한 검사는 서버가 한다.
+- 예매·쿠폰함·내 예매는 일반 회원(USER)만 쓴다. 판매자는 `/seller/signup`에서 가입한다.
+- MASTER 계정은 가입 API가 없다. 루트 README의 초기 계정을 쓴다.
+
 ## 대기열
 
 - 예매하기를 누르면 항상 대기열 진입을 요청한다. 서버가 `QUEUE_DISABLED`로 답하면 바로 좌석 화면으로 가므로 프런트에는 설정이 없다.

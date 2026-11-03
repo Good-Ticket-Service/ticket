@@ -37,7 +37,9 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .navlink { min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; text-decoration: none; background: none; border: 0; cursor: pointer; }
 .navlink:hover { color: var(--text); }
 .navlink.active { color: var(--accent); font-weight: 500; }
-.bottomnav { position: sticky; bottom: 0; z-index: 10; height: 62px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--deep); border-top: 1px solid var(--line); }
+.account { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; }
+.account .muted { display: none; }
+.bottomnav { position: sticky; bottom: 0; z-index: 10; height: 62px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); background: var(--deep); border-top: 1px solid var(--line); }
 .content { flex: 1 1 auto; width: 100%; max-width: 1280px; margin: 0 auto; padding: 24px 16px 40px; }
 .narrow { max-width: 620px; }
 .medium { max-width: 1180px; }
@@ -200,6 +202,7 @@ legend { padding: 0 0 8px; font-size: 17px; font-weight: 500; }
   .mobile-only { display: none; }
   .topbar { padding: 8px 40px; }
   .topnav { display: flex; }
+  .account .muted { display: inline; }
   .bottomnav { display: none; }
   .content { padding: 36px 24px 64px; }
   .hero-card { height: 460px; }
