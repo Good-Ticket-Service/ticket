@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Coupon, CouponInput } from '../../api/manageTypes';
 import { ErrorNotice, Loading, Title } from '../../components/Common';
-import { Done, Facts, Field, Panel } from '../../components/Form';
+import { ConfirmDialog, Done, Facts, Field, Panel } from '../../components/Form';
 import { formatDateTime, seoulInputToLocal, toSeoulInput, won } from '../../lib/format';
 import { ISSUE_STATUS_LABEL } from './AdminCouponsPage';
 
@@ -40,6 +40,7 @@ export function AdminCouponPage() {
   const path = `/api/coupons/${couponId}`;
   const coupon = useQuery({ queryKey: ['admin-coupon', couponId], queryFn: () => api<Coupon>(path) });
   const [form, setForm] = useState<Form | null>(null);
+  const [asking, setAsking] = useState(false);
   useEffect(() => {
     if (coupon.data) setForm(toForm(coupon.data));
   }, [coupon.data]);
@@ -146,12 +147,25 @@ export function AdminCouponPage() {
             type="button"
             className="btn btn-ghost"
             disabled={remove.isPending}
-            onClick={() => window.confirm(`쿠폰 #${item.couponId}을 삭제할까요?`) && remove.mutate()}
+            onClick={() => setAsking(true)}
           >
             삭제
           </button>
         </div>
       </Panel>
+      {asking && (
+        <ConfirmDialog
+          title={`쿠폰 #${item.couponId}을 삭제할까요?`}
+          body="삭제하면 되돌릴 수 없고 목록과 발급에서 빠져요. 한 장이라도 발급했으면 삭제되지 않아요."
+          confirmLabel="쿠폰 삭제하기"
+          busy={remove.isPending}
+          onConfirm={() => {
+            setAsking(false);
+            remove.mutate();
+          }}
+          onCancel={() => setAsking(false)}
+        />
+      )}
     </main>
   );
 }

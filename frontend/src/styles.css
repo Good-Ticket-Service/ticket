@@ -89,6 +89,9 @@ select.input { appearance: auto; }
 a.item:hover { color: var(--text); background: #333; }
 .item .name { font-size: 16px; font-weight: 700; }
 .item .sub { font-size: 13px; color: var(--muted); }
+.item-row { display: flex; align-items: stretch; gap: 8px; }
+.item-row .item { flex: 1 1 auto; min-width: 0; }
+.item-row .chip { flex: none; min-height: auto; border-radius: 18px; }
 .hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px; }
 .hub a { padding: 22px; background: var(--surface); border-radius: 20px; color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 6px; }
 .hub a:hover { color: var(--text); background: #333; }

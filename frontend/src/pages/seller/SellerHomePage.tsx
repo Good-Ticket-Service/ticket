@@ -34,21 +34,26 @@ export function SellerHomePage() {
           정산
         </Link>
       </div>
-      <Panel title="이 브라우저에서 만든 공연" note="판매자 공연 목록 API가 없어 여기서 만든 것만 보여요.">
+      <Panel title="이 브라우저에서 만든 공연" note="판매자 공연 목록 API가 없어 여기서 만든 것만 기억해요. 지우기는 이 기억만 지우고 서버의 공연은 그대로예요.">
         {performances.records.length === 0 && <p className="muted">아직 없어요.</p>}
         {performances.records.map((item) => (
-          <Link key={item.id} to={`/seller/performances/${item.id}`} className="item">
-            <span>
-              <span className="name">{item.title}</span>
-              <br />
-              <span className="sub num">
-                공연 ID {item.id} · 공연장 {item.venueId} · 회차 {item.scheduleIds.length}개
+          <div key={item.id} className="item-row">
+            <Link to={`/seller/performances/${item.id}`} className="item">
+              <span>
+                <span className="name">{item.title}</span>
+                <br />
+                <span className="sub num">
+                  공연 ID {item.id} · 공연장 {item.venueId} · 회차 {item.scheduleIds.length}개
+                </span>
               </span>
-            </span>
-            <span className={item.publicationStatus === 'PUBLISHED' ? 'pill on' : 'pill'}>
-              {item.publicationStatus === 'PUBLISHED' ? '공개' : '초안'}
-            </span>
-          </Link>
+              <span className={item.publicationStatus === 'PUBLISHED' ? 'pill on' : 'pill'}>
+                {item.publicationStatus === 'PUBLISHED' ? '공개' : '초안'}
+              </span>
+            </Link>
+            <button type="button" className="chip" aria-label={`${item.title} 기록 지우기`} onClick={() => performances.remove(item.id)}>
+              지우기
+            </button>
+          </div>
         ))}
       </Panel>
       <Panel title="회차 조회" note="좌석 준비 상태와 회차 version을 확인해요.">
