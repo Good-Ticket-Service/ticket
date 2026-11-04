@@ -43,7 +43,8 @@ export interface GradePrice {
 }
 
 export interface PerformanceDetail extends PerformanceSummary {
-  ageRating: string;
+  ageRating: string | null;
+  ageGuidance: string | null;
   runningTime: number;
   castInfo: string | null;
   description: string | null;

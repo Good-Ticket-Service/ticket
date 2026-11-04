@@ -32,9 +32,14 @@ export function operationLabel(code: string): string {
   return OPERATION_LABEL[code] ?? code;
 }
 
-export function ageRatingLabel(code: string): string {
+export function ageRatingLabel(code: string | null | undefined): string {
+  if (!code) return '정보 미제공';
   if (code === 'ALL') return '전체 관람가';
   return /^\d+$/.test(code) ? `${code}세 이상` : code;
+}
+
+export function ageGuidanceLabel(guidance: string | null | undefined, rating: string | null | undefined): string {
+  return guidance?.trim() || ageRatingLabel(rating);
 }
 
 /** 운영 화면은 로그·알림과 맞춰 보도록 코드를 남기고 뜻을 앞에 붙인다. */

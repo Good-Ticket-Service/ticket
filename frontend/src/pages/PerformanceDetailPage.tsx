@@ -3,11 +3,12 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PerformanceDetail, RemainingGrade, Schedule } from '../api/types';
-import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, SectionTitle } from '../components/Common';
+import { artClass, ErrorNotice, Loading, Poster, SectionTitle } from '../components/Common';
 import { useMe } from '../components/Layout';
 import { entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
-import { ageRatingLabel, SALES_STATUS_LABEL as SALES } from '../lib/labels';
+import { genreLabel } from '../lib/genres';
+import { ageGuidanceLabel, SALES_STATUS_LABEL as SALES } from '../lib/labels';
 
 function scheduleNote(schedule: Schedule): string {
   if (schedule.salesStatus === 'BEFORE_OPEN') return `${formatDateTime(schedule.bookingOpenAt)} 오픈`;
@@ -48,13 +49,13 @@ export function PerformanceDetailPage() {
           <Poster src={item.posterUrl} />
           <div className="scrim" />
           <div className="body">
-            <span className="tag">{GENRE_LABEL[item.genre] ?? item.genre}</span>
+            <span className="tag">{genreLabel(item.genre)}</span>
             <h1>{item.title}</h1>
             <span className="muted">
               {item.venue.name} · {item.venue.region}
             </span>
             <span className="muted">
-              {ageRatingLabel(item.ageRating)} · {item.runningTime}분
+              연령: {ageGuidanceLabel(item.ageGuidance, item.ageRating)} · {item.runningTime}분
             </span>
           </div>
         </section>

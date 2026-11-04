@@ -1,6 +1,7 @@
 /** 판매자·관리자 화면의 요청·응답. */
 
-export type Genre = 'CONCERT' | 'MUSICAL' | 'PLAY' | 'SPORTS';
+import type { Genre } from '../lib/genres';
+export type { Genre } from '../lib/genres';
 export type AgeRating = 'ALL' | '12' | '15' | '19';
 
 /** 공연장 등록 응답 */
@@ -36,7 +37,8 @@ export interface PerformanceInput {
   venueId: number;
   title: string;
   genre: Genre;
-  ageRating: AgeRating;
+  ageRating?: AgeRating | null;
+  ageGuidance?: string | null;
   runningTime: number;
   castInfo: string | null;
   description: string | null;
@@ -49,6 +51,8 @@ export interface SellerPerformance {
   venue: { id: number; name: string; address: string; region: string };
   title: string;
   genre: string;
+  ageRating: AgeRating | null;
+  ageGuidance: string | null;
   publicationStatus: string;
   operationStatus: string;
   publishedAt: string | null;
