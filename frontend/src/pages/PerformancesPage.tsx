@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PageP, PerformanceSummary } from '../api/types';
 import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, Title } from '../components/Common';
 import { formatDate } from '../lib/format';
+import { useDebounced } from '../lib/useDebounced';
 
 const GENRES = [
   { value: '', label: '전체' },
@@ -18,12 +19,15 @@ export function PerformancesPage() {
   const [genre, setGenre] = useState('');
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(0);
+  // 글자마다 요청하지 않고 입력이 멈추면 찾는다. 찾는 동안에는 이전 결과를 그대로 둬 목록이 깜빡이지 않게 한다.
+  const searched = useDebounced(keyword.trim());
   const params = new URLSearchParams({ page: String(page), size: '20' });
   if (genre) params.set('genre', genre);
-  if (keyword.trim()) params.set('keyword', keyword.trim());
+  if (searched) params.set('keyword', searched);
   const query = useQuery({
     queryKey: ['performances', params.toString()],
     queryFn: () => api<PageP<PerformanceSummary>>(`/api/performances?${params}`),
+    placeholderData: keepPreviousData,
   });
   const lastPage = query.data ? Math.max(0, Math.ceil(query.data.totalElements / query.data.size) - 1) : 0;
   return (
