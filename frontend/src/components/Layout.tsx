@@ -40,8 +40,7 @@ const links: { to: string; label: string; end: boolean; roles: Role[] }[] = [
   { to: '/', label: '공연', end: true, roles: ['USER', 'SELLER', 'MASTER'] },
   { to: '/coupons', label: '쿠폰함', end: false, roles: ['USER'] },
   { to: '/reservations', label: '내 예매', end: false, roles: ['USER'] },
-  { to: '/seller', label: '판매 관리', end: true, roles: ['SELLER'] },
-  { to: '/seller/settlements', label: '정산', end: false, roles: ['SELLER'] },
+  { to: '/seller', label: '판매 관리', end: false, roles: ['SELLER'] },
   { to: '/admin', label: '관리', end: false, roles: ['MASTER'] },
 ];
 
@@ -118,29 +117,47 @@ export function RequireLogin() {
   return <Outlet />;
 }
 
-const ADMIN_SECTIONS = [
-  { to: '/admin/venues', label: '공연장' },
-  { to: '/admin/schedules', label: '회차 판매 중지' },
-  { to: '/admin/coupons', label: '쿠폰 관리' },
-  { to: '/admin/refunds', label: '환불 운영' },
-  { to: '/admin/payouts', label: '지급 운영' },
+/** paths 중 하나로 시작하면 그 메뉴를 켠다. 판매자 공연 관리는 /seller 자체와 공연·회차 화면을 함께 맡는다. */
+interface Section {
+  to: string;
+  label: string;
+  paths: string[];
+}
+
+const ADMIN_SECTIONS: Section[] = [
+  { to: '/admin/venues', label: '공연장', paths: ['/admin/venues'] },
+  { to: '/admin/schedules', label: '회차 판매 중지', paths: ['/admin/schedules'] },
+  { to: '/admin/coupons', label: '쿠폰 관리', paths: ['/admin/coupons'] },
+  { to: '/admin/refunds', label: '환불 운영', paths: ['/admin/refunds'] },
+  { to: '/admin/payouts', label: '지급 운영', paths: ['/admin/payouts'] },
 ];
 
-/** 관리 영역의 하위 메뉴. 데스크톱은 왼쪽에 세로로, 휴대폰은 위쪽에 가로로 스크롤해 보인다. */
-export function AdminLayout() {
+const SELLER_SECTIONS: Section[] = [
+  { to: '/seller', label: '공연 관리', paths: ['/seller/performances', '/seller/schedules'] },
+  { to: '/seller/settlements', label: '정산', paths: ['/seller/settlements'] },
+];
+
+/** 역할 영역의 하위 메뉴. 데스크톱은 왼쪽에 세로로, 휴대폰은 위쪽에 가로로 스크롤해 보인다. */
+function SectionLayout({ label, sections }: { label: string; sections: Section[] }) {
   const nav = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
+  const active = (section: Section) => pathname === section.to || section.paths.some((path) => pathname.startsWith(path));
   // 휴대폰 가로 탭에서 뒤쪽 메뉴에 있으면 지금 메뉴가 화면 밖에 있으므로 보이게 옮긴다.
   useEffect(() => {
     nav.current?.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [pathname]);
   return (
     <div className="section-shell">
-      <nav ref={nav} aria-label="관리 메뉴" className="section-nav">
-        {ADMIN_SECTIONS.map((section) => (
-          <NavLink key={section.to} to={section.to} className={({ isActive }) => (isActive ? 'section-link active' : 'section-link')}>
+      <nav ref={nav} aria-label={label} className="section-nav">
+        {sections.map((section) => (
+          <Link
+            key={section.to}
+            to={section.to}
+            className={active(section) ? 'section-link active' : 'section-link'}
+            aria-current={active(section) ? 'page' : undefined}
+          >
             {section.label}
-          </NavLink>
+          </Link>
         ))}
       </nav>
       <div className="section-body">
@@ -148,6 +165,14 @@ export function AdminLayout() {
       </div>
     </div>
   );
+}
+
+export function AdminLayout() {
+  return <SectionLayout label="관리 메뉴" sections={ADMIN_SECTIONS} />;
+}
+
+export function SellerLayout() {
+  return <SectionLayout label="판매 관리 메뉴" sections={SELLER_SECTIONS} />;
 }
 
 /** 역할이 맞지 않으면 화면 대신 안내를 보인다. 서버도 같은 역할을 검사하므로 이것은 길 안내일 뿐이다. */

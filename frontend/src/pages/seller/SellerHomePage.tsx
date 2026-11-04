@@ -25,13 +25,10 @@ export function SellerHomePage() {
   const [scheduleId, setScheduleId] = useState('');
   return (
     <main className="content medium stack" style={{ gap: 24 }}>
-      <Title en="Seller" ko="판매 관리" />
+      <Title en="Shows" ko="공연 관리" />
       <div className="actions">
         <Link to="/seller/performances/new" className="btn btn-primary">
           새 공연 등록
-        </Link>
-        <Link to="/seller/settlements" className="btn btn-ghost">
-          정산
         </Link>
       </div>
       <Panel title="이 브라우저에서 만든 공연" note="판매자 공연 목록 API가 없어 여기서 만든 것만 기억해요. 지우기는 이 기억만 지우고 서버의 공연은 그대로예요.">

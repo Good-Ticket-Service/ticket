@@ -21,7 +21,7 @@ export function SellerSchedulePage() {
   return (
     <main className="content narrow stack" style={{ gap: 24 }}>
       <Link to="/seller" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 판매 관리
+        ← 공연 관리
       </Link>
       <Title en="Schedule" ko={`회차 #${item.id}`} />
       <Panel title={formatDateTime(item.startAt)} note="관리자가 판매를 중지하려면 이 회차의 version이 필요해요.">
