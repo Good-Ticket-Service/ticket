@@ -92,10 +92,12 @@ a.item:hover { color: var(--text); background: #333; }
 .item-row { display: flex; align-items: stretch; gap: 8px; }
 .item-row .item { flex: 1 1 auto; min-width: 0; }
 .item-row .chip { flex: none; min-height: auto; border-radius: 18px; }
-.hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px; }
-.hub a { padding: 22px; background: var(--surface); border-radius: 20px; color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 6px; }
-.hub a:hover { color: var(--text); background: #333; }
-.hub .name { font-size: 18px; font-weight: 700; }
+.section-shell { flex: 1 1 auto; }
+.section-nav { position: sticky; top: 0; z-index: 8; display: flex; gap: 4px; overflow-x: auto; padding: 0 12px; background: var(--ground); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.section-nav::-webkit-scrollbar { display: none; }
+.section-link { flex: none; min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; color: var(--muted); font-size: 15px; text-decoration: none; border-bottom: 2px solid transparent; }
+.section-link:hover { color: var(--text); }
+.section-link.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
 .dev-login { margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--line); }
 .dev-login-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
@@ -229,6 +231,11 @@ legend { padding: 0 0 8px; font-size: 17px; font-weight: 500; }
   .topbar { padding: 8px 40px; }
   .topnav { display: flex; }
   .account .account-name { display: inline; }
+  .section-shell { max-width: 1280px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .section-nav { top: 24px; margin-top: 36px; padding: 8px; flex-direction: column; gap: 2px; overflow: visible; background: var(--surface); border: 0; border-radius: 18px; }
+  .section-link { min-height: 44px; padding: 0 14px; border-bottom: 0; border-radius: 12px; }
+  .section-link.active { background: rgba(255, 140, 50, 0.12); }
+  .section-body .content { padding-left: 0; padding-right: 0; }
   .account .account-short { display: none; }
   .bottomnav { display: none; }
   .content { padding: 36px 24px 64px; }

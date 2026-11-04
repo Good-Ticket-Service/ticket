@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, getToken, setToken } from '../api/client';
 import type { Role, User } from '../api/types';
@@ -42,8 +42,7 @@ const links: { to: string; label: string; end: boolean; roles: Role[] }[] = [
   { to: '/reservations', label: '내 예매', end: false, roles: ['USER'] },
   { to: '/seller', label: '판매 관리', end: true, roles: ['SELLER'] },
   { to: '/seller/settlements', label: '정산', end: false, roles: ['SELLER'] },
-  { to: '/admin', label: '관리', end: true, roles: ['MASTER'] },
-  { to: '/admin/coupons', label: '쿠폰 관리', end: false, roles: ['MASTER'] },
+  { to: '/admin', label: '관리', end: false, roles: ['MASTER'] },
 ];
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -117,6 +116,38 @@ export function RequireLogin() {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
   return <Outlet />;
+}
+
+const ADMIN_SECTIONS = [
+  { to: '/admin/venues', label: '공연장' },
+  { to: '/admin/schedules', label: '회차 판매 중지' },
+  { to: '/admin/coupons', label: '쿠폰 관리' },
+  { to: '/admin/refunds', label: '환불 운영' },
+  { to: '/admin/payouts', label: '지급 운영' },
+];
+
+/** 관리 영역의 하위 메뉴. 데스크톱은 왼쪽에 세로로, 휴대폰은 위쪽에 가로로 스크롤해 보인다. */
+export function AdminLayout() {
+  const nav = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  // 휴대폰 가로 탭에서 뒤쪽 메뉴에 있으면 지금 메뉴가 화면 밖에 있으므로 보이게 옮긴다.
+  useEffect(() => {
+    nav.current?.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [pathname]);
+  return (
+    <div className="section-shell">
+      <nav ref={nav} aria-label="관리 메뉴" className="section-nav">
+        {ADMIN_SECTIONS.map((section) => (
+          <NavLink key={section.to} to={section.to} className={({ isActive }) => (isActive ? 'section-link active' : 'section-link')}>
+            {section.label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="section-body">
+        <Outlet />
+      </div>
+    </div>
+  );
 }
 
 /** 역할이 맞지 않으면 화면 대신 안내를 보인다. 서버도 같은 역할을 검사하므로 이것은 길 안내일 뿐이다. */
