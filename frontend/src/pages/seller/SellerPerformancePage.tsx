@@ -75,7 +75,7 @@ function CreatePerformance() {
   return (
     <main className="content narrow stack" style={{ gap: 24 }}>
       <Link to="/seller" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 판매 관리
+        ← 공연 관리
       </Link>
       <Title en="New Show" ko="공연 초안 등록" />
       <Panel
@@ -218,7 +218,7 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
   return (
     <main className="content medium stack" style={{ gap: 24 }}>
       <Link to="/seller" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 판매 관리
+        ← 공연 관리
       </Link>
       <Title en="Show" ko={record.title} />
       <Panel

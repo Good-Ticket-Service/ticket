@@ -17,9 +17,6 @@ export function SellerSettlementsPage() {
   });
   return (
     <main className="content medium stack" style={{ gap: 24 }}>
-      <Link to="/seller" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 판매 관리
-      </Link>
       <Title en="Settlements" ko="정산" />
       <PayoutAccountPanel />
       <Panel title="미회수 차감" note="환불 등으로 아직 다음 정산에서 빼지 못한 금액이에요. 미지급액과는 별개예요.">

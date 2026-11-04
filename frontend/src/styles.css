@@ -91,8 +91,8 @@ a.item:hover { color: var(--text); background: #333; }
 .item .sub { font-size: 13px; color: var(--muted); }
 .item-row { display: flex; align-items: stretch; gap: 8px; }
 .item-row .item { flex: 1 1 auto; min-width: 0; }
-.item-row .chip { flex: none; min-height: auto; border-radius: 18px; }
-.section-shell { flex: 1 1 auto; }
+.item-row .chip { flex: none; align-self: center; }
+.section-shell { flex: 1 1 auto; width: 100%; }
 .section-nav { position: sticky; top: 0; z-index: 8; display: flex; gap: 4px; overflow-x: auto; padding: 0 12px; background: var(--ground); border-bottom: 1px solid var(--line); scrollbar-width: none; }
 .section-nav::-webkit-scrollbar { display: none; }
 .section-link { flex: none; min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; color: var(--muted); font-size: 15px; text-decoration: none; border-bottom: 2px solid transparent; }

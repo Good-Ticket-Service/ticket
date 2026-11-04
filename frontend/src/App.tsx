@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AdminLayout, Layout, RequireLogin, RequireRole } from './components/Layout';
+import { AdminLayout, Layout, RequireLogin, RequireRole, SellerLayout } from './components/Layout';
 import { AdminCouponPage } from './pages/admin/AdminCouponPage';
 import { AdminCouponsPage } from './pages/admin/AdminCouponsPage';
 import { AdminPayoutPage } from './pages/admin/AdminPayoutPage';
@@ -46,12 +46,14 @@ export function App() {
           </Route>
           <Route path="/me" element={<MyPage />} />
           <Route element={<RequireRole roles={['SELLER']} />}>
-            <Route path="/seller" element={<SellerHomePage />} />
-            <Route path="/seller/performances/new" element={<SellerPerformancePage key="new" />} />
-            <Route path="/seller/performances/:performanceId" element={<SellerPerformancePage />} />
-            <Route path="/seller/schedules/:scheduleId" element={<SellerSchedulePage />} />
-            <Route path="/seller/settlements" element={<SellerSettlementsPage />} />
-            <Route path="/seller/settlements/:statementId" element={<SellerStatementPage />} />
+            <Route element={<SellerLayout />}>
+              <Route path="/seller" element={<SellerHomePage />} />
+              <Route path="/seller/performances/new" element={<SellerPerformancePage key="new" />} />
+              <Route path="/seller/performances/:performanceId" element={<SellerPerformancePage />} />
+              <Route path="/seller/schedules/:scheduleId" element={<SellerSchedulePage />} />
+              <Route path="/seller/settlements" element={<SellerSettlementsPage />} />
+              <Route path="/seller/settlements/:statementId" element={<SellerStatementPage />} />
+            </Route>
           </Route>
           <Route element={<RequireRole roles={['MASTER']} />}>
             <Route element={<AdminLayout />}>
