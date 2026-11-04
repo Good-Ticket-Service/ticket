@@ -65,19 +65,24 @@ export function AdminVenuesPage() {
           </button>
         </form>
       </Panel>
-      <Panel title="이 브라우저에서 만든 공연장" note="공연장 목록 API가 없어 여기서 만든 것만 보여요.">
+      <Panel title="이 브라우저에서 만든 공연장" note="공연장 목록 API가 없어 여기서 만든 것만 기억해요. 지우기는 이 기억만 지우고 서버의 공연장은 그대로예요.">
         {venues.records.length === 0 && <p className="muted">아직 없어요.</p>}
         {venues.records.map((venue) => (
-          <Link key={venue.id} to={`/admin/venues/${venue.id}`} className="item">
-            <span>
-              <span className="name">{venue.name}</span>
-              <br />
-              <span className="sub num">
-                ID {venue.id} · {venue.region} · 등급 {venue.grades.length}개 · 좌석 {venue.seatCount}석
+          <div key={venue.id} className="item-row">
+            <Link to={`/admin/venues/${venue.id}`} className="item">
+              <span>
+                <span className="name">{venue.name}</span>
+                <br />
+                <span className="sub num">
+                  ID {venue.id} · {venue.region} · 등급 {venue.grades.length}개 · 좌석 {venue.seatCount}석
+                </span>
               </span>
-            </span>
-            <span className="pill num">v{venue.version}</span>
-          </Link>
+              <span className="pill num">v{venue.version}</span>
+            </Link>
+            <button type="button" className="chip" aria-label={`${venue.name} 기록 지우기`} onClick={() => venues.remove(venue.id)}>
+              지우기
+            </button>
+          </div>
         ))}
         <form
           className="actions"

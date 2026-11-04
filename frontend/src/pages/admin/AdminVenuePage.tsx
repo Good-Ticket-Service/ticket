@@ -62,6 +62,22 @@ export function AdminVenuePage() {
     onSuccess: (result) => save({ version: result.venueVersion, seatCount: record.seatCount + result.createdCount }),
   });
 
+  // 판매자 등급 조회 API가 없어, 판매자가 가격을 넣을 때 필요한 ID를 한 번에 넘긴다.
+  const handoff = [
+    `공연장: ${record.name} (공연장 ID ${venueId})`,
+    `등급 ID: ${record.grades.map((grade) => `${grade.name} ${grade.id}`).join(', ')}`,
+    '공연을 만들 때 공연장 ID를, 가격을 넣을 때 좌석이 쓰는 등급의 ID를 모두 넣어 주세요.',
+  ].join('\n');
+  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
+  const copyHandoff = async () => {
+    try {
+      await navigator.clipboard.writeText(handoff);
+      setCopied('done');
+    } catch {
+      setCopied('failed');
+    }
+  };
+
   const submitGrades = (event: FormEvent) => {
     event.preventDefault();
     grades.mutate();
@@ -95,6 +111,19 @@ export function AdminVenuePage() {
             </span>
           ))}
         </div>
+        {record.grades.length > 0 && (
+          <>
+            <button type="button" className="btn btn-ghost" onClick={copyHandoff}>
+              판매자에게 보낼 정보 복사
+            </button>
+            {copied === 'done' && <Done>복사했어요. 판매자에게 붙여 넣어 보내 주세요.</Done>}
+            {copied === 'failed' && (
+              <Field id="venue-handoff" label="복사하지 못했어요. 아래 글을 직접 복사해 주세요.">
+                <textarea id="venue-handoff" className="input mono" readOnly value={handoff} />
+              </Field>
+            )}
+          </>
+        )}
       </Panel>
       <Panel title="등급 등록" note="쉼표로 여러 개를 한 번에 넣어요. 같은 공연장에 이름이 같은 등급은 넣을 수 없어요.">
         <form className="stack" onSubmit={submitGrades}>

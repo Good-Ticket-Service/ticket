@@ -245,7 +245,7 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
         )}
       </Panel>
 
-      <Panel title="1. 등급별 가격" badge={<StepBadge done={record.gradePrices.length > 0} />} note="판매할 좌석이 쓰는 등급에 모두 가격이 있어야 공개할 수 있어요. 공개 뒤에는 바꿀 수 없어요. 등급 ID는 관리자에게 받아요.">
+      <Panel title="1. 등급별 가격" badge={<StepBadge done={record.gradePrices.length > 0} />} note="관리자가 보내 준 공연장 정보의 등급 ID를 옮겨요. 판매할 좌석이 쓰는 등급을 하나라도 빼면 저장이 거절돼요. 공개 뒤에는 바꿀 수 없어요.">
         <form
           className="stack"
           onSubmit={(event) => {

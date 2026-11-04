@@ -102,7 +102,11 @@ function CreateCoupon() {
           validDays: Number(form.validDays),
         } satisfies CouponInput,
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['admin-coupons'] }),
+    onSuccess: () => {
+      // 같은 쿠폰을 한 번 더 만들지 않도록 이름을 비운다. 나머지 값은 비슷한 쿠폰을 이어 만들 때 쓰게 둔다.
+      setForm((current) => ({ ...current, name: '' }));
+      client.invalidateQueries({ queryKey: ['admin-coupons'] });
+    },
   });
   const bind = (name: keyof typeof form) => ({
     id: `coupon-${name}`,

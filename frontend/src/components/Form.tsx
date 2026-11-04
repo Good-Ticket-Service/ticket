@@ -74,6 +74,38 @@ export function VersionOverride({
   );
 }
 
+/** 되돌릴 수 없는 동작 전에 묻는 대화상자. 예매 취소 대화상자와 같은 모양이다. */
+export function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  body: ReactNode;
+  confirmLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="overlay">
+      <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="dialog">
+        <h2 id="confirm-title">{title}</h2>
+        <p>{body}</p>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+        <button type="button" className="btn-link" onClick={onCancel}>
+          돌아가기
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Done({ children }: { children: ReactNode }) {
   return (
     <p className="done" role="status">
