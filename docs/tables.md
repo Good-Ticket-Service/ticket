@@ -74,8 +74,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | seller_id | BIGINT | NOT NULL, 외부 ID; 인증 주체의 BIGINT 회원 ID로 설정.; 요청 본문으로 받지 않음 |
 | venue_id | BIGINT | FK → p_venues.id, NOT NULL; 공연 단위 공연장.; 공연이 DRAFT이며 삭제 회차를 포함한 회차 등록 이력이 없을 때만 변경 가능.; 변경 시 가격·제외 설정을 같은 트랜잭션에서 초기화한다. |
 | title | VARCHAR(200) | NOT NULL; 공연명 |
-| genre | VARCHAR(20) | NOT NULL; CONCERT / MUSICAL / PLAY / SPORTS |
-| age_rating | VARCHAR(20) | NOT NULL; ALL / 12 / 15 / 19 |
+| genre | VARCHAR(20) | NOT NULL; CONCERT / MUSICAL / PLAY / SPORTS / CLASSICAL / KOREAN_MUSIC / DANCE / CIRCUS_MAGIC / MULTIDISCIPLINARY |
+| age_rating | VARCHAR(20) | NULL; ALL / 12 / 15 / 19. 기존 값 보존, 문구만 등록하면 null |
+| age_guidance | VARCHAR(100) | NULL; 관람 연령 안내 원문. 화면 라벨은 저장하지 않음 |
 | running_time | INT | NOT NULL; 분, 0 초과 |
 | cast_info | VARCHAR(500) | NULL; 출연진 안내 |
 | description | TEXT | NULL; 공개 시 필수(이슈 #130) |
@@ -87,8 +88,12 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 제약·인덱스:
 
-- `CONSTRAINT ck_p_performances_genre CHECK (genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS'))`
+- `CONSTRAINT ck_p_performances_genre CHECK (genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS', 'CLASSICAL', 'KOREAN_MUSIC', 'DANCE', 'CIRCUS_MAGIC', 'MULTIDISCIPLINARY'))`
 - `CONSTRAINT ck_p_performances_age_rating CHECK (age_rating IN ('ALL', '12', '15', '19'))`
+- `CONSTRAINT ck_p_performances_age_guidance CHECK (age_guidance IS NULL OR btrim(age_guidance) <> '')`
+- 이슈 #262 이행 SQL: `backend/sql/performance-service/migrations/262-genre-age-guidance.sql`. 기존 등급·감사 값은 갱신하지 않는다.
+- 신규 등록의 두 필드 중 하나 필수 조건은 API에서 검사한다. 둘 다 null인 기존·외부 데이터는 정보 미제공으로 읽을 수 있다.
+- 배포는 DB 이행 → 모든 공연 서버 교체 → 프런트 배포·신규 값 입력 개방 순서다. 구버전 서버는 새 장르·null 등급을 처리하지 못한다.
 - `CONSTRAINT ck_p_performances_running_time CHECK (running_time > 0)`
 - `CONSTRAINT ck_p_performances_publication_status CHECK (publication_status IN ('DRAFT', 'PUBLISHED'))`
 - `CONSTRAINT ck_p_performances_operation_status CHECK (operation_status IN ('ACTIVE', 'CANCELED'))`
@@ -717,7 +722,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | 대상 | 값/계산 |
 |---|---|
 | User.role / status | USER,SELLER,MASTER / ACTIVE,WITHDRAWN (현행 SQL CHECK 기준) |
-| Performance.genre / ageRating | CONCERT,MUSICAL,PLAY,SPORTS / ALL,12,15,19 |
+| Performance.genre / ageRating | CONCERT, MUSICAL, PLAY, SPORTS, CLASSICAL, KOREAN_MUSIC, DANCE, CIRCUS_MAGIC, MULTIDISCIPLINARY / ALL,12,15,19 또는 null |
 | Performance.publicationStatus / operationStatus | DRAFT,PUBLISHED / ACTIVE,CANCELED |
 | Schedule.seatSetupStatus | PENDING,READY,FAILED |
 | Schedule.salesStatus(비저장) | 우선순위 CANCELED→CLOSED(now>=close)→BEFORE_OPEN(now<open)→UNAVAILABLE(중지/미준비)→ON_SALE(원본: performance/api.md:463-467; 담당 확인 필요) |
