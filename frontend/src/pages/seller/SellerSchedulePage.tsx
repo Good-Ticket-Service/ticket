@@ -5,6 +5,7 @@ import type { SellerSchedule } from '../../api/manageTypes';
 import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Facts, Panel } from '../../components/Form';
 import { formatDateTime } from '../../lib/format';
+import { operationLabel, salesStatusLabel, seatSetupLabel } from '../../lib/labels';
 
 export function SellerSchedulePage() {
   const { scheduleId } = useParams();
@@ -28,9 +29,9 @@ export function SellerSchedulePage() {
           items={[
             ['공연 ID', <Link to={`/seller/performances/${item.performanceId}`}>{item.performanceId}</Link>],
             ['예매 기간', `${formatDateTime(item.bookingOpenAt)} ~ ${formatDateTime(item.bookingCloseAt)}`],
-            ['판매 상태', item.salesStatus],
-            ['운영 상태', item.operationStatus],
-            ['좌석 준비', item.seatSetupStatus === 'PENDING' ? 'PENDING (준비 중, 자동으로 다시 확인해요)' : item.seatSetupStatus],
+            ['판매 상태', salesStatusLabel(item.salesStatus)],
+            ['운영 상태', operationLabel(item.operationStatus)],
+            ['좌석 준비', item.seatSetupStatus === 'PENDING' ? '준비 중 (자동으로 다시 확인해요)' : seatSetupLabel(item.seatSetupStatus)],
             ['좌석 준비 오류', item.seatSetupError],
             ['좌석 구성 version', item.seatConfigVersion],
             ['판매 중지', item.salesSuspended ? `중지됨 · ${item.suspensionReason ?? ''}` : '아니요'],

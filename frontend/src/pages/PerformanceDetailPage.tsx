@@ -2,19 +2,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { PerformanceDetail, RemainingGrade, SalesStatus, Schedule } from '../api/types';
+import type { PerformanceDetail, RemainingGrade, Schedule } from '../api/types';
 import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, SectionTitle } from '../components/Common';
 import { useMe } from '../components/Layout';
 import { entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
-
-const SALES: Record<SalesStatus, string> = {
-  ON_SALE: '예매 가능',
-  BEFORE_OPEN: '오픈 전',
-  UNAVAILABLE: '판매 중지',
-  CLOSED: '예매 종료',
-  CANCELED: '회차 취소',
-};
+import { SALES_STATUS_LABEL as SALES } from '../lib/labels';
 
 function scheduleNote(schedule: Schedule): string {
   if (schedule.salesStatus === 'BEFORE_OPEN') return `${formatDateTime(schedule.bookingOpenAt)} 오픈`;
