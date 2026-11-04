@@ -31,3 +31,9 @@ export function seatSetupLabel(code: string): string {
 export function operationLabel(code: string): string {
   return OPERATION_LABEL[code] ?? code;
 }
+
+export function ageRatingLabel(code: string): string {
+  if (code === 'ALL') return '전체 관람가';
+  return /^\d+$/.test(code) ? `${code}세 이상` : code;
+}
+

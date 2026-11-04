@@ -7,7 +7,7 @@ import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, SectionTitle } fro
 import { useMe } from '../components/Layout';
 import { entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
-import { SALES_STATUS_LABEL as SALES } from '../lib/labels';
+import { ageRatingLabel, SALES_STATUS_LABEL as SALES } from '../lib/labels';
 
 function scheduleNote(schedule: Schedule): string {
   if (schedule.salesStatus === 'BEFORE_OPEN') return `${formatDateTime(schedule.bookingOpenAt)} 오픈`;
@@ -54,7 +54,7 @@ export function PerformanceDetailPage() {
               {item.venue.name} · {item.venue.region}
             </span>
             <span className="muted">
-              {/^\d+$/.test(item.ageRating) ? `${item.ageRating}세 이상` : item.ageRating} · {item.runningTime}분
+              {ageRatingLabel(item.ageRating)} · {item.runningTime}분
             </span>
           </div>
         </section>
