@@ -54,8 +54,19 @@
 - 요청 본문에 계약에 없는 필드가 있으면 거절하지 않고 무시한다.
 - 업무 규칙 위반은 INVALID_TIME_RANGE 같은 공연 오류 코드를 쓴다.
 - 「추가 오류」 칸에는 공통 오류(400 VALIDATION_ERROR, 401 UNAUTHORIZED, 403 FORBIDDEN)를 빼고 그 API에서만 생기는 오류를 적는다.
-- 표의 Genre는 CONCERT, MUSICAL, PLAY, SPORTS 중 하나다.
+- 표의 Genre는 CONCERT, MUSICAL, PLAY, SPORTS, CLASSICAL, KOREAN_MUSIC, DANCE, CIRCUS_MAGIC, MULTIDISCIPLINARY 중 하나다.
 - 표의 AgeRating은 ALL, 12, 15, 19 중 하나다.
+- 장르 확장·관람 연령 안내는 이슈 #262에서 추가했다.
+- CLASSICAL은 클래식, KOREAN_MUSIC은 국악, DANCE는 무용, CIRCUS_MAGIC은 서커스·마술, MULTIDISCIPLINARY는 복합 공연이다.
+- 장르 필터는 코드가 같은 공연만 반환한다. CLASSICAL 공연은 CONCERT 결과에 포함하지 않는다.
+- 등록은 ageRating 또는 ageGuidance 중 하나 이상이 필요하다. 생략·null은 미입력이다.
+- ageGuidance는 앞뒤 유니코드 공백을 제거한 후 1~100자다. 빈 문자열·공백만·길이 초과는 400 VALIDATION_ERROR다.
+- 두 필드를 함께 보내면 각각 검증하고 그대로 보존한다. 문구를 기존 등급으로 추정·변환하지 않는다.
+- 문구만 등록한 공연의 P8·P17 응답은 ageRating:null이다. 기존 ageRating 값은 유지하며 ageGuidance는 미등록 시 null이다.
+- 화면은 ageGuidance를 우선하고, 기존 등급만 있으면 전체 관람가·12세 이상·15세 이상·19세 이상으로 표시한다.
+- 둘 다 없는 기존 데이터는 정보 미제공으로 표시한다. 신규 등록에서 둘 다 미입력은 400 VALIDATION_ERROR다.
+- 두 연령 필드가 모두 미입력인 경우 필드 오류 이름은 `ageInformationProvided`다(교차 필드 검증).
+- 상세의 '연령:'은 화면 라벨이며 ageGuidance에는 관람 안내 문구만 저장한다. 생년월일 검사·예매 차단은 하지 않는다.
 - 표의 PerformanceSort는 LATEST, BOOKING_OPEN_ASC 중 하나다.
 
 ### 이번 기간 구현 API
@@ -79,7 +90,7 @@
 
 - GradeInput = `{name:string[1~20자, 공백 불가]}`. 요청 안에서 이름이 겹치면 400 VALIDATION_ERROR다.
 - SeatInput = `{section:string[1~20자],rowLabel:string[1~10자],seatNumber:int[1 이상],venueSeatGradeId:long[같은 공연장의 등급]}`.
-- PerformanceInput = `{venueId:long,title:string[1~200자],genre:Genre,ageRating:AgeRating,runningTime:int[1 이상],castInfo?:string|null[최대 500자],description?:string|null,posterUrl?:string|null[HTTPS URL, 최대 500자]}`.
+- PerformanceInput = `{venueId:long,title:string[1~200자],genre:Genre,ageRating?:AgeRating|null,ageGuidance?:string|null[1~100자],runningTime:int[1 이상],castInfo?:string|null[최대 500자],description?:string|null,posterUrl?:string|null[HTTPS URL, 최대 500자]}`.
 - PriceInput = `{venueSeatGradeId:long,price:int[0 초과]}`. 요청 안에서 등급 ID가 겹치면 400 VALIDATION_ERROR다.
 - sales-suspension의 reason은 중지(suspended=true)할 때 필수이고 trim 후 1~500자다.
 - 재개(suspended=false)할 때 reason은 생략하거나 null로 보낸다. 저장된 중지 사유는 지운다. 재개에 reason 글자(빈 문자열 포함)를 보내면 400 VALIDATION_ERROR다(이슈 #133).
@@ -100,12 +111,12 @@
 - P1 = `id:long; name:string; address:string; region:string; version:long; createdAt:datetime; updatedAt:datetime`.
 - P3 = `grades:Grade[]; grades[].id:long; grades[].name:string; venueVersion:long`.
 - P5 = `createdCount:integer; createdSeatIds:long[]; venueVersion:long`.
-- P8 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; publicationStatus:string; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; version:long; createdAt:datetime; updatedAt:datetime; sellerId:long`.
+- P8 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string|null; ageGuidance:string|null; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; publicationStatus:string; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; version:long; createdAt:datetime; updatedAt:datetime; sellerId:long`.
 - P11 = `gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer; performanceVersion:long`.
 - P13 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null; seatConfigVersion:long; seatSetupRequestId:string; seatSetupError:string|null; suspensionReason:string|null; cancelReason:string|null; version:long`.
 - P15 = `scheduleId:long; salesSuspended:boolean; suspensionReason:string|null; version:long`.
 - P16 = `items:PerformanceSummary[]; items[].id:long; items[].venue:VenueSummary; items[].venue.id:long; items[].venue.name:string; items[].venue.address:string; items[].venue.region:string; items[].title:string; items[].genre:string; items[].posterUrl:string|null; items[].operationStatus:string; items[].period:Period|null; items[].period.from:date; items[].period.to:date; page:integer; size:integer; totalElements:long`.
-- P17 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; createdAt:datetime; updatedAt:datetime; gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer`.
+- P17 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string|null; ageGuidance:string|null; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; createdAt:datetime; updatedAt:datetime; gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer`.
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.
 - P20 = `performanceId:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; seats:LayoutSeat[]; seats[].id:long; seats[].section:string; seats[].rowLabel:string; seats[].seatNumber:integer; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].isSellable:boolean; seats[].basePrice:integer|null`.
