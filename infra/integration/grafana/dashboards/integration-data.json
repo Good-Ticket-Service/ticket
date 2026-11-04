@@ -1,0 +1,786 @@
+{
+  "uid": "integration-data",
+  "title": "통합시험 04 · DB·Redis·Kafka",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": [
+    "integration"
+  ],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "전체 현황",
+      "url": "/d/integration-overview",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "서비스 병목",
+      "url": "/d/integration-services",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "호스트·컨테이너",
+      "url": "/d/integration-infra",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "DB·Redis·Kafka",
+      "url": "/d/integration-data",
+      "type": "link",
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(http_server_requests_seconds_count, application)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "test_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(k6_http_reqs_total, test_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "comparison_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(k6_probe_started_total, comparison_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "시험 단계",
+        "type": "dashboard",
+        "builtIn": 1,
+        "enable": true,
+        "hide": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "PostgreSQL · 진단 수집기 필요",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "서비스 계정별 세션·대기",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_pg_sessions",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "가장 오래 열린 트랜잭션",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_pg_oldest_transaction_seconds",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "차단 세션 수",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_pg_blocked_sessions",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "SQL 누적 실행 시간 증가/s · p99가 아님",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_pg_sql_exec_seconds_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "서비스 계정별 SQL 호출/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_pg_sql_calls_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "WAL 생성 bytes/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_pg_wal_bytes_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Redis",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "사용·최대 메모리",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_memory_max_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "연결·blocked clients",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_connected_clients",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_blocked_clients",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "eviction/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_evicted_keys_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "명령 평균 시간",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_commands_duration_seconds_total[$__rate_interval])/rate(redis_commands_processed_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Kafka · lag는 실행 중인 소비 그룹 기준",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "파티션별 소비 지연",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kafka_consumergroup_lag",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "소비 offset 증가/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(kafka_consumergroup_current_offset[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "DLT 로그 끝 offset 증가/s · 재시작/retention 해석 주의",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "deriv(kafka_topic_partition_current_offset{topic=~\".*[dD][lL][tT].*\"}[1m])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Spring Kafka 처리 시간 평균",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(spring_kafka_listener_seconds_sum[$__rate_interval])/rate(spring_kafka_listener_seconds_count[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    }
+  ]
+}

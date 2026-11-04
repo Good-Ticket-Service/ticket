@@ -1,0 +1,288 @@
+"""S2 조회 중심 혼합 부하: 70% 조회 / 20% 좌석 탐색 / 10% 예매.
+
+python infra/integration/scenario2.py --rate 25 --duration 60
+rate는 초당 시작하는 사용자 여정 수다. 단계마다 새 회차/계정을 준비한다.
+"""
+import argparse
+from datetime import datetime
+import json
+import math
+from pathlib import Path
+import subprocess
+import threading
+import time
+import urllib.parse
+import urllib.request
+
+from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD
+
+class MixedScenario(Scenario):
+    def preflight(self):
+        super().preflight()
+        if self.report['scenario'] in (2,3):
+            config_path=self.out/'fakepg-confirm-config.json'
+            config=json.loads(config_path.read_text(encoding='utf-8'))
+            config['latencyMs']=300
+            self.request('PUT','/fake/admin/faults/TOSS/CONFIRM',config,raw=True)
+            applied=self.request('GET','/fake/admin/faults/TOSS/CONFIRM',raw=True)
+            require(applied.get('latencyMs')==300,'Fake PG CONFIRM latency must be 300ms')
+            config_path.write_text(json.dumps(applied,indent=2)+'\n',encoding='utf-8')
+            self.report['workload']['fake_pg_confirm_latency_ms']=300
+            self.save()
+            print('[prepare] Fake PG TOSS CONFIRM latency: 300ms',flush=True)
+
+    def __init__(self,args,scenario=2,buyer_count=None):
+        self.args=args
+        # arrival executor의 경계 시각 차이를 위한 두 계정 여유. 좌석은 매번 같은 인자로 고정한다.
+        buyers=math.ceil(args.rate*args.duration/10)+2 if buyer_count is None else buyer_count
+        require(args.seats>=buyers,f'Need at least {buyers} seats. Keep --seats identical when comparing rates.')
+        super().__init__(buyers,180,scenario=scenario)
+        self.report.update(workload={'rate_journeys_per_second':args.rate,'duration_seconds':args.duration,
+            'warmup_seconds':args.warmup,'mix_percent':{'browse':70,'seat':20,'booking':10},
+            'seat_count':args.seats,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
+            'think_seconds':[.3,1.0],'seat_reads_per_viewer':[3,5],
+            'booking_seat_selection':'disjoint assigned seats; no intentional seat competition',
+            'authentication':('browse anonymous; authenticated accounts login in k6 setup; tokens reused during measurement'
+                if scenario in (2,3) else 'login per authenticated journey')},
+            limitations=['One popular schedule; TOSS only; no coupon',
+                'PASS gates errors/completion/dropped/DB consistency; no agreed latency SLO',
+                'Preparation, warmup and post-run financial checks are excluded from measured phase',
+                'Sequential stages must keep seats/viewer pool/CPU/DB/PG settings identical'])
+        self.report['journeys']=[]
+        self.process=None
+        self.container_name='ticket-integration-s2-load'
+        self.metrics_path=ROOT/'script/integration/scenario2-metrics.prom'
+
+    def save(self):
+        if not hasattr(self,'out'): return
+        (self.out/'result.json').write_text(json.dumps(self.report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        metrics=[f'integration_scenario2_target_journeys_per_second {self.args.rate}',
+                 f'integration_scenario2_run_info{{test_id="{self.run_id}"}} 1',
+                 f'integration_scenario2_verified {int(self.report["verdict"]=="PASS")}',
+                 f'integration_scenario2_updated_timestamp_seconds {time.time()}']
+        for outcome in ('confirmed','failed','business_rejected'):
+            metrics.append(f'integration_scenario2_booking_evidence_total{{kind="{outcome}"}} '+str(sum(r.get('outcome')==outcome for r in self.report['journeys'])))
+        tmp=self.metrics_path.with_suffix('.tmp');tmp.write_text('\n'.join(metrics)+'\n',encoding='utf-8');tmp.replace(self.metrics_path)
+
+    def prepare(self):
+        self.stage='prepare';self.fixtures(seat_count=self.args.seats)
+        buyer_accounts=self.accounts
+        viewers=[]
+        for i in range(self.args.viewers):
+            email=f's2-view-{self.run_id}-{i}@integration.local'
+            uid=self.signup(email);viewers.append({'email':email,'user_id':uid})
+        token=self.login(buyer_accounts[0][0])
+        sid=self.report['fixtures']['schedule_id']
+        seats=self.request('GET',f'/api/seats/schedules/{sid}',token=token)
+        available=sorted((s['scheduleSeatId'] for s in seats['seats'] if s['selectable']))
+        require(len(available)==self.args.seats,'Prepared seat count mismatch')
+        buyers=[{'email':email,'user_id':uid,'schedule_seat_id':available[i]} for i,(email,uid) in enumerate(buyer_accounts)]
+        meta={'run_id':self.run_id,'rate':self.args.rate,'duration':self.args.duration,'warmup':self.args.warmup,
+              'vus':self.args.vus,'max_vus':self.args.max_vus,'password':PASSWORD,'prelogin':self.report['scenario'] in (2,3),
+              'performance_id':self.report['fixtures']['performance_id'],'schedule_id':sid}
+        # 공개 로컬 시험 비밀번호와 시험 ID만 저장. JWT/PG 인증값은 k6 메모리에만 둔다.
+        (self.out/'input.json').write_text(json.dumps({'meta':meta,'buyers':buyers,'viewers':viewers}),encoding='utf-8')
+        self.report['prepared_at']=datetime.now(KST).isoformat();self.save()
+
+    def db_size(self):
+        return self.db("SELECT coalesce(json_agg(x),'[]') FROM (SELECT schemaname,relname,n_live_tup estimated_live_rows,pg_total_relation_size(relid) total_bytes FROM pg_stat_user_tables WHERE schemaname IN ('user_schema','performance_schema','reservation_schema','payment_schema','fake_pg_schema') ORDER BY schemaname,relname) x")
+
+    def load(self):
+        self.stage='measure'
+        folder=self.out.name
+        loadenv=self.env.copy()
+        loadenv.update(S2_INPUT=f'/results/{folder}/input.json',S2_SUMMARY=f'/results/{folder}/k6-summary.json',
+                       K6_PROMETHEUS_RW_STALE_MARKERS='true')
+        args=self.cmd+['run','--rm','--no-deps','-T','--name',self.container_name,
+            '-e','S2_INPUT','-e','S2_SUMMARY','-e','K6_PROMETHEUS_RW_STALE_MARKERS','k6','run','--quiet','--out','experimental-prometheus-rw','/scripts/scenario2.js']
+        self.report['load_started_at']=datetime.now(KST).isoformat()
+        self.report['load_start_epoch']=time.time()
+        self.report['measure_start_epoch']=time.time()+(self.args.warmup+5 if self.args.warmup else 0)
+        self.report['measure_end_epoch']=self.report['measure_start_epoch']+self.args.duration
+        self.save()
+        print(f'[load] {self.args.rate} journeys/s, {self.args.duration}s, warmup {self.args.warmup}s; k6 log: {self.out / "k6.log"}',flush=True)
+        self.process=subprocess.Popen(args,env=loadenv,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+            text=True,encoding='utf-8',errors='replace')
+        def output():
+            with (self.out/'k6.log').open('w',encoding='utf-8') as log:
+                for line in self.process.stdout:
+                    log.write(line);log.flush()
+                    if 'S2_EVIDENCE ' in line or 'S2_WINDOW ' in line or 'S4_REQUEST ' in line:
+                        # k6의 logfmt msg는 JSON 문자열로 이스케이프되어 있다.
+                        try:
+                            if 'msg=' in line:
+                                message=json.JSONDecoder().raw_decode(line.split('msg=',1)[1].lstrip())[0]
+                            else: message=line
+                            if 'S4_REQUEST ' in message:
+                                if hasattr(self,'on_request'):
+                                    self.on_request(json.JSONDecoder().raw_decode(message.split('S4_REQUEST ',1)[1])[0])
+                            elif 'S2_WINDOW ' in message:
+                                window=json.JSONDecoder().raw_decode(message.split('S2_WINDOW ',1)[1])[0]
+                                self.report.setdefault('measurement_windows',{})[window['scenario']]=window
+                            else:
+                                payload=json.JSONDecoder().raw_decode(message.split('S2_EVIDENCE ',1)[1])[0]
+                                self.report['journeys'].append(payload)
+                        except (ValueError,IndexError,TypeError):
+                            self.report.setdefault('evidence_parse_errors',0)
+                            self.report['evidence_parse_errors']+=1
+        reader=threading.Thread(target=output,daemon=True);reader.start()
+        last=time.monotonic()
+        while self.process.poll() is None:
+            time.sleep(1)
+            if time.monotonic()-last>=15:
+                self.save();last=time.monotonic()
+                print(f'[load] booking evidence {len(self.report["journeys"])}; confirmed '+str(sum(r['outcome']=='confirmed' for r in self.report['journeys'])),flush=True)
+        reader.join(timeout=10)
+        require(not reader.is_alive(),'k6 output reader did not finish')
+        self.report['k6_exit_code']=self.process.returncode
+        self.report['load_end_epoch']=time.time()
+        windows=list(self.report.get('measurement_windows',{}).values())
+        if windows:
+            self.report['measure_start_epoch']=min(w['start'] for w in windows)
+            self.report['measure_end_epoch']=max(w['end'] for w in windows)
+        self.report['load_finished_at']=datetime.now(KST).isoformat();self.save()
+
+    def review(self):
+        self.stage='review'
+        summary_path=self.out/'k6-summary.json'
+        require(summary_path.exists(),'k6 summary missing; see k6.log (image/startup/script issue)')
+        summary=json.loads(summary_path.read_text(encoding='utf-8'))
+        m=summary['metrics']
+        def value(name,key,default=0): return m.get(name,{}).get('values',{}).get(key,default)
+        started={kind:value(kind+'_started','count') for kind in ('browse','seat','booking')}
+        dropped=value('dropped_iterations','count')
+        expected=self.args.rate*self.args.duration
+        completed_in_window=sum(r.get('outcome')=='confirmed' and self.report['measure_start_epoch']<=r.get('completed_epoch',0)<self.report['measure_end_epoch'] for r in self.report['journeys'])
+        self.report['measurements']={
+            'expected_journeys':expected,'actual_started':started,'actual_start_rate':sum(started.values())/self.args.duration,
+            'dropped_iterations':dropped,'booking_confirmed':value('booking_confirmed','count'),
+            'booking_completed_during_measure':completed_in_window,
+            'completion_tps_during_measure':completed_in_window/self.args.duration,
+            'booking_completed_during_drain':value('booking_confirmed','count')-completed_in_window,
+            'http_total_including_warmup':value('http_reqs','count'),
+            'system_error_rate_measure':value('system_errors{phase:measure}','rate',None),
+            'journey_success_rate_measure':value('journey_success{phase:measure}','rate',None),
+            'booking_duration_ms':m.get('booking_completion_duration',{}).get('values',{}),
+            'http_duration_ms_measure':m.get('measured_http_duration',{}).get('values',{}),
+            'profile_duration_ms_measure':{kind:m.get(kind+'_duration',{}).get('values',{}) for kind in ('browse','seat','booking_journey')},
+            'journey_duration_ms_including_warmup':m.get('journey_duration',{}).get('values',{})}
+        self.report['checks']['arrival_rate_achieved']=dropped==0 and abs(sum(started.values())-expected)<=3
+        self.report['checks']['measurement_windows_recorded']=len(self.report.get('measurement_windows',{}))==3
+        self.report['checks']['mix_achieved']=all(abs(started[k]-expected*w)<=2 for k,w in [('browse',.7),('seat',.2),('booking',.1)])
+        self.report['checks']['k6_thresholds']=self.report['k6_exit_code']==0
+        self.report['checks']['booking_evidence_complete']=len(self.report['journeys'])==started['booking'] and not self.report.get('evidence_parse_errors')
+        sid=int(self.report['fixtures']['schedule_id'])
+        # 해당 회차에 한정한다. 반복 금융 검사 전체 이력을 스캔하지 않는다.
+        sql=f"""SELECT json_build_object('rows',(SELECT coalesce(json_agg(x),'[]') FROM (
+          SELECT r.reservation_id,r.user_id,r.order_id,r.status,r.payment_amount,(r.pg_auth_token IS NULL) auth_cleared,
+           (SELECT count(*) FROM reservation_schema.p_tickets t WHERE t.reservation_id=r.reservation_id AND t.ticket_code IS NOT NULL AND t.price=r.payment_amount AND t.deleted_at IS NULL) issued_tickets,
+           (SELECT count(*) FROM reservation_schema.p_schedule_seats s WHERE s.reservation_id=r.reservation_id AND s.status='SOLD') sold_seats,
+           (SELECT min(s.id) FROM reservation_schema.p_schedule_seats s WHERE s.reservation_id=r.reservation_id AND s.status='SOLD') sold_seat_id,
+           (SELECT count(*) FROM payment_schema.p_payments p WHERE p.reservation_id=r.reservation_id AND p.deleted_at IS NULL) payment_rows,
+           (SELECT count(*) FROM payment_schema.p_payments p WHERE p.reservation_id=r.reservation_id AND p.order_id=r.order_id AND p.user_id=r.user_id AND p.schedule_id=r.schedule_id AND p.performance_id=r.performance_id AND p.seller_id=r.seller_id AND p.status='DONE' AND p.amount=r.payment_amount AND p.pg_provider='TOSS' AND p.deleted_at IS NULL) correct_payments,
+           (SELECT count(*) FROM fake_pg_schema.pg_transaction g WHERE g.order_id=r.order_id AND g.provider='TOSS' AND g.status='DONE' AND g.amount=r.payment_amount AND coalesce(g.canceled_amount,0)=0) correct_pg
+           FROM reservation_schema.p_reservations r WHERE r.schedule_id={sid} AND r.deleted_at IS NULL) x),
+           'seats',(SELECT json_build_object('total',count(*),'sold',count(*) FILTER(WHERE status='SOLD'),'held',count(*) FILTER(WHERE status='HOLD')) FROM reservation_schema.p_schedule_seats WHERE schedule_id={sid}),
+           'orphan_payments',(SELECT count(*) FROM payment_schema.p_payments p WHERE p.schedule_id={sid} AND p.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM reservation_schema.p_reservations r WHERE r.reservation_id=p.reservation_id AND r.order_id=p.order_id)),
+           'orphan_pg',(SELECT count(*) FROM fake_pg_schema.pg_transaction g WHERE g.provider='TOSS' AND g.order_id IN(SELECT p.order_id FROM payment_schema.p_payments p WHERE p.schedule_id={sid}) AND g.status='DONE' AND NOT EXISTS(SELECT 1 FROM payment_schema.p_payments p WHERE p.order_id=g.order_id AND p.status='DONE')));"""
+        evidence=self.db(sql.rstrip(';'))
+        (self.out/'financial-verification.json').write_text(json.dumps(evidence,indent=2)+'\n',encoding='utf-8')
+        by_id={r['reservation_id']:r for r in evidence['rows']}
+        confirmed=[r for r in self.report['journeys'] if r['outcome']=='confirmed']
+        bad=[]
+        for e in confirmed:
+            row=by_id.get(e.get('reservation_id'))
+            if not (row and row['user_id']==e['user_id'] and row['order_id']==e.get('order_id') and row['status']=='CONFIRMED'
+                and row['auth_cleared'] and row['sold_seat_id']==e.get('schedule_seat_id')
+                and row['payment_amount']==e.get('amount') and all(row[k]==1 for k in ('issued_tickets','sold_seats','payment_rows','correct_payments','correct_pg'))):
+                bad.append(e.get('reservation_id'))
+        remaining=[r['reservation_id'] for r in evidence['rows'] if r['status']!='CONFIRMED']
+        self.report['financial_summary']={'confirmed_evidence':len(confirmed),'db_confirmed':sum(r['status']=='CONFIRMED' for r in evidence['rows']),
+            'mismatched_reservations':bad,'unfinished_reservations':remaining,'orphan_payments':evidence['orphan_payments'],
+            'orphan_pg':evidence['orphan_pg'],'seats':evidence['seats']}
+        self.report['checks']['financial_consistency']=not bad and not remaining and evidence['orphan_payments']==0 and evidence['orphan_pg']==0 and \
+            len(confirmed)==len(evidence['rows'])==evidence['seats']['sold'] and len(confirmed)==value('booking_confirmed','count') and \
+            evidence['seats']['total']==self.args.seats and evidence['seats']['held']==0
+        self.report['verdict']='PASS' if all(self.report['checks'].values()) else 'FAIL'
+
+    def prometheus(self):
+        start=self.report.get('load_start_epoch')
+        if not start:return
+        end=self.report.get('load_end_epoch',time.time())
+        queries={
+          'targets':'up','cpu_cores':'rate(integration_container_cpu_usage_seconds_total[30s])',
+          'cpu_throttled_seconds':'rate(integration_container_throttled_seconds_total[30s])',
+          'hikari_pending':'hikaricp_connections_pending','hikari_active':'hikaricp_connections_active',
+          'tomcat_busy':'tomcat_threads_busy_threads','pg_waits':'integration_pg_sessions',
+          'windows_commit':'integration_windows_perf_bytes','vm_swap':'integration_vm_memory_bytes{kind=~"Swap.*"}',
+          'memory_events':'integration_container_memory_events_total{kind=~"oom|oom_kill"}',
+          'vm_pressure':'integration_vm_pressure_ratio','kafka_lag':'kafka_consumergroup_lag',
+          'redis_blocked':'redis_blocked_clients',
+          'http_p99':'histogram_quantile(0.99,sum by(le,application,uri)(rate(http_server_requests_seconds_bucket[30s])))',
+          'k6_requests':'rate(k6_http_reqs_total{phase="measure"}[30s])',
+          'k6_confirmed':'rate(k6_booking_confirmed_total[30s])'}
+        queries['k6_requests']=f'rate(k6_http_reqs_total{{phase="measure",test_id="{self.run_id}"}}[30s])'
+        queries['k6_confirmed']=f'rate(k6_booking_confirmed_total{{test_id="{self.run_id}"}}[30s])'
+        gaps=[]
+        for name,query in queries.items():
+            try:
+                url='http://127.0.0.1:19090/api/v1/query_range?'+urllib.parse.urlencode({'query':query,'start':start,'end':end,'step':5})
+                with self.http.open(url,timeout=5) as r: data=json.load(r)
+                (self.out/('prometheus-'+name+'.json')).write_text(json.dumps(data),encoding='utf-8')
+                if not data.get('data',{}).get('result'):gaps.append(name)
+            except Exception:gaps.append(name)
+        self.report['observation_gaps']=gaps
+        self.report['observation_notes']={'kafka_lag':'Empty series may mean no active consumer group; this booking flow is synchronous, not a Kafka completion test',
+            'host_metrics':'Start/restart observe.py before a measured stage. Missing series must not be interpreted as zero.'}
+
+    def execute(self):
+        try:
+            self.save();self.preflight();self.report['database_before']=self.db_size()
+            self.prepare();self.load();self.review();self.report['database_after']=self.db_size()
+        except KeyboardInterrupt:
+            # Ctrl+C로 Docker CLI만 끝내고 부하 컨테이너가 남는 일을 막는다.
+            self.report.update(verdict='INTERRUPTED',error='Operator interrupted; fixtures retained')
+            if self.process and self.process.poll() is None:
+                subprocess.run(['docker','stop','--time','10',self.container_name],capture_output=True,timeout=20)
+                try:self.process.wait(timeout=15)
+                except subprocess.TimeoutExpired:self.process.terminate()
+        except Exception as e:
+            self.report.update(verdict='FAIL',error=str(e) if isinstance(e,Failure) else type(e).__name__,failed_stage=self.stage)
+        finally:
+            if self.process and self.process.poll() is None:
+                try:
+                    subprocess.run(['docker','stop','--time','10',self.container_name],capture_output=True,timeout=20)
+                    self.process.wait(timeout=15)
+                except (OSError,subprocess.SubprocessError):
+                    self.report['cleanup_warning']='Check ticket-integration-s2-load status manually'
+            self.prometheus()
+            self.report['finished_at']=datetime.now(KST).isoformat();self.save()
+            doc=ROOT/'backend/payment-service/docs-local/performance-test-progress.md'
+            if doc.exists():
+                rel=self.out.relative_to(ROOT).as_posix()
+                if rel not in doc.read_text(encoding='utf-8'):
+                    with doc.open('a',encoding='utf-8') as f:
+                        f.write(f'\n- 통합 S2 `{self.run_id}`: {self.report["verdict"]}, {self.args.rate}여정/s × {self.args.duration}초, 70/20/10 혼합. 수치·오류·DB 대조·관측 공백은 `{rel}/result.json`. 준비/예열/금융 검사는 측정 구간과 분리, 시험 데이터 보존, 자원 설정 변경 없음.\n')
+        print('Verdict: '+self.report['verdict']+'; results: '+str(self.out),flush=True)
+        if 'error' in self.report:print(str(self.report['error']),flush=True)
+        if self.report.get('measurements'):print(json.dumps(self.report['measurements'],indent=2),flush=True)
+        if self.report.get('observation_gaps'): print('Observation gaps: '+', '.join(self.report['observation_gaps']),flush=True)
+        return 0 if self.report['verdict']=='PASS' else 1
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--rate',type=int,default=25,help='user journeys started per second')
+    p.add_argument('--duration',type=int,default=60,help='measured seconds, excludes warmup and drain')
+    p.add_argument('--warmup',type=int,default=20,help='browse-only warmup seconds')
+    p.add_argument('--seats',type=int,default=2000,help='keep identical across compared rates')
+    p.add_argument('--viewers',type=int,default=50,help='fixed account pool for seat-only visitors')
+    p.add_argument('--vus',type=int,help='default max(200, rate*6), split 70/20/10')
+    p.add_argument('--max-vus',type=int,help='default max(1000, vus, rate*7)')
+    a=p.parse_args()
+    if a.vus is None:a.vus=max(200,a.rate*6)
+    if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)
+    if not (1<=a.rate<=400 and 10<=a.duration<=600 and 0<=a.warmup<=120 and 1<=a.viewers<=500 and 3<=a.vus<=a.max_vus<=3000 and 1<=a.seats<=20000):
+        p.error('rate 1..400, duration 10..600, warmup 0..120, viewers 1..500, 3<=vus<=max-vus<=3000, seats 1..20000')
+    try: scenario=MixedScenario(a)
+    except Failure as e:p.error(str(e))
+    raise SystemExit(scenario.execute())

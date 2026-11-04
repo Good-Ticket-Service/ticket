@@ -1,0 +1,966 @@
+{
+  "uid": "integration-infra",
+  "title": "통합시험 03 · Windows·Docker VM·컨테이너",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": [
+    "integration"
+  ],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "전체 현황",
+      "url": "/d/integration-overview",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "서비스 병목",
+      "url": "/d/integration-services",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "호스트·컨테이너",
+      "url": "/d/integration-infra",
+      "type": "link",
+      "keepTime": true
+    },
+    {
+      "title": "DB·Redis·Kafka",
+      "url": "/d/integration-data",
+      "type": "link",
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(http_server_requests_seconds_count, application)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "test_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(k6_http_reqs_total, test_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "comparison_id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(k6_probe_started_total, comparison_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "시험 단계",
+        "type": "dashboard",
+        "builtIn": 1,
+        "enable": true,
+        "hide": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Windows · 호스트 수집기를 실행해야 표시",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "물리 메모리 전체/사용 가능",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_windows_memory_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Commit·한도·페이지파일",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_windows_perf_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "CPU 사용률",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_windows_cpu_ratio",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "페이지 읽기·쓰기/s · 단순 page fault와 구분",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_windows_paging_pages_per_second",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "디스크 지연",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_windows_disk_latency_seconds",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "수집기 실행 비용",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_collection_duration_seconds",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Docker Linux VM · 컨테이너별 메모리와 구분",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "VM 메모리·swap 전체/여유",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_vm_memory_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "VM swap 입출력 pages/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_vm_swap_pages_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CPU·메모리·I/O pressure avg10",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_vm_pressure_ratio",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "VM 디스크 여유",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_vm_disk_available_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "컨테이너 · quota 스로틀링이 없어도 cpuset 경합 가능",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "메모리 사용/제한",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_container_memory_bytes",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "CPU 코어 사용량",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_container_cpu_usage_seconds_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "throttled 기간 비율",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_container_nr_throttled_total[$__rate_interval])/rate(integration_container_nr_periods_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "스로틀링 초/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_container_throttled_seconds_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "OOM·OOM kill 누적",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_container_memory_events_total{kind=~\"oom|oom_kill\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "블록 I/O bytes/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 59,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_container_io_bytes_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "네트워크 bytes/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(integration_container_network_bytes_total[$__rate_interval])",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Running·재시작·OOMKilled",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 67,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "integration_container_running",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "integration_container_restarts_total",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        },
+        {
+          "refId": "C",
+          "expr": "integration_container_oom_killed",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    }
+  ]
+}

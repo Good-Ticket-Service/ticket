@@ -1,0 +1,3 @@
+:80 {
+    reverse_proxy gateway-service:8080
+}
