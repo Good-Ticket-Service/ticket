@@ -1,8 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { Layout, RequireLogin, RequireRole } from './components/Layout';
+import { AdminLayout, Layout, RequireLogin, RequireRole } from './components/Layout';
 import { AdminCouponPage } from './pages/admin/AdminCouponPage';
 import { AdminCouponsPage } from './pages/admin/AdminCouponsPage';
-import { AdminHomePage } from './pages/admin/AdminHomePage';
 import { AdminPayoutPage } from './pages/admin/AdminPayoutPage';
 import { AdminPayoutsPage } from './pages/admin/AdminPayoutsPage';
 import { AdminRefundPage } from './pages/admin/AdminRefundPage';
@@ -55,16 +54,18 @@ export function App() {
             <Route path="/seller/settlements/:statementId" element={<SellerStatementPage />} />
           </Route>
           <Route element={<RequireRole roles={['MASTER']} />}>
-            <Route path="/admin" element={<AdminHomePage />} />
-            <Route path="/admin/venues" element={<AdminVenuesPage />} />
-            <Route path="/admin/venues/:venueId" element={<AdminVenuePage />} />
-            <Route path="/admin/schedules" element={<AdminSchedulesPage />} />
-            <Route path="/admin/coupons" element={<AdminCouponsPage />} />
-            <Route path="/admin/coupons/:couponId" element={<AdminCouponPage />} />
-            <Route path="/admin/refunds" element={<AdminRefundsPage />} />
-            <Route path="/admin/refunds/:orderId" element={<AdminRefundPage />} />
-            <Route path="/admin/payouts" element={<AdminPayoutsPage />} />
-            <Route path="/admin/payouts/:payoutId" element={<AdminPayoutPage />} />
+            <Route element={<AdminLayout />}>
+              <Route path="/admin" element={<Navigate to="/admin/venues" replace />} />
+              <Route path="/admin/venues" element={<AdminVenuesPage />} />
+              <Route path="/admin/venues/:venueId" element={<AdminVenuePage />} />
+              <Route path="/admin/schedules" element={<AdminSchedulesPage />} />
+              <Route path="/admin/coupons" element={<AdminCouponsPage />} />
+              <Route path="/admin/coupons/:couponId" element={<AdminCouponPage />} />
+              <Route path="/admin/refunds" element={<AdminRefundsPage />} />
+              <Route path="/admin/refunds/:orderId" element={<AdminRefundPage />} />
+              <Route path="/admin/payouts" element={<AdminPayoutsPage />} />
+              <Route path="/admin/payouts/:payoutId" element={<AdminPayoutPage />} />
+            </Route>
           </Route>
         </Route>
       </Route>
