@@ -3,17 +3,12 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PageP, PerformanceSummary } from '../api/types';
-import { artClass, ErrorNotice, GENRE_LABEL, Loading, Poster, Title } from '../components/Common';
+import { artClass, ErrorNotice, Loading, Poster, Title } from '../components/Common';
 import { formatDate } from '../lib/format';
+import { GENRE_OPTIONS, genreLabel } from '../lib/genres';
 import { useDebounced } from '../lib/useDebounced';
 
-const GENRES = [
-  { value: '', label: '전체' },
-  { value: 'MUSICAL', label: '뮤지컬' },
-  { value: 'CONCERT', label: '콘서트' },
-  { value: 'PLAY', label: '연극' },
-  { value: 'SPORTS', label: '스포츠' },
-];
+const GENRES = [{ value: '', label: '전체' }, ...GENRE_OPTIONS];
 
 export function PerformancesPage() {
   const [genre, setGenre] = useState('');
@@ -76,7 +71,7 @@ export function PerformancesPage() {
             <Poster src={item.posterUrl} />
             <span className="scrim" />
             <span className="body">
-              <span className="tag">{GENRE_LABEL[item.genre] ?? item.genre}</span>
+              <span className="tag">{genreLabel(item.genre)}</span>
               <span className="name">{item.title}</span>
               <span className="meta">
                 {item.venue.name} · {item.venue.region}

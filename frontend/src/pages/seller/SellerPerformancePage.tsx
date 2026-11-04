@@ -11,14 +11,13 @@ import type {
   SellerPerformance,
   SellerSchedule,
 } from '../../api/manageTypes';
-import { ErrorNotice, GENRE_LABEL, Loading, Title } from '../../components/Common';
+import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Done, Facts, Field, Panel, StepBadge, VersionOverride } from '../../components/Form';
 import { seoulInputToOffset, toSeoulInput, won } from '../../lib/format';
+import { GENRE_OPTIONS } from '../../lib/genres';
+import { ageRatingLabel } from '../../lib/labels';
 import { useLocalRecords } from '../../lib/localRecords';
 import { PERFORMANCE_RECORDS, PerformanceRecord } from './SellerHomePage';
-
-const GENRES: Genre[] = ['CONCERT', 'MUSICAL', 'PLAY', 'SPORTS'];
-const AGE_RATINGS: AgeRating[] = ['ALL', '12', '15', '19'];
 
 export function SellerPerformancePage() {
   const { performanceId } = useParams();
@@ -32,7 +31,8 @@ function CreatePerformance() {
     venueId: '',
     title: '',
     genre: 'MUSICAL' as Genre,
-    ageRating: 'ALL' as AgeRating,
+    ageRating: '' as AgeRating | '',
+    ageGuidance: '',
     runningTime: '120',
     castInfo: '',
     description: '',
@@ -46,7 +46,8 @@ function CreatePerformance() {
           venueId: Number(form.venueId),
           title: form.title,
           genre: form.genre,
-          ageRating: form.ageRating,
+          ageRating: form.ageRating || null,
+          ageGuidance: form.ageGuidance.trim() || null,
           runningTime: Number(form.runningTime),
           castInfo: form.castInfo || null,
           description: form.description || null,
@@ -93,23 +94,28 @@ function CreatePerformance() {
             </Field>
             <Field id="perf-genre" label="장르">
               <select id="perf-genre" className="input" value={form.genre} onChange={set('genre')}>
-                {GENRES.map((genre) => (
-                  <option key={genre} value={genre}>
-                    {GENRE_LABEL[genre]}
+                {GENRE_OPTIONS.map((genre) => (
+                  <option key={genre.value} value={genre.value}>
+                    {genre.label}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field id="perf-ageRating" label="관람 등급">
+            <Field id="perf-ageRating" label="관람 등급 (선택)">
               <select id="perf-ageRating" className="input" value={form.ageRating} onChange={set('ageRating')}>
-                {AGE_RATINGS.map((rating) => (
-                  <option key={rating} value={rating}>
-                    {rating === 'ALL' ? '전체 관람가' : `${rating}세 이상`}
-                  </option>
+                <option value="">선택 안 함</option>
+                {(['ALL', '12', '15', '19'] satisfies AgeRating[]).map((rating) => (
+                  <option key={rating} value={rating}>{ageRatingLabel(rating)}</option>
                 ))}
               </select>
+            </Field>
+            <Field id="perf-ageGuidance" label="관람 연령 안내 (선택, 1~100자)">
+              <input id="perf-ageGuidance" className="input" required={!form.ageRating} maxLength={100}
+                placeholder="예: 만 8세 이상, 36개월 이상, 전체 관람가"
+                value={form.ageGuidance} onChange={set('ageGuidance')} />
             </Field>
           </div>
+          <p>관람 등급과 안내 중 하나 이상 입력해 주세요. 둘 다 입력하면 관객에게 안내 문구를 우선 표시합니다.</p>
           <Field id="perf-title" label="제목 (1~200자)">
             <input id="perf-title" className="input" required maxLength={200} value={form.title} onChange={set('title')} />
           </Field>

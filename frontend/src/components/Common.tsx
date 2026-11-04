@@ -35,13 +35,6 @@ export function ErrorNotice({ error }: { error: unknown }) {
   );
 }
 
-export const GENRE_LABEL: Record<string, string> = {
-  MUSICAL: '뮤지컬',
-  CONCERT: '콘서트',
-  PLAY: '연극',
-  SPORTS: '스포츠',
-};
-
 /** 주소가 깨진 포스터는 지워서 아래의 그래픽이 보이게 한다. */
 export function Poster({ src }: { src: string | null }) {
   if (!src) return null;
