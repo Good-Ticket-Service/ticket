@@ -64,6 +64,7 @@ public class SellerPerformanceService {
                 input.title(),
                 input.genre(),
                 input.ageRating(),
+                input.ageGuidance(),
                 input.runningTime(),
                 input.castInfo(),
                 input.description(),

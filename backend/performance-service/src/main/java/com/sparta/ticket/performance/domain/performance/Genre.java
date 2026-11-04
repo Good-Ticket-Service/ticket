@@ -5,5 +5,10 @@ public enum Genre {
     CONCERT,
     MUSICAL,
     PLAY,
-    SPORTS
+    SPORTS,
+    CLASSICAL,
+    KOREAN_MUSIC,
+    DANCE,
+    CIRCUS_MAGIC,
+    MULTIDISCIPLINARY
 }
