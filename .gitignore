@@ -52,3 +52,6 @@ CLAUDE.local.md
 
 ### Python 캐시 ###
 __pycache__/
+
+### 통합시험 결과·관측 원본·로컬 소스 worktree ###
+/script/integration/

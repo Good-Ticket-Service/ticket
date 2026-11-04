@@ -1,0 +1,202 @@
+# 별도 develop worktree의 docker-compose.yml과 병합한다. 실행 진입점: infra/integration/compose.py
+# CPU 번호는 Docker Linux VM의 논리 CPU다. 같은 서버 묶음이 같은 CPU를 공유한다.
+x-log: &log
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+x-edge: &edge
+  cpuset: ${INTEGRATION_EDGE_CPUS:-0-1}
+  logging: *log
+  labels: {ticket.integration.group: edge}
+x-core: &core
+  cpuset: ${INTEGRATION_CORE_CPUS:-2-3}
+  logging: *log
+  labels: {ticket.integration.group: core}
+x-data: &data
+  cpuset: ${INTEGRATION_DATA_CPUS:-4-5}
+  logging: *log
+  labels: {ticket.integration.group: data}
+x-env: &env
+  SPRING_PROFILES_ACTIVE: integration
+  SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: "10"
+  SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_ACQUIRE: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_USAGE: "true"
+  JAVA_OPTS: "-Xms128m -Xmx384m -XX:ActiveProcessorCount=2"
+x-health: &health
+  test: [CMD-SHELL, 'curl -fs http://localhost:$${SERVER_PORT}/actuator/health > /dev/null']
+  interval: 10s
+  timeout: 5s
+  retries: 18
+  start_period: 60s
+
+services:
+  caddy:
+    <<: *edge
+    image: caddy:2.10.2-alpine
+    mem_limit: 256m
+    ports: ["127.0.0.1:${INTEGRATION_ENTRY_PORT:-18080}:80"]
+    volumes:
+      - ${INTEGRATION_ASSETS}/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [ticket-net]
+    depends_on:
+      gateway-service: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://localhost/actuator/health]
+      interval: 10s
+      retries: 12
+
+  config-server:
+    <<: *edge
+    image: ticket-integration/config-server:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 384m
+    environment:
+      JAVA_OPTS: "-Xms64m -Xmx192m -XX:ActiveProcessorCount=2"
+  eureka-server:
+    <<: *edge
+    image: ticket-integration/eureka-server:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 384m
+    environment:
+      JAVA_OPTS: "-Xms64m -Xmx192m -XX:ActiveProcessorCount=2"
+  gateway-service:
+    <<: *edge
+    image: ticket-integration/gateway-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 768m
+    environment:
+      <<: *env
+      SERVER_PORT: "8080"
+      QUEUE_ENABLED: "false"
+    healthcheck: *health
+  user-service:
+    <<: *edge
+    image: ticket-integration/user-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 768m
+    environment:
+      <<: *env
+      SERVER_PORT: "8081"
+    healthcheck: *health
+  performance-service:
+    <<: *edge
+    image: ticket-integration/performance-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 1g
+    environment:
+      <<: *env
+      SERVER_PORT: "8082"
+      JAVA_OPTS: "-Xms128m -Xmx512m -XX:ActiveProcessorCount=2"
+    healthcheck: *health
+  reservation-service:
+    <<: *core
+    image: ticket-integration/reservation-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 1792m
+    environment:
+      <<: *env
+      SERVER_PORT: "8083"
+      QUEUE_ENABLED: "false"
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2"
+    healthcheck: *health
+  payment-service:
+    <<: *core
+    image: ticket-integration/payment-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 1792m
+    environment:
+      <<: *env
+      SERVER_PORT: "8084"
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2"
+    healthcheck: *health
+  fake-pg:
+    <<: *data
+    image: ticket-integration/fake-pg:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 768m
+    environment:
+      <<: *env
+      SERVER_PORT: "8090"
+    healthcheck: *health
+  postgres:
+    <<: *data
+    mem_limit: 2g
+    command: [postgres, -c, shared_preload_libraries=pg_stat_statements, -c, shared_buffers=512MB, -c, track_io_timing=on]
+    volumes:
+      - ${INTEGRATION_ASSETS}/init-schemas.sh:/docker-entrypoint-initdb.d/zz-integration-schema.sh:ro
+      - ${INTEGRATION_SOURCE}/backend/sql:/integration-sql:ro
+  redis:
+    <<: *data
+    mem_limit: 384m
+    command: [redis-server, --appendonly, "yes", --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes: ["redis-data:/data"]
+  kafka:
+    <<: *data
+    mem_limit: 768m
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m -XX:ActiveProcessorCount=2"
+  kafka-ui:
+    <<: *data
+    profiles: [tools]
+    mem_limit: 256m
+    environment:
+      JAVA_OPTS: "-Xms64m -Xmx128m -XX:ActiveProcessorCount=2"
+  prometheus:
+    <<: *data
+    mem_limit: 512m
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=24h, --web.enable-remote-write-receiver]
+    volumes:
+      - ${INTEGRATION_ASSETS}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+  grafana:
+    <<: *data
+    # Grafana 13에서 256MiB는 memory.max 도달·reclaim 대기로 로그인까지 지연됐다.
+    mem_limit: 512m
+    volumes:
+      - ${INTEGRATION_ASSETS}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${INTEGRATION_ASSETS}/grafana/dashboards:/var/lib/grafana/integration-dashboards:ro
+      - ${INTEGRATION_ASSETS}/../grafana/provisioning/dashboards:/var/lib/grafana/payment-dashboards:ro
+  redis-exporter:
+    <<: *data
+    image: oliver006/redis_exporter:v1.93.0
+    mem_limit: 64m
+    command: [--redis.addr=redis://redis:6379]
+    networks: [ticket-net, ticket-data]
+  kafka-exporter:
+    <<: *data
+    image: danielqsj/kafka-exporter:v1.9.0
+    mem_limit: 128m
+    command: [--kafka.server=kafka:29092]
+    networks: [ticket-net, ticket-data]
+  alertmanager:
+    <<: *data
+    mem_limit: 128m
+  alert-mock:
+    <<: *data
+    mem_limit: 64m
+  postgres-exporter:
+    <<: *data
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    mem_limit: 96m
+    environment:
+      DATA_SOURCE_NAME: "postgresql://integration_metrics:integration_metrics_local_only@postgres:5432/ticket?sslmode=disable"
+    networks: [ticket-net, ticket-data]
+    depends_on:
+      postgres: {condition: service_healthy}
+  k6:
+    image: grafana/k6:0.54.0
+    profiles: [load]
+    cpuset: ${INTEGRATION_LOAD_CPUS:-6-7}
+    mem_limit: 4g
+    logging: *log
+    labels: {ticket.integration.group: load}
+    networks: [ticket-net]
+    environment:
+      BASE_URL: http://caddy
+      FAKE_PG_URL: http://fake-pg:8090
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: "p(95),p(99),max"
+    volumes:
+      - ${INTEGRATION_ASSETS}/k6:/scripts:ro
+      - ${INTEGRATION_RESULTS}:/results
+    command: [run, /scripts/connectivity.js]
+    depends_on:
+      caddy: {condition: service_healthy}
+
+volumes:
+  redis-data:
+  prometheus-data:
