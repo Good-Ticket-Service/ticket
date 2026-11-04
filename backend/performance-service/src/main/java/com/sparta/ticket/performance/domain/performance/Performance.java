@@ -50,8 +50,11 @@ public class Performance extends BaseEntity {
     private Genre genre;
 
     @Convert(converter = AgeRatingConverter.class)
-    @Column(nullable = false, length = 20)
+    @Column(length = 20)
     private AgeRating ageRating;
+
+    @Column(length = 100)
+    private String ageGuidance;
 
     @Column(nullable = false)
     private int runningTime;
@@ -88,6 +91,7 @@ public class Performance extends BaseEntity {
             String title,
             Genre genre,
             AgeRating ageRating,
+            String ageGuidance,
             int runningTime,
             String castInfo,
             String description,
@@ -97,6 +101,7 @@ public class Performance extends BaseEntity {
         this.title = title;
         this.genre = genre;
         this.ageRating = ageRating;
+        this.ageGuidance = ageGuidance;
         this.runningTime = runningTime;
         this.castInfo = castInfo;
         this.description = description;
@@ -112,12 +117,13 @@ public class Performance extends BaseEntity {
             String title,
             Genre genre,
             AgeRating ageRating,
+            String ageGuidance,
             int runningTime,
             String castInfo,
             String description,
             String posterUrl) {
         return new Performance(
-                sellerId, venueId, title, genre, ageRating, runningTime, castInfo, description, posterUrl);
+                sellerId, venueId, title, genre, ageRating, ageGuidance, runningTime, castInfo, description, posterUrl);
     }
 
     /** 본인 공연이 아니면 403 FORBIDDEN. */

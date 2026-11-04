@@ -1,6 +1,9 @@
 package com.sparta.ticket.performance.presentation.seller.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.sparta.ticket.performance.presentation.support.HttpsUrl;
+import com.sparta.ticket.performance.presentation.support.RequestText;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -19,10 +22,13 @@ public record PerformanceCreateRequest(
 
         @NotBlank @Size(max = 200) String title,
 
-        @NotNull @Pattern(regexp = "CONCERT|MUSICAL|PLAY|SPORTS")
+        @NotNull
+        @Pattern(regexp = "CONCERT|MUSICAL|PLAY|SPORTS|CLASSICAL|KOREAN_MUSIC|DANCE|CIRCUS_MAGIC|MULTIDISCIPLINARY")
         String genre,
 
-        @NotNull @Pattern(regexp = "ALL|12|15|19") String ageRating,
+        @Pattern(regexp = "ALL|12|15|19") String ageRating,
+
+        @Size(min = 1, max = 100) String ageGuidance,
 
         @NotNull @Min(1) Integer runningTime,
 
@@ -33,4 +39,18 @@ public record PerformanceCreateRequest(
          * Note: 선택 항목이라 비었거나 공백만이면 통과시키고 Api가 null로 정리한다. 이 검사가 공백 정리보다 먼저 실행되므로,
          * 정규식 대신 정리와 같은 공백 기준(RequestText)을 쓰는 @HttpsUrl로 검사한다(이슈 #129 R2).
          */
-        @Size(max = 500) @HttpsUrl String posterUrl) {}
+        @Size(max = 500) @HttpsUrl String posterUrl) {
+
+    public PerformanceCreateRequest {
+        if (ageGuidance != null) {
+            String stripped = RequestText.stripToNull(ageGuidance);
+            ageGuidance = stripped == null ? "" : stripped;
+        }
+    }
+
+    @JsonIgnore
+    @AssertTrue(message = "관람 등급 또는 관람 연령 안내를 하나 이상 입력해야 합니다.")
+    public boolean isAgeInformationProvided() {
+        return ageRating != null || ageGuidance != null;
+    }
+}

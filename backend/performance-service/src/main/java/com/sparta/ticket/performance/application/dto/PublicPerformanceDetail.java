@@ -13,6 +13,7 @@ public record PublicPerformanceDetail(
         String title,
         Genre genre,
         AgeRating ageRating,
+        String ageGuidance,
         int runningTime,
         String castInfo,
         String description,
