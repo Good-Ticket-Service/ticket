@@ -6,6 +6,7 @@ import type { PayoutDetail, PayoutRetryOutcome } from '../../api/manageTypes';
 import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Done, Facts, Field, Panel } from '../../components/Form';
 import { formatDateTime, won } from '../../lib/format';
+import { payoutAttentionLabel, payoutStatusLabel } from '../../lib/labels';
 import { newCommandId } from '../../lib/localRecords';
 
 export function AdminPayoutPage() {
@@ -48,7 +49,8 @@ export function AdminPayoutPage() {
       <Panel title={won(current.amount)}>
         <Facts
           items={[
-            ['상태 · 주의', `${current.status} · ${current.attention}`],
+            ['상태', payoutStatusLabel(current.status)],
+            ['주의', payoutAttentionLabel(current.attention)],
             ['정산서 · 판매자', `#${current.statementId} · #${current.sellerId}`],
             ['시도 · version', `${current.attempt} · ${current.version}`],
             ['지급대행 상태', current.providerStatus],
@@ -78,7 +80,7 @@ export function AdminPayoutPage() {
           </Field>
           <p className="hint mono">commandId {commandId}</p>
           <button className="btn btn-primary" disabled={retry.isPending || current.status !== 'FAILED'}>
-            {current.status === 'FAILED' ? '재시도' : 'FAILED일 때만 재시도할 수 있어요'}
+            {current.status === 'FAILED' ? '재시도' : '지급 실패(FAILED)일 때만 재시도할 수 있어요'}
           </button>
         </form>
       </Panel>

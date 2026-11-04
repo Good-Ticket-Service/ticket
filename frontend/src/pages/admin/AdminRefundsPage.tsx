@@ -6,6 +6,7 @@ import type { CursorPage, RefundOperationView, RefundRecoveryMode, RefundStatus 
 import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Field } from '../../components/Form';
 import { formatDateTime, won } from '../../lib/format';
+import { recoveryModeLabel, refundStatusLabel } from '../../lib/labels';
 
 const STATUSES: RefundStatus[] = ['WAITING', 'REQUESTED', 'FAILED'];
 const MODES: RefundRecoveryMode[] = ['ACTIVE', 'SLOW', 'VERIFY_ONLY', 'PAUSED'];
@@ -22,13 +23,13 @@ export function AdminRefundsPage() {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];
-  const select = (key: keyof typeof filter, options: string[], label: string) => (
+  const select = (key: keyof typeof filter, options: string[], label: string, describe: (code: string) => string = (code) => code) => (
     <Field id={`refund-${key}`} label={label}>
       <select id={`refund-${key}`} className="input" value={filter[key]} onChange={(e) => setFilter({ ...filter, [key]: e.target.value })}>
         <option value="">전체</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {describe(option)}
           </option>
         ))}
       </select>
@@ -39,8 +40,8 @@ export function AdminRefundsPage() {
       <Title en="Refunds" ko="환불 운영" />
       <p className="muted">끝나지 않은 환불만 보여요. 주문을 누르면 PG 조회와 재시도·재개를 할 수 있어요.</p>
       <div className="form-grid">
-        {select('status', STATUSES, '상태')}
-        {select('mode', MODES, '복구 모드')}
+        {select('status', STATUSES, '상태', refundStatusLabel)}
+        {select('mode', MODES, '복구 모드', recoveryModeLabel)}
         {select('provider', ['TOSS', 'KAKAO'], 'PG')}
         <Field id="refund-olderThanMinutes" label="몇 분 넘게 머문 것만">
           <input
@@ -68,8 +69,9 @@ export function AdminRefundsPage() {
               </span>
             </span>
             <span className="actions">
-              <span className="pill">{item.status}</span>
-              <span className={item.mode === 'ACTIVE' ? 'pill' : 'pill on'}>{item.mode}</span>
+              <span className="pill">{refundStatusLabel(item.status)}</span>
+              {/* 자동 처리가 아니면 운영자가 볼 대상이라 강조한다 */}
+              <span className={item.mode === 'ACTIVE' ? 'pill' : 'pill on'}>{recoveryModeLabel(item.mode)}</span>
             </span>
           </Link>
         ))}

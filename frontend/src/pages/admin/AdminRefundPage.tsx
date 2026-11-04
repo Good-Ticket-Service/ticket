@@ -6,6 +6,7 @@ import type { RefundDetail, RefundOperationOutcome, RefundOperationReason } from
 import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Done, Facts, Field, Panel } from '../../components/Form';
 import { formatDateTime, won } from '../../lib/format';
+import { pgObservationLabel, recoveryModeLabel, refundStatusLabel } from '../../lib/labels';
 import { newCommandId } from '../../lib/localRecords';
 
 type Action = 'retry' | 'resume';
@@ -60,8 +61,8 @@ export function AdminRefundPage() {
       <Panel title={orderId} note={current.guidance}>
         <Facts
           items={[
-            ['환불 상태', current.status],
-            ['복구 모드', current.mode],
+            ['환불 상태', refundStatusLabel(current.status)],
+            ['복구 모드', recoveryModeLabel(current.mode)],
             ['결제 상태', current.paymentStatus],
             ['PG · 사유', `${current.provider} · ${current.refundReason}`],
             ['금액', won(current.amount)],
@@ -75,7 +76,7 @@ export function AdminRefundPage() {
         />
       </Panel>
       <Panel title="PG 조회" note="켜면 PG에 읽기 전용 조회를 보내요. 끄면 저장된 상태만 보여요.">
-        <Facts items={[['PG 관찰', pgObservation], ['관찰 시각', observedAt && formatDateTime(observedAt)]]} />
+        <Facts items={[['PG 관찰', pgObservationLabel(pgObservation)], ['관찰 시각', observedAt && formatDateTime(observedAt)]]} />
         <button type="button" className="btn btn-ghost" disabled={detail.isFetching} onClick={() => (refresh ? detail.refetch() : setRefresh(true))}>
           PG에 지금 조회하기
         </button>
@@ -87,7 +88,7 @@ export function AdminRefundPage() {
         {run.isError && <ErrorNotice error={run.error} />}
         {run.isSuccess && (
           <Done>
-            {run.data.result}: {run.data.explanation} (상태 {run.data.status}, 모드 {run.data.mode})
+            {run.data.result}: {run.data.explanation} (상태 {refundStatusLabel(run.data.status)}, 모드 {recoveryModeLabel(run.data.mode)})
           </Done>
         )}
         <Field id="refund-reason" label="재시도 사유">

@@ -6,6 +6,7 @@ import type { CursorPage, PayoutAttention, PayoutStatus, PayoutView, SellerRecei
 import { ErrorNotice, Loading, Title } from '../../components/Common';
 import { Field } from '../../components/Form';
 import { formatDateTime, won } from '../../lib/format';
+import { payoutAttentionLabel, payoutStatusLabel } from '../../lib/labels';
 
 const STATUSES: PayoutStatus[] = ['READY', 'REQUESTED', 'FAILED', 'DONE'];
 const ATTENTIONS: PayoutAttention[] = [
@@ -57,7 +58,9 @@ function Payouts() {
           <select id="payout-status" className="input" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
             <option value="">미완료 전체</option>
             {STATUSES.map((status) => (
-              <option key={status}>{status}</option>
+              <option key={status} value={status}>
+                {payoutStatusLabel(status)}
+              </option>
             ))}
           </select>
         </Field>
@@ -65,7 +68,9 @@ function Payouts() {
           <select id="payout-attention" className="input" value={filter.attention} onChange={(e) => setFilter({ ...filter, attention: e.target.value })}>
             <option value="">전체</option>
             {ATTENTIONS.map((attention) => (
-              <option key={attention}>{attention}</option>
+              <option key={attention} value={attention}>
+                {payoutAttentionLabel(attention)}
+              </option>
             ))}
           </select>
         </Field>
@@ -87,8 +92,9 @@ function Payouts() {
               </span>
             </span>
             <span className="actions">
-              <span className="pill">{item.status}</span>
-              <span className={item.attention === item.status ? 'pill' : 'pill on'}>{item.attention}</span>
+              <span className="pill">{payoutStatusLabel(item.status)}</span>
+              {/* 주의가 상태와 같으면 더 볼 것이 없고, 다르면(계좌 미등록·결과 모름 등) 강조한다 */}
+              <span className={item.attention === item.status ? 'pill' : 'pill on'}>{payoutAttentionLabel(item.attention)}</span>
             </span>
           </Link>
         ))}
