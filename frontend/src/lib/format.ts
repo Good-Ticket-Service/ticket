@@ -1,5 +1,6 @@
-/** 서버 시각은 오프셋이 있거나 없다. 오프셋이 없으면 업무 기준인 서울 시각으로 읽는다. */
+/** 서버 시각은 오프셋이 있거나 없다. 오프셋이 없으면 업무 기준인 서울 시각으로 읽는다. 날짜만 오면 그날 0시로 읽는다. */
 export function parseTime(value: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00+09:00`);
   return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}+09:00`);
 }
 
