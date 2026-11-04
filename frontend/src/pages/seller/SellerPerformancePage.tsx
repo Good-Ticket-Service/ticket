@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, ifMatch } from '../../api/client';
+import { api, ApiError, ifMatch } from '../../api/client';
 import type {
   AgeRating,
   Genre,
@@ -12,7 +12,7 @@ import type {
   SellerSchedule,
 } from '../../api/manageTypes';
 import { ErrorNotice, GENRE_LABEL, Loading, Title } from '../../components/Common';
-import { Done, Facts, Field, Panel } from '../../components/Form';
+import { Done, Facts, Field, Panel, StepBadge, VersionOverride } from '../../components/Form';
 import { seoulInputToOffset, toSeoulInput, won } from '../../lib/format';
 import { useLocalRecords } from '../../lib/localRecords';
 import { PERFORMANCE_RECORDS, PerformanceRecord } from './SellerHomePage';
@@ -62,6 +62,7 @@ function CreatePerformance() {
         publicationStatus: performance.publicationStatus,
         gradePrices: [],
         scheduleIds: [],
+        hasIntro: Boolean(form.description && form.posterUrl),
       });
       navigate(`/seller/performances/${performance.id}`, { replace: true });
     },
@@ -77,7 +78,10 @@ function CreatePerformance() {
         ← 판매 관리
       </Link>
       <Title en="New Show" ko="공연 초안 등록" />
-      <Panel title="기본 정보" note="공개하려면 소개와 포스터 주소가 있어야 해요. 공연장 ID는 관리자에게 받아요.">
+      <Panel
+        title="기본 정보"
+        note="공연장 ID는 관리자에게 받아요. 등록한 뒤에는 기본 정보를 고칠 수 없으니, 공개에 필요한 소개와 포스터 주소까지 지금 넣어요."
+      >
         <form className="stack" onSubmit={submit}>
           {create.isError && <ErrorNotice error={create.error} />}
           <div className="form-grid">
@@ -113,10 +117,10 @@ function CreatePerformance() {
             <input id="perf-castInfo" className="input" maxLength={500} value={form.castInfo} onChange={set('castInfo')} />
           </Field>
           <Field id="perf-posterUrl" label="포스터 주소 (HTTPS)">
-            <input id="perf-posterUrl" className="input" type="url" pattern="https://.*" maxLength={500} value={form.posterUrl} onChange={set('posterUrl')} />
+            <input id="perf-posterUrl" className="input" type="url" pattern="https://.*" required maxLength={500} value={form.posterUrl} onChange={set('posterUrl')} />
           </Field>
           <Field id="perf-description" label="소개">
-            <textarea id="perf-description" className="input" value={form.description} onChange={set('description')} />
+            <textarea id="perf-description" className="input" required value={form.description} onChange={set('description')} />
           </Field>
           <button className="btn btn-primary" disabled={create.isPending}>
             초안 등록
@@ -188,6 +192,16 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
     onSuccess: (result) => save({ version: result.version, publicationStatus: result.publicationStatus }),
   });
 
+  // 공개 조건 중 이 브라우저가 아는 것만 미리 막는다. 판매 좌석 수 같은 나머지는 서버가 판단한다.
+  const missing = stored
+    ? [
+        record.hasIntro === false && '소개·포스터 주소(등록 뒤 고칠 수 없어 공연을 새로 등록해야 해요)',
+        record.gradePrices.length === 0 && '1. 등급별 가격',
+        record.scheduleIds.length === 0 && '2. 회차',
+      ].filter((step): step is string => Boolean(step))
+    : [];
+  const conflict = [savePrices.error, publish.error].some((error) => error instanceof ApiError && error.code === 'VERSION_CONFLICT');
+
   const layout = useQuery({
     queryKey: ['seat-layout', performanceId],
     enabled: published,
@@ -209,18 +223,21 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
       <Title en="Show" ko={record.title} />
       <Panel
         title={`공연 ID ${performanceId}`}
-        note={stored ? undefined : '이 브라우저에서 만든 공연이 아니라 version을 몰라요. 가격 설정·공개 전에 version을 입력해요.'}
+        note={stored ? undefined : '이 브라우저에서 만든 공연이 아니에요. 가격 설정·공개 전에 아래에서 version을 입력해요.'}
       >
         <Facts
           items={[
             ['공개 상태', published ? '공개' : record.publicationStatus === 'UNKNOWN' ? '모름' : '초안'],
             ['공연장 ID', record.venueId || '모름'],
-            ['version', stored ? record.version : '모름'],
           ]}
         />
-        <Field id="perf-version" label="version 직접 입력" hint="다른 곳에서 바꿔 VERSION_CONFLICT가 나면 맞는 값을 넣어요.">
-          <input id="perf-version" className="input" type="number" min={0} value={version} onChange={(e) => setVersion(e.target.value)} />
-        </Field>
+        <VersionOverride
+          id="perf-version"
+          open={!stored || conflict}
+          current={stored ? record.version : null}
+          value={version}
+          onChange={setVersion}
+        />
         {published && (
           <Link to={`/performances/${performanceId}`} className="btn btn-ghost">
             공개 화면 보기
@@ -228,7 +245,7 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
         )}
       </Panel>
 
-      <Panel title="1. 등급별 가격" note="판매할 좌석이 쓰는 등급에 모두 가격이 있어야 공개할 수 있어요. 공개 뒤에는 바꿀 수 없어요. 등급 ID는 관리자에게 받아요.">
+      <Panel title="1. 등급별 가격" badge={<StepBadge done={record.gradePrices.length > 0} />} note="판매할 좌석이 쓰는 등급에 모두 가격이 있어야 공개할 수 있어요. 공개 뒤에는 바꿀 수 없어요. 등급 ID는 관리자에게 받아요.">
         <form
           className="stack"
           onSubmit={(event) => {
@@ -280,7 +297,11 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
         </form>
       </Panel>
 
-      <Panel title="2. 회차" note="시각은 서울 기준이에요. 등록하면 좌석 준비가 PENDING으로 시작해 READY가 되면 판매할 수 있어요.">
+      <Panel
+        title="2. 회차"
+        badge={<StepBadge done={record.scheduleIds.length > 0} label={record.scheduleIds.length > 0 ? `${record.scheduleIds.length}개` : '필요'} />}
+        note="시각은 서울 기준이에요. 등록하면 좌석 준비를 시작하고, 준비가 끝나면 예매 오픈 시각부터 판매돼요."
+      >
         <form
           className="stack"
           onSubmit={(event) => {
@@ -314,10 +335,15 @@ function ManagePerformance({ performanceId }: { performanceId: number }) {
         </div>
       </Panel>
 
-      <Panel title="3. 공개" note="소개·포스터, 취소되지 않은 회차, 판매 좌석, 등급별 가격이 모두 있어야 공개돼요. 공개를 되돌리는 기능은 없어요.">
+      <Panel
+        title="3. 공개"
+        badge={<StepBadge done={published} label={published ? '공개됨' : '초안'} />}
+        note="소개·포스터, 취소되지 않은 회차, 판매 좌석, 등급별 가격이 모두 있어야 공개돼요. 공개를 되돌리는 기능은 없어요."
+      >
         {publish.isError && <ErrorNotice error={publish.error} />}
         {publish.isSuccess && <Done>공개했어요.</Done>}
-        <button type="button" className="btn btn-primary" disabled={publish.isPending || published} onClick={() => publish.mutate()}>
+        {!published && missing.length > 0 && <p className="hint">먼저 채워야 해요: {missing.join(', ')}</p>}
+        <button type="button" className="btn btn-primary" disabled={publish.isPending || published || missing.length > 0} onClick={() => publish.mutate()}>
           {published ? '공개됨' : '공개하기'}
         </button>
       </Panel>
