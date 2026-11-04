@@ -1,10 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, ifMatch } from '../../api/client';
+import { api, ApiError, ifMatch } from '../../api/client';
 import type { GradesResult, SeatInput, SeatsResult } from '../../api/manageTypes';
 import { ErrorNotice, Title } from '../../components/Common';
-import { Done, Field, Panel } from '../../components/Form';
+import { Done, Field, Panel, VersionOverride } from '../../components/Form';
 import { useLocalRecords } from '../../lib/localRecords';
 import { VENUE_RECORDS, VenueRecord } from './AdminVenuesPage';
 
@@ -80,15 +80,13 @@ export function AdminVenuePage() {
         title={`공연장 ID ${venueId}`}
         note="판매자에게 공연장 ID와 아래 등급 ID를 알려 주세요. 공연이 이 공연장을 쓰기 시작하면 등급·좌석을 더 넣을 수 없어요."
       >
-        <div className="form-grid">
-          <Field
-            id="venue-version"
-            label={`version (지금 ${known ? record.version : '모름'})`}
-            hint="다른 곳에서 바꿨거나 이 브라우저에서 만들지 않았으면 직접 입력해요."
-          >
-            <input id="venue-version" className="input" type="number" min={0} value={version} onChange={(e) => setVersion(e.target.value)} />
-          </Field>
-        </div>
+        <VersionOverride
+          id="venue-version"
+          open={!known || [grades.error, addSeats.error].some((e) => e instanceof ApiError && e.code === 'VERSION_CONFLICT')}
+          current={known ? record.version : null}
+          value={version}
+          onChange={setVersion}
+        />
         <div className="chips">
           {record.grades.length === 0 && <span className="muted">등록한 등급이 없어요.</span>}
           {record.grades.map((grade) => (

@@ -13,6 +13,8 @@ export interface PerformanceRecord {
   publicationStatus: string;
   gradePrices: { venueSeatGradeId: number; gradeName: string; price: number }[];
   scheduleIds: number[];
+  /** 초안 등록 때 소개·포스터를 넣었는지. 이 값이 생기기 전에 만든 기록은 모른다. */
+  hasIntro?: boolean;
 }
 
 export const PERFORMANCE_RECORDS = 'ticket.seller.performances';
