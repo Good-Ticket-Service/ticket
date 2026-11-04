@@ -73,8 +73,12 @@ export function Layout() {
         {loggedIn ? (
           <span className="account">
             {me.data && (
-              <Link to="/me" className="muted">
-                {me.data.name} · {ROLE_LABEL[me.data.role]}
+              // 휴대폰에서는 이름 대신 짧은 글자로 내 정보로 가는 길을 남긴다.
+              <Link to="/me" className="navlink account-link" aria-label={`내 정보 (${me.data.name} · ${ROLE_LABEL[me.data.role]})`}>
+                <span className="account-name">
+                  {me.data.name} · {ROLE_LABEL[me.data.role]}
+                </span>
+                <span className="account-short">내 정보</span>
               </Link>
             )}
             <button
