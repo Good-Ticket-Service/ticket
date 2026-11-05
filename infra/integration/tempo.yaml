@@ -1,0 +1,16 @@
+# 통합시험용 trace 저장소. 서비스가 OTLP HTTP(4318)로 보낸 span을 컨테이너 안 디스크에 둔다.
+server:
+  http_listen_port: 3200
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal

@@ -52,6 +52,30 @@ python infra/integration/observe.py
 
 Grafana에서 Integration 폴더를 열고 시험 ID와 시간 범위를 선택한다. `up{job="integration-host"}`와 세부 수집 성공 지표를 확인한다. 앱의 지연·Hikari·Tomcat, DB 세션 대기, 컨테이너 메모리·swap·OOM, 호스트 메모리 압박을 함께 본다. 지표가 없으면 0으로 해석하지 않는다.
 
+### trace·로그·프로파일 함께 보기 (선택)
+
+지표만으로는 어느 코드가 CPU나 DB 커넥션을 썼는지 알 수 없다. 그때 `observability` 프로필을 켠다. 앱 이미지는 그대로 두고 Java 에이전트만 붙인다.
+
+```powershell
+$env:COMPOSE_PROFILES='observability'
+python infra/integration/compose.py up -d
+```
+
+- 처음 켤 때 Maven Central에서 OpenTelemetry Java 에이전트와 Pyroscope 에이전트를 `script/integration/agents/`로 받고 SHA-256을 확인한다.
+- 같은 터미널에서 시나리오를 실행한다. 이 변수가 없으면 k6가 수집기와 같은 CPU 7을 쓴다.
+- 프로필을 끄려면 변수를 지우고 `compose.py up -d`를 다시 실행한다. 앱이 에이전트 없이 다시 뜬다.
+- 수집기 컨테이너는 `python infra/integration/compose.py stop tempo loki alloy pyroscope`로 멈춘다.
+
+| 도구 | Grafana 데이터 소스 | 보는 것 |
+|---|---|---|
+| Tempo | Tempo | 요청 하나의 gateway → 서비스 → 다른 서비스 → DB 구간별 시간 |
+| Loki·Alloy | Loki | 모든 컨테이너 로그. `{service="reservation-service", level="WARN"}`처럼 거른다. 앱 로그는 JSON이다 |
+| Pyroscope | Pyroscope | 서비스별 CPU·할당·락 플레임 그래프. 시간 범위를 지표와 맞춘다 |
+
+- 로그의 `trace_id`를 누르면 Tempo trace로, trace에서 "Logs for this span"을 누르면 그 trace의 로그로 이동한다.
+- 수집기 넷은 CPU 7, k6는 CPU 6을 쓴다. DB 코어(4–5)와 섞지 않기 위해서다. 메모리 상한은 Tempo·Pyroscope 각 1GiB, Loki 512MiB, Alloy 256MiB로 합계 약 2.75GiB가 늘어난다.
+- 에이전트가 계측하는 만큼 CPU와 JIT 부담이 늘어난다. 이 프로필로 잰 처리량은 기본 실행과 비교하지 않는다.
+
 ## 시나리오 실행
 
 한 번에 한 시험만 실행한다. 모든 시험은 신규 계정·공연·좌석을 준비하며 기존 시험 데이터를 삭제하지 않는다. 반복 실행으로 데이터와 디스크 사용량이 증가한다. 준비·사전 로그인·예열·종료 후 대기·DB 검증은 60초 측정 구간에 포함되지 않는다.
