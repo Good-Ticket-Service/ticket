@@ -25,6 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * Note: 클래스 전체를 읽기 전용 트랜잭션으로 둔다. 결제 중 여부를 묻는 BookingFacade가 MANDATORY라 트랜잭션 안에서만 부를 수 있고,
  * 좌석과 예약을 같은 시점의 스냅샷에서 읽게 하려는 목적도 있다.
+ *
+ * Note: 컨트롤러는 이 클래스를 직접 부르지 않고 SelectableSeatSnapshotService를 거친다. 이 클래스는 캐시에 없을 때만 loader로 불린다.
+ * 트랜잭션이 이 클래스에만 있어 캐시에서 답하는 요청은 DB 연결을 잡지 않는다(#270).
  */
 @Service
 @RequiredArgsConstructor
