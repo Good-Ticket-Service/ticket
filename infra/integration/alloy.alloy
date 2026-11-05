@@ -1,0 +1,46 @@
+// ticket-integration 컨테이너의 로그를 compose 서비스 이름으로 묶어 loki로 보낸다.
+discovery.docker "integration" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=ticket-integration"]
+  }
+}
+
+discovery.relabel "integration" {
+  targets = []
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "integration" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.integration.targets
+  relabel_rules = discovery.relabel.integration.rules
+  forward_to    = [loki.process.ecs.receiver]
+}
+
+// 앱 로그는 ECS JSON이다. 수준은 걸러 보려고 라벨로, trace_id는 값 종류가 많아 라벨 대신 구조화 메타데이터로 둔다.
+loki.process "ecs" {
+  stage.json {
+    expressions = {
+      level    = "log.level",
+      trace_id = "trace_id",
+    }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  stage.structured_metadata {
+    values = { trace_id = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

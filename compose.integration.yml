@@ -24,6 +24,24 @@ x-env: &env
   MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_ACQUIRE: "true"
   MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_USAGE: "true"
   JAVA_OPTS: "-Xms128m -Xmx384m -XX:ActiveProcessorCount=2"
+  # observability 프로필에서만 compose.py가 에이전트 옵션을 채운다. 비어 있으면 아래 OTEL_·PYROSCOPE_ 값은 읽히지 않는다.
+  JAVA_TOOL_OPTIONS: ${INTEGRATION_OBSERVABILITY_JAVA_OPTS:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PYROSCOPE_FORMAT: jfr
+  # Docker VM에서는 perf_events를 못 쓰므로 CPU 샘플은 itimer로 잡는다.
+  PYROSCOPE_PROFILER_EVENT: itimer
+  PYROSCOPE_PROFILER_ALLOC: 512k
+  PYROSCOPE_PROFILER_LOCK: 10ms
+x-agents: &agents ${INTEGRATION_AGENTS}:/agents:ro
+x-observe: &observe
+  profiles: [observability]
+  cpuset: ${INTEGRATION_OBSERVABILITY_CPUS:-7}
+  logging: *log
+  labels: {ticket.integration.group: observability}
+  networks: [ticket-net]
 x-health: &health
   test: [CMD-SHELL, 'curl -fs http://localhost:$${SERVER_PORT}/actuator/health > /dev/null']
   interval: 10s
@@ -66,7 +84,10 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8080"
+      OTEL_SERVICE_NAME: gateway-service
+      PYROSCOPE_APPLICATION_NAME: gateway-service
       QUEUE_ENABLED: "false"
+    volumes: [*agents]
     healthcheck: *health
   user-service:
     <<: *edge
@@ -75,6 +96,9 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8081"
+      OTEL_SERVICE_NAME: user-service
+      PYROSCOPE_APPLICATION_NAME: user-service
+    volumes: [*agents]
     healthcheck: *health
   performance-service:
     <<: *edge
@@ -83,7 +107,10 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8082"
+      OTEL_SERVICE_NAME: performance-service
+      PYROSCOPE_APPLICATION_NAME: performance-service
       JAVA_OPTS: "-Xms128m -Xmx512m -XX:ActiveProcessorCount=2"
+    volumes: [*agents]
     healthcheck: *health
   reservation-service:
     <<: *core
@@ -92,11 +119,14 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8083"
+      OTEL_SERVICE_NAME: reservation-service
+      PYROSCOPE_APPLICATION_NAME: reservation-service
       QUEUE_ENABLED: "false"
       SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
       JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr"
     volumes:
       - ${INTEGRATION_RESULTS}/jfr:/jfr
+      - *agents
     healthcheck: *health
   payment-service:
     <<: *core
@@ -105,10 +135,13 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8084"
+      OTEL_SERVICE_NAME: payment-service
+      PYROSCOPE_APPLICATION_NAME: payment-service
       SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
       JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/payment.jfr"
     volumes:
       - ${INTEGRATION_RESULTS}/jfr:/jfr
+      - *agents
     healthcheck: *health
   fake-pg:
     <<: *data
@@ -117,6 +150,9 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8090"
+      OTEL_SERVICE_NAME: fake-pg
+      PYROSCOPE_APPLICATION_NAME: fake-pg
+    volumes: [*agents]
     healthcheck: *health
   postgres:
     <<: *data
@@ -183,6 +219,34 @@ services:
     networks: [ticket-net, ticket-data]
     depends_on:
       postgres: {condition: service_healthy}
+  # 아래 넷은 COMPOSE_PROFILES=observability일 때만 뜬다. tempo는 trace, loki는 로그, alloy는 Docker 로그를 loki로 옮기고, pyroscope는 프로파일을 둔다.
+  tempo:
+    <<: *observe
+    image: grafana/tempo:2.6.1
+    mem_limit: 1g
+    command: [-config.file=/etc/tempo.yaml]
+    volumes:
+      - ${INTEGRATION_ASSETS}/tempo.yaml:/etc/tempo.yaml:ro
+  loki:
+    <<: *observe
+    image: grafana/loki:3.6.18
+    mem_limit: 512m
+    command: [-config.file=/etc/loki.yaml]
+    volumes:
+      - ${INTEGRATION_ASSETS}/loki.yaml:/etc/loki.yaml:ro
+  alloy:
+    <<: *observe
+    image: grafana/alloy:v1.20.1
+    mem_limit: 256m
+    command: [run, /etc/alloy/config.alloy, --storage.path=/var/lib/alloy]
+    volumes:
+      - ${INTEGRATION_ASSETS}/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+  pyroscope:
+    <<: *observe
+    image: grafana/pyroscope:2.4.1
+    mem_limit: 1g
   k6:
     image: grafana/k6:0.54.0
     profiles: [load]
