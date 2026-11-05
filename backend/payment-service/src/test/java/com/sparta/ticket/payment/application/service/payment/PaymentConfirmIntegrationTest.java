@@ -330,10 +330,10 @@ class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
     @Test
     void receiptAndStartedApprovalSurviveProcessStopWithoutReapproval() {
         Payment payment = ready(PgProvider.TOSS);
-        transactions.requestConfirm(payment.getOrderId(), new ConfirmCommand("stop-key", 45_000));
+        assertThat(transactions.claimApproval(payment.getOrderId(), new ConfirmCommand("stop-key", 45_000)))
+                .isPresent();
         assertThat(load(payment.getOrderId()).isConfirmRequested()).isTrue();
-        assertThat(load(payment.getOrderId()).getStatus()).isEqualTo(PaymentStatus.READY);
-        assertThat(transactions.markInProgress(payment.getId(), "stop-key")).isPresent();
+        assertThat(load(payment.getOrderId()).getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
         assertThat(confirm(payment, "stop-key").status()).isEqualTo(PaymentStatus.IN_PROGRESS);
         assertThat(load(payment.getOrderId()).getNextAttemptAt()).isNotNull();
         assertThat(pg.approveCalls()).isZero();

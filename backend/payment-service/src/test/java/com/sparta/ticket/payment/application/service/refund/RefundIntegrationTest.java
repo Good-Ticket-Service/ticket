@@ -120,8 +120,10 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
 
     private Payment progress() {
         Payment p = ready();
-        paymentTransactions.requestConfirm(p.getOrderId(), new ConfirmCommand("key-" + p.getId(), 45_000));
-        return paymentTransactions.markInProgress(p.getId(), "key-" + p.getId()).orElseThrow();
+        paymentTransactions
+                .claimApproval(p.getOrderId(), new ConfirmCommand("key-" + p.getId(), 45_000))
+                .orElseThrow();
+        return payments.findById(p.getId()).orElseThrow();
     }
 
     private Payment done() {

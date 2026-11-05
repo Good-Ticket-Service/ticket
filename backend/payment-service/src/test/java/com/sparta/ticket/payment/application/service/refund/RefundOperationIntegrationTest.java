@@ -250,8 +250,9 @@ class RefundOperationIntegrationTest extends PaymentIntegrationTest {
                 0,
                 now().plusMinutes(10)));
         Payment p = payments.findByOrderId(order).orElseThrow();
-        paymentTransactions.requestConfirm(order, new ConfirmCommand("key-" + p.getId(), 10_000));
-        paymentTransactions.markInProgress(p.getId(), "key-" + p.getId());
+        paymentTransactions
+                .claimApproval(order, new ConfirmCommand("key-" + p.getId(), 10_000))
+                .orElseThrow();
         p = payments.findByOrderId(order).orElseThrow();
         if (approve)
             paymentTransactions.complete(p.getId(), new PgResult.Approved(p.getPgTransactionId(), 10_000, now()));

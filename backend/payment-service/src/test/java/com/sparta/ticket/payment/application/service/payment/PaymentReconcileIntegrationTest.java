@@ -96,10 +96,10 @@ class PaymentReconcileIntegrationTest extends PaymentIntegrationTest {
 
     private Payment progress(long reservationId) {
         Payment payment = ready(reservationId);
-        transactions.requestConfirm(payment.getOrderId(), new ConfirmCommand("key-" + payment.getId(), 45_000));
-        return transactions
-                .markInProgress(payment.getId(), "key-" + payment.getId())
+        transactions
+                .claimApproval(payment.getOrderId(), new ConfirmCommand("key-" + payment.getId(), 45_000))
                 .orElseThrow();
+        return payments.findById(payment.getId()).orElseThrow();
     }
 
     private Payment failed() {

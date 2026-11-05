@@ -2,22 +2,24 @@ package com.sparta.ticket.payment.application.service.payment;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.payment.application.dto.payment.ApprovalClaim;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutCommand;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutResult;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmResult;
 import com.sparta.ticket.payment.application.dto.payment.PaymentDetail;
+import com.sparta.ticket.payment.application.dto.payment.PreparedPayment;
 import com.sparta.ticket.payment.application.port.payment.PaymentDispatcher;
 import com.sparta.ticket.payment.application.port.pg.PgClient.PgReadyRequest;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
-import com.sparta.ticket.payment.domain.model.payment.PaymentStatus;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -52,10 +54,16 @@ public class PaymentService {
     }
 
     private ConfirmResult confirmOnce(String orderId, ConfirmCommand command) {
-        Payment payment = transactions.requestConfirm(orderId, command);
-        if (payment.getStatus() == PaymentStatus.READY) {
-            dispatcher.dispatch(payment.getId(), command.pgAuthToken());
+        Optional<ApprovalClaim> claim;
+        try {
+            claim = transactions.claimApproval(orderId, command);
+        } catch (DataIntegrityViolationException e) {
+            if (!isTransactionKeyConflict(e)) throw e;
+            // Note: 제약 위반으로 접수까지 롤백됐으므로 새 트랜잭션에서 접수와 업무 실패를 저장한다.
+            transactions.rejectInvalidToken(orderId, command);
+            claim = Optional.empty();
         }
+        claim.ifPresent(value -> dispatcher.dispatch(value, command.pgAuthToken()));
         return ConfirmResult.from(transactions
                 .findByOrderId(orderId)
                 .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND)));
@@ -89,16 +97,16 @@ public class PaymentService {
         if (existing.isPresent()) {
             return replay(existing.get(), order);
         }
-        Payment payment;
+        PreparedPayment prepared;
         try {
-            payment = transactions.prepare(order);
+            prepared = transactions.prepare(order, READY_LEASE);
         } catch (DataIntegrityViolationException e) {
             return transactions
                     .findByOrderId(order.orderId())
                     .map(winner -> replay(winner, order))
                     .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_CHECKOUT_CONFLICT));
         }
-        return CheckoutResult.from(readyAtPg(payment));
+        return CheckoutResult.from(readyAtPg(prepared.payment(), prepared.pgReadyClaimed()));
     }
 
     public PaymentDetail find(String orderId) {
@@ -122,10 +130,14 @@ public class PaymentService {
      * 점유한 요청이 죽으면 점유가 끝난 뒤 기다리던 요청 하나가 이어서 부른다. 끝까지 결과가 없으면 503으로 재요청을 받는다.
      */
     private Payment readyAtPg(Payment payment) {
+        return readyAtPg(payment, false);
+    }
+
+    private Payment readyAtPg(Payment payment, boolean alreadyClaimed) {
         long deadline = System.nanoTime() + READY_WAIT.toNanos();
         Payment current = payment;
         while (current.needsPgReady()) {
-            if (transactions.claimPgReady(current.getId(), READY_LEASE)) {
+            if (alreadyClaimed || transactions.claimPgReady(current.getId(), READY_LEASE)) {
                 PgReadyResult result;
                 try {
                     result = pgClients
@@ -152,5 +164,13 @@ public class PaymentService {
                     .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
         }
         return current;
+    }
+
+    private static boolean isTransactionKeyConflict(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation
+                    && "uk_p_payments_pg_transaction".equals(violation.getConstraintName())) return true;
+        }
+        return false;
     }
 }
