@@ -12,8 +12,15 @@ import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import com.zaxxer.hikari.HikariDataSource;
+import java.sql.Connection;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,6 +53,12 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private MutableTicker ticker;
+
+    @Autowired
+    private DataSource dataSource;
+
     private long nextVenueSeatId = 1000;
 
     @BeforeEach
@@ -54,6 +67,8 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(NOW);
+        // 배치도 캐시는 컨텍스트 하나를 모든 테스트가 같이 쓴다. 앞 테스트가 같은 회차를 캐시해 두었을 수 있어 TTL을 넘긴다
+        ticker.advance(Duration.ofMinutes(1));
     }
 
     private Long seat(Long scheduleId, boolean sellable) {
@@ -140,5 +155,60 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}", 999L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SEAT_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("TTL 안에서는 좌석 상태가 바뀌어도 같은 스냅샷(같은 asOf)을 주고, TTL이 지나면 바뀐 상태를 준다")
+    void snapshotWithinTtl() throws Exception {
+        Long target = seat(SCHEDULE, true);
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                .andExpect(jsonPath("$.data.seats[0].selectable").value(true))
+                .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:00+09:00"));
+
+        setHold(target, 9001L, NOW.plusMinutes(10));
+        clock.set(NOW.plusSeconds(1));
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                .andExpect(jsonPath("$.data.seats[0].selectable").value(true))
+                .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:00+09:00"));
+
+        ticker.advance(Duration.ofSeconds(1));
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                .andExpect(jsonPath("$.data.seats[0].selectable").value(false))
+                .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:01+09:00"));
+    }
+
+    @Test
+    @DisplayName("404 SEAT_NOT_FOUND는 캐시하지 않아 좌석이 준비되면 TTL 안에서도 바로 보인다")
+    void notFoundIsNotCached() throws Exception {
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE)).andExpect(status().isNotFound());
+
+        seat(SCHEDULE, true);
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.seats.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("캐시에서 답할 때는 DB 연결을 쓰지 않는다: 풀의 연결을 모두 잡아 둬도 같은 회차 조회가 성공한다")
+    void cacheHitUsesNoConnection() throws Exception {
+        seat(SCHEDULE, true);
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE)).andExpect(status().isOk());
+
+        HikariDataSource pool = dataSource.unwrap(HikariDataSource.class);
+        List<Connection> held = new ArrayList<>();
+        try {
+            // 연결을 하나라도 쓰면 풀이 비어 연결 획득 제한 시간까지 기다리다 실패한다
+            for (int i = 0; i < pool.getMaximumPoolSize(); i++) {
+                held.add(pool.getConnection());
+            }
+            mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.seats.length()").value(1));
+        } finally {
+            for (Connection connection : held) {
+                connection.close();
+            }
+        }
     }
 }

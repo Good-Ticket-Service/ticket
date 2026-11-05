@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 잔여석 캐시 설정. 캐시 만료 시각을 재는 Ticker를 빈으로 두어 테스트가 가짜 시계로 바꿔 기다리지 않고 만료를 확인하게 한다.
  * Note: 캐시 만료는 Caffeine의 Ticker로 재고, 응답의 asOf는 공용 Clock으로 정한다. 둘은 서로 다른 용도라 맞추지 않는다.
+ * Note: 이 Ticker는 좌석 배치도 캐시(CaffeineSelectableSeatCache)도 함께 쓴다. Ticker 빈이 둘이면 타입으로 주입받는 곳이 모호해진다.
  */
 @Configuration
 @EnableConfigurationProperties(RemainingSeatProperties.class)

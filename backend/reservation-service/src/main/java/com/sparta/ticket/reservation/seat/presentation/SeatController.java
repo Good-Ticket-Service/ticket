@@ -3,7 +3,7 @@ package com.sparta.ticket.reservation.seat.presentation;
 import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
-import com.sparta.ticket.reservation.seat.application.SelectableSeatQueryService;
+import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
@@ -34,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/seats/schedules/{scheduleId}")
 public class SeatController {
 
-    private final SelectableSeatQueryService selectableSeatQueryService;
+    private final SelectableSeatSnapshotService selectableSeatSnapshotService;
     private final SeatHoldService seatHoldService;
     private final SeatReleaseService seatReleaseService;
     private final RemainingSeatService remainingSeatService;
@@ -51,10 +51,14 @@ public class SeatController {
         return ApiResponse.ok(RemainingSeatsResponse.from(remainingSeatService.getRemaining(scheduleId)));
     }
 
-    @Operation(summary = "선택 가능 좌석 조회", description = "좌석 배치도에 회차 좌석과 선택 가능 여부를 보여 준다. 조회 결과가 선점 성공을 보장하지는 않는다.")
+    /** 회차별로 짧게(설정값, 1초) 캐시한 스냅샷일 수 있다. asOf는 스냅샷을 만든 시각이다. 실제로 선점할 수 있는지는 선점 API가 다시 판정한다. */
+    @Operation(
+            summary = "선택 가능 좌석 조회",
+            description = "좌석 배치도에 회차 좌석과 선택 가능 여부를 보여 준다. 1초 안의 스냅샷일 수 있고(asOf), 조회 결과가 선점 성공을 보장하지는 않는다.")
     @GetMapping
     public ApiResponse<SelectableSeatsResponse> getSelectableSeats(@PathVariable Long scheduleId) {
-        return ApiResponse.ok(SelectableSeatsResponse.from(selectableSeatQueryService.getSelectableSeats(scheduleId)));
+        return ApiResponse.ok(
+                SelectableSeatsResponse.from(selectableSeatSnapshotService.getSelectableSeats(scheduleId)));
     }
 
     /**
