@@ -17,7 +17,7 @@ def dashboard(uid, title, rows):
             panels.append({'id': len(panels)+1, 'type': 'timeseries', 'title': name,
                 'description': 'No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.',
                 'datasource': DS, 'gridPos': {'x': (n % 2)*12, 'y': y+(n//2)*8, 'w': 12, 'h': 8},
-                'targets': [{'refId': chr(65+i), 'expr': e, 'legendFormat': '{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}'} for i,e in enumerate(expr.split(' or '))],
+                'targets': [{'refId': chr(65+i), 'expr': e, 'legendFormat': '{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}'} for i,e in enumerate(expr.split(' or '))],
                 'fieldConfig': {'defaults': {'unit': unit, 'custom': {'spanNulls': False}}, 'overrides': []},
                 'options': {'tooltip': {'mode': 'multi'}, 'legend': {'displayMode': 'table', 'placement': 'bottom', 'calcs': ['lastNotNull', 'max']}}})
         y += ((len(charts)+1)//2)*8
@@ -36,6 +36,9 @@ def dashboard(uid, title, rows):
     (OUT/(uid+'.json')).write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
 
 f = 'application=~"$service"'
+def per_second(kind, counter):
+    # rate()는 지표 이름을 지우므로, 한 패널에 겹친 카운터를 범례에서 가르려고 kind 라벨을 붙인다.
+    return 'label_replace(rate('+counter+'{'+f+'}[$__rate_interval]),"kind","'+kind+'","","")'
 def q(p):
     return 'histogram_quantile('+str(p)+', sum by (le,application,uri) (rate(http_server_requests_seconds_bucket{'+f+',uri!~"/actuator.*"}[$__rate_interval])))'
 
@@ -102,7 +105,15 @@ dashboard('integration-services','통합시험 02 · 서비스 병목',[
   ('힙 사용/최대','sum by(application)(jvm_memory_used_bytes{'+f+',area="heap"}) or sum by(application)(jvm_memory_max_bytes{'+f+',area="heap"})','bytes'),
   ('GC 소요 시간/s','sum by(application)(rate(jvm_gc_pause_seconds_sum{'+f+'}[$__rate_interval]))','s'),
   ('Gateway 연결 풀 대기','reactor_netty_connection_provider_pending_connections','short'),
-  ('Gateway 연결 활성','reactor_netty_connection_provider_active_connections','short')])])
+  ('Gateway 연결 활성','reactor_netty_connection_provider_active_connections','short')]),
+ ('예매 업무 · reservation-service만 표시',[
+  ('결제 진행 중·상한 초과 · 상한 초과가 0보다 크면 좌석이 묶인 예약','reservation_payment_in_progress{'+f+'} or reservation_payment_stuck{'+f+'}','short'),
+  ('선점 종료/s',' or '.join(per_second(k,c) for k,c in [('만료','reservation_expired_total'),('해제','reservation_released_total'),('취소','reservation_canceled_total')]),'ops'),
+  ('결제됐지만 예매 못 한 건/s',' or '.join(per_second(k,c) for k,c in [('늦은 결제 성공','reservation_payment_late_success_total'),('확정 못 해 환불','reservation_payment_unconfirmed_refunded_total')]),'ops'),
+  ('복구 재전송/s',' or '.join(per_second(k,c) for k,c in [('승인 재전송','reservation_payment_confirm_resent_total'),('환불 재전송','reservation_cancel_refund_resent_total'),('모르는 환불 주문','reservation_cancel_unknown_order_total')]),'ops'),
+  ('회차 취소 메시지 · 누적 DLT와 전달 실패/s',
+   'reservation_schedule_cancel_dead_letter_total{'+f+'} or reservation_schedule_cancel_confirmed_after_completed{'+f+'} or '+per_second('전달 실패','reservation_schedule_cancel_delivery_failed_total'),'short'),
+  ('결제 서킷 · 1인 상태가 현재 상태','resilience4j_circuitbreaker_state{'+f+',state=~"closed|open|half_open"}','short')])])
 
 dashboard('integration-infra','통합시험 03 · Windows·Docker VM·컨테이너',[
  ('Windows · 호스트 수집기를 실행해야 표시',[
