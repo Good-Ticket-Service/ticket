@@ -60,8 +60,7 @@ class HibernateSeedStartupIntegrationTest {
                                 + " AND poster_url ~ '^https://example[.]com/posters/kopis/PF[0-9]+[.]jpg$'",
                         Integer.class))
                 .isEqualTo(1116);
-        assertThat(jdbc.queryForObject(
-                        "SELECT count(*)" + scope + " AND description='작품 소개는 준비 중입니다.'", Integer.class))
+        assertThat(jdbc.queryForObject("SELECT count(*)" + scope + " AND description='작품 소개는 준비 중입니다.'", Integer.class))
                 .isEqualTo(982);
         // 원본 XML에서 PF ID 순으로 집계한 지문. 줄바꿈을 포함해 134개 원문과 그 순서를 대조한다.
         assertThat(jdbc.queryForObject(
