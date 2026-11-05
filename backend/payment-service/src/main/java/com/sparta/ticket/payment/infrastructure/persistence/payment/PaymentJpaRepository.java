@@ -91,9 +91,10 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
     LocalDateTime oldestDueReconcile(@Param("now") LocalDateTime now);
 
     @Override
+    // Note: next_reconcile_at이 있으면 승인 요청 시각도 있다는 CHECK 제약을 명시해 기존 부분 인덱스를 사용한다.
     @Query(
             value = "SELECT min(reconcile_unknown_since) FROM p_payments WHERE status = 'FAILED'"
-                    + " AND next_reconcile_at IS NOT NULL AND deleted_at IS NULL",
+                    + " AND approve_requested_at IS NOT NULL AND next_reconcile_at IS NOT NULL AND deleted_at IS NULL",
             nativeQuery = true)
     LocalDateTime oldestUnknownReconcile();
 
