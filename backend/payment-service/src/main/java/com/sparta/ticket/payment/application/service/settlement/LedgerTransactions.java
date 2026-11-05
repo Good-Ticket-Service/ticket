@@ -1,5 +1,6 @@
 package com.sparta.ticket.payment.application.service.settlement;
 
+import com.sparta.ticket.payment.application.port.settlement.LedgerJournalWriter;
 import com.sparta.ticket.payment.application.service.observation.CommittedObservation;
 import com.sparta.ticket.payment.domain.model.settlement.LedgerConflictException;
 import com.sparta.ticket.payment.domain.model.settlement.LedgerKey;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LedgerTransactions {
 
     private final LedgerTransactionRepository ledger;
+    private final LedgerJournalWriter writer;
     private final CommittedObservation observation;
 
     /**
@@ -32,7 +34,7 @@ public class LedgerTransactions {
             if (!existing.get().sameMeaningAs(draft)) throw new LedgerConflictException(key);
             return LedgerPosting.ALREADY_POSTED;
         }
-        ledger.saveAndFlush(draft);
+        writer.append(draft);
         observation.counter(
                 "settlement.ledger.posted",
                 "source_type",
