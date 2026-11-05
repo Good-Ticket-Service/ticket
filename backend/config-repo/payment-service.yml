@@ -6,6 +6,10 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/ticket?currentSchema=payment_schema
     username: payment_app
     password: ${PAYMENT_DB_PASSWORD:payment_local_pw}
+    hikari:
+      # 400/s에서 기본10은 사용률 약80%로 획득 대기가 Tomcat 스레드를 막았다. 20에서 COMMIT·WAL·DB CPU 증가 없이 완주했다
+      # (docs-local/payment-400tps-investigation 4.10~4.11). 인스턴스 수 × 20이 DB max_connections 예산 안인지 함께 확인한다.
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:20}
   jpa:
     properties:
       hibernate:
