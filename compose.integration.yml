@@ -93,7 +93,10 @@ services:
       <<: *env
       SERVER_PORT: "8083"
       QUEUE_ENABLED: "false"
-      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2"
+      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr"
+    volumes:
+      - ${INTEGRATION_RESULTS}/jfr:/jfr
     healthcheck: *health
   payment-service:
     <<: *core
@@ -102,7 +105,10 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8084"
-      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2"
+      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/payment.jfr"
+    volumes:
+      - ${INTEGRATION_RESULTS}/jfr:/jfr
     healthcheck: *health
   fake-pg:
     <<: *data
