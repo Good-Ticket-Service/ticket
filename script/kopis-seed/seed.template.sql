@@ -3,7 +3,7 @@
 WITH hall_source(kopis_hall, name, address, region, capacity) AS (VALUES
 {{HALLS}}
 ), show_source(kopis_id, kopis_hall, title, genre, rating, guidance, minutes, performer,
-               poster, registered_at, price, first_day, last_day, booking_open) AS (VALUES
+               description, poster, registered_at, price, first_day, last_day, booking_open) AS (VALUES
 {{SHOWS}}
 ), weekly(kopis_id, iso_day, start_time) AS (VALUES
 {{PATTERNS}}
@@ -28,9 +28,9 @@ WITH hall_source(kopis_hall, name, address, region, capacity) AS (VALUES
     FROM halls CROSS JOIN LATERAL generate_series(1, capacity) n
 ), performances_insert AS (
     INSERT INTO p_performances (id, seller_id, venue_id, title, genre, age_rating, age_guidance, running_time,
-                                cast_info, poster_url, publication_status, operation_status, published_at, version,
+                                cast_info, description, poster_url, publication_status, operation_status, published_at, version,
                                 created_at, created_by, updated_at, updated_by)
-    SELECT performance_id, 1001, venue_id, title, genre, rating, guidance, minutes, performer, poster,
+    SELECT performance_id, 1001, venue_id, title, genre, rating, guidance, minutes, performer, description, poster,
            'PUBLISHED', 'ACTIVE', registered_at::timestamp, 0,
            LOCALTIMESTAMP, 'KOPIS_SEED', LOCALTIMESTAMP, 'KOPIS_SEED' FROM shows
 ), prices_insert AS (

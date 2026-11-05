@@ -20,7 +20,9 @@ def scalar(value):
         return "NULL"
     if isinstance(value, int):
         return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
+    # Keep each VALUES row on one line while retaining the source text's line breaks.
+    literal = str(value).replace("'", "''").replace("\r", "' || chr(13) || '").replace("\n", "' || chr(10) || '")
+    return "'" + literal + "'"
 
 
 def values(rows):
@@ -67,8 +69,10 @@ def generate(snapshot):
         # Keep the two original seed booking windows. All other windows are local assumptions.
         booking = {"PF305424":"2026-11-04 13:00","PF305396":"2026-10-20 10:00"}.get(pf,str(start-timedelta(days=14)))
         rating, guidance = ("ALL", None) if pf=="PF305424" else (None,r["age"])
+        sty = show.findtext("sty") or ""
+        description = sty if sty.strip() else "작품 소개는 준비 중입니다."
         shows.append((pf,hall,r["title"],r["genre"],rating,guidance,minutes,get("prfcast") or None,
-                      get("poster") or None,get("frstregdt"),price,start,end,booking))
+                      description,f"https://example.com/posters/kopis/{pf}.jpg",get("frstregdt"),price,start,end,booking))
         for day,hour in time_rules(get("dtguidance")):
             patterns.append((pf,day,hour))
             first = start + timedelta(days=(day-start.isoweekday())%7)
