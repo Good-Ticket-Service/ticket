@@ -1,5 +1,6 @@
 package com.sparta.ticket.fakepg.presentation.controller.kakao;
 
+import com.sparta.ticket.fakepg.application.service.approval.InMemoryApprovalMode;
 import com.sparta.ticket.fakepg.application.service.kakao.KakaoPaymentService;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
 import com.sparta.ticket.fakepg.presentation.dto.kakao.KakaoApproveRequest;
@@ -25,14 +26,17 @@ public class KakaoPaymentController {
 
     private final KakaoPaymentService paymentService;
     private final KakaoApiExecutor executor;
+    private final InMemoryApprovalMode inMemoryApproval;
     private final String checkoutUrlBase;
 
     public KakaoPaymentController(
             KakaoPaymentService paymentService,
             KakaoApiExecutor executor,
+            InMemoryApprovalMode inMemoryApproval,
             @Value("${fake-pg.kakao.checkout-url-base}") String checkoutUrlBase) {
         this.paymentService = paymentService;
         this.executor = executor;
+        this.inMemoryApproval = inMemoryApproval;
         this.checkoutUrlBase = checkoutUrlBase;
     }
 
@@ -40,28 +44,42 @@ public class KakaoPaymentController {
     public ResponseEntity<Object> ready(@Valid @RequestBody KakaoReadyRequest request) {
         return executor.execute(
                 PgOperation.READY,
-                () -> KakaoReadyResponse.from(
-                        paymentService.ready(
-                                request.cid(),
+                () -> inMemoryApproval.enabled()
+                        ? inMemoryApproval.kakaoReady(
                                 request.partnerOrderId(),
                                 request.partnerUserId(),
                                 request.itemName(),
-                                request.totalAmount()),
-                        checkoutUrlBase));
+                                request.totalAmount(),
+                                checkoutUrlBase)
+                        : KakaoReadyResponse.from(
+                                paymentService.ready(
+                                        request.cid(),
+                                        request.partnerOrderId(),
+                                        request.partnerUserId(),
+                                        request.itemName(),
+                                        request.totalAmount()),
+                                checkoutUrlBase));
     }
 
     @PostMapping("/approve")
     public ResponseEntity<Object> approve(@Valid @RequestBody KakaoApproveRequest request) {
         return executor.execute(
                 PgOperation.CONFIRM,
-                () -> KakaoPaymentResponse.from(
-                        paymentService.approve(
+                () -> inMemoryApproval.enabled()
+                        ? inMemoryApproval.kakaoApprove(
                                 request.cid(),
                                 request.tid(),
                                 request.partnerOrderId(),
                                 request.partnerUserId(),
-                                request.pgToken()),
-                        request.cid()));
+                                request.pgToken())
+                        : KakaoPaymentResponse.from(
+                                paymentService.approve(
+                                        request.cid(),
+                                        request.tid(),
+                                        request.partnerOrderId(),
+                                        request.partnerUserId(),
+                                        request.pgToken()),
+                                request.cid()));
     }
 
     @PostMapping("/order")

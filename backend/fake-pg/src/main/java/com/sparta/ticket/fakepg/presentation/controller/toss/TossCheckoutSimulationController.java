@@ -1,5 +1,6 @@
 package com.sparta.ticket.fakepg.presentation.controller.toss;
 
+import com.sparta.ticket.fakepg.application.service.approval.InMemoryApprovalMode;
 import com.sparta.ticket.fakepg.application.service.toss.TossPaymentService;
 import com.sparta.ticket.fakepg.presentation.dto.toss.CheckoutSimulationRequest;
 import com.sparta.ticket.fakepg.presentation.dto.toss.CheckoutSimulationResponse;
@@ -22,11 +23,15 @@ public class TossCheckoutSimulationController {
     private static final String DEFAULT_ORDER_NAME = "공연 티켓";
 
     private final TossPaymentService paymentService;
+    private final InMemoryApprovalMode inMemoryApproval;
 
     @PostMapping("/checkout")
     public CheckoutSimulationResponse checkout(@Valid @RequestBody CheckoutSimulationRequest request) {
         String orderName =
                 request.orderName() == null || request.orderName().isBlank() ? DEFAULT_ORDER_NAME : request.orderName();
+        if (inMemoryApproval.enabled()) {
+            return inMemoryApproval.tossCheckout(request.orderId(), request.amount());
+        }
         return CheckoutSimulationResponse.from(
                 paymentService.authorize(request.orderId(), orderName, request.amount()));
     }

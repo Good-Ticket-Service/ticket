@@ -1,5 +1,6 @@
 package com.sparta.ticket.fakepg.presentation.controller.kakao;
 
+import com.sparta.ticket.fakepg.application.service.approval.InMemoryApprovalMode;
 import com.sparta.ticket.fakepg.application.service.kakao.KakaoPaymentService;
 import com.sparta.ticket.fakepg.presentation.dto.kakao.KakaoUserApprovalRequest;
 import com.sparta.ticket.fakepg.presentation.dto.kakao.KakaoUserApprovalResponse;
@@ -21,9 +22,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class KakaoUserApprovalSimulationController {
 
     private final KakaoPaymentService paymentService;
+    private final InMemoryApprovalMode inMemoryApproval;
 
     @PostMapping("/approve")
     public KakaoUserApprovalResponse approve(@Valid @RequestBody KakaoUserApprovalRequest request) {
-        return KakaoUserApprovalResponse.from(paymentService.issuePgToken(request.tid()));
+        return inMemoryApproval.enabled()
+                ? inMemoryApproval.kakaoUserApproval(request.tid())
+                : KakaoUserApprovalResponse.from(paymentService.issuePgToken(request.tid()));
     }
 }
