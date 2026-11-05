@@ -137,7 +137,7 @@
         {
           "refId": "A",
           "expr": "integration_pg_sessions",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -182,7 +182,7 @@
         {
           "refId": "A",
           "expr": "integration_pg_oldest_transaction_seconds",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -227,7 +227,7 @@
         {
           "refId": "A",
           "expr": "integration_pg_blocked_sessions",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -272,7 +272,7 @@
         {
           "refId": "A",
           "expr": "rate(integration_pg_sql_exec_seconds_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -317,7 +317,7 @@
         {
           "refId": "A",
           "expr": "rate(integration_pg_sql_calls_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -362,7 +362,7 @@
         {
           "refId": "A",
           "expr": "rate(integration_pg_wal_bytes_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -419,12 +419,12 @@
         {
           "refId": "A",
           "expr": "redis_memory_used_bytes",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "redis_memory_max_bytes",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -469,12 +469,12 @@
         {
           "refId": "A",
           "expr": "redis_connected_clients",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "redis_blocked_clients",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -519,7 +519,7 @@
         {
           "refId": "A",
           "expr": "rate(redis_evicted_keys_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -564,7 +564,7 @@
         {
           "refId": "A",
           "expr": "rate(redis_commands_duration_seconds_total[$__rate_interval])/rate(redis_commands_processed_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -621,7 +621,7 @@
         {
           "refId": "A",
           "expr": "kafka_consumergroup_lag",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -666,7 +666,7 @@
         {
           "refId": "A",
           "expr": "rate(kafka_consumergroup_current_offset[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -711,7 +711,7 @@
         {
           "refId": "A",
           "expr": "deriv(kafka_topic_partition_current_offset{topic=~\".*[dD][lL][tT].*\"}[1m])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -756,7 +756,7 @@
         {
           "refId": "A",
           "expr": "rate(spring_kafka_listener_seconds_sum[$__rate_interval])/rate(spring_kafka_listener_seconds_count[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {

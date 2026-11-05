@@ -137,7 +137,7 @@
         {
           "refId": "A",
           "expr": "histogram_quantile(0.95, sum by (le,application,uri) (rate(http_server_requests_seconds_bucket{application=~\"$service\",uri!~\"/actuator.*\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -182,7 +182,7 @@
         {
           "refId": "A",
           "expr": "histogram_quantile(0.99, sum by (le,application,uri) (rate(http_server_requests_seconds_bucket{application=~\"$service\",uri!~\"/actuator.*\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -227,7 +227,7 @@
         {
           "refId": "A",
           "expr": "process_cpu_usage{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -272,7 +272,7 @@
         {
           "refId": "A",
           "expr": "rate(integration_container_cpu_usage_seconds_total[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -329,12 +329,12 @@
         {
           "refId": "A",
           "expr": "tomcat_threads_busy_threads{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "tomcat_threads_config_max_threads{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -379,17 +379,17 @@
         {
           "refId": "A",
           "expr": "hikaricp_connections_active{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "hikaricp_connections_pending{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "C",
           "expr": "hikaricp_connections_max{application=~\"$service\"}",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -434,7 +434,7 @@
         {
           "refId": "A",
           "expr": "rate(hikaricp_connections_acquire_seconds_sum{application=~\"$service\"}[$__rate_interval])/rate(hikaricp_connections_acquire_seconds_count{application=~\"$service\"}[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -479,7 +479,7 @@
         {
           "refId": "A",
           "expr": "rate(hikaricp_connections_usage_seconds_sum{application=~\"$service\"}[$__rate_interval])/rate(hikaricp_connections_usage_seconds_count{application=~\"$service\"}[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -524,12 +524,12 @@
         {
           "refId": "A",
           "expr": "histogram_quantile(0.95,sum by(le,application)(rate(hikaricp_connections_acquire_seconds_bucket{application=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "histogram_quantile(0.99,sum by(le,application)(rate(hikaricp_connections_acquire_seconds_bucket{application=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -574,12 +574,12 @@
         {
           "refId": "A",
           "expr": "histogram_quantile(0.95,sum by(le,application)(rate(hikaricp_connections_usage_seconds_bucket{application=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "histogram_quantile(0.99,sum by(le,application)(rate(hikaricp_connections_usage_seconds_bucket{application=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -624,7 +624,7 @@
         {
           "refId": "A",
           "expr": "rate(hikaricp_connections_timeout_total{application=~\"$service\"}[$__rate_interval])",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -681,12 +681,12 @@
         {
           "refId": "A",
           "expr": "sum by(application)(jvm_memory_used_bytes{application=~\"$service\",area=\"heap\"})",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         },
         {
           "refId": "B",
           "expr": "sum by(application)(jvm_memory_max_bytes{application=~\"$service\",area=\"heap\"})",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -731,7 +731,7 @@
         {
           "refId": "A",
           "expr": "sum by(application)(rate(jvm_gc_pause_seconds_sum{application=~\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -776,7 +776,7 @@
         {
           "refId": "A",
           "expr": "reactor_netty_connection_provider_pending_connections",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
@@ -821,7 +821,329 @@
         {
           "refId": "A",
           "expr": "reactor_netty_connection_provider_active_connections",
-          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}}"
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "예매 업무 · reservation-service만 표시",
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "결제 진행 중·상한 초과 · 상한 초과가 0보다 크면 좌석이 묶인 예약",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reservation_payment_in_progress{application=~\"$service\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "reservation_payment_stuck{application=~\"$service\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "선점 종료/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 68,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(rate(reservation_expired_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"만료\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "label_replace(rate(reservation_released_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"해제\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "C",
+          "expr": "label_replace(rate(reservation_canceled_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"취소\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "결제됐지만 예매 못 한 건/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 76,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(rate(reservation_payment_late_success_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"늦은 결제 성공\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "label_replace(rate(reservation_payment_unconfirmed_refunded_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"확정 못 해 환불\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "복구 재전송/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 76,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(rate(reservation_payment_confirm_resent_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"승인 재전송\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "label_replace(rate(reservation_cancel_refund_resent_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"환불 재전송\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "C",
+          "expr": "label_replace(rate(reservation_cancel_unknown_order_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"모르는 환불 주문\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "회차 취소 메시지 · 누적 DLT와 전달 실패/s",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 84,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reservation_schedule_cancel_dead_letter_total{application=~\"$service\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "reservation_schedule_cancel_confirmed_after_completed{application=~\"$service\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        },
+        {
+          "refId": "C",
+          "expr": "label_replace(rate(reservation_schedule_cancel_delivery_failed_total{application=~\"$service\"}[$__rate_interval]),\"kind\",\"전달 실패\",\"\",\"\")",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "결제 서킷 · 1인 상태가 현재 상태",
+      "description": "No data는 미수집/미발생일 수 있다. 0으로 대체하지 않는다. 시간 범위와 수집 상태를 확인한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 84,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "resilience4j_circuitbreaker_state{application=~\"$service\",state=~\"closed|open|half_open\"}",
+          "legendFormat": "{{__name__}} {{comparison_phase}} {{cohort}} {{application}} {{service}} {{uri}} {{topic}} {{wait_event}} {{kind}} {{source}} {{name}} {{state}}"
         }
       ],
       "fieldConfig": {
