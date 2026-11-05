@@ -23,6 +23,7 @@ import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.SQLRestriction;
 
 /**
@@ -31,6 +32,8 @@ import org.hibernate.annotations.SQLRestriction;
  */
 @Getter
 @Entity
+// Note: 상태 전이 때 바뀐 컬럼만 갱신하고 불변 금액·참조값까지 반복해서 전송하지 않는다.
+@DynamicUpdate
 @Table(name = "p_payments")
 @SQLRestriction("deleted_at IS NULL")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
