@@ -1,7 +1,9 @@
 package com.sparta.ticket.payment.application.service.payment;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.payment.application.dto.payment.ApprovalClaim;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
+import com.sparta.ticket.payment.application.dto.payment.PreparedPayment;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
 import com.sparta.ticket.payment.application.port.pg.PgApprovalGate;
 import com.sparta.ticket.payment.application.service.settlement.SettlementCaptureTransactions;
@@ -29,7 +31,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 결제 상태를 바꾸는 트랜잭션 단위. 흐름 클래스(PaymentService)가 PG 호출 앞뒤로 차례로 부른다. 메서드 하나가 상태 전이 하나다.
+ * 결제 상태를 바꾸는 트랜잭션 단위. 접수와 실행권 확보를 함께 저장하고 PG 호출 앞뒤의 커밋은 분리한다.
  * 상태를 바꾸는 메서드는 행을 잠근 뒤 현재 상태를 다시 판단한다(docs/architecture.md).
  */
 @Component
@@ -49,28 +51,20 @@ public class PaymentTransactions {
     @Value("${payment.recovery.check-interval-seconds:10}")
     private long checkIntervalSeconds;
 
-    /** 승인 접수는 준비 대체와 같은 행 잠금으로 직렬화한다. */
+    /** 승인 접수와 실행권을 같은 행 잠금·커밋으로 저장한다. 커밋한 실행권을 받은 호출자만 PG를 부른다. */
     @Transactional
-    public Payment requestConfirm(String orderId, ConfirmCommand command) {
+    public Optional<ApprovalClaim> claimApproval(String orderId, ConfirmCommand command) {
         Payment payment = paymentRepository
                 .lockByOrderId(orderId)
                 .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-        if (payment.getStatus() == PaymentStatus.READY) {
-            if (payment.getAmount() != command.amount()) {
-                throw new BusinessException(PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH);
-            }
-            payment.requestConfirm(LocalDateTime.now(clock));
-        }
-        return payment;
-    }
-
-    /** PG를 호출할 단 하나의 실행자만 IN_PROGRESS 전이에 성공한다. */
-    @Transactional
-    public Optional<Payment> markInProgress(Long paymentId, String authToken) {
-        Payment payment = locked(paymentId);
         if (payment.getStatus() != PaymentStatus.READY) {
             return Optional.empty();
         }
+        if (payment.getAmount() != command.amount()) {
+            throw new BusinessException(PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH);
+        }
+        payment.requestConfirm(LocalDateTime.now(clock));
+        String authToken = command.pgAuthToken();
         LocalDateTime now = LocalDateTime.now(clock);
         if (payment.isExpired(now)) {
             fail(payment, PaymentFailureCode.EXPIRED);
@@ -101,15 +95,28 @@ public class PaymentTransactions {
                     now,
                     Duration.ofSeconds(checkIntervalSeconds));
             paymentRepository.saveAndFlush(payment);
-            return Optional.of(payment);
+            return Optional.of(new ApprovalClaim(
+                    payment.getId(),
+                    payment.getOrderId(),
+                    payment.getPgProvider(),
+                    payment.getPgTransactionId(),
+                    payment.getAmount(),
+                    payment.getUserId()));
         }
         return Optional.empty();
     }
 
     @Transactional
-    public void rejectInvalidToken(Long paymentId) {
-        Payment payment = locked(paymentId);
+    public void rejectInvalidToken(String orderId, ConfirmCommand command) {
+        Payment payment = paymentRepository
+                .lockByOrderId(orderId)
+                .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
         if (payment.getStatus() == PaymentStatus.READY) {
+            if (payment.getAmount() != command.amount()) {
+                throw new BusinessException(PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH);
+            }
+            // Note: 시작 트랜잭션의 제약 위반으로 접수도 롤백됐으므로 새 트랜잭션에서 함께 저장한다.
+            payment.requestConfirm(LocalDateTime.now(clock));
             fail(payment, PaymentFailureCode.INVALID_AUTH_TOKEN);
         }
     }
@@ -252,7 +259,7 @@ public class PaymentTransactions {
      * INSERT가 아직 READY인 이전 결제와 부분 UNIQUE(예매당 살아 있는 결제 하나)에서 충돌한다.
      */
     @Transactional
-    public Payment prepare(PaymentOrder order) {
+    public PreparedPayment prepare(PaymentOrder order, Duration readyLease) {
         Payment payment = Payment.ready(order);
         paymentRepository.lockLiveByReservationId(order.reservationId()).ifPresent(live -> {
             rejectIfInProgressOrDone(live);
@@ -260,7 +267,12 @@ public class PaymentTransactions {
             live.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
             paymentRepository.saveAndFlush(live);
         });
-        return paymentRepository.saveAndFlush(payment);
+        boolean pgReadyClaimed = false;
+        if (payment.needsPgReady()) {
+            LocalDateTime now = LocalDateTime.now(clock);
+            pgReadyClaimed = payment.claimPgReady(now, now.plus(readyLease));
+        }
+        return new PreparedPayment(paymentRepository.saveAndFlush(payment), pgReadyClaimed);
     }
 
     /** 같은 결제의 PG 준비를 한 요청만 부르게 점유한다. 커밋한 뒤 PG를 부른다(Payment.claimPgReady). */

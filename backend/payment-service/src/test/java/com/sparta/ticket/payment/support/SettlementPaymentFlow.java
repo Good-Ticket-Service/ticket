@@ -61,10 +61,10 @@ public final class SettlementPaymentFlow {
                 LocalDateTime.now(clock).plusMinutes(10),
                 SCHEDULE_START_AT));
         Payment payment = payments.findByOrderId(orderId).orElseThrow();
-        transactions.requestConfirm(orderId, new ConfirmCommand("key-" + payment.getId(), 45_000));
-        return transactions
-                .markInProgress(payment.getId(), "key-" + payment.getId())
+        transactions
+                .claimApproval(orderId, new ConfirmCommand("key-" + payment.getId(), 45_000))
                 .orElseThrow();
+        return payments.findById(payment.getId()).orElseThrow();
     }
 
     public Payment approvedFor(long sellerId, long scheduleId) {

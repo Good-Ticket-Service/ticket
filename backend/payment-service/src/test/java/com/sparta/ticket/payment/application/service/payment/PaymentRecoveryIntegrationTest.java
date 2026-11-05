@@ -106,10 +106,10 @@ class PaymentRecoveryIntegrationTest extends PaymentIntegrationTest {
 
     private Payment progress() {
         Payment payment = ready(600);
-        transactions.requestConfirm(payment.getOrderId(), new ConfirmCommand("key-" + payment.getId(), 45_000));
-        return transactions
-                .markInProgress(payment.getId(), "key-" + payment.getId())
+        transactions
+                .claimApproval(payment.getOrderId(), new ConfirmCommand("key-" + payment.getId(), 45_000))
                 .orElseThrow();
+        return payments.findById(payment.getId()).orElseThrow();
     }
 
     private Payment load(Payment payment) {
@@ -134,7 +134,9 @@ class PaymentRecoveryIntegrationTest extends PaymentIntegrationTest {
     @Test
     void readyExpiresAtBoundaryWithoutPgAndReceiptDoesNotPreventExpiry() {
         Payment payment = ready(10);
-        transactions.requestConfirm(payment.getOrderId(), new ConfirmCommand("key", 45_000));
+        // Note: 이전 버전에서 접수만 커밋한 뒤 중단된 READY도 만료 정리 대상이다.
+        tx.executeWithoutResult(
+                status -> payments.lockById(payment.getId()).orElseThrow().requestConfirm(now()));
         paymentClock.advance(Duration.ofSeconds(9));
         job.runOnce();
         assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.READY);

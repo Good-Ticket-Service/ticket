@@ -74,10 +74,10 @@ class SettlementCaptureIntegrationTest extends PaymentIntegrationTest {
                 LocalDateTime.now(paymentClock).plusMinutes(10),
                 scheduleStartAt));
         Payment payment = payments.findByOrderId(orderId).orElseThrow();
-        transactions.requestConfirm(orderId, new ConfirmCommand("key-" + payment.getId(), 45_000));
-        return transactions
-                .markInProgress(payment.getId(), "key-" + payment.getId())
+        transactions
+                .claimApproval(orderId, new ConfirmCommand("key-" + payment.getId(), 45_000))
                 .orElseThrow();
+        return payments.findById(payment.getId()).orElseThrow();
     }
 
     private void approve(Payment payment, int amount, LocalDateTime at) {
