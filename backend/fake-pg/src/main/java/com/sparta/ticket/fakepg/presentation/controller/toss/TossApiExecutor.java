@@ -2,6 +2,7 @@ package com.sparta.ticket.fakepg.presentation.controller.toss;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.ticket.fakepg.application.service.approval.InMemoryApprovalMode;
 import com.sparta.ticket.fakepg.application.service.fault.FaultInjector;
 import com.sparta.ticket.fakepg.application.service.fault.ResponseHoldException;
 import com.sparta.ticket.fakepg.application.service.idempotency.IdempotencyService;
@@ -48,11 +49,12 @@ public class TossApiExecutor {
     private final IdempotencyService idempotency;
     private final ObjectMapper objectMapper;
     private final ResponseTamper tamper;
+    private final InMemoryApprovalMode inMemoryApproval;
 
     public ResponseEntity<Object> execute(
             PgOperation operation, String idempotencyKey, Object requestForFingerprint, Supplier<Object> action) {
         faults.checkRateLimit(PROVIDER, operation);
-        boolean useKey = idempotencyKey != null && !idempotencyKey.isBlank();
+        boolean useKey = !inMemoryApproval.enabled() && idempotencyKey != null && !idempotencyKey.isBlank();
         if (useKey) {
             Optional<StoredResponse> stored = idempotency.begin(
                     PROVIDER, idempotencyKey, operation, fingerprint(operation, requestForFingerprint));

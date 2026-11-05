@@ -1,5 +1,6 @@
 package com.sparta.ticket.fakepg.presentation.controller.toss;
 
+import com.sparta.ticket.fakepg.application.service.approval.InMemoryApprovalMode;
 import com.sparta.ticket.fakepg.application.service.toss.TossPaymentService;
 import com.sparta.ticket.fakepg.domain.model.pg.PgOperation;
 import com.sparta.ticket.fakepg.presentation.dto.toss.TossCancelRequest;
@@ -29,6 +30,7 @@ public class TossPaymentController {
 
     private final TossPaymentService paymentService;
     private final TossApiExecutor executor;
+    private final InMemoryApprovalMode inMemoryApproval;
 
     @PostMapping("/confirm")
     public ResponseEntity<Object> confirm(
@@ -38,8 +40,10 @@ public class TossPaymentController {
                 PgOperation.CONFIRM,
                 idempotencyKey,
                 request,
-                () -> TossPaymentResponse.from(
-                        paymentService.confirm(request.paymentKey(), request.orderId(), request.amount())));
+                () -> inMemoryApproval.enabled()
+                        ? inMemoryApproval.tossApprove(request.paymentKey(), request.orderId(), request.amount())
+                        : TossPaymentResponse.from(
+                                paymentService.confirm(request.paymentKey(), request.orderId(), request.amount())));
     }
 
     @GetMapping("/orders/{orderId}")
