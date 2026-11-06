@@ -283,16 +283,19 @@
 
 ## 좌석 — reservation-service / seat
 
-상태: 선택 가능 좌석 조회(#84), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: 선택 가능 좌석 조회(#84), 좌석 배치·상태 조회(이슈 #271), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/seats/schedules/{scheduleId} | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(회차에 좌석이 없음: 없는 회차·좌석 준비 전을 나누지 않음) |
+| GET /api/seats/schedules/{scheduleId}/layout | JWT+X-Queue-Token | 200; If-None-Match 일치 304 | 없음 | scheduleId:long,configVersion:long,seats:SeatLayoutSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND |
+| GET /api/seats/schedules/{scheduleId}/status | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seatCount:int,selectableBitmap:string(base64) | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND |
 | GET /api/seats/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
 | POST /api/seats/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 400 판매 거절 reasonCode;404 SEAT_NOT_FOUND/SCHEDULE_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
 | DELETE /api/seats/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
 
 - SelectableSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null,selectable:boolean}`. 다른 사용자의 예약 ID/만료 시각 제외.
+- SeatLayoutSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null}`. 선택 가능 여부는 넣지 않는다. (이슈 #271)
 - 선점 판매 거절은 sale-validations의 reasonCode를 외부 code로 반환: 기본 400, SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH만 409. 삭제·미존재는 404. 연령 미달 오류는 미합의이며 architecture 14절을 따른다.
 
 - 선점 API도 입장 토큰이 없거나 만료되면 Gateway가 403 QUEUE_TOKEN_INVALID로 거절한다. (원본 복원: seat/api.md:124,191, 담당 확인 필요)
@@ -312,6 +315,12 @@
 - 잔여석의 판매 대상 좌석이 없는 등급은 grades에서 빠지고, 판매 대상이 모두 선점·판매된 등급은 remaining 0이다. grades는 venueSeatGradeId 오름차순이다. 좌석이 없는 회차는 200과 빈 grades다. (이슈 #241)
 - 잔여석은 서버 메모리에 3초(설정값) 캐시한다. 캐시에서 준 응답은 cached=true이고 asOf는 원래 집계 시각이다. 선점·해제 때 캐시를 지우지 않는다. (이슈 #241)
 - 선택 가능 좌석 조회는 회차별 결과를 서버 메모리에 1초(설정값) 캐시한다. 응답 형식은 같고, asOf는 캐시한 결과를 만든 시각이다. 선점·해제 때 캐시를 지우지 않는다. 404 SEAT_NOT_FOUND는 캐시하지 않는다. (이슈 #270)
+- 좌석 배치(layout)와 상태(status)는 기존 선택 가능 좌석 조회와 같은 캐시 스냅샷에서 만든다. 같은 순간의 세 응답은 좌석 순서와 판정이 같다. 기존 조회는 유지한다. (이슈 #271)
+- layout seats와 status 비트맵은 좌석 id 오름차순이다. 비트맵의 i번째 좌석은 (i/8)번째 바이트의 (i%8)번째 비트(가장 낮은 비트부터)이고 1이면 선택 가능이다. 바이트 길이는 ceil(seatCount/8)이고 남는 비트는 0이며, 표준 base64(패딩 포함)로 보낸다. (이슈 #271)
+- status의 configVersion이 갖고 있는 layout과 다르면 클라이언트는 layout을 다시 받는다. (이슈 #271)
+- layout은 ETag(`"configVersion"`)와 `Cache-Control: private, no-cache`를 준다. If-None-Match가 같으면 본문 없이 304다. 가격·등급·위치는 좌석 준비로만 바뀌고 좌석 준비는 새 configVersion을 쓰므로 버전이 같으면 layout도 같다(공연 등급 가격 변경은 DRAFT에서만 되고 회차 seatConfigVersion을 올려 좌석 준비를 다시 한다. 등급 이름 수정 API는 없다). (이슈 #271)
+- layout의 304는 같은 사용자가 다시 볼 때(선점 만료 뒤 다시 고르기, 새로고침) 효과가 있다. 여정마다 새 사용자인 부하 시나리오에서는 효과가 거의 없다. (이슈 #271)
+- status는 1초마다 바뀌어 ETag를 두지 않고, 지난 상태가 저장되지 않게 `Cache-Control: no-store`를 준다. (이슈 #271)
 - 좌석 API 응답 시각은 +09:00 오프셋을 포함한 ISO 8601이다. (원본 복원: seat/api.md:15, 담당 확인 필요)
 
 ### 좌석 내부 API

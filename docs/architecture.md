@@ -207,7 +207,7 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 - 같은 회원/좌석의 만료 전 HOLD 재요청은 기존 예약200. 가격은 seat.base_price→ticket.price로 복사, 결제 totalPrice는 티켓 합. 클라이언트 가격 신뢰 금지.
 - 만료 `HOLD AND expires<=:now`, 결제 시작 `HOLD AND expires>:now`. PAYMENT_IN_PROGRESS는 만료 정리 대상 아님. 상태 변경0행은 재조회/분기, 성공 가정 금지.
 - 선택 가능(좌석 배치도) = 판매 가능 AVAILABLE + 만료됐고 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD. 만료 HOLD의 예약ID를 모아 findPaymentInProgress 한 번 호출, 다른 모듈 테이블 JOIN 안 함. 실제 재선점은 expireIfDue 조건부 변경으로 최종 방어.
-- 좌석 배치도는 회차별 판정 결과를 서버 메모리에 1초(설정값) 캐시한다(이슈 #270). 캐시에서 답할 때는 트랜잭션과 DB 연결을 쓰지 않는다. 늦은 결과는 409 SEAT_ALREADY_TAKEN 증가로만 나타나고, 이중 선점은 선점 API의 잠금과 재판정이 막는다.
+- 좌석 배치도는 회차별 판정 결과를 서버 메모리에 1초(설정값) 캐시한다(이슈 #270). 캐시에서 답할 때는 트랜잭션과 DB 연결을 쓰지 않는다. 기존 조회와 layout·status(이슈 #271)는 같은 스냅샷에서 만든다. 늦은 결과는 409 SEAT_ALREADY_TAKEN 증가로만 나타나고, 이중 선점은 선점 API의 잠금과 재판정이 막는다.
 - 잔여석 = 판매 가능 AVAILABLE만 등급별로 센다. 만료됐지만 정리 전인 HOLD는 booking에 묻지 않고 제외한다(안내용, 좌석이 적게 보이는 쪽으로만 차이). 서버 메모리 캐시 TTL 3초(이슈 #241).
 - SeatFacade.sell은 HOLD+reservation_id 일치, release도 reservation_id 일치. 갱신 행 수가 요청 수와 다르면 확정 성공으로 처리하지 않는다. 가격 재조회(priceSnapshot) 없음.
 - release 결과 RELEASED/EXPIRED/ALREADY_CLOSED만 좌석 반환. NOT_RELEASABLE은409, PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/CANCELED 좌석은 해제하지 않음.
