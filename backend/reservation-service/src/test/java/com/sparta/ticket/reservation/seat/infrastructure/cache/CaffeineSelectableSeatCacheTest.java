@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.seat.application.SelectableSeatProperties;
+import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatResult;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
@@ -38,14 +39,16 @@ class CaffeineSelectableSeatCacheTest {
         pool.shutdownNow();
     }
 
-    private static SelectableSeatsResult snapshot(long scheduleId, int seatCount) {
+    private static SeatMapSnapshot snapshot(long scheduleId, int seatCount) {
         SelectableSeatResult seat = new SelectableSeatResult(1L, 1L, "A", "1", 1, 1L, "R", 10_000, true);
-        // 무게는 좌석 수만 보므로 같은 좌석을 반복해 큰 회차를 가볍게 만든다
-        return new SelectableSeatsResult(
-                scheduleId, 1L, LocalDateTime.of(2026, 11, 5, 12, 0), Collections.nCopies(seatCount, seat));
+        // 무게는 좌석 수만 보므로 같은 좌석을 반복해 큰 회차를 가볍게 만든다. 비트맵은 무게와 상관없어 비워 둔다
+        return new SeatMapSnapshot(
+                new SelectableSeatsResult(
+                        scheduleId, 1L, LocalDateTime.of(2026, 11, 5, 12, 0), Collections.nCopies(seatCount, seat)),
+                "");
     }
 
-    private static SelectableSeatsResult snapshot(long scheduleId) {
+    private static SeatMapSnapshot snapshot(long scheduleId) {
         return snapshot(scheduleId, 3);
     }
 
@@ -54,11 +57,11 @@ class CaffeineSelectableSeatCacheTest {
     void cachesWithinTtl() {
         AtomicInteger loads = new AtomicInteger();
 
-        SelectableSeatsResult first = cache.getOrLoad(1L, () -> {
+        SeatMapSnapshot first = cache.getOrLoad(1L, () -> {
             loads.incrementAndGet();
             return snapshot(1L);
         });
-        SelectableSeatsResult second = cache.getOrLoad(1L, () -> {
+        SeatMapSnapshot second = cache.getOrLoad(1L, () -> {
             loads.incrementAndGet();
             return snapshot(1L);
         });
@@ -71,7 +74,7 @@ class CaffeineSelectableSeatCacheTest {
     @DisplayName("TTL이 지나면 다시 조회한다")
     void reloadsAfterTtl() {
         AtomicInteger loads = new AtomicInteger();
-        SelectableSeatsResult first = cache.getOrLoad(1L, () -> {
+        SeatMapSnapshot first = cache.getOrLoad(1L, () -> {
             loads.incrementAndGet();
             return snapshot(1L);
         });
@@ -80,7 +83,7 @@ class CaffeineSelectableSeatCacheTest {
         assertThat(cache.getOrLoad(1L, () -> snapshot(1L))).isSameAs(first);
 
         ticker.advance(Duration.ofMillis(1));
-        SelectableSeatsResult reloaded = cache.getOrLoad(1L, () -> {
+        SeatMapSnapshot reloaded = cache.getOrLoad(1L, () -> {
             loads.incrementAndGet();
             return snapshot(1L);
         });
@@ -93,7 +96,7 @@ class CaffeineSelectableSeatCacheTest {
     void concurrentRequestsLoadOnce() throws Exception {
         AtomicInteger loads = new AtomicInteger();
         CountDownLatch start = new CountDownLatch(1);
-        List<Future<SelectableSeatsResult>> results = new ArrayList<>();
+        List<Future<SeatMapSnapshot>> results = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             results.add(pool.submit(() -> {
                 start.await();
@@ -106,8 +109,8 @@ class CaffeineSelectableSeatCacheTest {
         }
         start.countDown();
 
-        List<SelectableSeatsResult> snapshots = new ArrayList<>();
-        for (Future<SelectableSeatsResult> result : results) {
+        List<SeatMapSnapshot> snapshots = new ArrayList<>();
+        for (Future<SeatMapSnapshot> result : results) {
             snapshots.add(result.get(10, TimeUnit.SECONDS));
         }
         assertThat(loads).hasValue(1);
@@ -136,9 +139,9 @@ class CaffeineSelectableSeatCacheTest {
     void separatePerSchedule() {
         cache.getOrLoad(1L, () -> snapshot(1L));
 
-        SelectableSeatsResult other = cache.getOrLoad(2L, () -> snapshot(2L));
+        SeatMapSnapshot other = cache.getOrLoad(2L, () -> snapshot(2L));
 
-        assertThat(other.scheduleId()).isEqualTo(2L);
+        assertThat(other.result().scheduleId()).isEqualTo(2L);
     }
 
     @Test

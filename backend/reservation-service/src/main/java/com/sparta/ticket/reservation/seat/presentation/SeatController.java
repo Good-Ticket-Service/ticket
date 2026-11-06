@@ -4,6 +4,7 @@ import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
+import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
@@ -11,11 +12,14 @@ import com.sparta.ticket.reservation.seat.application.remaining.RemainingSeatSer
 import com.sparta.ticket.reservation.seat.presentation.dto.RemainingSeatsResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldRequest;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
+import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
+import com.sparta.ticket.reservation.seat.presentation.dto.SeatStatusResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -26,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.WebRequest;
 
 /** 회차 좌석 API. JWT와 대기열 입장 토큰(X-Queue-Token)은 Gateway가 검사한다. */
 @Tag(name = "좌석")
@@ -38,6 +43,12 @@ public class SeatController {
     private final SeatHoldService seatHoldService;
     private final SeatReleaseService seatReleaseService;
     private final RemainingSeatService remainingSeatService;
+
+    /**
+     * layout은 브라우저에만 저장하고(private) 쓸 때마다 ETag로 다시 확인한다(no-cache). Cache-Control이 없으면 Gateway 보안 체인이
+     * no-store를 붙여 저장되지 않고, 그러면 If-None-Match가 오지 않아 304가 생기지 않는다.
+     */
+    private static final CacheControl LAYOUT_CACHE = CacheControl.noCache().cachePrivate();
 
     /**
      * 등급별로 남은 좌석 수를 준다. 로그인·입장 토큰 없이 부르는 공개 API다(Gateway whitelist).
@@ -59,6 +70,45 @@ public class SeatController {
     public ApiResponse<SelectableSeatsResponse> getSelectableSeats(@PathVariable Long scheduleId) {
         return ApiResponse.ok(
                 SelectableSeatsResponse.from(selectableSeatSnapshotService.getSelectableSeats(scheduleId)));
+    }
+
+    /**
+     * 회차 좌석 배치(선택 가능 여부 제외). ETag는 configVersion이고, If-None-Match가 같으면 본문 없이 304다.
+     * 304 판단은 캐시한 스냅샷의 configVersion만 보고 하며 응답 본문은 만들지 않는다. 좌석 위치·등급·가격은 좌석 준비로만 바뀌고,
+     * 좌석 준비는 바꾼 좌석에 새 configVersion을 쓴다. 그래서 configVersion이 같으면 layout도 같다.
+     */
+    @Operation(
+            summary = "좌석 배치 조회",
+            description = "회차 좌석 배치를 준다. 선택 가능 여부는 status로 따로 받는다. ETag(configVersion)가 같으면 304다.")
+    @GetMapping("/layout")
+    public ResponseEntity<ApiResponse<SeatLayoutResponse>> getLayout(
+            @PathVariable Long scheduleId, WebRequest request) {
+        SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId);
+        String etag = "\"" + snapshot.configVersion() + "\"";
+        if (request.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                    .eTag(etag)
+                    .cacheControl(LAYOUT_CACHE)
+                    .build();
+        }
+        return ResponseEntity.ok()
+                .eTag(etag)
+                .cacheControl(LAYOUT_CACHE)
+                .body(ApiResponse.ok(SeatLayoutResponse.from(snapshot)));
+    }
+
+    /**
+     * 회차 좌석의 선택 가능 비트맵. layout과 같은 스냅샷에서 만든다. 1초마다 바뀌므로 ETag를 두지 않고, 지난 상태가 브라우저·프록시에
+     * 남지 않게 no-store를 직접 붙인다(Gateway 기본 헤더에 기대지 않는다).
+     */
+    @Operation(
+            summary = "좌석 선택 가능 상태 조회",
+            description = "layout 좌석 순서대로 선택 가능 여부를 비트맵(base64)으로 준다. 1초 안의 스냅샷일 수 있다(asOf).")
+    @GetMapping("/status")
+    public ResponseEntity<ApiResponse<SeatStatusResponse>> getStatus(@PathVariable Long scheduleId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.ok(SeatStatusResponse.from(selectableSeatSnapshotService.getSnapshot(scheduleId))));
     }
 
     /**
