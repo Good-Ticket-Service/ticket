@@ -16,7 +16,8 @@ public record FaultConfigRequest(
         Long holdMs,
         Integer rateLimitPerSecond,
         Double tamperRate,
-        TamperMode tamperMode) {
+        TamperMode tamperMode,
+        Long latencyMaxMs) {
 
     public FaultConfig toConfig() {
         return new FaultConfig(
@@ -29,7 +30,8 @@ public record FaultConfigRequest(
                 holdMs == null ? FaultConfig.DEFAULT_HOLD_MS : holdMs,
                 rateLimitPerSecond == null ? 0 : rateLimitPerSecond,
                 orZero(tamperRate),
-                tamperMode);
+                tamperMode,
+                orZero(latencyMaxMs));
     }
 
     private static long orZero(Long value) {

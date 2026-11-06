@@ -1,5 +1,7 @@
 package com.sparta.ticket.fakepg.domain.model.fault;
 
+import java.util.random.RandomGenerator;
+
 /**
  * PG API 하나(제공자 × 동작)에 거는 장애 설정. 모든 값의 기본은 "장애 없음"이다. 비율은 0~1 사이 확률이다.
  *
@@ -15,6 +17,8 @@ package com.sparta.ticket.fakepg.domain.model.fault;
  * @param rateLimitPerSecond 초당 처리 한도. 넘으면 처리하지 않고 429. 0은 무제한
  * @param tamperRate 처리와 기록을 정상으로 끝낸 뒤 성공 응답 본문을 tamperMode대로 망가뜨릴 확률
  * @param tamperMode 성공 응답을 망가뜨리는 방식. tamperRate가 0보다 크면 필요하다
+ * @param latencyMaxMs 0이면 latencyMs로 고정한다. 0보다 크면 요청마다 latencyMs~latencyMaxMs에서 균등하게 뽑는다.
+ *     고정 지연은 꼬리 지연과 순간 몰림을 만들지 않아 상한 근처의 문제를 덜 드러낸다
  */
 public record FaultConfig(
         long latencyMs,
@@ -26,16 +30,20 @@ public record FaultConfig(
         long holdMs,
         int rateLimitPerSecond,
         double tamperRate,
-        TamperMode tamperMode) {
+        TamperMode tamperMode,
+        long latencyMaxMs) {
 
     public static final long DEFAULT_HOLD_MS = 15_000;
 
     public static FaultConfig none() {
-        return new FaultConfig(0, 0, 0, 0, 0, 0, DEFAULT_HOLD_MS, 0, 0, null);
+        return new FaultConfig(0, 0, 0, 0, 0, 0, DEFAULT_HOLD_MS, 0, 0, null, 0);
     }
 
     public FaultConfig {
         requireNotNegative(latencyMs, "latencyMs");
+        if (latencyMaxMs != 0 && latencyMaxMs < latencyMs) {
+            throw new IllegalArgumentException("latencyMaxMs는 0(고정) 또는 latencyMs 이상이어야 한다");
+        }
         requireNotNegative(delayedApprovalMs, "delayedApprovalMs");
         requireNotNegative(holdMs, "holdMs");
         requireNotNegative(rateLimitPerSecond, "rateLimitPerSecond");
@@ -47,6 +55,11 @@ public record FaultConfig(
         if (tamperRate > 0 && tamperMode == null) {
             throw new IllegalArgumentException("tamperRate를 쓰려면 tamperMode가 필요하다");
         }
+    }
+
+    /** 이번 요청에 적용할 지연. 범위가 있으면 균등 분포에서 뽑는다. */
+    public long drawLatencyMs(RandomGenerator random) {
+        return latencyMaxMs == 0 ? latencyMs : random.nextLong(latencyMs, latencyMaxMs + 1);
     }
 
     private static void requireNotNegative(long value, String name) {

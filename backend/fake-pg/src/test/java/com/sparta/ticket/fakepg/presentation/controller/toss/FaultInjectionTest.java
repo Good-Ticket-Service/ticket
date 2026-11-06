@@ -180,6 +180,24 @@ class FaultInjectionTest extends FakePgIntegrationTest {
     }
 
     @Test
+    @DisplayName("지연 범위: 하한 이상으로 늦게 응답하고, 설정 목록에 범위가 보인다")
+    void latencyRange() throws Exception {
+        prepare(10_000);
+        fault("INQUIRE", "{\"latencyMs\":100,\"latencyMaxMs\":150}");
+
+        long start = System.nanoTime();
+        inquire().andExpect(status().isOk());
+
+        assertThat((System.nanoTime() - start) / 1_000_000).isGreaterThanOrEqualTo(100);
+        mockMvc.perform(get("/fake/admin/faults"))
+                .andExpect(jsonPath("$['TOSS.INQUIRE'].latencyMaxMs").value(150));
+        mockMvc.perform(put("/fake/admin/faults/TOSS/INQUIRE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latencyMs\":200,\"latencyMaxMs\":100}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("취소 거절: 403 NOT_CANCELABLE_PAYMENT이고 거래는 DONE 그대로, 같은 멱등 키는 같은 거절을 재현한다")
     void cancelRejection() throws Exception {
         prepare(10_000);

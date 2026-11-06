@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.LongAdder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -93,7 +94,8 @@ public class FaultInjector {
         if (config.latencyMs() > 0) {
             count(provider, operation).latencyApplied.increment();
         }
-        sleep(config.latencyMs());
+        // Note: 지연 값은 seed 난수(FaultRandom)를 쓰지 않는다. 장애 판단 순서를 바꾸지 않고 요청마다 잠금도 잡지 않는다.
+        sleep(config.drawLatencyMs(ThreadLocalRandom.current()));
         if (hit(config.serverErrorRate())) {
             count(provider, operation).serverErrors.increment();
             throw new PgException(PgErrorCode.FAILED_INTERNAL_SYSTEM_PROCESSING);
