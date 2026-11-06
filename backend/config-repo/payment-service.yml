@@ -1,5 +1,11 @@
 server:
   port: 8084
+  tomcat:
+    threads:
+      # PG 승인 300ms 기준 결제 1건이 요청 스레드를 약0.33초 잡는다. 800/s에서 300이 처리량 최대(694/s)였고
+      # 250은 스레드 부족, 350은 앱 CPU 경쟁으로 줄었다(docs-local/payment-500tps-investigation 4.43~4.44).
+      # PG가 느려지면 같은 유입에 더 많은 스레드가 필요하다. 유입 상한은 대기열 입장 속도로 둔다(D9).
+      max: ${PAYMENT_TOMCAT_MAX_THREADS:300}
 
 spring:
   datasource:
@@ -8,8 +14,10 @@ spring:
     password: ${PAYMENT_DB_PASSWORD:payment_local_pw}
     hikari:
       # 400/s에서 기본10은 사용률 약80%로 획득 대기가 Tomcat 스레드를 막았다. 20에서 COMMIT·WAL·DB CPU 증가 없이 완주했다
-      # (docs-local/payment-400tps-investigation 4.10~4.11). 인스턴스 수 × 20이 DB max_connections 예산 안인지 함께 확인한다.
-      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:20}
+      # (docs-local/payment-400tps-investigation 4.10~4.11). 같은 데이터에서 800/s 기준 30이 20보다 처리량 +13%였다
+      # (payment-500tps-investigation 4.44). 다른 서비스 풀(기본10)·FakePG와 합쳐 인스턴스 수 × 30이 DB max_connections(기본100)
+      # 예산 안인지 함께 확인한다.
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:30}
   jpa:
     properties:
       hibernate:
