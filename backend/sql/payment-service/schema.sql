@@ -133,6 +133,11 @@ CREATE INDEX ix_p_refunds_requested_next_attempt
     ON p_refunds (next_attempt_at)
     WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;
 
+-- 관측: 끝나지 않은 환불(WAITING·REQUESTED·FAILED)만 15초마다 센다. 끝난 환불이 쌓여도 해당 행만 읽는다
+CREATE INDEX ix_p_refunds_unfinished
+    ON p_refunds (status)
+    WHERE status IN ('WAITING', 'REQUESTED', 'FAILED');
+
 -- 최종 운영 명령 결과. 자동 거래 전이 이력이나 PG 작업 큐가 아니다.
 CREATE TABLE p_refund_operation_commands (
     command_id VARCHAR(80) PRIMARY KEY,
@@ -524,6 +529,11 @@ CREATE INDEX ix_p_settlement_items_pending_sale ON p_settlement_items (eligible_
     WHERE kind = 'SALE' AND status = 'PENDING';
 CREATE INDEX ix_p_settlement_items_open_deduction ON p_settlement_items (seller_id)
     WHERE kind = 'DEDUCTION' AND status = 'OPEN';
+-- 관측: 드문 위험 상태(계산 실패 UNPOSTED, 보류 HELD)를 15초마다 센다. 정산 항목 전체를 스캔하지 않게 한다
+CREATE INDEX ix_p_settlement_items_unposted_sale ON p_settlement_items (id)
+    WHERE kind = 'SALE' AND status = 'UNPOSTED';
+CREATE INDEX ix_p_settlement_items_held_sale ON p_settlement_items (hold_reason, updated_at)
+    WHERE kind = 'SALE' AND status = 'HELD';
 
 -- 앞선 작업에서 대상 테이블이 없어 미뤄 둔 외래 키(정산 항목·원장 → 정산서·지급)
 ALTER TABLE p_settlement_items ADD CONSTRAINT fk_p_settlement_items_statement

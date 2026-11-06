@@ -415,6 +415,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CREATE INDEX ix_p_refunds_requested_next_attempt ON p_refunds (next_attempt_at) WHERE status IN ('REQUESTED','FAILED') AND recovery_mode <> 'PAUSED' AND recovery_blocked = FALSE;`
 
+- `CREATE INDEX ix_p_refunds_unfinished ON p_refunds (status) WHERE status IN ('WAITING', 'REQUESTED', 'FAILED');` 관측(15초 주기)이 끝나지 않은 환불만 읽게 한다(014-observation-indexes.sql).
+
 ### p_refund_operation_commands — payment-service/schema.sql + A
 
 운영 명령의 최종 결과다. 자동 상태 변경 이력·PG 작업 큐가 아니며 적용과 함께 저장한다.
@@ -583,6 +585,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - READY가 아니면 멱등 키·계좌 스냅샷·account_version·requested_at NOT NULL CHECK. DONE이면 external_payout_id·done_at NOT NULL CHECK.
 - 실행 후보 인덱스: `(next_attempt_at) WHERE status = 'READY'`.
 - 발행 후보 인덱스: `p_settlement_items (eligible_at, schedule_id, seller_id) WHERE kind = 'SALE' AND status = 'PENDING'`, `(seller_id) WHERE kind = 'DEDUCTION' AND status = 'OPEN'`.
+- 관측 인덱스: `ix_p_settlement_items_unposted_sale (id) WHERE kind = 'SALE' AND status = 'UNPOSTED'`, `ix_p_settlement_items_held_sale (hold_reason, updated_at) WHERE kind = 'SALE' AND status = 'HELD'`. 위험 상태만 15초마다 세며 전체 스캔하지 않게 한다. 014-observation-indexes.sql은 이 두 인덱스와 `ix_p_refunds_unfinished`를 추가하며, 다시 실행해도 안전하다.
 - 008-settlement-statements.sql은 위 테이블과 정산 항목·원장의 정산서·지급 FK를 추가하며, 다시 실행해도 안전하다.
 - 010-payout-execution.sql은 지급 실행 컬럼·CHECK·인덱스와 정산서 paid_at·PAID를 추가하며, 다시 실행해도 안전하다.
 - 011-drop-payout-lease.sql은 010의 lease_until을 지운다(점유 만료는 next_attempt_at으로 표현). 다시 실행해도 안전하다.
