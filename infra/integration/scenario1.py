@@ -21,6 +21,8 @@ BASE = 'http://127.0.0.1:18080'
 PG = 'http://127.0.0.1:18090'
 PASSWORD = 'Integrate!2026'  # 공개 로컬 시험 계정 전용, 가입 정책 8~15자
 KST = timezone(timedelta(hours=9))
+# 배치도는 회차별 1초 스냅샷이다(#270). 확정 직후 조회는 확정 전 스냅샷일 수 있어 TTL의 2배까지 다시 본다
+SEAT_SNAPSHOT_WAIT_SECONDS = 2.0
 
 class Failure(Exception):
     pass
@@ -236,9 +238,7 @@ class Scenario:
             require(final['paymentAmount']==prepared['amount'] and final['scheduleSeatIds']==[seat['scheduleSeatId']],
                     'Reservation amount/seat mismatch')
             require(len(final['tickets'])==1 and bool(final['tickets'][0]['ticketCode']),'Confirmed ticket missing')
-            after=self.request('GET',f'/api/seats/schedules/{sid}',token=token)
-            require(not any(s['scheduleSeatId']==seat['scheduleSeatId'] and s['selectable'] for s in after['seats']),
-                    'Confirmed seat is still selectable')
+            self.wait_seat_unselectable(sid,seat['scheduleSeatId'],token)
             row.update(api_confirmed=True,api_final_status=final['status'],ticket_count=1)
         except Failure as e:
             row['error']=str(e)
@@ -247,6 +247,15 @@ class Scenario:
             self.durations.append(row['duration_ms']/1000);self.save()
         print(f'[{index+1}/{self.users}] '+('API PASS' if row['api_confirmed'] else 'FAIL')+
               f' reservation={row.get("reservation_id")} elapsed={row["duration_ms"]}ms',flush=True)
+
+    def wait_seat_unselectable(self,sid,seat_id,token):
+        deadline=time.monotonic()+SEAT_SNAPSHOT_WAIT_SECONDS
+        while True:
+            after=self.request('GET',f'/api/seats/schedules/{sid}',token=token)
+            if not any(s['scheduleSeatId']==seat_id and s['selectable'] for s in after['seats']):
+                return
+            require(time.monotonic()<deadline,'Confirmed seat is still selectable')
+            time.sleep(0.25)
 
     def verify(self):
         self.stage='financial-verification'
