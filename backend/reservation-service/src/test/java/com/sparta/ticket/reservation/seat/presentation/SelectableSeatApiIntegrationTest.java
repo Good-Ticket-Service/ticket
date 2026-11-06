@@ -1,11 +1,16 @@
 package com.sparta.ticket.reservation.seat.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
@@ -15,10 +20,12 @@ import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -209,6 +216,125 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
             for (Connection connection : held) {
                 connection.close();
             }
+        }
+    }
+
+    private String body(String path) throws Exception {
+        return mockMvc.perform(get(path, SCHEDULE))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("layout·status는 기존 조회와 같은 스냅샷이다: 좌석 순서가 같고, i번째 비트가 기존 조회 i번째 좌석의 selectable과 같다")
+    void layoutAndStatusMatchLegacy() throws Exception {
+        Long available = seat(SCHEDULE, true);
+        Long liveHold = seat(SCHEDULE, true);
+        Long expiredPaying = seat(SCHEDULE, true);
+        Long expiredAbandoned = seat(SCHEDULE, true);
+        Long sold = seat(SCHEDULE, true);
+        seat(SCHEDULE, false);
+        setHold(liveHold, 9001L, NOW.plusSeconds(1));
+        setHold(expiredPaying, paymentInProgressReservation(expiredPaying), NOW.minusMinutes(1));
+        setHold(expiredAbandoned, 9002L, NOW);
+        jdbcTemplate.update("UPDATE p_schedule_seats SET status = 'SOLD', reservation_id = 9003 WHERE id = ?", sold);
+
+        String legacy = body("/api/seats/schedules/{scheduleId}");
+        String layout = body("/api/seats/schedules/{scheduleId}/layout");
+        String status = body("/api/seats/schedules/{scheduleId}/status");
+
+        List<Integer> legacyIds = JsonPath.read(legacy, "$.data.seats[*].scheduleSeatId");
+        List<Integer> layoutIds = JsonPath.read(layout, "$.data.seats[*].scheduleSeatId");
+        List<Boolean> legacySelectable = JsonPath.read(legacy, "$.data.seats[*].selectable");
+        assertThat(layoutIds).isEqualTo(legacyIds).hasSize(6).first().isEqualTo(available.intValue());
+
+        byte[] bits = Base64.getDecoder().decode((String) JsonPath.read(status, "$.data.selectableBitmap"));
+        List<Boolean> decoded = new ArrayList<>();
+        for (int i = 0; i < legacySelectable.size(); i++) {
+            decoded.add(((bits[i >> 3] >> (i & 7)) & 1) == 1);
+        }
+        assertThat(decoded).isEqualTo(legacySelectable).containsExactly(true, false, false, true, false, false);
+
+        assertThat((Integer) JsonPath.read(status, "$.data.seatCount")).isEqualTo(6);
+        assertThat((Integer) JsonPath.read(layout, "$.data.configVersion")).isEqualTo(2);
+        assertThat((Integer) JsonPath.read(status, "$.data.configVersion")).isEqualTo(2);
+        assertThat((String) JsonPath.read(status, "$.data.asOf"))
+                .isEqualTo(JsonPath.read(legacy, "$.data.asOf"))
+                .isEqualTo("2026-11-01T20:00:00+09:00");
+        // layout에는 판정을 넣지 않고, 공연장 좌석 배치(P20)와 짝짓는 venueSeatId는 넣는다
+        assertThat((List<?>) JsonPath.read(layout, "$.data.seats[?(@.selectable)]"))
+                .isEmpty();
+        assertThat((Integer) JsonPath.read(layout, "$.data.seats[0].venueSeatId"))
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("layout은 ETag(configVersion)와 private·no-cache를 주고, 같은 ETag로 다시 오면 본문 없이 304다")
+    void layoutEtag() throws Exception {
+        seat(SCHEDULE, true);
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"2\""))
+                .andExpect(header().string("Cache-Control", containsString("private")))
+                .andExpect(header().string("Cache-Control", containsString("no-cache")));
+
+        for (String same : List.of("\"2\"", "W/\"2\"", "\"1\", \"2\"")) {
+            mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                            .header("If-None-Match", same))
+                    .andExpect(status().isNotModified())
+                    .andExpect(header().string("ETag", "\"2\""))
+                    .andExpect(header().string("Cache-Control", containsString("no-cache")))
+                    .andExpect(content().string(""));
+        }
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("If-None-Match", "\"1\""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.seats.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("좌석 준비로 configVersion이 바뀌면 이전 ETag로 와도 200과 새 ETag를 준다")
+    void layoutEtagChangesWithConfigVersion() throws Exception {
+        seat(SCHEDULE, true);
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
+                .andExpect(header().string("ETag", "\"2\""));
+
+        jdbcTemplate.update(
+                "UPDATE p_schedule_seats SET config_version = 3, base_price = 160000 WHERE schedule_id = ?", SCHEDULE);
+        ticker.advance(Duration.ofSeconds(1));
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("If-None-Match", "\"2\""))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"3\""))
+                .andExpect(jsonPath("$.data.configVersion").value(3))
+                .andExpect(jsonPath("$.data.seats[0].basePrice").value(160000));
+    }
+
+    @Test
+    @DisplayName("status는 Cache-Control no-store이고 ETag가 없다")
+    void statusNoStore() throws Exception {
+        seat(SCHEDULE, true);
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/status", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().doesNotExist("ETag"))
+                .andExpect(jsonPath("$.data.seatCount").value(1))
+                .andExpect(jsonPath("$.data.selectableBitmap").value("AQ=="));
+    }
+
+    @Test
+    @DisplayName("좌석이 없는 회차는 layout·status도 404 SEAT_NOT_FOUND다")
+    void layoutAndStatusNotFound() throws Exception {
+        for (String path : List.of("/layout", "/status")) {
+            mockMvc.perform(get("/api/seats/schedules/{scheduleId}" + path, 999L))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("SEAT_NOT_FOUND"));
         }
     }
 }

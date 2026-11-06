@@ -4,7 +4,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatProperties;
-import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
+import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.port.SelectableSeatCache;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
@@ -28,7 +28,7 @@ public class CaffeineSelectableSeatCache implements SelectableSeatCache {
      */
     static final long MAX_CACHED_SEATS = 150_000;
 
-    private final Cache<Long, SelectableSeatsResult> cache;
+    private final Cache<Long, SeatMapSnapshot> cache;
 
     @Autowired
     public CaffeineSelectableSeatCache(SelectableSeatProperties properties, Ticker ticker) {
@@ -42,13 +42,13 @@ public class CaffeineSelectableSeatCache implements SelectableSeatCache {
                 .executor(executor)
                 .expireAfterWrite(properties.cacheTtl())
                 .maximumWeight(MAX_CACHED_SEATS)
-                .<Long, SelectableSeatsResult>weigher(
-                        (scheduleId, snapshot) -> snapshot.seats().size())
+                // 비트맵은 좌석 8개당 1바이트(base64로 약 1.3바이트)라 좌석 1개 약 268B에 비해 무시한다
+                .<Long, SeatMapSnapshot>weigher((scheduleId, snapshot) -> snapshot.seatCount())
                 .build();
     }
 
     @Override
-    public SelectableSeatsResult getOrLoad(Long scheduleId, Supplier<SelectableSeatsResult> loader) {
+    public SeatMapSnapshot getOrLoad(Long scheduleId, Supplier<SeatMapSnapshot> loader) {
         return cache.get(scheduleId, id -> loader.get());
     }
 }
