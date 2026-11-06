@@ -61,7 +61,9 @@ $env:COMPOSE_PROFILES='observability'
 python infra/integration/compose.py up -d
 ```
 
-- 처음 켤 때 Maven Central에서 OpenTelemetry Java 에이전트와 Pyroscope 에이전트를 `script/integration/agents/`로 받고 SHA-256을 확인한다.
+- 처음 켤 때 Maven Central에서 OpenTelemetry Java 에이전트와 Pyroscope 에이전트를 `script/integration/agents/`로 받고 SHA-256을 확인한다. 받는 것은 `up`·`run`뿐이라 다운로드가 실패해도 `stop`·`ps`·`logs`는 된다.
+- 예약·결제 서비스에 JFR 기록(최근 30분·200MB, 스택 깊이 256)과 Hikari 누수 탐지(커넥션을 2초 넘게 쥐면 WARN과 스택)도 함께 켜진다. 기본 실행에서는 둘 다 꺼져 있어 이전 측정과 조건이 같다.
+- JFR은 컨테이너가 멈출 때 `script/integration/results/jfr/`에 저장된다. 다시 뜨면 같은 파일을 비우므로 멈춘 뒤 바로 다른 곳에 복사한다. 볼 때는 `jfr print --stack-depth 256`을 쓴다(기본 5단계).
 - 같은 터미널에서 시나리오를 실행한다. 이 변수가 없으면 k6가 수집기와 같은 CPU 7을 쓴다.
 - 프로필을 끄려면 변수를 지우고 `compose.py up -d`를 다시 실행한다. 앱이 에이전트 없이 다시 뜬다.
 - 수집기 컨테이너는 `python infra/integration/compose.py stop tempo loki alloy pyroscope`로 멈춘다.

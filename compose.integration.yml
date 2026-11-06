@@ -122,8 +122,9 @@ services:
       OTEL_SERVICE_NAME: reservation-service
       PYROSCOPE_APPLICATION_NAME: reservation-service
       QUEUE_ENABLED: "false"
-      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
-      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr"
+      # JFR과 누수 탐지는 observability 프로필에서만 compose.py가 켠다. 기본 실행의 측정 조건을 이전과 같게 둔다. 0은 누수 탐지 끔이다.
+      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: ${INTEGRATION_LEAK_DETECTION_MS:-0}
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2${INTEGRATION_JFR:+ -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr}"
     volumes:
       - ${INTEGRATION_RESULTS}/jfr:/jfr
       - *agents
@@ -137,8 +138,8 @@ services:
       SERVER_PORT: "8084"
       OTEL_SERVICE_NAME: payment-service
       PYROSCOPE_APPLICATION_NAME: payment-service
-      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: "2000"
-      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/payment.jfr"
+      SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: ${INTEGRATION_LEAK_DETECTION_MS:-0}
+      JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2${INTEGRATION_JFR:+ -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/payment.jfr}"
     volumes:
       - ${INTEGRATION_RESULTS}/jfr:/jfr
       - *agents
