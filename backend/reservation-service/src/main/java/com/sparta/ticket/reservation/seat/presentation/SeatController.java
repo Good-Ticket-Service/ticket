@@ -84,17 +84,13 @@ public class SeatController {
     public ResponseEntity<ApiResponse<SeatLayoutResponse>> getLayout(
             @PathVariable Long scheduleId, WebRequest request) {
         SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId);
-        String etag = "\"" + snapshot.configVersion() + "\"";
-        if (request.checkNotModified(etag)) {
+        // ETag 헤더는 checkNotModified가 200·304 모두 응답에 쓴다. ResponseEntity에 또 넣으면 304에서 두 줄이 된다
+        if (request.checkNotModified("\"" + snapshot.configVersion() + "\"")) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
-                    .eTag(etag)
                     .cacheControl(LAYOUT_CACHE)
                     .build();
         }
-        return ResponseEntity.ok()
-                .eTag(etag)
-                .cacheControl(LAYOUT_CACHE)
-                .body(ApiResponse.ok(SeatLayoutResponse.from(snapshot)));
+        return ResponseEntity.ok().cacheControl(LAYOUT_CACHE).body(ApiResponse.ok(SeatLayoutResponse.from(snapshot)));
     }
 
     /**

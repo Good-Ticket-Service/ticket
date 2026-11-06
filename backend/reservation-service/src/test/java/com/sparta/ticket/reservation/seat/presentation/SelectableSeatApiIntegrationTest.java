@@ -297,6 +297,23 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("layout의 ETag 헤더는 200과 304 모두 한 줄이다")
+    void layoutEtagHeaderOnce() throws Exception {
+        seat(SCHEDULE, true);
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(result ->
+                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("\"2\""));
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("If-None-Match", "\"2\""))
+                .andExpect(status().isNotModified())
+                .andExpect(result ->
+                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("\"2\""));
+    }
+
+    @Test
     @DisplayName("좌석 준비로 configVersion이 바뀌면 이전 ETag로 와도 200과 새 ETag를 준다")
     void layoutEtagChangesWithConfigVersion() throws Exception {
         seat(SCHEDULE, true);
