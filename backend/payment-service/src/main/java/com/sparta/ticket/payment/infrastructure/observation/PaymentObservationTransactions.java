@@ -23,15 +23,21 @@ public class PaymentObservationTransactions {
         jdbc.execute("SET LOCAL TIME ZONE 'Asia/Seoul'");
         jdbc.execute("SET LOCAL statement_timeout = '3s'");
         List<Sample> result = new ArrayList<>();
+        // Note: 15초마다 도는 조회라 끝난 결제(DONE·FAILED·CANCELED)까지 세면 결제 수에 비례해 전체 스캔이 된다.
+        // 미확정 상태만 세고, 상태마다 따로 조건을 써야 각 상태의 부분 인덱스(ready_expires·in_progress_next_attempt)를 탄다.
         jdbc.query("""
-                SELECT pg_provider, status, count(*) AS count
-                FROM p_payments WHERE deleted_at IS NULL GROUP BY pg_provider, status
+                SELECT pg_provider, 'READY', count(*) FROM p_payments
+                WHERE deleted_at IS NULL AND status = 'READY' GROUP BY pg_provider
+                UNION ALL
+                SELECT pg_provider, 'IN_PROGRESS', count(*) FROM p_payments
+                WHERE deleted_at IS NULL AND status = 'IN_PROGRESS' GROUP BY pg_provider
                 """, rs -> {
             result.add(new Sample(
-                    "payment.db.payments",
+                    "payment.db.payments.unfinished",
                     List.of("provider", rs.getString(1), "status", rs.getString(2)),
                     rs.getDouble(3)));
         });
+        // Note: 끝나지 않은 환불만 부분 인덱스(ix_p_refunds_unfinished)로 읽는다. 아래 제한 환불 조회도 같은 인덱스를 쓴다.
         jdbc.query("""
                 SELECT p.pg_provider, r.status, r.recovery_mode, r.reason,
                   count(*) AS count, sum(r.refund_amount::bigint) AS amount,
@@ -76,9 +82,12 @@ public class PaymentObservationTransactions {
             result.add(new Sample("payment.db.jobs.due", tags, rs.getDouble(2)));
             result.add(new Sample("payment.db.jobs.oldest.due.age.seconds", tags, rs.getDouble(3)));
         });
+        // Note: next_reconcile_at이 있으면 승인 요청 시각도 있다(ck_p_payments_reconcile_state). 조건을 명시해야 부분 인덱스
+        // ix_p_payments_reconcile을 쓰고, 빠지면 결제 전체를 스캔한다.
         jdbc.query("""
                 SELECT count(*), coalesce(greatest(0, extract(epoch FROM (localtimestamp - min(reconcile_unknown_since)))),0)
-                FROM p_payments WHERE deleted_at IS NULL AND status='FAILED' AND next_reconcile_at IS NOT NULL AND reconcile_unknown_since IS NOT NULL
+                FROM p_payments WHERE deleted_at IS NULL AND status='FAILED' AND approve_requested_at IS NOT NULL
+                  AND next_reconcile_at IS NOT NULL AND reconcile_unknown_since IS NOT NULL
                 """, rs -> {
             result.add(new Sample("payment.db.reconcile.unknown", List.of(), rs.getDouble(1)));
             result.add(new Sample("payment.db.reconcile.oldest.unknown.age.seconds", List.of(), rs.getDouble(2)));
@@ -158,11 +167,12 @@ public class PaymentObservationTransactions {
                     "settlement.db.payouts.failed", List.of("failure_code", rs.getString(1)), rs.getDouble(2)));
         });
         // 실행 시각이 지났는데 처리하지 않은 정산 작업. 발행은 정산 가능일 04:00에 도는 일 1회 잡이라 그 시각부터 센다
+        // Note: eligible_at에 계산을 붙이면 인덱스 범위 검색이 안 돼 PENDING 부분 인덱스 전체를 읽는다. 비교 쪽에서 4시간을 뺀다.
         jdbc.query("""
                 SELECT 'statement', count(*),
                   coalesce(greatest(0, extract(epoch FROM (localtimestamp - min(eligible_at + interval '4 hours')))), 0)
                 FROM p_settlement_items WHERE kind = 'SALE' AND status = 'PENDING'
-                  AND eligible_at + interval '4 hours' <= localtimestamp
+                  AND eligible_at <= localtimestamp - interval '4 hours'
                 UNION ALL
                 SELECT 'payout', count(*), coalesce(greatest(0, extract(epoch FROM (localtimestamp - min(next_attempt_at)))), 0)
                 FROM p_payouts WHERE status = 'READY' AND next_attempt_at <= localtimestamp
@@ -175,6 +185,7 @@ public class PaymentObservationTransactions {
             result.add(new Sample("settlement.db.jobs.due", tags, rs.getDouble(2)));
             result.add(new Sample("settlement.db.jobs.oldest.due.age.seconds", tags, rs.getDouble(3)));
         });
+        // Note: UNPOSTED·HELD는 드문 상태라 부분 인덱스(ix_p_settlement_items_unposted_sale·held_sale)로 해당 행만 읽는다.
         jdbc.query("""
                 SELECT count(*) FROM p_settlement_items WHERE kind = 'SALE' AND status = 'UNPOSTED'
                 """, rs -> {

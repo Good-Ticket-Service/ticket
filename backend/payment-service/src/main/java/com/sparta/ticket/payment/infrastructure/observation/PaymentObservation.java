@@ -49,8 +49,9 @@ public class PaymentObservation {
         for (String provider : List.of("TOSS", "KAKAO")) {
             for (String cause : List.of("inconsistent", "verification", "declined", "other"))
                 register(new Key("payment.db.refunds.restricted", List.of("provider", provider, "cause", cause)));
-            for (String status : List.of("READY", "IN_PROGRESS", "DONE", "FAILED", "CANCELED")) {
-                register(new Key("payment.db.payments", List.of("provider", provider, "status", status)));
+            // Note: 끝난 결제 수는 DB에서 매번 세지 않는다(전체 스캔). 처리 추이는 요청·잡 지표로 본다.
+            for (String status : List.of("READY", "IN_PROGRESS")) {
+                register(new Key("payment.db.payments.unfinished", List.of("provider", provider, "status", status)));
             }
             for (String status : List.of("WAITING", "REQUESTED", "FAILED")) {
                 for (String mode : List.of("ACTIVE", "SLOW", "VERIFY_ONLY", "PAUSED")) {
