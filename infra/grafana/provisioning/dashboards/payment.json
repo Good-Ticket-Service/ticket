@@ -206,7 +206,7 @@
     },
     {
       "id": 7,
-      "title": "현재 결제 상태 · DB 전체 중복 제거",
+      "title": "미확정 결제 · DB 중복 제거",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -221,7 +221,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(status) (max by (provider,status) (payment_db_payments{application=\"$application\"} and on(instance) (time() - payment_observation_last_success_timestamp_seconds{application=\"$application\"} < 45)))"
+          "expr": "sum by(status) (max by (provider,status) (payment_db_payments_unfinished{application=\"$application\"} and on(instance) (time() - payment_observation_last_success_timestamp_seconds{application=\"$application\"} < 45)))"
         }
       ],
       "fieldConfig": {
@@ -236,7 +236,7 @@
           "placement": "bottom"
         }
       },
-      "description": "인스턴스별 DB 전체 상태를 max로 중복 제거한다. 서로 다른 시점의 보수적 근사이므로 금융 검산은 DB를 기준으로 한다."
+      "description": "READY·IN_PROGRESS 결제 수를 인스턴스별 max로 중복 제거한다. 끝난 결제(DONE·FAILED·CANCELED)는 DB 전체 스캔이 되므로 세지 않는다. 서로 다른 시점의 보수적 근사이므로 금융 검산은 DB를 기준으로 한다."
     },
     {
       "id": 8,
