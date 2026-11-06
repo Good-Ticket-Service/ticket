@@ -2,6 +2,7 @@
 
 python infra/integration/scenario2.py --rate 25 --duration 60
 rate는 초당 시작하는 사용자 여정 수다. 단계마다 새 회차/계정을 준비한다.
+--seat-api split은 좌석 조회를 layout 1번 + status 조회로 바꾼다(#271). 기본 legacy는 기존 좌석 조회를 쓴다.
 """
 import argparse
 from datetime import datetime
@@ -42,6 +43,8 @@ class MixedScenario(Scenario):
             'seat_count':args.seats,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
             'think_seconds':[.3,1.0],'seat_reads_per_viewer':[3,5],
             'booking_seat_selection':'disjoint assigned seats; no intentional seat competition',
+            # scenario3·4는 이 옵션이 없을 수 있어 legacy로 둔다
+            'seat_api':getattr(args,'seat_api','legacy'),
             'authentication':('browse anonymous; authenticated accounts login in k6 setup; tokens reused during measurement'
                 if scenario in (2,3) else 'login per authenticated journey')},
             limitations=['One popular schedule; TOSS only; no coupon',
@@ -79,7 +82,8 @@ class MixedScenario(Scenario):
         buyers=[{'email':email,'user_id':uid,'schedule_seat_id':available[i]} for i,(email,uid) in enumerate(buyer_accounts)]
         meta={'run_id':self.run_id,'rate':self.args.rate,'duration':self.args.duration,'warmup':self.args.warmup,
               'vus':self.args.vus,'max_vus':self.args.max_vus,'password':PASSWORD,'prelogin':self.report['scenario'] in (2,3),
-              'performance_id':self.report['fixtures']['performance_id'],'schedule_id':sid}
+              'performance_id':self.report['fixtures']['performance_id'],'schedule_id':sid,
+              'seat_api':self.report['workload']['seat_api']}
         # 공개 로컬 시험 비밀번호와 시험 ID만 저장. JWT/PG 인증값은 k6 메모리에만 둔다.
         (self.out/'input.json').write_text(json.dumps({'meta':meta,'buyers':buyers,'viewers':viewers}),encoding='utf-8')
         self.report['prepared_at']=datetime.now(KST).isoformat();self.save()
@@ -278,6 +282,8 @@ if __name__=='__main__':
     p.add_argument('--viewers',type=int,default=50,help='fixed account pool for seat-only visitors')
     p.add_argument('--vus',type=int,help='default max(200, rate*6), split 70/20/10')
     p.add_argument('--max-vus',type=int,help='default max(1000, vus, rate*7)')
+    p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
+                   help='legacy: GET seats map; split: layout once per journey + status reads (#271)')
     a=p.parse_args()
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)

@@ -216,6 +216,8 @@ if __name__=='__main__':
     p.add_argument('--max-vus',type=int)
     p.add_argument('--probe-vus',type=int,default=20)
     p.add_argument('--probe-max-vus',type=int,default=100)
+    p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
+                   help='same as scenario2: legacy GET seats map or split layout + status (#271)')
     a=p.parse_args()
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)

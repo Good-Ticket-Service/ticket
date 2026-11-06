@@ -3,6 +3,7 @@ import http from 'k6/http';
 import {sleep} from 'k6';
 import exec from 'k6/execution';
 import {SharedArray} from 'k6/data';
+import encoding from 'k6/encoding';
 import {Counter, Rate, Trend} from 'k6/metrics';
 
 const inputPath = __ENV.S2_INPUT;
@@ -26,6 +27,10 @@ const bookingDuration = new Trend('booking_completion_duration', true);
 const measuredHttp = new Trend('measured_http_duration', true);
 const profileDurations = {browse:new Trend('browse_duration',true),seat:new Trend('seat_duration',true),booking:new Trend('booking_journey_duration',true)};
 const reads = new Counter('seat_reads');
+// split 모드에서 여정마다 받는 layout 수. 좌석 상태 조회(seat_reads)와 따로 센다
+const layoutReads = new Counter('seat_layout_reads');
+// legacy: 기존 좌석 조회(GET /api/seats/schedules/{id}). split: layout 1번 + status 조회(#271). input.json에 없으면 legacy
+const seatApi = meta.seat_api||'legacy';
 const failures = new Counter('journey_failures');
 const probeStarted = new Counter('probe_started');
 const probeConfirmed = new Counter('probe_confirmed');
@@ -125,6 +130,24 @@ function listing(token,t) {
   if (detail.id!==fixture.performance_id) throw new Error('PERFORMANCE_MISMATCH');
   get('/api/performances/'+fixture.performance_id+'/schedules','GET /api/performances/{id}/schedules',token,t);
 }
+// split 모드 좌석 API(#271). layout은 여정마다 1번 받는다. 여정마다 새 사용자라 VU 단위로 재사용하면 서로 다른 사용자가
+// layout을 함께 쓰는 셈이 되어 결과가 실제보다 좋게 나온다.
+function seatLayout(scheduleId,token,t) {
+  const layout=get('/api/seats/schedules/'+scheduleId+'/layout','GET /api/seats/schedules/{id}/layout',token,t);
+  if (layout.scheduleId!==scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
+  layoutReads.add(1,t);
+  return layout;
+}
+// status는 layout과 같은 구성 버전·좌석 수여야 비트 위치가 맞는다. 측정 중에는 좌석 준비가 없으므로 다르면 오류로 본다
+function seatStatus(layout,token,t) {
+  const status=get('/api/seats/schedules/'+layout.scheduleId+'/status','GET /api/seats/schedules/{id}/status',token,t);
+  if (status.scheduleId!==layout.scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
+  if (status.configVersion!==layout.configVersion||status.seatCount!==layout.seats.length)
+    throw new Error('SEAT_LAYOUT_STATUS_MISMATCH');
+  return new Uint8Array(encoding.b64decode(status.selectableBitmap,'std'));
+}
+// i번째 좌석 = (i/8)번째 바이트의 (i%8)번째 비트(가장 낮은 비트부터). docs/api.md 좌석 절
+function selectableAt(bits,i) {return ((bits[i>>3]>>(i&7))&1)===1;}
 function begin(kind,t) {
   if (t.phase==='measure' && exec.scenario.iterationInTest===0)
     console.log('S2_WINDOW '+JSON.stringify({scenario:exec.scenario.name,start:exec.scenario.startTime/1000,end:exec.scenario.startTime/1000+meta.duration}));
@@ -152,9 +175,14 @@ export function seat(data) {
     const account=viewers[index];
     const token=journeyToken(account,t,data,'viewers',index);listing(token,t);
     const repeat=3+(exec.scenario.iterationInTest%3);
+    const layout=seatApi==='split'?seatLayout(meta.schedule_id,token,t):null;
     for (let i=0;i<repeat;i++) {
-      const seats=get('/api/seats/schedules/'+meta.schedule_id,'GET /api/seats/schedules/{id}',token,t);
-      if (seats.scheduleId!==meta.schedule_id) throw new Error('SEAT_SCHEDULE_MISMATCH');
+      if (layout) {
+        seatStatus(layout,token,t);
+      } else {
+        const seats=get('/api/seats/schedules/'+meta.schedule_id,'GET /api/seats/schedules/{id}',token,t);
+        if (seats.scheduleId!==meta.schedule_id) throw new Error('SEAT_SCHEDULE_MISMATCH');
+      }
       reads.add(1,t);think();
     }
     ok=true;
@@ -173,10 +201,19 @@ export function booking(data) {
     const token=journeyToken(account,t,data,group,exec.scenario.iterationInTest);
     evidence.stage='browse';listing(token,t);think();
     evidence.stage='seat_query';
-    const seats=get('/api/seats/schedules/'+fixture.schedule_id,'GET /api/seats/schedules/{id}',token,t);
-    reads.add(1,t);
-    const target=seats.seats.find(s=>s.scheduleSeatId===account.schedule_seat_id);
-    if (!target||!target.selectable) throw new Error('ASSIGNED_SEAT_NOT_SELECTABLE');
+    // 두 모드 모두 배정 좌석을 선점한다. 좌석 선택 방식이 같아야 legacy와 split을 비교할 수 있고, 금융 검증도 배정 좌석을 전제로 한다
+    if (seatApi==='split') {
+      const layout=seatLayout(fixture.schedule_id,token,t);
+      const bits=seatStatus(layout,token,t);
+      reads.add(1,t);
+      const index=layout.seats.findIndex(s=>s.scheduleSeatId===account.schedule_seat_id);
+      if (index<0||!selectableAt(bits,index)) throw new Error('ASSIGNED_SEAT_NOT_SELECTABLE');
+    } else {
+      const seats=get('/api/seats/schedules/'+fixture.schedule_id,'GET /api/seats/schedules/{id}',token,t);
+      reads.add(1,t);
+      const target=seats.seats.find(s=>s.scheduleSeatId===account.schedule_seat_id);
+      if (!target||!target.selectable) throw new Error('ASSIGNED_SEAT_NOT_SELECTABLE');
+    }
     evidence.stage='hold';
     const hold=request('POST','/api/seats/schedules/'+fixture.schedule_id+'/holds','POST /api/seats/schedules/{id}/holds',
       {scheduleSeatId:account.schedule_seat_id},token,t);
