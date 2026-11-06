@@ -7,6 +7,7 @@
 - Git, Python 3, Docker Compose를 사용할 수 있는 Docker Desktop(Linux containers)이 필요하다. 애플리케이션은 Docker 안에서 JDK 17로 빌드한다.
 - 아래 명령은 Windows PowerShell 기준이다. 수집기의 Windows 메모리·paging 항목도 Windows 기준이다. 다른 OS에서는 해당 항목이 누락될 수 있으므로 수집 성공 지표를 확인한다.
 - 기본 CPU 배치는 Docker VM의 논리 CPU 0~7을 사용한다. 8개 미만이면 `compose-inputs.example`의 `INTEGRATION_*_CPUS`를 실제 CPU 번호에 맞게 바꾼다. 동일 묶음 서비스가 CPU를 공유한다. 별도의 CPU quota는 없다.
+- 응답이 큰 시험(예: 3000석 legacy)은 k6 2코어가 병목이 될 수 있다. Docker CPU가 10개 이상이면 `INTEGRATION_LOAD_CPUS=6-9`로 올려서 측정한다. 결과의 `resources.k6.cpuset`으로 측정 때 k6 코어를 확인하고, 코어 수가 다른 결과끼리 직접 비교하지 않는다.
 - 컨테이너 메모리 상한 합계는 k6 포함 약 16.34GiB다(Kafka UI 제외). 이것은 예약량이 아니다. VM·OS·빌드·페이지 캐시 여유도 필요하다. swap·OOM·발생기 자원 부족이 생기면 해당 부하 결과를 서버 용량으로 해석하지 않는다.
 - 기존 단독 부하 시험은 중단한 상태에서 진행한다. 프로젝트 이름은 `ticket-integration`이며 시험용 DB·볼륨을 사용한다.
 - `compose-inputs.example`은 공개된 로컬 시험용 값이다. 운영 환경이나 외부에 노출된 서버에 사용하지 않는다. 실제 `.env`는 읽지 않는다.

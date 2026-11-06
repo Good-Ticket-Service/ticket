@@ -113,7 +113,8 @@ class Scenario:
 
     def preflight(self):
         # 변경 작업 전에 Compose 대상과 DB 접근, 양쪽 큐 설정을 확인한다.
-        p=subprocess.run(self.cmd+['config','--format','json'],env=self.env,capture_output=True,text=True,timeout=20)
+        # k6는 load 프로필이라 프로필을 지정해야 resources에 cpuset·mem_limit가 함께 기록된다
+        p=subprocess.run(self.cmd+['--profile','load','config','--format','json'],env=self.env,capture_output=True,text=True,timeout=20)
         require(p.returncode==0,'Compose configuration failed')
         config=json.loads(p.stdout)
         for service in ('gateway-service','reservation-service'):
