@@ -239,8 +239,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
 | name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
 | discount_amount | INT | NOT NULL; 정액 할인액(원). 발급 시작 후 변경 불가 |
-| total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 issued_quantity 이상으로 변경 가능 |
-| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급된 수량. 선착순 발급의 조건부 UPDATE로만 올림 |
+| total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 받은 회원 수 이상으로 변경 가능 |
+| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급 수량 참고값. 발급 때 올리지 않고 주기적으로 p_user_coupons 수로 갱신해 늦을 수 있다. 판단·응답에 쓰지 않으며 정확한 발급 수는 p_user_coupons 수다(#300) |
 | issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
 | issue_end_at | TIMESTAMP | NOT NULL; 발급 종료 시각. 발급 중단 시 현재 시각으로 당김 |
 | valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가 |
@@ -754,7 +754,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | SeatState | AVAILABLE,HOLD,SOLD |
 | ReservationState(facade) / ReservationStatus(domain) | HOLD/PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/EXPIRED/RELEASED/CANCELED. CANCELING은 활성 UNIQUE와 countActiveSeats 집계에 든다(#126). PAYMENT_IN_PROGRESS→CANCELED는 확정하지 못한 결제의 환불이 접수됐을 때만 바뀐다(#155) |
 | Coupon.issueStatus(비저장) | now<start:UPCOMING;start<=now<end:ISSUING;그 밖 ENDED. 수량0이어도 ISSUING 가능 |
-| Coupon.remainingQuantity(비저장) | total_quantity-issued_quantity |
+| Coupon.remainingQuantity(비저장) | total_quantity-받은 회원 수(Redis coupon:{id}:users 수, 없으면 p_user_coupons 수). 0 미만은 0 |
 | UserCoupon.status | AVAILABLE,RESERVED,USED,EXPIRED |
 | PG provider / payment / refund | 현행 각 테이블 CHECK 참조. NOT_REQUIRED는 응답 전용, 환불 행 없음 |
 | Fake Toss / Kakao status | READY,DONE,CANCELED,PARTIAL_CANCELED,ABORTED,EXPIRED / READY,AUTH_PASSWORD,SUCCESS_PAYMENT,CANCEL_PAYMENT,PART_CANCEL_PAYMENT,FAIL_PAYMENT,QUIT_PAYMENT. 부분 취소는 관리 API의 외부 취소로만 생긴다 |

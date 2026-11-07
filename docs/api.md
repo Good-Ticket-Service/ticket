@@ -492,34 +492,34 @@
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | POST /api/coupons | MASTER | 201 | CouponInput | Coupon | 400 VALIDATION_ERROR |
-| PATCH /api/coupons/{couponId} | MASTER | 200 | CouponInput의 변경 필드만[1개 이상] | Coupon | 400 VALIDATION_ERROR;404 COUPON_NOT_FOUND;409 COUPON_NOT_MODIFIABLE/COUPON_QUANTITY_BELOW_ISSUED/COUPON_ALREADY_CLOSED |
+| PATCH /api/coupons/{couponId} | MASTER | 200 | CouponInput의 변경 필드만[1개 이상] | Coupon | 400 VALIDATION_ERROR;404 COUPON_NOT_FOUND;409 COUPON_NOT_MODIFIABLE/COUPON_QUANTITY_BELOW_ISSUED/COUPON_ALREADY_CLOSED;503 SERVICE_UNAVAILABLE |
 | POST /api/coupons/{couponId}/close | MASTER | 200 | 없음 | Coupon(issueStatus=ENDED) | 404 COUPON_NOT_FOUND;409 COUPON_ALREADY_CLOSED |
-| DELETE /api/coupons/{couponId} | MASTER | 204 | 없음 | 없음 | 404 COUPON_NOT_FOUND;409 COUPON_NOT_DELETABLE |
+| DELETE /api/coupons/{couponId} | MASTER | 204 | 없음 | 없음 | 404 COUPON_NOT_FOUND;409 COUPON_NOT_DELETABLE;503 SERVICE_UNAVAILABLE |
 | GET /api/coupons | 로그인 | 200 | Q issueStatus?:string=ISSUING,page?,size?,sort?:string=createdAt,DESC(createdAt/issueStartAt/issueEndAt,ASC/DESC) | PageC<CouponDetail> | 400 VALIDATION_ERROR |
 | GET /api/coupons/{couponId} | 로그인 | 200 | 없음 | CouponDetail | 404 COUPON_NOT_FOUND |
-| POST /api/coupons/{couponId}/issue | USER | 201 | 없음 | UserCoupon(usedAt 제외,status=AVAILABLE) | 400 COUPON_ISSUE_PERIOD_CLOSED;404 COUPON_NOT_FOUND;409 COUPON_SOLD_OUT/COUPON_ALREADY_ISSUED |
+| POST /api/coupons/{couponId}/issue | USER | 201 | 없음 | UserCoupon(usedAt 제외,status=AVAILABLE) | 400 COUPON_ISSUE_PERIOD_CLOSED;404 COUPON_NOT_FOUND;409 COUPON_SOLD_OUT/COUPON_ALREADY_ISSUED;503 SERVICE_UNAVAILABLE |
 | GET /api/coupons/me | 로그인 | 200 | Q status?:string,page?,size?,sort?:string=createdAt,DESC(createdAt/expiresAt,ASC/DESC) | PageC<UserCoupon> | 400 VALIDATION_ERROR |
 
 - CouponInput = `{name:string(1~100),discountAmount:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`.
 - issueStartAt이 현재보다 앞이면 현재 시각으로 저장하고 응답에도 그 값을 돌려준다(생성, 시작 전 쿠폰 수정). 과거 시작은 "지금 시작"과 같게 동작하므로 저장값을 실제로 발급이 열린 시각에 맞춘다. 거절하지 않는 것은 "지금"을 보내도 서버에 닿으면 이미 과거이기 때문이다.
 - 수정은 바꿀 항목을 1개 이상 보내야 한다. 빈 본문 `{}`, 모두 null, 모르는 필드만 보낸 요청은 400 VALIDATION_ERROR다. 지금 값과 같은 값을 보낸 것은 바꿀 항목으로 센다.
-- Coupon = `{couponId:long,name:string,discountAmount:int,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`.
+- Coupon = `{couponId:long,name:string,discountAmount:int,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
 - CouponDetail = Coupon + `{issuedByMe:boolean}`. issuedByMe는 요청한 사용자가 이 쿠폰을 이미 받았는지이며, 사용·만료와 관계없이 받은 적이 있으면 true다. 받을 수 없는 SELLER·MASTER는 false다.
 - UserCoupon = `{userCouponId:long,couponId:long,name:string,discountAmount:int,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
-- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=issuedQuantity). 삭제는 issuedQuantity=0일 때만. 발급은 1인 1장.
+- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=받은 회원 수). 삭제는 받은 회원이 없을 때만. 발급은 1인 1장.
 - 발급이 끝난(ENDED) 쿠폰은 name만 바꿀 수 있다. issueEndAt·totalQuantity를 다른 값으로 바꾸면 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고, 총 수량은 더 발급하지 않아 남은 수량 숫자만 달라지기 때문이다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있다. 다시 발급하려면 새 쿠폰을 만든다.
 - 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
 - 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
-- 발급 기간은 요청 시각으로 판단한다. 관리자가 발급을 중단하는 동안 먼저 도착해 기다리던 요청은 중단 뒤에도 발급될 수 있다.
+- 발급 기간은 요청 시각과 그때 저장된 기간으로 판단한다. 발급 중단이 저장되기 직전에 도착한 요청은 중단 뒤에도 발급될 수 있다.
+- 받았는지·남았는지는 Redis에서 판단해 초과 발급과 중복 발급을 막는다(#300). Redis를 쓸 수 없으면 발급·총 수량 변경·삭제는 503 SERVICE_UNAVAILABLE이고, 목록·상세의 remainingQuantity는 DB 회원 쿠폰 수로 계산한다.
 - 내 쿠폰은 요청한 사용자 본인의 쿠폰만 보여 주고, status를 보내지 않으면 전부다. 받은 쿠폰이 없는 SELLER·MASTER는 빈 목록이다.
 
 - 모든 쿠폰 API는 토큰이 없거나 유효하지 않으면 401 UNAUTHORIZED다. (원본 복원: coupon/api.md:90,125,145,178,202,219,246,283, 담당 확인 필요)
 - MASTER 전용 API(생성·수정·발급 중단·삭제)는 MASTER가 아니면 403 FORBIDDEN이다. (원본 복원: coupon/api.md:91,126,146,179, 담당 확인 필요)
 - 발급은 @RequireRole(Role.USER)이고 역할이 정확히 같은지만 보므로 MASTER·SELLER는 403 FORBIDDEN이다. (원본 복원: coupon/api.md:25,247, 담당 확인 필요)
-- 발급 수량은 조건부 UPDATE로 issued_quantity를 올려 초과 발급을 막는다. (원본 복원: coupon/api.md:228, coupon/tables.md:67, 담당 확인 필요)
-- 같은 회원의 중복 발급은 uk_p_user_coupons_user_coupon 위반으로 막고 409 COUPON_ALREADY_ISSUED로 응답한다. (원본 복원: coupon/api.md:228, coupon/tables.md:118, 담당 확인 필요)
+- 같은 회원의 중복 발급은 Redis 판단이 먼저 막고, uk_p_user_coupons_user_coupon 위반이 마지막으로 막는다. 둘 다 409 COUPON_ALREADY_ISSUED로 응답한다. (#300)
 - 삭제는 행을 지우지 않고 deleted_at·deleted_by를 기록하는 논리 삭제다. 삭제된 쿠폰은 모든 조회와 발급에서 빠진다. (원본 복원: coupon/api.md:156, 담당 확인 필요)
-- 삭제는 수정·발급 중단과 같이 쿠폰 행을 잠그고 읽은 뒤 판단한다. 삭제와 첫 발급이 동시에 오면 하나만 성공한다. 삭제가 먼저면 발급은 404, 발급이 먼저면 삭제는 409다. (#197)
+- 삭제는 받은 회원이 없는지를 발급과 같은 Redis 판단에서 확인한다. 삭제와 첫 발급이 동시에 오면 하나만 성공한다. 삭제가 먼저면 발급은 404, 발급이 먼저면 삭제는 409다. (#197, #300)
 - 발급 상태와 상관없이 발급 수량이 0이면 지울 수 있고, 1 이상이면 409 COUPON_NOT_DELETABLE이다. 없거나 이미 삭제된 쿠폰은 404 COUPON_NOT_FOUND다. 삭제도 행의 변경이라 updated_at·updated_by를 함께 남긴다. (#197)
 - 내 쿠폰 조회는 유효 기간이 지났지만 만료 배치가 아직 처리하지 않은 쿠폰을 EXPIRED로 보여 주고 AVAILABLE 조회에서 뺀다. (원본 복원: coupon/api.md:258, 담당 확인 필요)
 
