@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.coupon.domain;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,12 @@ public interface UserCouponRepository {
 
     /** 주어진 쿠폰들 가운데 이 회원이 받은 쿠폰의 ID. 쿠폰 목록의 issuedByMe를 한 번의 조회로 채울 때 쓴다. */
     Set<Long> findIssuedCouponIds(Long userId, Collection<Long> couponIds);
+
+    /** 이 쿠폰을 받은 회원 ID 전부. 발급 판단용 Redis 회원 목록을 DB 기준으로 다시 채울 때 쓴다. */
+    List<Long> findUserIdsByCouponId(Long couponId);
+
+    /** 쿠폰별 회원 쿠폰 수(정확한 발급 수). Redis 정보가 없을 때 남은 수량을 셀 때 쓴다. 받은 회원이 없는 쿠폰은 결과에 없다. */
+    Map<Long, Integer> countByCouponIds(Collection<Long> couponIds);
 
     /**
      * 회원의 쿠폰 목록. status가 null이면 전부다.

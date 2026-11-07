@@ -7,8 +7,10 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +64,24 @@ public class UserCouponRepositoryAdapter implements UserCouponRepository {
             return 0;
         }
         return jpaRepository.expire(userCouponIds, now, updatedBy);
+    }
+
+    @Override
+    public List<Long> findUserIdsByCouponId(Long couponId) {
+        return jpaRepository.findUserIdsByCouponId(couponId);
+    }
+
+    @Override
+    public Map<Long, Integer> countByCouponIds(Collection<Long> couponIds) {
+        // 빈 목록으로 IN 쿼리를 만들지 않는다
+        if (couponIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Integer> counts = new HashMap<>();
+        for (Object[] row : jpaRepository.countByCouponIds(couponIds)) {
+            counts.put((Long) row[0], ((Number) row[1]).intValue());
+        }
+        return counts;
     }
 
     @Override
