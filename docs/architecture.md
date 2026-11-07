@@ -167,7 +167,7 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 |---|---|
 | Eureka·Config Server | 서비스 등록/발견·외부 설정. fake-pg 제외 |
 | PostgreSQL | 단일 인스턴스에 전용 스키마/계정. 물리 장애·자원은 공유 |
-| Redis | 대기열·입장 토큰·캐시. 키/TTL 세부는 해당 계약 |
+| Redis | 대기열·입장 토큰·캐시·쿠폰 발급 판단. 키/TTL 세부는 해당 계약 |
 | Kafka |6절 고도화 명령·결과. 단일 브로커는 고가용성 아님 |
 | Prometheus·Grafana | HTTP·JVM·DB 풀·PG 지연·미완료 거래, 고도화 후 lag/DB 작업 대기 |
 
