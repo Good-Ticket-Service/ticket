@@ -6,7 +6,23 @@ final class QueueKeys {
     /** 대기열이 있는 공연 목록(Set). */
     static final String PERFORMANCES = "queue:performances";
 
+    /** 끝나지 않은 room 목록(Hash). 필드는 roomId, 값은 closeAt(ms)이다. 필드마다 closeAt에 만료되므로(Redis 7.4 HPEXPIREAT) 지우는 코드가 없다. */
+    static final String ACTIVE_ROOMS = "queue:active-rooms";
+
+    /** roomId 발급 카운터(INCR). 만료를 걸지 않는다. 지우면 번호가 1부터 다시 시작한다. */
+    static final String ROOM_SEQ = "queue:room-seq";
+
     private QueueKeys() {}
+
+    /** room 설정(Hash). scopes·openAt·closeAt을 담고, closeAt + 입장 유효 시간에 만료된다. */
+    static String roomConfig(long roomId) {
+        return "queue:room:" + roomId + ":config";
+    }
+
+    /** scope를 쓰는 room(String, 값은 roomId). closeAt에 만료되므로 키가 있으면 끝나지 않은 room이 그 scope를 쓰는 중이다. */
+    static String scope(String scope) {
+        return "queue:scope:" + scope;
+    }
 
     /** 대기 줄(Sorted Set). member는 회원 ID, score는 발급 번호다. */
     static String waiting(long performanceId) {

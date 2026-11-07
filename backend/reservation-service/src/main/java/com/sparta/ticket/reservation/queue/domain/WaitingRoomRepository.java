@@ -20,9 +20,12 @@ public interface WaitingRoomRepository {
 
     Optional<WaitingRoom> findById(long roomId);
 
-    /** scope로 끝나지 않은 room을 찾는다. 프런트가 회차 화면에서 대기열 유무와 roomId를 알 때 쓴다. */
-    Optional<WaitingRoom> findByScope(String scope, Instant now);
+    /**
+     * scope로 끝나지 않은 room을 찾는다. 프런트가 회차 화면에서 대기열 유무와 roomId를 알 때 쓴다.
+     * scope 연결은 closeAt에 사라지므로 끝난 room은 나오지 않는다. findById는 끝난 room도 돌려준다(409 CLOSED와 404를 나누려고).
+     */
+    Optional<WaitingRoom> findByScope(String scope);
 
-    /** 끝나지 않은 room 전부(오픈 전 포함). 입장 스케줄러와 Gateway의 보호 대상 목록이 쓴다. */
-    List<WaitingRoom> findActive(Instant now);
+    /** 끝나지 않은 room 전부(오픈 전 포함). 입장 스케줄러와 Gateway의 보호 대상 목록이 쓴다. 목록 항목은 closeAt에 저절로 사라진다. */
+    List<WaitingRoom> findActive();
 }
