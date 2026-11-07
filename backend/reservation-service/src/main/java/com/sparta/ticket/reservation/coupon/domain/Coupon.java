@@ -42,9 +42,10 @@ public class Coupon extends BaseEntity {
     private int totalQuantity;
 
     /**
-     * 선착순 발급의 조건부 UPDATE로만 올린다. Entity는 값을 바꾸지 않는다.
-     * Note: JPA는 변경 감지로 UPDATE할 때 모든 컬럼을 다시 쓴다. 관리자가 쿠폰을 수정하는 사이 발급이 이 값을 올리면,
-     * 수정 트랜잭션이 읽어 둔 옛 값으로 덮어써 발급 수량이 줄어든다. updatable = false로 Entity의 UPDATE에서 이 컬럼을 뺀다.
+     * 발급 수량의 참고값. 발급할 때 올리지 않고, 맞추는 작업이 주기적으로 회원 쿠폰 수로 갱신한다(#300, 갱신은 후속 이슈).
+     * 그래서 늦은 값일 수 있어 판단·응답에 쓰지 않는다. 정확한 발급 수는 회원 쿠폰 수이고, 발급 판단은 Redis 받은 회원 수로 한다.
+     * Note: JPA는 변경 감지로 UPDATE할 때 모든 컬럼을 다시 쓴다. 관리자 수정이 읽어 둔 옛 값으로 갱신값을 덮지 않도록
+     * updatable = false로 Entity의 UPDATE에서 이 컬럼을 뺀다.
      */
     @Column(nullable = false, updatable = false)
     private int issuedQuantity;
@@ -130,7 +131,9 @@ public class Coupon extends BaseEntity {
                         || changes(validDays, this.validDays))) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_MODIFIABLE);
         }
-        // 3) 보낸 숫자 값 검증. 총 수량은 이미 발급한 수량보다 작아질 수 없다
+        // 3) 보낸 숫자 값 검증
+        //    Note: 총 수량이 받은 회원 수보다 적은지는 여기서 보지 않는다. 발급과 같은 곳(Redis)에서 판단해야
+        //    비교한 뒤 발급이 끼어들지 않아 CouponService가 Redis로 확인한다(#300)
         if (discountAmount != null) {
             requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
         }
@@ -139,9 +142,6 @@ public class Coupon extends BaseEntity {
         }
         if (totalQuantity != null) {
             requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
-            if (totalQuantity < issuedQuantity) {
-                throw new BusinessException(CouponErrorCode.COUPON_QUANTITY_BELOW_ISSUED);
-            }
         }
         // 4) 새 시작 시각이 과거면 현재로 맞춘다. 지금 값과 같으면 그대로 둔다(이미 시작한 쿠폰이 같은 값을 보내도 바뀌지 않게)
         LocalDateTime startAt =
@@ -198,16 +198,13 @@ public class Coupon extends BaseEntity {
     }
 
     /**
-     * 논리 삭제. 아무도 받지 않은 쿠폰만 지울 수 있고, 받은 사람이 있으면 409 COUPON_NOT_DELETABLE이다.
+     * 논리 삭제. 아무도 받지 않은 쿠폰만 지울 수 있다(받은 사람이 있으면 409 COUPON_NOT_DELETABLE).
+     * 받았는지는 발급과 같은 곳(Redis)에서 삭제 표시와 함께 판단하므로 CouponService가 확인한 뒤 부른다(#300).
      * 발급 상태는 보지 않는다. 받은 사람이 없으면 발급 중인 쿠폰도 중단 없이 바로 지울 수 있다(잘못 만든 쿠폰 정리).
      * 받은 쿠폰의 정의가 지워지지 않으므로 회원 쿠폰은 항상 이름·정의를 찾을 수 있다(CouponQueryService, CouponUsageService).
      * Note: 삭제 시각·삭제자는 BaseEntity.softDelete가, 수정 시각·수정자는 커밋 때 변경 감지의 JPA 감사가 함께 기록한다.
      */
     public void delete(String username) {
-        // 누가 받은 쿠폰은 지울 수 없다. 잠그고 읽었으므로 이 발급 수량은 판단하는 동안 바뀌지 않는다
-        if (issuedQuantity > 0) {
-            throw new BusinessException(CouponErrorCode.COUPON_NOT_DELETABLE);
-        }
         softDelete(username);
     }
 
@@ -217,7 +214,7 @@ public class Coupon extends BaseEntity {
         if (now.isBefore(issueStartAt)) {
             return CouponIssueStatus.UPCOMING;
         }
-        // 시작 시각 이후이고 종료 시각 전. 발급 수량 조건부 UPDATE의 기간 조건과 같은 경계다
+        // 시작 시각 이후이고 종료 시각 전. 발급 판단(CouponIssueService)도 이 값으로 기간 안인지 정한다
         if (now.isBefore(issueEndAt)) {
             return CouponIssueStatus.ISSUING;
         }
@@ -228,11 +225,6 @@ public class Coupon extends BaseEntity {
     /** 발급 시작 시각이 지났는지. 지난 뒤에는 할인액·시작 시각·유효 일수를 바꿀 수 없다. */
     public boolean isIssueStarted(LocalDateTime now) {
         return !now.isBefore(issueStartAt);
-    }
-
-    /** 남은 발급 수량. 컬럼 없이 총 수량에서 발급 수량을 빼서 계산한다. */
-    public int getRemainingQuantity() {
-        return totalQuantity - issuedQuantity;
     }
 
     /** 요청한 값이 있고, 그 값이 지금 값과 다르면 true. 보내지 않았거나(null) 같은 값이면 바꾸지 않는 것으로 본다. */

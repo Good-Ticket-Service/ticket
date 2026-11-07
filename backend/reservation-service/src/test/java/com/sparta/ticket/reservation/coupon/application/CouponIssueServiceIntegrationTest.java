@@ -14,12 +14,17 @@ import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 발급 서비스의 성공·실패 분기와 실패 때 수량 롤백을 실제 PostgreSQL로 확인한다. 동시 요청은 별도 동시성 테스트에서 본다. */
+/**
+ * 발급 서비스의 성공·실패 분기를 실제 PostgreSQL·Redis로 확인한다. 동시 요청은 별도 동시성 테스트에서 본다.
+ * Note: 쿠폰을 저장소로 바로 저장해 Redis 발급 판단 정보가 없는 상태로 시작한다. 그래서 첫 발급은 DB에서 다시 채우는 경로를 지난다.
+ */
 class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
@@ -35,6 +40,9 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private StringRedisTemplate redis;
+
+    @Autowired
     private MutableClock clock;
 
     /** 서비스와 같이 초 단위로 자른 현재 시각. 다른 테스트와 Clock을 함께 쓰므로 고정값 대신 상대값으로 쓴다. */
@@ -46,11 +54,6 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
     private Coupon issuingCoupon(int totalQuantity) {
         return couponRepository.save(Coupon.create(
                 "오픈 기념 5,000원 할인", 5_000, totalQuantity, now().minusHours(1), now().plusDays(7), 7, now()));
-    }
-
-    private int issuedQuantity(Long couponId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT issued_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, couponId);
     }
 
     private int userCouponCount(Long couponId) {
@@ -66,7 +69,7 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("발급하면 AVAILABLE 회원 쿠폰을 돌려주고, 발급 수량이 1 늘어난다")
+    @DisplayName("발급하면 AVAILABLE 회원 쿠폰을 돌려주고 회원 쿠폰이 저장된다")
     void issue() {
         Coupon coupon = issuingCoupon(10);
 
@@ -80,13 +83,11 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
         assertThat(result.status()).isEqualTo(UserCouponStatus.AVAILABLE);
         assertThat(result.issuedAt()).isEqualTo(now());
         assertThat(result.expiresAt()).isEqualTo(now().plusDays(7));
-        // 수량 증가와 회원 쿠폰 저장이 함께 커밋됐다
-        assertThat(issuedQuantity(coupon.getId())).isEqualTo(1);
         assertThat(userCouponCount(coupon.getId())).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("같은 회원이 다시 받으면 COUPON_ALREADY_ISSUED이고 발급 수량은 늘지 않는다")
+    @DisplayName("같은 회원이 다시 받으면 COUPON_ALREADY_ISSUED이고 회원 쿠폰은 늘지 않는다")
     void alreadyIssued() {
         Coupon coupon = issuingCoupon(10);
         couponIssueService.issue(coupon.getId(), 1L, "user1@ticket.com");
@@ -94,7 +95,7 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
         assertError(
                 () -> couponIssueService.issue(coupon.getId(), 1L, "user1@ticket.com"),
                 CouponErrorCode.COUPON_ALREADY_ISSUED);
-        assertThat(issuedQuantity(coupon.getId())).isEqualTo(1);
+        assertThat(userCouponCount(coupon.getId())).isEqualTo(1);
     }
 
     @Test
@@ -106,7 +107,6 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
         assertError(
                 () -> couponIssueService.issue(coupon.getId(), 2L, "user2@ticket.com"),
                 CouponErrorCode.COUPON_SOLD_OUT);
-        assertThat(issuedQuantity(coupon.getId())).isEqualTo(1);
         assertThat(userCouponCount(coupon.getId())).isEqualTo(1);
     }
 
@@ -154,7 +154,24 @@ class CouponIssueServiceIntegrationTest extends ReservationIntegrationTest {
         couponIssueService.issue(coupon.getId(), 1L, "user1@ticket.com");
         couponIssueService.issue(coupon.getId(), 2L, "user2@ticket.com");
 
-        assertThat(issuedQuantity(coupon.getId())).isEqualTo(2);
+        assertThat(userCouponCount(coupon.getId())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("Redis 발급 판단 정보가 사라져도 DB 회원 쿠폰으로 다시 채워, 받은 회원은 이미 받음이고 총 수량을 넘지 않는다")
+    void reloadAfterRedisLoss() {
+        Coupon coupon = issuingCoupon(2);
+        couponIssueService.issue(coupon.getId(), 1L, "user1@ticket.com");
+        // Redis가 비워진 상황(재시작 등)
+        redis.delete(List.of("coupon:" + coupon.getId() + ":meta", "coupon:" + coupon.getId() + ":users"));
+
+        assertError(
+                () -> couponIssueService.issue(coupon.getId(), 1L, "user1@ticket.com"),
+                CouponErrorCode.COUPON_ALREADY_ISSUED);
+        couponIssueService.issue(coupon.getId(), 2L, "user2@ticket.com");
+        assertError(
+                () -> couponIssueService.issue(coupon.getId(), 3L, "user3@ticket.com"),
+                CouponErrorCode.COUPON_SOLD_OUT);
         assertThat(userCouponCount(coupon.getId())).isEqualTo(2);
     }
 }

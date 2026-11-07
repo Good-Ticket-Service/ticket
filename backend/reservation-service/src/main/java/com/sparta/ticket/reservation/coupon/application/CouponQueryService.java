@@ -41,6 +41,7 @@ public class CouponQueryService {
 
     private final CouponRepository couponRepository;
     private final UserCouponRepository userCouponRepository;
+    private final CouponIssueState issueState;
     private final Clock clock;
 
     /**
@@ -59,8 +60,12 @@ public class CouponQueryService {
         List<Long> couponIds = coupons.map(Coupon::getId).getContent();
         Set<Long> issuedIds = userCouponRepository.findIssuedCouponIds(userId, couponIds);
 
-        // 3) 받은 쿠폰이면 issuedByMe = true. SELLER·MASTER는 받을 수 없어 항상 false가 된다
-        return coupons.map(coupon -> CouponDetailResult.of(coupon, now, issuedIds.contains(coupon.getId())));
+        // 3) 남은 수량을 이 페이지 쿠폰 전부 한 번에 센다(Redis 왕복 한 번, 없는 쿠폰만 DB)
+        Map<Long, Integer> remaining = issueState.remainingQuantities(coupons.getContent());
+
+        // 4) 받은 쿠폰이면 issuedByMe = true. SELLER·MASTER는 받을 수 없어 항상 false가 된다
+        return coupons.map(coupon ->
+                CouponDetailResult.of(coupon, remaining.get(coupon.getId()), now, issuedIds.contains(coupon.getId())));
     }
 
     /**
@@ -73,7 +78,7 @@ public class CouponQueryService {
                 .findById(couponId)
                 .orElseThrow(() -> new BusinessException(CouponErrorCode.COUPON_NOT_FOUND));
         boolean issuedByMe = userCouponRepository.existsByUserIdAndCouponId(userId, couponId);
-        return CouponDetailResult.of(coupon, now(), issuedByMe);
+        return CouponDetailResult.of(coupon, issueState.remainingQuantity(coupon), now(), issuedByMe);
     }
 
     /**

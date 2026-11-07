@@ -40,12 +40,12 @@ class CouponTest {
     class Create {
 
         @Test
-        @DisplayName("발급 수량 0으로 만들어지고 남은 수량은 총 수량과 같다")
+        @DisplayName("발급 수량 참고값 0으로 만들어진다")
         void create() {
             Coupon coupon = upcoming();
 
             assertThat(coupon.getIssuedQuantity()).isZero();
-            assertThat(coupon.getRemainingQuantity()).isEqualTo(1_000);
+            assertThat(coupon.getTotalQuantity()).isEqualTo(1_000);
             assertThat(coupon.issueStatus(NOW)).isEqualTo(CouponIssueStatus.UPCOMING);
         }
 
@@ -213,17 +213,15 @@ class CouponTest {
         }
 
         @Test
-        @DisplayName("총 수량을 발급한 수량보다 적게 바꾸면 COUPON_QUANTITY_BELOW_ISSUED")
-        void quantityBelowIssued() {
+        @DisplayName("총 수량을 줄일 때 발급 수량 참고값은 보지 않는다(받은 회원 수와 비교는 Redis에서 한다)")
+        void quantityIgnoresIssuedReference() {
             Coupon coupon = issuing();
+            // 참고값은 늦을 수 있어 판단에 쓰지 않는다. 받은 회원 수와 비교는 CouponService가 Redis로 한다(#300)
             ReflectionTestUtils.setField(coupon, "issuedQuantity", 300);
 
-            assertError(
-                    () -> coupon.update(null, null, 299, null, null, null, NOW),
-                    CouponErrorCode.COUPON_QUANTITY_BELOW_ISSUED);
+            coupon.update(null, null, 299, null, null, null, NOW);
 
-            coupon.update(null, null, 300, null, null, null, NOW);
-            assertThat(coupon.getRemainingQuantity()).isZero();
+            assertThat(coupon.getTotalQuantity()).isEqualTo(299);
         }
 
         @Test
@@ -324,17 +322,6 @@ class CouponTest {
 
             assertThat(coupon.isDeleted()).isTrue();
             assertThat(coupon.getDeletedBy()).isEqualTo("master");
-        }
-
-        @Test
-        @DisplayName("한 장이라도 발급됐으면 COUPON_NOT_DELETABLE이고 삭제되지 않는다")
-        void issued() {
-            Coupon coupon = issuing();
-            ReflectionTestUtils.setField(coupon, "issuedQuantity", 1);
-
-            assertError(() -> coupon.delete("master"), CouponErrorCode.COUPON_NOT_DELETABLE);
-
-            assertThat(coupon.isDeleted()).isFalse();
         }
     }
 

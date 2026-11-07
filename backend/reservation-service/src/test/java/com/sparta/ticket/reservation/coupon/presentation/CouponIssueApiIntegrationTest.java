@@ -80,17 +80,15 @@ class CouponIssueApiIntegrationTest extends ReservationIntegrationTest {
                 // 발급 응답에는 usedAt이 없다(docs/api.md: UserCoupon에서 usedAt 제외)
                 .andExpect(jsonPath("$.data.usedAt").doesNotExist());
 
-        // DB에는 헤더의 회원 ID로 저장되고, 발급 수량을 올린 사람으로 그 회원이 기록된다
-        Map<String, Object> userCoupon =
-                jdbcTemplate.queryForMap("SELECT user_id FROM p_user_coupons WHERE coupon_id = ?", coupon.getId());
+        // DB에는 헤더의 회원 ID로 저장되고, 만든 사람으로 그 회원이 기록된다
+        Map<String, Object> userCoupon = jdbcTemplate.queryForMap(
+                "SELECT user_id, created_by FROM p_user_coupons WHERE coupon_id = ?", coupon.getId());
         assertThat(userCoupon.get("user_id")).isEqualTo(7L);
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT updated_by FROM p_coupons WHERE coupon_id = ?", String.class, coupon.getId()))
-                .isEqualTo("user7@ticket.com");
+        assertThat(userCoupon.get("created_by")).isEqualTo("user7@ticket.com");
     }
 
     @Test
-    @DisplayName("USER가 아니면 403 FORBIDDEN이고 발급 수량은 그대로다")
+    @DisplayName("USER가 아니면 403 FORBIDDEN이고 회원 쿠폰이 만들어지지 않는다")
     void notUser() throws Exception {
         Coupon coupon = issuingCoupon(10);
 
@@ -101,7 +99,7 @@ class CouponIssueApiIntegrationTest extends ReservationIntegrationTest {
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT issued_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, coupon.getId()))
+                        "SELECT COUNT(*) FROM p_user_coupons WHERE coupon_id = ?", Integer.class, coupon.getId()))
                 .isZero();
     }
 
