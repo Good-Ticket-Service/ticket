@@ -186,7 +186,7 @@ public class PaymentTransactions {
                     return;
                 }
                 payment.fail(code, "PG_APPROVAL_REJECTED");
-                payment.recordFailure(now, reconcileProperties.schedule());
+                payment.recordFailure(now, reconcileProperties.schedule(), !rejected.notSentToPg());
                 skipWaitingRefund(payment);
                 resultPublisher.paymentFinalized(payment);
             } else {

@@ -30,6 +30,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -337,6 +338,25 @@ class PaymentConfirmIntegrationTest extends PaymentIntegrationTest {
         assertThat(confirm(payment, "stop-key").status()).isEqualTo(PaymentStatus.IN_PROGRESS);
         assertThat(load(payment.getOrderId()).getNextAttemptAt()).isNotNull();
         assertThat(pg.approveCalls()).isZero();
+    }
+
+    @Test
+    @DisplayName("결제 서비스 자체 한도로 PG에 보내지 않은 승인 거절은 최소 대사 대상이 아니고, PG가 돌려준 같은 코드 거절은 대상이다")
+    void localLimitRejectionIsNotReconciled() {
+        Payment notSent = ready(PgProvider.TOSS);
+        pg.approveReturns(request -> new PgResult.Rejected("PG_BUSY", "local limit", true));
+        confirm(notSent, "not-sent-key");
+        Payment sent = ready(PgProvider.TOSS);
+        pg.approveReturns(request -> new PgResult.Rejected("PG_BUSY", "pg 429"));
+        confirm(sent, "sent-key");
+
+        Payment local = load(notSent.getOrderId());
+        assertThat(local.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(local.getFailureCode()).isEqualTo("PG_BUSY");
+        assertThat(local.getFailedAt()).isNotNull();
+        assertThat(local.getNextReconcileAt()).isNull();
+        assertThat(local.needsReconciliation()).isFalse();
+        assertThat(load(sent.getOrderId()).needsReconciliation()).isTrue();
     }
 
     @Test

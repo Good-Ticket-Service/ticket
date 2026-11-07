@@ -50,6 +50,18 @@ public final class PgHttp {
         }
     }
 
+    /** PG별 호출 보호(서킷 브레이커·동시 호출 상한)를 거쳐 부른다. 보호가 없으면(null) 그대로 부른다. */
+    public static PgCall call(
+            Function<RestClient, RestClient.RequestHeadersSpec<?>> request,
+            RestClient client,
+            MeterRegistry meters,
+            PgCallGuard guard,
+            String provider,
+            String operation) {
+        if (guard == null) return call(request, client, meters, provider, operation);
+        return guard.call(provider, operation, () -> call(request, client, meters, provider, operation));
+    }
+
     public static PgCall call(
             Function<RestClient, RestClient.RequestHeadersSpec<?>> request,
             RestClient client,
@@ -101,7 +113,14 @@ public final class PgHttp {
      */
     public static Optional<PgResult> transportResult(PgCall call) {
         if (call instanceof PgCall.NotSent notSent) {
-            return Optional.of(new PgResult.Rejected(PaymentFailureCode.PG_UNAVAILABLE.name(), notSent.reason()));
+            // Note: 자체 동시 호출 상한은 PG 429와 같은 의미(처리 한도, 보내지 않음)라 PG_BUSY로 거절한다.
+            // Note: 서킷 열림은 plan 6절대로 PG_UNAVAILABLE, 동시 호출 상한은 PG 429와 같은 PG_BUSY다. 둘 다 결제 서비스가 보내지
+            // 않았음이 확실해 "PG에 보내지 않음"으로 표시한다. 연결 실패(PG_UNAVAILABLE)는 기존 분류를 유지한다.
+            PaymentFailureCode code = notSent.circuitOpen() || !notSent.localLimit()
+                    ? PaymentFailureCode.PG_UNAVAILABLE
+                    : PaymentFailureCode.PG_BUSY;
+            return Optional.of(new PgResult.Rejected(
+                    code.name(), notSent.reason(), notSent.localLimit() || notSent.circuitOpen()));
         }
         if (call instanceof PgCall.SentButFailed failed) {
             return Optional.of(new PgResult.Unknown(failed.reason()));
@@ -140,8 +159,21 @@ public final class PgHttp {
             }
         }
 
-        /** 연결을 맺지 못해 요청을 보내지 못했다. PG는 처리하지 않았다. */
-        record NotSent(String reason) implements PgCall {}
+        /**
+         * 요청을 보내지 못했다. PG는 처리하지 않았다.
+         *
+         * @param localLimit 연결 실패가 아니라 결제 서비스의 PG 동시 호출 상한({@link PgBulkhead})으로 보내지 않았다
+         * @param circuitOpen 결제 서비스의 PG 서킷 브레이커({@link PgCircuitBreakers})가 열려 보내지 않았다
+         */
+        record NotSent(String reason, boolean localLimit, boolean circuitOpen) implements PgCall {
+            public NotSent(String reason) {
+                this(reason, false, false);
+            }
+
+            public NotSent(String reason, boolean localLimit) {
+                this(reason, localLimit, false);
+            }
+        }
 
         /** 요청을 보냈을 수 있는데 응답을 받지 못했다(읽기 타임아웃, 연결 끊김). PG가 처리했는지 모른다. */
         record SentButFailed(String reason) implements PgCall {}
