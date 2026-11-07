@@ -23,6 +23,27 @@ pg:
     base-url: ${PG_BASE_URL:http://localhost:8090}
     secret-key: ${PG_KAKAO_SECRET_KEY:DEV_fake_kakao}
     cid: ${PG_KAKAO_CID:TC0ONETIME}
+  # PG별 동시 호출 상한. 승인·준비·조회·취소를 요청·복구·환불 구분 없이 같은 예산으로 센다. 자리를 못 얻으면 보내지 않고 실패(PG_BUSY).
+  # 서킷이 열리기 전 감지 구간에 한 PG가 요청 스레드를 다 쓰지 못하게 한다. 200은 Tomcat 300 중 한 PG 몫이다. PG 300ms·500/s 정상에서
+  # 동시 최대 약145(5초 표본)라 거절 0이었고, 150은 순간 몰림에 거절이 났다. 느린 PG를 거절 없이 받는 범위는 PG별 유입 × 지연 < 200이다.
+  bulkhead:
+    enabled: ${PAYMENT_PG_BULKHEAD_ENABLED:true}
+    toss-max-concurrent: ${PAYMENT_PG_BULKHEAD_TOSS:200}
+    kakao-max-concurrent: ${PAYMENT_PG_BULKHEAD_KAKAO:200}
+    max-wait: ${PAYMENT_PG_BULKHEAD_MAX_WAIT:50ms}
+  # PG별 서킷 브레이커. 응답 없음(타임아웃·연결 실패·5xx)이나 5초 넘는 느린 호출이 비율을 넘으면 그 PG로 보내지 않고 즉시 실패(PG_UNAVAILABLE).
+  # 2~3초 지연처럼 느리지만 응답하는 PG는 막지 않는다. 업무 거절(4xx)과 429는 세지 않는다.
+  circuit-breaker:
+    enabled: ${PAYMENT_PG_CIRCUIT_BREAKER_ENABLED:true}
+    failure-rate-percent: 50
+    slow-call-duration: 5s
+    slow-call-rate-percent: 80
+    window-size: 50
+    minimum-calls: 20
+    # 연 뒤 10초 막고, 5건만 보내 보고 닫을지 정한다. 시험 결과는 PG 호출 최대 대기(연결 2초+읽기 10초)보다 긴 30초까지 기다린다
+    open-duration: 10s
+    half-open-calls: 5
+    half-open-max-wait: 30s
 
 
 # DB 집계는 별도 관측 스레드에서 수행한다. scrape는 메모리 스냅샷만 읽는다.

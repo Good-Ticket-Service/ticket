@@ -13,8 +13,17 @@ public sealed interface PgResult {
     /** 승인 또는 취소 성공. 취소면 transactionId는 PG의 취소 ID다. */
     record Approved(String transactionId, int amount, LocalDateTime at) implements PgResult {}
 
-    /** PG가 처리하지 않았다고 확정한 경우. 연결 단계 실패와 PG 본체의 429도 여기에 넣는다. */
-    record Rejected(String code, String message) implements PgResult {}
+    /**
+     * PG가 처리하지 않았다고 확정한 경우. 연결 단계 실패와 PG 본체의 429도 여기에 넣는다.
+     *
+     * @param notSentToPg 결제 서비스 자체 동시 호출 상한으로 요청을 PG에 보내지 않았다. PG가 이 요청을 받은 적이 없으므로
+     *     승인 거절이어도 최소 대사 대상이 아니다(plan.md 8절 "PG 호출 전 거절은 제외")
+     */
+    record Rejected(String code, String message, boolean notSentToPg) implements PgResult {
+        public Rejected(String code, String message) {
+            this(code, message, false);
+        }
+    }
 
     /** 처리됐는지 알 수 없는 경우. 복구 잡이 조회로 확정한다. */
     record Unknown(String reason) implements PgResult {}

@@ -7,6 +7,7 @@ import com.sparta.ticket.payment.domain.model.pg.PgInquiry;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.domain.model.pg.PgResult;
+import com.sparta.ticket.payment.infrastructure.pg.PgCallGuard;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp.PgCall;
 import com.sparta.ticket.payment.infrastructure.pg.PgJson;
@@ -48,6 +49,7 @@ public class TossPgClient implements PgClient {
 
     private final RestClient restClient;
     private final MeterRegistry meters;
+    private final PgCallGuard guard;
     private final ObjectMapper objectMapper;
     private final String authorization;
 
@@ -55,10 +57,20 @@ public class TossPgClient implements PgClient {
         this(builder, properties, objectMapper, null);
     }
 
-    @Autowired
     public TossPgClient(
             RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper, MeterRegistry meters) {
+        this(builder, properties, objectMapper, meters, null);
+    }
+
+    @Autowired
+    public TossPgClient(
+            RestClient.Builder builder,
+            PgProperties properties,
+            ObjectMapper objectMapper,
+            MeterRegistry meters,
+            PgCallGuard guard) {
         this.meters = meters;
+        this.guard = guard;
         this.restClient = PgHttp.restClient(builder, properties.toss().baseUrl(), properties);
         this.objectMapper = objectMapper;
         this.authorization = "Basic "
@@ -92,6 +104,7 @@ public class TossPgClient implements PgClient {
                         .body(body),
                 restClient,
                 meters,
+                guard,
                 "TOSS",
                 "approve");
         return result(
@@ -110,6 +123,7 @@ public class TossPgClient implements PgClient {
                         .header(HttpHeaders.AUTHORIZATION, authorization),
                 restClient,
                 meters,
+                guard,
                 "TOSS",
                 "inquire");
         if (!(call instanceof PgCall.Responded responded)) {
@@ -145,6 +159,7 @@ public class TossPgClient implements PgClient {
                         .body(body),
                 restClient,
                 meters,
+                guard,
                 "TOSS",
                 "cancel");
         if (call instanceof PgCall.Responded responded

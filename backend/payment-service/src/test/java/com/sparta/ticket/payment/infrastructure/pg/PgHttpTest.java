@@ -43,6 +43,14 @@ class PgHttpTest {
         assertThat(PgHttp.transportResult(new PgCall.NotSent("refused")))
                 .get()
                 .isEqualTo(new PgResult.Rejected("PG_UNAVAILABLE", "refused"));
+        // 결제 서비스 자체 동시 호출 상한으로 보내지 않은 호출은 PG 429와 같은 PG_BUSY이고, PG에 보내지 않았다고 표시한다.
+        assertThat(PgHttp.transportResult(new PgCall.NotSent("bulkhead", true)))
+                .get()
+                .isEqualTo(new PgResult.Rejected("PG_BUSY", "bulkhead", true));
+        // 서킷이 열려 보내지 않은 호출은 plan 6절대로 PG_UNAVAILABLE이고, PG에 보내지 않았다고 표시한다.
+        assertThat(PgHttp.transportResult(new PgCall.NotSent("open", false, true)))
+                .get()
+                .isEqualTo(new PgResult.Rejected("PG_UNAVAILABLE", "open", true));
         assertThat(PgHttp.transportResult(new PgCall.Responded(429, "")))
                 .get()
                 .isInstanceOf(PgResult.Rejected.class)
