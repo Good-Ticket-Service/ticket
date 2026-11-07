@@ -343,10 +343,18 @@ public class Payment extends BaseEntity {
 
     /** 실패 전이와 같은 트랜잭션에서 최초 기준과 첫 체크포인트를 저장한다. */
     public void recordFailure(LocalDateTime now, ReconcileSchedule schedule) {
+        recordFailure(now, schedule, true);
+    }
+
+    /**
+     * @param pgMayHaveReceived false면 승인 요청을 PG에 보내지 않았음이 확실하다(결제 서비스 자체 동시 호출 상한). 승인 요청
+     *     기록이 있어도 최소 대사 일정을 만들지 않는다(plan.md 8절 "PG 호출 전 거절은 제외").
+     */
+    public void recordFailure(LocalDateTime now, ReconcileSchedule schedule, boolean pgMayHaveReceived) {
         require(PaymentStatus.FAILED);
         if (failedAt == null) {
             failedAt = toDbPrecision(now);
-            if (approveRequestedAt != null) {
+            if (approveRequestedAt != null && pgMayHaveReceived) {
                 reconcileCheckpointsMinutes = schedule.encode();
                 nextReconcileAt = failedAt.plus(schedule.checkpoint(0));
             }

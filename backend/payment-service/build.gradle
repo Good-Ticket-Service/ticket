@@ -12,6 +12,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+    // PG별 서킷 브레이커. 예매 payment-guard와 같은 라이브러리이고 버전은 Spring Cloud BOM이 정한다
+    implementation 'io.github.resilience4j:resilience4j-circuitbreaker'
+    implementation 'io.github.resilience4j:resilience4j-micrometer'
 
     runtimeOnly 'org.postgresql:postgresql'
 

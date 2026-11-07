@@ -7,6 +7,7 @@ import com.sparta.ticket.payment.domain.model.pg.PgInquiry;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import com.sparta.ticket.payment.domain.model.pg.PgResult;
+import com.sparta.ticket.payment.infrastructure.pg.PgCallGuard;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp;
 import com.sparta.ticket.payment.infrastructure.pg.PgHttp.PgCall;
 import com.sparta.ticket.payment.infrastructure.pg.PgJson;
@@ -56,6 +57,7 @@ public class KakaoPgClient implements PgClient {
 
     private final RestClient restClient;
     private final MeterRegistry meters;
+    private final PgCallGuard guard;
     private final ObjectMapper objectMapper;
     private final PgProperties.Kakao kakao;
     private final String authorization;
@@ -64,10 +66,20 @@ public class KakaoPgClient implements PgClient {
         this(builder, properties, objectMapper, null);
     }
 
-    @Autowired
     public KakaoPgClient(
             RestClient.Builder builder, PgProperties properties, ObjectMapper objectMapper, MeterRegistry meters) {
+        this(builder, properties, objectMapper, meters, null);
+    }
+
+    @Autowired
+    public KakaoPgClient(
+            RestClient.Builder builder,
+            PgProperties properties,
+            ObjectMapper objectMapper,
+            MeterRegistry meters,
+            PgCallGuard guard) {
         this.meters = meters;
+        this.guard = guard;
         this.restClient = PgHttp.restClient(builder, properties.kakao().baseUrl(), properties);
         this.objectMapper = objectMapper;
         this.kakao = properties.kakao();
@@ -205,6 +217,7 @@ public class KakaoPgClient implements PgClient {
                         .body(body),
                 restClient,
                 meters,
+                guard,
                 "KAKAO",
                 path.substring(path.lastIndexOf('/') + 1).replace("order", "inquire"));
     }
