@@ -37,6 +37,14 @@ public interface UserCouponJpaRepository extends JpaRepository<UserCoupon, Long>
     @Query("SELECT uc.couponId FROM UserCoupon uc WHERE uc.userId = :userId AND uc.couponId IN :couponIds")
     List<Long> findIssuedCouponIds(@Param("userId") Long userId, @Param("couponIds") Collection<Long> couponIds);
 
+    /** 이 쿠폰을 받은 회원 ID 전부. Redis 회원 키를 DB에서 다시 채울 때 쓴다. */
+    @Query("SELECT uc.userId FROM UserCoupon uc WHERE uc.couponId = :couponId")
+    List<Long> findUserIdsByCouponId(@Param("couponId") Long couponId);
+
+    /** 쿠폰별 회원 쿠폰 수. 각 행은 { 쿠폰 ID, 개수 }다. 받은 회원이 없는 쿠폰은 행이 없다. */
+    @Query("SELECT uc.couponId, COUNT(uc) FROM UserCoupon uc WHERE uc.couponId IN :couponIds GROUP BY uc.couponId")
+    List<Object[]> countByCouponIds(@Param("couponIds") Collection<Long> couponIds);
+
     /** 회원의 모든 쿠폰. */
     Page<UserCoupon> findByUserId(Long userId, Pageable pageable);
 
