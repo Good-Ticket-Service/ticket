@@ -19,14 +19,17 @@ public record CouponDetailResult(
         // 사용·만료와 관계없이 한 번이라도 받았으면 true다. 받을 수 없는 SELLER·MASTER는 항상 false다.
         boolean issuedByMe) {
 
-    /** 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다. issuedByMe는 호출자가 회원 쿠폰을 조회해 넘긴다. */
-    public static CouponDetailResult of(Coupon coupon, LocalDateTime now, boolean issuedByMe) {
+    /**
+     * 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다. issuedByMe는 호출자가 회원 쿠폰을 조회해 넘긴다.
+     * 남은 수량은 호출자가 받은 회원 수로 계산해 넘긴다(CouponIssueState). 엔티티의 issued_quantity는 늦을 수 있다.
+     */
+    public static CouponDetailResult of(Coupon coupon, int remainingQuantity, LocalDateTime now, boolean issuedByMe) {
         return new CouponDetailResult(
                 coupon.getId(),
                 coupon.getName(),
                 coupon.getDiscountAmount(),
                 coupon.getTotalQuantity(),
-                coupon.getRemainingQuantity(),
+                remainingQuantity,
                 coupon.getIssueStartAt(),
                 coupon.getIssueEndAt(),
                 coupon.getValidDays(),

@@ -12,6 +12,8 @@ import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
+import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -49,6 +51,9 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private CouponRepository couponRepository;
+
+    @Autowired
+    private UserCouponRepository userCouponRepository;
 
     private static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, Role role) {
         return request.header(UserHeaders.USER_ID, "1")
@@ -186,7 +191,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("발급 시작 후 이름·종료 시각·총 수량을 바꿔도 발급 수량은 그대로다")
         void afterStartKeepsIssuedQuantity() throws Exception {
             Coupon coupon = saveCoupon(clock.now().minusHours(1));
-            setIssuedQuantity(coupon.getId(), 300);
+            issueToUsers(coupon, 300);
             LocalDateTime newEnd = clock.now().plusDays(14).truncatedTo(ChronoUnit.SECONDS);
 
             patch(coupon.getId(), """
@@ -199,7 +204,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                     .andExpect(jsonPath("$.data.issueEndAt").value(format(newEnd)))
                     .andExpect(jsonPath("$.data.issueStatus").value("ISSUING"));
 
-            assertThat(issuedQuantity(coupon.getId())).isEqualTo(300);
+            assertThat(userCouponCount(coupon.getId())).isEqualTo(300);
         }
 
         @Test
@@ -215,10 +220,10 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("총 수량을 발급 수량보다 적게 바꾸면 409 COUPON_QUANTITY_BELOW_ISSUED")
+        @DisplayName("총 수량을 받은 회원 수보다 적게 바꾸면 409 COUPON_QUANTITY_BELOW_ISSUED")
         void quantityBelowIssued() throws Exception {
             Coupon coupon = saveCoupon(clock.now().minusHours(1));
-            setIssuedQuantity(coupon.getId(), 300);
+            issueToUsers(coupon, 300);
 
             patch(coupon.getId(), """
                             {"totalQuantity": 299}
@@ -441,7 +446,7 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("한 장이라도 발급된 쿠폰은 409 COUPON_NOT_DELETABLE이고 삭제되지 않는다")
         void issuedCannotBeDeleted() throws Exception {
             Coupon coupon = saveCoupon(clock.now().minusHours(1));
-            setIssuedQuantity(coupon.getId(), 1);
+            issueToUsers(coupon, 1);
 
             delete(coupon.getId(), Role.MASTER)
                     .andExpect(status().isConflict())
@@ -485,13 +490,18 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                 "오픈 기념 5,000원 할인", 5_000, 1_000, issueStartAt, issueStartAt.plusDays(7), 7, issueStartAt.minusDays(1)));
     }
 
-    /** 발급 기능 대신 발급 수량을 직접 올린다. */
-    private void setIssuedQuantity(Long couponId, int issuedQuantity) {
-        jdbcTemplate.update("UPDATE p_coupons SET issued_quantity = ? WHERE coupon_id = ?", issuedQuantity, couponId);
+    /**
+     * 발급 기능 대신 회원 쿠폰을 직접 저장한다. Redis 발급 판단 정보는 없는 상태라, 관리자 기능은 DB에서 채운 뒤 판단한다(#300).
+     * 발급 수량의 원본은 회원 쿠폰 수다(p_coupons.issued_quantity는 주기적으로 갱신하는 참고값).
+     */
+    private void issueToUsers(Coupon coupon, int count) {
+        for (long userId = 1; userId <= count; userId++) {
+            userCouponRepository.saveIssued(UserCoupon.issue(userId, coupon, clock.now()));
+        }
     }
 
-    private int issuedQuantity(Long couponId) {
+    private int userCouponCount(Long couponId) {
         return jdbcTemplate.queryForObject(
-                "SELECT issued_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, couponId);
+                "SELECT COUNT(*) FROM p_user_coupons WHERE coupon_id = ?", Integer.class, couponId);
     }
 }

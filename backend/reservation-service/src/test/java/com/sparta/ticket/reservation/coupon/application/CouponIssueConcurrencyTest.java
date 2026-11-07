@@ -89,11 +89,6 @@ class CouponIssueConcurrencyTest extends ReservationIntegrationTest {
         }
     }
 
-    private int issuedQuantity(Long couponId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT issued_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, couponId);
-    }
-
     private int userCouponCount(Long couponId) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM p_user_coupons WHERE coupon_id = ?", Integer.class, couponId);
@@ -115,13 +110,12 @@ class CouponIssueConcurrencyTest extends ReservationIntegrationTest {
         Map<String, Long> results = issueConcurrently(couponId, userIds);
 
         assertThat(results).containsEntry("SUCCESS", 10L).containsEntry(code(CouponErrorCode.COUPON_SOLD_OUT), 40L);
-        // 발급 수량과 실제 회원 쿠폰 수가 총 수량과 같다. 초과 발급도, 수량과 쿠폰 수의 불일치도 없다
-        assertThat(issuedQuantity(couponId)).isEqualTo(10);
+        // 실제 회원 쿠폰 수가 총 수량과 같다. 초과 발급이 없다
         assertThat(userCouponCount(couponId)).isEqualTo(10);
     }
 
     @Test
-    @DisplayName("같은 회원이 동시에 10번 요청하면 1장만 받고 나머지는 COUPON_ALREADY_ISSUED이며 수량도 1이다")
+    @DisplayName("같은 회원이 동시에 10번 요청하면 1장만 받고 나머지는 COUPON_ALREADY_ISSUED다")
     void onePerUser() throws Exception {
         Long couponId = saveIssuingCoupon(100);
         List<Long> sameUser = new ArrayList<>();
@@ -131,16 +125,13 @@ class CouponIssueConcurrencyTest extends ReservationIntegrationTest {
 
         Map<String, Long> results = issueConcurrently(couponId, sameUser);
 
-        // 사전 확인을 함께 통과한 요청도 UNIQUE 위반으로 실패하고, 그 요청이 올린 수량은 롤백된다.
-        // Note: 늦게 출발한 요청은 사전 확인에서 바로 막힐 수 있어, 이 테스트가 UNIQUE 경로를 매번 지난다는 보장은 없다.
-        // "수량 UPDATE 뒤 UNIQUE 위반 → 수량 롤백"의 결정적 검증은 CouponIssuePersistenceIntegrationTest가 한다
+        // 같은 회원은 Redis 회원 키 확인과 기록이 Lua 하나라 한 요청만 통과한다
         assertThat(results).containsEntry("SUCCESS", 1L).containsEntry(code(CouponErrorCode.COUPON_ALREADY_ISSUED), 9L);
-        assertThat(issuedQuantity(couponId)).isEqualTo(1);
         assertThat(userCouponCount(couponId)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("발급과 관리자 수정(이름·총 수량)이 겹쳐도 발급 수량과 회원 쿠폰 수가 같고, 총 수량을 넘지 않는다")
+    @DisplayName("발급과 관리자 수정(이름·총 수량)이 겹쳐도 회원 쿠폰 수가 성공 수와 같고, 총 수량을 넘지 않는다")
     void issueWhileAdminUpdates() throws Exception {
         Long couponId = saveIssuingCoupon(100);
         ExecutorService admin = Executors.newSingleThreadExecutor();
@@ -169,11 +160,9 @@ class CouponIssueConcurrencyTest extends ReservationIntegrationTest {
 
             // 실패는 소진뿐이다(총 수량이 20으로 줄었을 때)
             assertThat(results.keySet()).isSubsetOf("SUCCESS", code(CouponErrorCode.COUPON_SOLD_OUT));
-            // 관리자 수정의 변경 감지 UPDATE가 옛 발급 수량으로 덮어쓰지 않았다(issued_quantity updatable = false)
-            int issued = issuedQuantity(couponId);
-            assertThat(issued)
-                    .isEqualTo(userCouponCount(couponId))
-                    .isEqualTo(results.get("SUCCESS").intValue());
+            // 총 수량 변경은 받은 회원 수와 비교·변경을 Redis Lua 하나로 해, 그사이 발급이 끼어들어 받은 수보다 줄지 않는다
+            int issued = userCouponCount(couponId);
+            assertThat(issued).isEqualTo(results.get("SUCCESS").intValue());
             int total = jdbcTemplate.queryForObject(
                     "SELECT total_quantity FROM p_coupons WHERE coupon_id = ?", Integer.class, couponId);
             assertThat(issued).isLessThanOrEqualTo(total);

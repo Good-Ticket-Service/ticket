@@ -16,14 +16,17 @@ public record CouponResult(
         int validDays,
         CouponIssueStatus issueStatus) {
 
-    /** 쿠폰과 현재 시각으로 응답을 만든다. 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다. */
-    public static CouponResult of(Coupon coupon, LocalDateTime now) {
+    /**
+     * 쿠폰과 현재 시각으로 응답을 만든다. 발급 상태는 현재 시각에 따라 달라지므로 시각을 함께 받는다.
+     * 남은 수량은 호출자가 받은 회원 수로 계산해 넘긴다(CouponIssueState). 엔티티의 issued_quantity는 늦을 수 있다.
+     */
+    public static CouponResult of(Coupon coupon, int remainingQuantity, LocalDateTime now) {
         return new CouponResult(
                 coupon.getId(),
                 coupon.getName(),
                 coupon.getDiscountAmount(),
                 coupon.getTotalQuantity(),
-                coupon.getRemainingQuantity(),
+                remainingQuantity,
                 coupon.getIssueStartAt(),
                 coupon.getIssueEndAt(),
                 coupon.getValidDays(),
