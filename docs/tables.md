@@ -636,6 +636,23 @@ MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트�
 
 - 013-settlement-reconcile-runs.sql은 위 두 테이블을 추가하며, 다시 실행해도 안전하다.
 
+### p_settlement_jobs — payment-service/schema.sql + A (정산 반영 작업)
+
+| 필드 | 타입·제약 |
+|---|---|
+| id | BIGINT IDENTITY PK |
+| payment_id | BIGINT NOT NULL FK p_payments |
+| reason | VARCHAR(20) NOT NULL: PAYMENT_APPROVED, REFUND_COMPLETED; UNIQUE(payment_id, reason) |
+| status | VARCHAR(20) NOT NULL: PENDING, DONE, BLOCKED |
+| attempts | INT NOT NULL DEFAULT 0 ≥ 0 |
+| next_attempt_at | TIMESTAMP NOT NULL; 다음 실행 시각(실패 시 재시도 간격만큼 미룸) |
+| last_error | VARCHAR(80); 고정 형식의 짧은 오류 설명 |
+| done_at | TIMESTAMP; status=DONE일 때만 값이 있다 |
+
+- 결제 승인 확정·환불 완료 트랜잭션에 함께 저장되고, 정산 워커가 별도 트랜잭션에서 SALE·원장을 그 결제의 현재 결제·환불 상태에 맞춘다(#304). 정산 쪽 오류가 결제 확정을 롤백하지 않게 하려는 분리다.
+- 부분 인덱스: 대기 작업 `(next_attempt_at, id) WHERE status='PENDING'`, 격리 작업 `(id) WHERE status='BLOCKED'`.
+- 015-settlement-jobs.sql은 테이블을 추가하고, 전환 전에 승인됐는데 정상 SALE이 없는 결제를 한 번 작업으로 옮긴다. 다시 실행해도 안전하다.
+
 ### pg_transaction — fake-pg/schema.sql
 
 | 필드 | 타입·제약·기본값 |
