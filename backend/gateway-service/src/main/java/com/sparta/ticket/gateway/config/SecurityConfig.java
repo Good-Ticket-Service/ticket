@@ -2,6 +2,7 @@ package com.sparta.ticket.gateway.config;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.gateway.auth.AuthProperties;
+import com.sparta.ticket.gateway.auth.Hs256JwtDecoders;
 import com.sparta.ticket.gateway.auth.JsonAuthenticationEntryPoint;
 import com.sparta.ticket.gateway.auth.JwtProperties;
 import com.sparta.ticket.gateway.auth.UserLookup;
@@ -12,10 +13,6 @@ import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import com.sparta.ticket.gateway.queue.ProtectedScopes;
 import com.sparta.ticket.gateway.queue.QueueTokenFilter;
 import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.Objects;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -26,12 +23,6 @@ import org.springframework.security.config.web.server.ServerHttpSecurity.CsrfSpe
 import org.springframework.security.config.web.server.ServerHttpSecurity.FormLoginSpec;
 import org.springframework.security.config.web.server.ServerHttpSecurity.HttpBasicSpec;
 import org.springframework.security.config.web.server.ServerHttpSecurity.LogoutSpec;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.JwtClaimNames;
-import org.springframework.security.oauth2.jwt.JwtClaimValidator;
-import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
-import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
@@ -123,28 +114,10 @@ public class SecurityConfig {
                 .build();
     }
 
-    /**
-     * user-service가 같은 secret으로 서명한 HS256 토큰의 서명, 만료, 필수 claim을 검증한다.
-     * Note: 기본 검증기는 exp가 "있을 때만" 만료를 검사하고, 만료 후 60초까지 허용한다. exp가 빠진 토큰은 영원히 유효해지므로
-     * 필수 claim(sub, role, iat, exp)의 존재를 직접 검사하고, 같은 호스트의 컨테이너끼리라 허용 오차는 0으로 둔다.
-     */
+    /** user-service가 같은 secret으로 서명한 HS256 로그인 토큰의 서명, 만료, 필수 claim(sub, role, iat, exp)을 검증한다. */
     @Bean
     public ReactiveJwtDecoder reactiveJwtDecoder(JwtProperties properties) {
-        SecretKeySpec key = new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(key)
-                .macAlgorithm(MacAlgorithm.HS256)
-                .build();
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                new JwtTimestampValidator(Duration.ZERO),
-                required(JwtClaimNames.SUB),
-                required("role"),
-                required(JwtClaimNames.IAT),
-                required(JwtClaimNames.EXP)));
-        return decoder;
-    }
-
-    private static JwtClaimValidator<Object> required(String claim) {
-        return new JwtClaimValidator<>(claim, Objects::nonNull);
+        return Hs256JwtDecoders.create(properties.secret(), "role");
     }
 
     /** 방화벽이 거부한 요청(경로 우회 시도 등)도 공통 에러 형식의 400으로 응답한다. 기본값은 본문 없는 400이다. */
