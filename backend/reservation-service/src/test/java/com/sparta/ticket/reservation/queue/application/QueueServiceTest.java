@@ -75,24 +75,24 @@ class QueueServiceTest {
         }
 
         @Override
-        public QueueState enter(long performanceId, long userId) {
+        public QueueState enter(long roomId, long userId) {
             calls.incrementAndGet();
             return state;
         }
 
         @Override
-        public Optional<QueueState> find(long performanceId, long userId) {
+        public Optional<QueueState> find(long roomId, long userId) {
             calls.incrementAndGet();
             return Optional.ofNullable(state);
         }
 
         @Override
-        public void leave(long performanceId, long userId) {
+        public void leave(long roomId, long userId) {
             calls.incrementAndGet();
         }
 
         @Override
-        public AdmissionResult admit(long performanceId, AdmissionPolicy policy) {
+        public AdmissionResult admit(long roomId, AdmissionPolicy policy) {
             throw new UnsupportedOperationException("순번 서비스는 입장 처리를 부르지 않는다");
         }
     }

@@ -43,7 +43,6 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.booking.payment-guard.open-duration=10s",
             "reservation.booking.payment-guard.half-open-calls=5",
             "reservation.booking.payment-guard.half-open-max-wait=1m",
-            "reservation.queue.enabled=true",
             "reservation.queue.admit-per-second=10",
             "reservation.queue.admission.max-active=1000",
             "reservation.queue.admission.burst=2s",
