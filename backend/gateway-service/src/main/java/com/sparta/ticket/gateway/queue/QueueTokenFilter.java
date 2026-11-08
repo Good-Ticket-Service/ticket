@@ -1,11 +1,8 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.queue;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.gateway.auth.UserSnapshot;
 import com.sparta.ticket.gateway.error.ErrorResponseWriter;
-import com.sparta.ticket.gateway.queue.ProtectedScopes;
-import com.sparta.ticket.gateway.queue.QueueTokenErrorCode;
-import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -27,8 +24,7 @@ import reactor.core.publisher.Mono;
  * 403 QUEUE_TOKEN_INVALID다. 보호 목록을 한 번도 받지 못했으면 대기열 없이 통과시키지 않고 503이다.
  * 보호 목록은 메모리에서 읽고 토큰은 서명으로 확인하므로 요청마다 다른 서비스를 부르지 않는다.
  *
- * Note: 로그인 회원이 정해진 뒤여야 하므로 Security 체인 안, 인가 뒤에 둔다(SecurityConfig). Security 체인 부품이라 security 패키지에 두고,
- * 토큰 검증·보호 목록은 queue 패키지 것을 쓴다(security → queue 한 방향). WebFilter 빈으로 등록하면
+ * Note: 로그인 회원이 정해진 뒤여야 하므로 Security 체인 안, 인가 뒤에 둔다(SecurityConfig). WebFilter 빈으로 등록하면
  * Security 체인 밖에서 한 번 더 돌므로 빈으로 내놓지 않는다(UserHeaderInjectionFilter와 같다).
  */
 public class QueueTokenFilter implements WebFilter {
