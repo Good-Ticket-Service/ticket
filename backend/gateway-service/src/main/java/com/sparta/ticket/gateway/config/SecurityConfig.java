@@ -25,6 +25,7 @@ import org.springframework.security.config.web.server.ServerHttpSecurity.HttpBas
 import org.springframework.security.config.web.server.ServerHttpSecurity.LogoutSpec;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.authorization.ServerAccessDeniedHandler;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.security.web.server.firewall.ServerExchangeRejectedHandler;
 import org.springframework.security.web.server.util.matcher.NegatedServerWebExchangeMatcher;
@@ -97,6 +98,8 @@ public class SecurityConfig {
     private SecurityWebFilterChain authenticatedChain(
             ServerHttpSecurity http, UserLookup userLookup, ErrorResponseWriter errorWriter) {
         JsonAuthenticationEntryPoint entryPoint = new JsonAuthenticationEntryPoint(errorWriter);
+        ServerAccessDeniedHandler forbidden =
+                (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN);
         return http.csrf(CsrfSpec::disable)
                 .formLogin(FormLoginSpec::disable)
                 .httpBasic(HttpBasicSpec::disable)
@@ -105,11 +108,9 @@ public class SecurityConfig {
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(
                                 jwt -> jwt.jwtAuthenticationConverter(new UserVerifyingJwtConverter(userLookup)))
                         .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(
-                                (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
-                .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(
-                                (exchange, denied) -> errorWriter.write(exchange, CommonErrorCode.FORBIDDEN)))
+                        .accessDeniedHandler(forbidden))
+                .exceptionHandling(handling ->
+                        handling.authenticationEntryPoint(entryPoint).accessDeniedHandler(forbidden))
                 .addFilterAfter(new UserHeaderInjectionFilter(), SecurityWebFiltersOrder.AUTHORIZATION)
                 .build();
     }

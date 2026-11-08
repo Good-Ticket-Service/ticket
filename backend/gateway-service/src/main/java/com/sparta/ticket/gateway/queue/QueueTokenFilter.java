@@ -1,12 +1,10 @@
 package com.sparta.ticket.gateway.queue;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.gateway.auth.CurrentUser;
 import com.sparta.ticket.gateway.auth.UserSnapshot;
 import com.sparta.ticket.gateway.error.ErrorResponseWriter;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.web.server.util.matcher.OrServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatcher;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatcher.MatchResult;
@@ -91,19 +89,11 @@ public class QueueTokenFilter implements WebFilter {
         if (token == null || token.isBlank()) {
             return Mono.just(Decision.INVALID);
         }
-        return Mono.zip(verifier.verify(token), currentUserId())
+        return Mono.zip(verifier.verify(token), CurrentUser.get().map(UserSnapshot::userId))
                 .filter(pair -> pair.getT1().userId() == pair.getT2())
                 .filter(pair -> pair.getT1().allows(scope))
                 .map(pair -> Decision.PASS)
                 .defaultIfEmpty(Decision.INVALID);
-    }
-
-    private static Mono<Long> currentUserId() {
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .map(Authentication::getPrincipal)
-                .filter(UserSnapshot.class::isInstance)
-                .map(user -> ((UserSnapshot) user).userId());
     }
 
     /**
