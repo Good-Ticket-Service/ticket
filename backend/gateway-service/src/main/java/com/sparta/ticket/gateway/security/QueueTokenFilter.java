@@ -20,9 +20,10 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 /**
- * 좌석 조회·선점 요청의 입장 토큰(X-Queue-Token)을 검사한다. 대기열을 통과한 회원만, 통과한 공연의 좌석만 쓰게 한다(docs/api.md 좌석·대기열 절).
- * 순서: 토큰 있음 → 서명·만료 → 토큰 회원 = 로그인 회원 → 토큰 공연 = 요청한 회차의 공연. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID,
- * 회차가 없으면(404) 토큰의 공연과 맞을 수 없으므로 403, 회차를 확인하지 못하면 통과시키지 않고 503이다. 대기열이 꺼져 있으면 검사하지 않는다.
+ * 좌석 조회·선점 요청의 입장 토큰(X-Queue-Token)을 검사한다. 대기열을 통과한 회원만, 토큰의 scope에 든 회차의 좌석만 쓰게 한다(docs/api.md 좌석·대기열 절).
+ * 순서: 토큰 있음 → 서명·만료 → 토큰 회원 = 로그인 회원 → URL의 회차로 만든 schedule:{scheduleId}가 토큰 scopes에 있음.
+ * 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다. 대기열이 꺼져 있으면 검사하지 않는다.
+ * URL과 토큰만으로 판단하므로 다른 서비스를 부르지 않는다.
  *
  * Note: 로그인 회원이 정해진 뒤여야 하므로 Security 체인 안, 인가 뒤에 둔다(SecurityConfig). Security 체인 부품이라 security 패키지에 두고,
  * 토큰 검증·회차 조회는 queue 패키지 것을 쓴다(security → queue 한 방향). WebFilter 빈으로 등록하면
@@ -33,6 +34,9 @@ public class QueueTokenFilter implements WebFilter {
     public static final String QUEUE_TOKEN_HEADER = "X-Queue-Token";
 
     private static final String SCHEDULE_ID = "scheduleId";
+
+    /** URL의 회차 ID로 scope를 만드는 접두사. 대기열이 room을 만들 때 받는 scope 형식(대상:ID)과 같다. */
+    private static final String SCHEDULE_SCOPE_PREFIX = "schedule:";
 
     /** 검사하는 경로. 선점 해제와 공개 잔여석은 검사하지 않는다. */
     private static final ServerWebExchangeMatcher PROTECTED = new OrServerWebExchangeMatcher(
@@ -88,21 +92,12 @@ public class QueueTokenFilter implements WebFilter {
         if (token == null || token.isBlank() || scheduleId == null) {
             return Mono.just(Decision.INVALID);
         }
+        String scope = SCHEDULE_SCOPE_PREFIX + scheduleId;
         return Mono.zip(verifier.verify(token), currentUserId())
                 .filter(pair -> pair.getT1().userId() == pair.getT2())
-                .flatMap(pair -> samePerformance(scheduleId, pair.getT1().performanceId()))
+                .filter(pair -> pair.getT1().allows(scope))
+                .map(pair -> Decision.PASS)
                 .defaultIfEmpty(Decision.INVALID);
-    }
-
-    /** 회차의 공연이 토큰의 공연과 같은지. 회차가 없으면 INVALID, 확인하지 못하면 UNAVAILABLE이다. */
-    private Mono<Decision> samePerformance(long scheduleId, long tokenPerformanceId) {
-        return scheduleLookup
-                .performanceIdOf(scheduleId)
-                .map(performanceId -> performanceId
-                        .filter(id -> id == tokenPerformanceId)
-                        .map(id -> Decision.PASS)
-                        .orElse(Decision.INVALID))
-                .onErrorReturn(Decision.UNAVAILABLE);
     }
 
     private static Mono<Long> currentUserId() {
