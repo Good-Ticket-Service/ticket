@@ -33,7 +33,6 @@ import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * 대기열 API를 Gateway가 넘겨주는 사용자 헤더와 실제 Redis로 호출한다. 명세는 docs/api.md 대기열 절이다.
- * 대기열이 꺼진 경우(503 QUEUE_DISABLED)는 설정이 컨텍스트 전체에 걸리므로 QueueServiceTest에서 본다.
  */
 class QueueApiIntegrationTest extends ReservationIntegrationTest {
 

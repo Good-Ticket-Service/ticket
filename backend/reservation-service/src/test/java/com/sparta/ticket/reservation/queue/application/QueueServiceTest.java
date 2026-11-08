@@ -97,18 +97,18 @@ class QueueServiceTest {
         }
     }
 
-    private static QueueService service(QueueState state, boolean enabled) {
-        return service(new FixedWaitingQueue(state), enabled);
+    private static QueueService service(QueueState state) {
+        return service(new FixedWaitingQueue(state));
     }
 
-    private static QueueService service(FixedWaitingQueue waitingQueue, boolean enabled) {
-        return service(waitingQueue, enabled, OPEN_ROOM);
+    private static QueueService service(FixedWaitingQueue waitingQueue) {
+        return service(waitingQueue, OPEN_ROOM);
     }
 
-    private static QueueService service(FixedWaitingQueue waitingQueue, boolean enabled, WaitingRoom room) {
+    private static QueueService service(FixedWaitingQueue waitingQueue, WaitingRoom room) {
         return new QueueService(
                 waitingQueue,
-                new QueueProperties(enabled, 10),
+                new QueueProperties(true, 10),
                 ADMISSION,
                 ECHO_ISSUER,
                 new FixedRoomRepository(room),
@@ -126,7 +126,7 @@ class QueueServiceTest {
     @DisplayName("room이 없으면 진입·순번 조회 모두 줄을 보지 않고 404 WAITING_ROOM_NOT_FOUND")
     void roomNotFound() {
         FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, true);
+        QueueService service = service(waitingQueue);
 
         assertError(() -> service.enter(2L, 7L), QueueErrorCode.WAITING_ROOM_NOT_FOUND);
         assertError(() -> service.findMyStatus(2L, 7L), QueueErrorCode.WAITING_ROOM_NOT_FOUND);
@@ -138,7 +138,7 @@ class QueueServiceTest {
     void roomNotOpen() {
         WaitingRoom ready = new WaitingRoom(1L, List.of("schedule:12"), NOW.plusSeconds(1), NOW.plusSeconds(3600));
         FixedWaitingQueue waitingQueue = new FixedWaitingQueue(null);
-        QueueService service = service(waitingQueue, true, ready);
+        QueueService service = service(waitingQueue, ready);
 
         assertError(() -> service.enter(1L, 7L), QueueErrorCode.WAITING_ROOM_NOT_OPEN);
         assertError(() -> service.findMyStatus(1L, 7L), QueueErrorCode.NOT_IN_QUEUE);
@@ -150,7 +150,7 @@ class QueueServiceTest {
     void roomClosed() {
         WaitingRoom closed = new WaitingRoom(1L, List.of("schedule:12"), NOW.minusSeconds(3600), NOW);
         FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, true, closed);
+        QueueService service = service(waitingQueue, closed);
 
         assertError(() -> service.enter(1L, 7L), QueueErrorCode.WAITING_ROOM_CLOSED);
         assertError(() -> service.findMyStatus(1L, 7L), QueueErrorCode.WAITING_ROOM_CLOSED);
@@ -161,30 +161,17 @@ class QueueServiceTest {
     }
 
     @Test
-    @DisplayName("대기열이 꺼져 있으면 줄을 세우지 않고 503 QUEUE_DISABLED")
-    void disabled() {
-        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, false);
-
-        assertThatThrownBy(() -> service.enter(1L, 7L))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo(QueueErrorCode.QUEUE_DISABLED);
-        assertThat(waitingQueue.calls).hasValue(0);
-    }
-
-    @Test
     @DisplayName("예상 대기 시간은 앞 인원 ÷ 초당 입장 인원을 올림한 초다")
     void estimatedWaitSeconds() {
-        assertThat(service(new QueuePosition(0), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(1, 0, 0));
-        assertThat(service(new QueuePosition(10), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(11, 10, 1));
-        assertThat(service(new QueuePosition(11), true).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(12, 11, 2));
+        assertThat(service(new QueuePosition(0)).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(1, 0, 0));
+        assertThat(service(new QueuePosition(10)).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(11, 10, 1));
+        assertThat(service(new QueuePosition(11)).enter(1L, 7L)).isEqualTo(QueueStatusResult.waiting(12, 11, 2));
     }
 
     @Test
     @DisplayName("순번 조회는 WAITING과 순번, 앞 인원, 예상 대기 시간을 돌려주고 토큰은 없다")
     void findMyStatus() {
-        QueueStatusResult result = service(new QueuePosition(10), true).findMyStatus(1L, 7L);
+        QueueStatusResult result = service(new QueuePosition(10)).findMyStatus(1L, 7L);
 
         assertThat(result).isEqualTo(QueueStatusResult.waiting(11, 10, 1));
         assertThat(result.entryToken()).isNull();
@@ -195,7 +182,7 @@ class QueueServiceTest {
     void findMyStatusEntered() {
         Instant expiresAt = Instant.parse("2026-11-02T11:10:00Z");
 
-        QueueStatusResult result = service(new QueueAdmission(expiresAt), true).findMyStatus(1L, 7L);
+        QueueStatusResult result = service(new QueueAdmission(expiresAt)).findMyStatus(1L, 7L);
 
         assertThat(result)
                 .isEqualTo(QueueStatusResult.entered(
@@ -207,7 +194,7 @@ class QueueServiceTest {
     @Test
     @DisplayName("입장해 있는 회원이 다시 진입하면 순번 조회와 같은 ENTERED 응답을 준다")
     void enterWhileEntered() {
-        QueueService service = service(new QueueAdmission(Instant.parse("2026-11-02T11:10:00Z")), true);
+        QueueService service = service(new QueueAdmission(Instant.parse("2026-11-02T11:10:00Z")));
 
         assertThat(service.enter(1L, 7L)).isEqualTo(service.findMyStatus(1L, 7L));
     }
@@ -215,7 +202,7 @@ class QueueServiceTest {
     @Test
     @DisplayName("줄에 없으면 순번 조회는 404 NOT_IN_QUEUE")
     void findMyStatusNotInQueue() {
-        QueueService service = service((QueueState) null, true);
+        QueueService service = service((QueueState) null);
 
         assertThatThrownBy(() -> service.findMyStatus(1L, 7L))
                 .isInstanceOf(BusinessException.class)
@@ -224,39 +211,13 @@ class QueueServiceTest {
     }
 
     @Test
-    @DisplayName("대기열이 꺼져 있으면 순번을 조회하지 않고 503 QUEUE_DISABLED")
-    void findMyStatusDisabled() {
-        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, false);
-
-        assertThatThrownBy(() -> service.findMyStatus(1L, 7L))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo(QueueErrorCode.QUEUE_DISABLED);
-        assertThat(waitingQueue.calls).hasValue(0);
-    }
-
-    @Test
     @DisplayName("대기 취소는 줄에서 빼는 일을 저장소에 넘긴다")
     void leave() {
         FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, true);
+        QueueService service = service(waitingQueue);
 
         service.leave(1L, 7L);
 
         assertThat(waitingQueue.calls).hasValue(1);
-    }
-
-    @Test
-    @DisplayName("대기열이 꺼져 있으면 대기 취소도 503 QUEUE_DISABLED")
-    void leaveDisabled() {
-        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
-        QueueService service = service(waitingQueue, false);
-
-        assertThatThrownBy(() -> service.leave(1L, 7L))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo(QueueErrorCode.QUEUE_DISABLED);
-        assertThat(waitingQueue.calls).hasValue(0);
     }
 }

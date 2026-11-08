@@ -14,7 +14,6 @@ import org.springframework.http.HttpStatus;
 @Accessors(fluent = true)
 @RequiredArgsConstructor
 public enum QueueErrorCode implements ErrorCode {
-    QUEUE_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "대기열을 사용하지 않는 중입니다."),
     NOT_IN_QUEUE(HttpStatus.NOT_FOUND, "대기열에 서 있지 않습니다."),
     WAITING_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "대기열이 없습니다."),
     WAITING_ROOM_NOT_OPEN(HttpStatus.CONFLICT, "대기열이 아직 열리지 않았습니다."),
