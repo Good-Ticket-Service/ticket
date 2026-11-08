@@ -24,6 +24,7 @@ class CachedUserLookupTest {
                     return Mono.just(Optional.of(new UserSnapshot(id, "hong@ticket.com", role)));
                 },
                 Duration.ofSeconds(60),
+                10_000,
                 nanos::get);
     }
 
@@ -54,6 +55,22 @@ class CachedUserLookupTest {
     }
 
     @Test
+    @DisplayName("담는 회원 수는 설정한 상한을 넘지 않는다")
+    void respectsMaxSize() {
+        CachedUserLookup lookup = new CachedUserLookup(
+                id -> Mono.just(Optional.of(new UserSnapshot(id, "hong@ticket.com", "USER"))),
+                Duration.ofSeconds(60),
+                2,
+                nanos::get);
+
+        for (long id = 1; id <= 5; id++) {
+            lookup.find(id).block();
+        }
+
+        assertThat(lookup.estimatedSize()).isLessThanOrEqualTo(2);
+    }
+
+    @Test
     @DisplayName("조회 실패는 캐시하지 않고 다음 요청에서 다시 조회한다")
     void doesNotCacheFailure() {
         CachedUserLookup lookup = new CachedUserLookup(
@@ -61,6 +78,7 @@ class CachedUserLookupTest {
                         ? Mono.error(new IllegalStateException("down"))
                         : Mono.just(Optional.empty()),
                 Duration.ofSeconds(60),
+                10_000,
                 nanos::get);
 
         assertThatThrownBy(() -> lookup.find(userId).block()).hasMessageContaining("down");
@@ -78,6 +96,7 @@ class CachedUserLookupTest {
                             .map(ignored -> Optional.of(new UserSnapshot(id, "hong@ticket.com", "USER")));
                 },
                 Duration.ofSeconds(60),
+                10_000,
                 nanos::get);
 
         reactor.core.Disposable first = lookup.find(userId).subscribe();

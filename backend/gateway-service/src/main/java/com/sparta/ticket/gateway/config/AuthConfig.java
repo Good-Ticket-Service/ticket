@@ -28,6 +28,6 @@ public class AuthConfig {
 
     @Bean
     public UserLookup userLookup(UserServiceClient client, AuthProperties properties) {
-        return new CachedUserLookup(client::fetch, properties.userCacheTtl());
+        return new CachedUserLookup(client::fetch, properties.userCacheTtl(), properties.userCacheMaxSize());
     }
 }

@@ -92,6 +92,10 @@ auth:
     - /actuator/prometheus
   # 권한 재확인 결과 캐시 시간. 권한 변경·탈퇴는 최대 이 시간만큼 늦게 반영된다
   user-cache-ttl: 60s
+  # 권한 재확인 결과를 담아 둘 최대 회원 수. 동시에 요청하는 회원이 이보다 많으면 캐시가 밀려 user-service 조회가 늘어난다.
+  # 대기열 폴링처럼 같은 회원이 몇 초마다 오면, 동시 대기 인원 이상으로 잡아야 회원당 TTL마다 한 번만 조회한다.
+  # 늘리면 Gateway 메모리를 더 쓴다(회원 1명당 수백 바이트, 추정). 측정 전 기본값이다
+  user-cache-max-size: ${AUTH_USER_CACHE_MAX_SIZE:10000}
 
 springdoc:
   swagger-ui:
