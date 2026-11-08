@@ -10,6 +10,7 @@ import com.sparta.ticket.gateway.error.ErrorResponseWriter;
 import com.sparta.ticket.gateway.header.UserHeaderInjectionFilter;
 import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import com.sparta.ticket.gateway.queue.ProtectedScopes;
+import com.sparta.ticket.gateway.queue.QueueTokenFilter;
 import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
