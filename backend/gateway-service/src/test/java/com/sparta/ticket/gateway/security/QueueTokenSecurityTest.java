@@ -1,5 +1,6 @@
 package com.sparta.ticket.gateway.security;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.web.reactive.function.server.RequestPredicates.path;
 
@@ -8,6 +9,8 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.sparta.ticket.gateway.queue.ProtectedScopes;
+import com.sparta.ticket.gateway.queue.ProtectedScopes.Protection;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -30,9 +33,9 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
 
 /**
- * 대기열을 켠 채 실제 Security 체인과 라우팅을 태워 좌석 경로의 입장 토큰 검사를 확인한다. 통과한 요청은 테스트 echo 핸들러가 200으로 받는다.
- * 토큰의 scopes에 요청 회차(schedule:{scheduleId})가 있어야 통과한다. 테스트마다 다른 회차 ID를 쓴다.
- * 대기열이 꺼진 경우는 GatewaySecurityTest(기본 설정 off)에서 본다.
+ * 실제 Security 체인과 라우팅을 태워 좌석 경로의 입장 토큰 검사를 확인한다. 통과한 요청은 테스트 echo 핸들러가 200으로 받는다.
+ * 보호 목록(ProtectedScopes)은 대역으로 바꿔, 이 테스트의 회차(schedule:{scheduleId})만 보호 중이고 나머지는 보호하지 않게 둔다.
+ * 보호 중인 회차는 토큰의 scopes에 그 회차가 있어야 통과한다. 테스트마다 다른 회차 ID를 쓴다.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -40,7 +43,6 @@ import reactor.core.publisher.Mono;
             "spring.cloud.config.enabled=false",
             "eureka.client.enabled=false",
             "jwt.secret=" + QueueTokenSecurityTest.LOGIN_SECRET,
-            "queue.enabled=true",
             "queue.token-secret=" + QueueTokenSecurityTest.QUEUE_SECRET,
             "auth.whitelist[0]=/api/seats/schedules/*/remaining",
             "spring.cloud.gateway.server.webflux.routes[0].id=echo",
@@ -64,11 +66,16 @@ class QueueTokenSecurityTest {
     @MockitoBean
     private UserServiceClient userServiceClient;
 
+    @MockitoBean
+    private ProtectedScopes protectedScopes;
+
     private long scheduleId;
 
     @BeforeEach
     void setUp() {
         scheduleId = SCHEDULE_IDS.incrementAndGet();
+        given(protectedScopes.protection(anyString())).willReturn(Protection.UNPROTECTED);
+        given(protectedScopes.protection(scope(scheduleId))).willReturn(Protection.PROTECTED);
         given(userLookup.find(USER_ID))
                 .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "hong@ticket.com", "USER"))));
     }
@@ -110,13 +117,21 @@ class QueueTokenSecurityTest {
         return entryToken(QUEUE_SECRET, USER_ID, myScopes(), Instant.now().plusSeconds(600));
     }
 
+    private static String scope(long scheduleId) {
+        return "schedule:" + scheduleId;
+    }
+
     private List<String> myScopes() {
-        return List.of("schedule:" + (scheduleId + 100_000), "schedule:" + scheduleId);
+        return List.of(scope(scheduleId + 100_000), scope(scheduleId));
     }
 
     private WebTestClient.ResponseSpec getSeats(String entryToken) throws Exception {
+        return getSeats(String.valueOf(scheduleId), entryToken);
+    }
+
+    private WebTestClient.ResponseSpec getSeats(String scheduleIdInPath, String entryToken) throws Exception {
         WebTestClient.RequestHeadersSpec<?> request = client.get()
-                .uri("/api/seats/schedules/{scheduleId}", scheduleId)
+                .uri("/api/seats/schedules/{scheduleId}", scheduleIdInPath)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken());
         if (entryToken != null) {
             request = request.header(QueueTokenFilter.QUEUE_TOKEN_HEADER, entryToken);
@@ -163,8 +178,42 @@ class QueueTokenSecurityTest {
         expectInvalid(getSeats(entryToken(
                 QUEUE_SECRET,
                 USER_ID,
-                List.of("schedule:" + (scheduleId + 1)),
+                List.of(scope(scheduleId + 1)),
                 Instant.now().plusSeconds(600))));
+    }
+
+    @Test
+    @DisplayName("회차 ID 앞에 0을 붙여도 같은 회차로 보고 검사한다")
+    void leadingZeroIsSameSchedule() throws Exception {
+        expectInvalid(getSeats("0" + scheduleId, null));
+        getSeats("0" + scheduleId, validEntryToken()).expectStatus().isOk();
+    }
+
+    @Test
+    @DisplayName("보호하는 room이 없거나 끝난 회차는 입장 토큰 없이 통과한다")
+    void unprotectedSchedulePasses() throws Exception {
+        given(protectedScopes.protection(scope(scheduleId))).willReturn(Protection.UNPROTECTED);
+
+        getSeats(null).expectStatus().isOk();
+        client.post()
+                .uri("/api/seats/schedules/{scheduleId}/holds", scheduleId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                .exchange()
+                .expectStatus()
+                .isOk();
+    }
+
+    @Test
+    @DisplayName("보호 목록을 한 번도 받지 못했으면 토큰이 있어도 503 SERVICE_UNAVAILABLE")
+    void unknownListIsUnavailable() throws Exception {
+        given(protectedScopes.protection(scope(scheduleId))).willReturn(Protection.UNKNOWN);
+
+        getSeats(validEntryToken())
+                .expectStatus()
+                .isEqualTo(503)
+                .expectBody()
+                .jsonPath("$.code")
+                .isEqualTo("SERVICE_UNAVAILABLE");
     }
 
     @Test
