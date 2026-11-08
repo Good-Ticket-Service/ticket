@@ -1,7 +1,7 @@
 package com.sparta.ticket.gateway.infrastructure.client;
 
+import com.sparta.ticket.gateway.queue.ProtectedRoom;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -31,14 +31,6 @@ public class WaitingRoomClient {
                         .toList())
                 // 연결·응답 타임아웃과 별개로, 인스턴스 선택부터 본문 해석까지 전체에 상한을 둔다
                 .timeout(timeout);
-    }
-
-    /** 보호하는 scope와 보호가 끝나는 시각. */
-    public record ProtectedRoom(List<String> scopes, Instant closeAt) {
-
-        public ProtectedRoom {
-            scopes = List.copyOf(scopes);
-        }
     }
 
     /** 내부 목록 응답에서 쓰는 필드만 읽는다. closeAt은 +09:00 오프셋 문자열이다. */
