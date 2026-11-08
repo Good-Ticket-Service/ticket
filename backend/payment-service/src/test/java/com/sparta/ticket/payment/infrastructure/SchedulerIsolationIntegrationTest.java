@@ -27,13 +27,13 @@ class SchedulerIsolationIntegrationTest extends PaymentIntegrationTest {
     @Test
     @DisplayName("스케줄러 스레드는 잡 수만큼 있다")
     void poolCoversEveryScheduledJob() {
-        // Note: 운영 @Scheduled 메서드는 10개다(정산 대조는 기동 1회·매일 2개). 잡을 늘리면 pool.size도 함께 늘린다.
+        // Note: 운영 @Scheduled 메서드는 11개다(정산 대조는 기동 1회·매일 2개, 정산 반영 워커 #304). 잡을 늘리면 pool.size도 함께 늘린다.
         assertThat(scheduler).isInstanceOf(ThreadPoolTaskScheduler.class);
         // Note: getPoolSize()는 지금까지 만든 스레드 수라, 설정한 상한은 core 크기로 본다.
         assertThat(((ThreadPoolTaskScheduler) scheduler)
                         .getScheduledThreadPoolExecutor()
                         .getCorePoolSize())
-                .isGreaterThanOrEqualTo(10);
+                .isGreaterThanOrEqualTo(11);
     }
 
     @Test

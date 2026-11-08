@@ -46,6 +46,16 @@ public class SettlementBackfillTransactions {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Outcome backfill(SaleSource source, RefundSnapshot refund) {
+        return backfill(source, refund, "backfill");
+    }
+
+    /**
+     * 정산 반영 워커(#304)와 보충 잡이 같은 반영 규칙을 쓴다. 지표만 호출 출처(origin)로 나눈다.
+     *
+     * @param origin 지표 태그. "worker" 또는 "backfill"
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Outcome backfill(SaleSource source, RefundSnapshot refund, String origin) {
         Optional<SettlementItem> existing = items.lockSaleByPaymentId(source.paymentId());
         if (existing.isPresent() && existing.get().getStatus() != SettlementItemStatus.UNPOSTED) return Outcome.SKIPPED;
         SettlementItem calculated = SaleCalculation.calculate(rules, source);
@@ -58,7 +68,7 @@ public class SettlementBackfillTransactions {
                     "정산 보충 계산 실패. 다음 순회에 다시 시도한다. paymentId={}, reason={}",
                     source.paymentId(),
                     sale.getFailureReason());
-            observation.counter("settlement.backfill", "result", Outcome.UNPOSTED.name());
+            observation.counter("settlement.backfill", "result", Outcome.UNPOSTED.name(), "origin", origin);
             return Outcome.UNPOSTED;
         }
         items.saveAndFlush(sale);
@@ -66,7 +76,7 @@ public class SettlementBackfillTransactions {
         if (refund != null && refund.completed())
             refunds.refundCompleted(source.paymentId(), refund.refundId(), refund.completedAt());
         else if (refund != null) refunds.refundAccepted(source.paymentId(), refund.refundId());
-        observation.counter("settlement.backfill", "result", Outcome.POSTED.name());
+        observation.counter("settlement.backfill", "result", Outcome.POSTED.name(), "origin", origin);
         return Outcome.POSTED;
     }
 }

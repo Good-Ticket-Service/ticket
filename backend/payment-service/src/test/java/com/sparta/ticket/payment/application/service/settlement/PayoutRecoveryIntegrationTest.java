@@ -80,7 +80,8 @@ class PayoutRecoveryIntegrationTest extends PaymentIntegrationTest {
     @BeforeEach
     void setUp() {
         admin.clearFaults();
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         real = new PgPayoutAgency(RestClient.builder(), properties(), objectMapper);
         agency = new CountingAgency(real);
         job = jobWith(agency, true, 168);
