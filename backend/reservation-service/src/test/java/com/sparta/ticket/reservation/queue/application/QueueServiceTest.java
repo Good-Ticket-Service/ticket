@@ -32,8 +32,8 @@ class QueueServiceTest {
             1000, Duration.ofSeconds(2), Duration.ofMinutes(2), Duration.ofMinutes(10), 1000);
 
     /** 받은 값을 그대로 이어 붙여 토큰으로 돌려준다. 서비스가 어떤 값으로 발급을 부르는지 확인한다. */
-    private static final EntryTokenIssuer ECHO_ISSUER = (userId, performanceId, admittedAt, expiresAt) ->
-            userId + "|" + performanceId + "|" + admittedAt + "|" + expiresAt;
+    private static final EntryTokenIssuer ECHO_ISSUER = (userId, roomId, scopes, admittedAt, expiresAt) ->
+            userId + "|" + roomId + "|" + scopes + "|" + admittedAt + "|" + expiresAt;
 
     private static final Instant NOW = Instant.parse("2026-11-02T11:00:00Z");
 
@@ -205,7 +205,7 @@ class QueueServiceTest {
 
         assertThat(result)
                 .isEqualTo(QueueStatusResult.entered(
-                        "7|1|2026-11-02T11:00:00Z|2026-11-02T11:10:00Z",
+                        "7|1|[schedule:12]|2026-11-02T11:00:00Z|2026-11-02T11:10:00Z",
                         OffsetDateTime.of(2026, 11, 2, 20, 10, 0, 0, ZoneOffset.ofHours(9))));
         assertThat(result.position()).isZero();
     }
