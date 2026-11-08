@@ -36,7 +36,6 @@ public class QueueService {
      * room이 없으면 404 WAITING_ROOM_NOT_FOUND, 오픈 전이면 409 WAITING_ROOM_NOT_OPEN, 끝났으면 409 WAITING_ROOM_CLOSED다.
      */
     public QueueStatusResult enter(long roomId, long userId) {
-        requireEnabled();
         WaitingRoom room = findRoom(roomId);
         room.verifyEnterable(clock.instant());
         return toResult(room, userId, waitingQueue.enter(roomId, userId));
@@ -47,7 +46,6 @@ public class QueueService {
      * room이 끝났으면 줄에 있어도 409 WAITING_ROOM_CLOSED다. 프런트는 이때 대기열 없이 좌석 화면으로 보낸다.
      */
     public QueueStatusResult findMyStatus(long roomId, long userId) {
-        requireEnabled();
         WaitingRoom room = findRoom(roomId);
         room.verifyNotClosed(clock.instant());
         QueueState state =
@@ -57,7 +55,6 @@ public class QueueService {
 
     /** 대기를 취소한다. 줄에 없어도, room이 없거나 끝났어도 성공으로 본다(같은 요청을 다시 보내도 결과가 같다). */
     public void leave(long roomId, long userId) {
-        requireEnabled();
         waitingQueue.leave(roomId, userId);
     }
 
@@ -66,12 +63,6 @@ public class QueueService {
         return waitingRoomRepository
                 .findById(roomId)
                 .orElseThrow(() -> new BusinessException(QueueErrorCode.WAITING_ROOM_NOT_FOUND));
-    }
-
-    private void requireEnabled() {
-        if (!properties.enabled()) {
-            throw new BusinessException(QueueErrorCode.QUEUE_DISABLED);
-        }
     }
 
     /**
