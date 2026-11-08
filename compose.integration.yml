@@ -86,7 +86,6 @@ services:
       SERVER_PORT: "8080"
       OTEL_SERVICE_NAME: gateway-service
       PYROSCOPE_APPLICATION_NAME: gateway-service
-      QUEUE_ENABLED: "false"
     volumes: [*agents]
     healthcheck: *health
   user-service:
@@ -121,7 +120,6 @@ services:
       SERVER_PORT: "8083"
       OTEL_SERVICE_NAME: reservation-service
       PYROSCOPE_APPLICATION_NAME: reservation-service
-      QUEUE_ENABLED: "false"
       # JFR과 누수 탐지는 observability 프로필에서만 compose.py가 켠다. 기본 실행의 측정 조건을 이전과 같게 둔다. 0은 누수 탐지 끔이다.
       SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: ${INTEGRATION_LEAK_DETECTION_MS:-0}
       JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2${INTEGRATION_JFR:+ -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr}"

@@ -114,13 +114,12 @@ class Scenario:
         return d['userId']
 
     def preflight(self):
-        # 변경 작업 전에 Compose 대상과 DB 접근, 양쪽 큐 설정을 확인한다.
+        # 변경 작업 전에 Compose 대상과 DB 접근을 확인한다. 대기열은 room이 보호하는 회차만 입장 토큰을 검사하고,
+        # 시험이 만드는 회차에는 room이 없으므로 끄는 설정을 확인하지 않는다.
         # k6는 load 프로필이라 프로필을 지정해야 resources에 cpuset·mem_limit가 함께 기록된다
         p=subprocess.run(self.cmd+['--profile','load','config','--format','json'],env=self.env,capture_output=True,text=True,timeout=20)
         require(p.returncode==0,'Compose configuration failed')
         config=json.loads(p.stdout)
-        for service in ('gateway-service','reservation-service'):
-            require(str(config['services'][service]['environment'].get('QUEUE_ENABLED')).lower()=='false', 'QUEUE_ENABLED must be false')
         self.report['resources']={s:{k:v for k,v in c.items() if k in ('cpuset','cpus','mem_limit')}
                                   for s,c in config['services'].items()}
         # compose ps는 credential/environment를 출력하지 않는다.
