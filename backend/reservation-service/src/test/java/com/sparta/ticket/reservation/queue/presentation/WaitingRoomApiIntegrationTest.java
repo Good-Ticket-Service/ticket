@@ -115,14 +115,21 @@ class WaitingRoomApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("scope가 비었거나 형식이 틀리면 400 VALIDATION_ERROR")
+    @DisplayName("scope가 비었거나 형식이 틀리거나 ID가 0으로 시작하면 400 VALIDATION_ERROR")
     void invalidScopes() throws Exception {
         create(Role.MASTER, body("[]", now.plusMinutes(5), now.plusHours(1)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         create(Role.MASTER, body("[\"schedule:1,schedule:2\"]", now.plusMinutes(5), now.plusHours(1)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.code")
+                        .value("VALIDATION_ERROR")); // Gateway는 URL의 ID를 숫자로 읽어 schedule:12로 비교하므로, 0으로 시작하는
+        // ID는 보호되지 않는 room이 된다
+        for (String scope : new String[] {"schedule:012", "schedule:0"}) {
+            create(Role.MASTER, body("[\"%s\"]".formatted(scope), now.plusMinutes(5), now.plusHours(1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
     }
 
     @Test
