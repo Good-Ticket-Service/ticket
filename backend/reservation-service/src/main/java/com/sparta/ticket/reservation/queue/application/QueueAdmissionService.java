@@ -29,14 +29,11 @@ public class QueueAdmissionService {
     private final QueueAdmissionMetrics metrics;
 
     /**
-     * 끝나지 않은 room을 하나씩 처리한다. 대기열이 꺼져 있으면 아무것도 하지 않는다. 한 room이 실패해도 다음 room은 처리한다.
+     * 끝나지 않은 room을 하나씩 처리한다. room이 없으면 아무것도 하지 않는다. 한 room이 실패해도 다음 room은 처리한다.
      * 오픈 전 room도 처리한다. 줄이 비어 있어 하는 일이 없고, 시각으로 거르지 않아 코드가 단순하다.
      * room 목록은 Redis 목록 읽기 1번에 room 설정은 캐시로 읽는다(RedisWaitingRoomRepository).
      */
     public void admitAll() {
-        if (!queueProperties.enabled()) {
-            return;
-        }
         AdmissionPolicy policy = policy();
         long waiting = 0;
         long active = 0;

@@ -28,11 +28,11 @@ class QueueAdmissionServiceTest {
 
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
-    private QueueAdmissionService service(RecordingWaitingQueue queue, boolean enabled) {
+    private QueueAdmissionService service(RecordingWaitingQueue queue) {
         return new QueueAdmissionService(
                 queue,
                 new ActiveRooms(queue.roomIds),
-                new QueueProperties(enabled, 50),
+                new QueueProperties(50),
                 ADMISSION,
                 new QueueAdmissionMetrics(meters));
     }
@@ -108,7 +108,7 @@ class QueueAdmissionServiceTest {
     @DisplayName("끝나지 않은 room마다 설정으로 만든 규칙으로 입장을 처리한다")
     void admitsEveryRoom() {
         RecordingWaitingQueue queue = new RecordingWaitingQueue(new LinkedHashSet<>(List.of(7L, 8L)), Set.of());
-        QueueAdmissionService service = service(queue, true);
+        QueueAdmissionService service = service(queue);
 
         service.admitAll();
 
@@ -122,7 +122,7 @@ class QueueAdmissionServiceTest {
     @DisplayName("한 room의 처리가 실패해도 다음 room은 처리한다")
     void continuesAfterFailure() {
         RecordingWaitingQueue queue = new RecordingWaitingQueue(new LinkedHashSet<>(List.of(7L, 8L)), Set.of(7L));
-        QueueAdmissionService service = service(queue, true);
+        QueueAdmissionService service = service(queue);
 
         service.admitAll();
 
@@ -133,7 +133,7 @@ class QueueAdmissionServiceTest {
     @DisplayName("입장·이탈·만료 인원을 누적하고, 대기·입장 중 인원은 그 주기에 처리한 room들의 합으로 바꾼다")
     void recordsMetrics() {
         RecordingWaitingQueue queue = new RecordingWaitingQueue(new LinkedHashSet<>(List.of(7L, 8L, 9L)), Set.of(9L));
-        QueueAdmissionService service = service(queue, true);
+        QueueAdmissionService service = service(queue);
 
         service.admitAll();
         service.admitAll();
@@ -145,16 +145,5 @@ class QueueAdmissionServiceTest {
         assertThat(meters.get("queue.active").gauge().value()).isEqualTo(20);
         // 실패한 room도 처리 시간은 남긴다: 2주기 × 3 room
         assertThat(meters.timer("queue.admission.duration").count()).isEqualTo(6);
-    }
-
-    @Test
-    @DisplayName("대기열이 꺼져 있으면 아무 room도 처리하지 않는다")
-    void disabled() {
-        RecordingWaitingQueue queue = new RecordingWaitingQueue(Set.of(7L), Set.of());
-        QueueAdmissionService service = service(queue, false);
-
-        service.admitAll();
-
-        assertThat(queue.admitted).isEmpty();
     }
 }
