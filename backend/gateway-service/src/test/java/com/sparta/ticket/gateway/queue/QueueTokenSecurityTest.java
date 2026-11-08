@@ -159,6 +159,31 @@ class QueueTokenSecurityTest {
     }
 
     @Test
+    @DisplayName("좌석 layout·status도 보호 회차면 입장 토큰을 검사하고, 보호하지 않는 회차는 토큰 없이 통과한다(#289)")
+    void layoutAndStatusRequireEntryToken() throws Exception {
+        for (String path :
+                List.of("/api/seats/schedules/{scheduleId}/layout", "/api/seats/schedules/{scheduleId}/status")) {
+            expectInvalid(client.get()
+                    .uri(path, scheduleId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                    .exchange());
+            client.get()
+                    .uri(path, scheduleId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                    .header(QueueTokenFilter.QUEUE_TOKEN_HEADER, validEntryToken())
+                    .exchange()
+                    .expectStatus()
+                    .isOk();
+            client.get()
+                    .uri(path, scheduleId + 1)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                    .exchange()
+                    .expectStatus()
+                    .isOk();
+        }
+    }
+
+    @Test
     @DisplayName("토큰이 없거나, 다른 키로 서명했거나, 만료됐으면 403 QUEUE_TOKEN_INVALID")
     void missingForgedOrExpired() throws Exception {
         expectInvalid(getSeats(null));
