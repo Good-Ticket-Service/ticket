@@ -22,7 +22,7 @@ import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Component;
 
 /**
- * Redis로 구현한 공연별 대기 줄.
+ * Redis로 구현한 room별 대기 줄.
  *
  * Note: 순서는 서버 시계가 아니라 Redis INCR 번호로 정한다. Redis는 명령을 하나씩 실행하므로 같은 밀리초에 몰리거나
  * 서버가 여러 대여도 번호가 겹치지 않는다. 진입을 Lua 하나로 묶는 이유는 순서 보장이 아니라(Sorted Set이 score로 정렬한다)
@@ -56,22 +56,22 @@ public class RedisWaitingQueue implements WaitingQueue {
 
     /** 입장 확인과 줄 서기를 Lua 하나로 묶는다. 따로 하면 그 사이 입장한 회원이 줄 끝에 다시 서서 입장을 두 번 받는다. */
     @Override
-    public QueueState enter(long performanceId, long userId) {
+    public QueueState enter(long roomId, long userId) {
         List<String> keys = List.of(
-                QueueKeys.waiting(performanceId),
-                QueueKeys.seq(performanceId),
+                QueueKeys.waiting(roomId),
+                QueueKeys.seq(roomId),
                 QueueKeys.PERFORMANCES,
-                QueueKeys.seen(performanceId),
-                QueueKeys.active(performanceId));
-        List<?> result = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(performanceId));
+                QueueKeys.seen(roomId),
+                QueueKeys.active(roomId),
+                QueueKeys.roomConfig(roomId));
+        List<?> result = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(roomId));
         return toState(result).orElseThrow();
     }
 
     /** 위치 확인과 조회 시각 기록을 Lua 하나로 묶는다. 따로 하면 그 사이 줄에서 빠진 회원의 조회 시각이 남는다. */
     @Override
-    public Optional<QueueState> find(long performanceId, long userId) {
-        List<String> keys = List.of(
-                QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId), QueueKeys.active(performanceId));
+    public Optional<QueueState> find(long roomId, long userId) {
+        List<String> keys = List.of(QueueKeys.waiting(roomId), QueueKeys.seen(roomId), QueueKeys.active(roomId));
         List<?> result = execute(POSITION_SCRIPT, keys, String.valueOf(userId));
         return toState(result);
     }
@@ -94,8 +94,8 @@ public class RedisWaitingQueue implements WaitingQueue {
      * 조회 시각이 지워진 회원이 줄에 남아 이탈자로 잘못 정리될 수 있다.
      */
     @Override
-    public void leave(long performanceId, long userId) {
-        List<String> keys = List.of(QueueKeys.waiting(performanceId), QueueKeys.seen(performanceId));
+    public void leave(long roomId, long userId) {
+        List<String> keys = List.of(QueueKeys.waiting(roomId), QueueKeys.seen(roomId));
         execute(LEAVE_SCRIPT, keys, String.valueOf(userId));
     }
 
@@ -113,14 +113,15 @@ public class RedisWaitingQueue implements WaitingQueue {
 
     /** 정리·인원 계산·꺼내기·입장 등록·닫기를 Lua 하나로 처리한다. 순서와 이유는 admit.lua 주석에 있다. */
     @Override
-    public AdmissionResult admit(long performanceId, AdmissionPolicy policy) {
+    public AdmissionResult admit(long roomId, AdmissionPolicy policy) {
         List<String> keys = List.of(
-                QueueKeys.waiting(performanceId),
-                QueueKeys.seen(performanceId),
-                QueueKeys.active(performanceId),
-                QueueKeys.lastAdmit(performanceId),
-                QueueKeys.seq(performanceId),
-                QueueKeys.PERFORMANCES);
+                QueueKeys.waiting(roomId),
+                QueueKeys.seen(roomId),
+                QueueKeys.active(roomId),
+                QueueKeys.lastAdmit(roomId),
+                QueueKeys.seq(roomId),
+                QueueKeys.PERFORMANCES,
+                QueueKeys.roomConfig(roomId));
         List<?> result = execute(
                 ADMIT_SCRIPT,
                 keys,
@@ -130,7 +131,7 @@ public class RedisWaitingQueue implements WaitingQueue {
                 String.valueOf(policy.entryTtl().toMillis()),
                 String.valueOf(policy.leaveAfter().toMillis()),
                 String.valueOf(policy.leaveBatchSize()),
-                String.valueOf(performanceId));
+                String.valueOf(roomId));
         return new AdmissionResult(
                 number(result, 0),
                 number(result, 1),
