@@ -55,6 +55,19 @@ groups:
             settlement_db_sales_unposted{application="payment-service"}
             and on (instance) payment:observation_fresh_age_seconds
           )
+      # 정산 반영 작업(#304): 격리 건수와 아직 정산에 반영되지 않은 결제 금액
+      - record: settlement:jobs_blocked:max
+        expr: |
+          max(
+            settlement_db_jobs_blocked{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
+      - record: settlement:jobs_unreflected_amount_won:max
+        expr: |
+          max(
+            settlement_db_jobs_unreflected_amount_won{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
       - record: settlement:sales_held:max
         expr: |
           max by (reason) (

@@ -78,7 +78,8 @@ public class PaymentObservation {
                 "statement", "payment.settlement.statement.enabled",
                 "payout", "payment.settlement.payout.enabled",
                 "payout_recovery", "payment.settlement.payout.recovery.enabled",
-                "reconcile", "payment.settlement.reconcile.enabled");
+                "reconcile", "payment.settlement.reconcile.enabled",
+                "settlement_job", "payment.settlement.worker.enabled");
         switches.forEach((task, property) -> {
             double enabled = environment.getProperty(property, Boolean.class, false) ? 1 : 0;
             Gauge.builder("settlement.job.enabled", () -> enabled)
@@ -104,6 +105,8 @@ public class PaymentObservation {
         }
         for (String name : List.of(
                 "settlement.db.sales.unposted",
+                "settlement.db.jobs.blocked",
+                "settlement.db.jobs.unreflected.amount.won",
                 "settlement.db.deductions.open",
                 "settlement.db.deductions.open.amount.won",
                 "settlement.db.deductions.oldest.age.seconds",
