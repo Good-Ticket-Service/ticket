@@ -34,7 +34,7 @@ public class QueueTokenFilter implements WebFilter {
     /** URL의 회차 ID로 scope를 만드는 접두사. 대기열이 room을 만들 때 받는 scope 형식(대상:ID)과 같다. */
     private static final String SCHEDULE_SCOPE_PREFIX = "schedule:";
 
-    /** 검사하는 경로. 선점 해제와 공개 잔여석은 검사하지 않는다. */
+    /** 검사하는 경로(입장 토큰 검사 대상은 여기서만 정한다). 선점 해제와 공개 잔여석은 검사하지 않는다. */
     private static final ServerWebExchangeMatcher SEAT_PATHS = new OrServerWebExchangeMatcher(
             ServerWebExchangeMatchers.pathMatchers(HttpMethod.GET, "/api/seats/schedules/{scheduleId}"),
             ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/seats/schedules/{scheduleId}/holds"));
