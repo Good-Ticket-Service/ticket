@@ -1,8 +1,8 @@
-package com.sparta.ticket.gateway.queue;
+package com.sparta.ticket.gateway.infrastructure.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.sparta.ticket.gateway.queue.WaitingRoomClient.ProtectedRoom;
+import com.sparta.ticket.gateway.infrastructure.client.WaitingRoomClient.ProtectedRoom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;

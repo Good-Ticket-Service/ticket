@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.queue;
+package com.sparta.ticket.gateway.infrastructure.client;
 
 import java.time.Duration;
 import java.time.Instant;

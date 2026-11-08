@@ -1,6 +1,6 @@
 package com.sparta.ticket.gateway.queue;
 
-import com.sparta.ticket.gateway.queue.WaitingRoomClient.ProtectedRoom;
+import com.sparta.ticket.gateway.infrastructure.client.WaitingRoomClient.ProtectedRoom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
