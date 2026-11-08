@@ -1,9 +1,8 @@
 package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.gateway.queue.QueueProperties;
+import com.sparta.ticket.gateway.queue.ProtectedScopes;
 import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
-import com.sparta.ticket.gateway.queue.ScheduleLookup;
 import com.sparta.ticket.gateway.support.ErrorResponseWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -79,15 +78,14 @@ public class SecurityConfig {
             AuthProperties properties,
             UserLookup userLookup,
             ErrorResponseWriter errorWriter,
-            QueueProperties queueProperties,
-            QueueTokenVerifier queueTokenVerifier,
-            ScheduleLookup scheduleLookup) {
+            ProtectedScopes protectedScopes,
+            QueueTokenVerifier queueTokenVerifier) {
         http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
                         properties.whitelist().toArray(String[]::new))))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().authenticated())
                 // 좌석 경로는 이 체인에만 온다. 로그인 회원이 정해진 인가 뒤, 체인 맨 끝에서 검사한다
                 .addFilterAt(
-                        new QueueTokenFilter(queueProperties, queueTokenVerifier, scheduleLookup, errorWriter),
+                        new QueueTokenFilter(protectedScopes, queueTokenVerifier, errorWriter),
                         SecurityWebFiltersOrder.LAST);
         return authenticatedChain(http, userLookup, errorWriter);
     }

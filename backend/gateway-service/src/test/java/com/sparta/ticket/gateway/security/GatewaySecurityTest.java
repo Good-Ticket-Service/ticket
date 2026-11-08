@@ -13,6 +13,8 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sparta.ticket.common.auth.UserHeaders;
+import com.sparta.ticket.gateway.queue.ProtectedScopes;
+import com.sparta.ticket.gateway.queue.ProtectedScopes.Protection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -72,6 +74,10 @@ class GatewaySecurityTest {
 
     @MockitoBean
     private UserServiceClient userServiceClient;
+
+    /** 기동 때 reservation-service에서 보호 목록을 받지 않게 대역으로 둔다. 입장 토큰 검사는 QueueTokenSecurityTest에서 본다. */
+    @MockitoBean
+    private ProtectedScopes protectedScopes;
 
     @Test
     @DisplayName("결제 관리자 요청은 매번 원본 사용자를 확인하고 검증된 헤더를 주입한다")
@@ -227,9 +233,10 @@ class GatewaySecurityTest {
     }
 
     @Test
-    @DisplayName("대기열이 꺼져 있으면(기본값) 좌석 조회·선점이 입장 토큰 없이 통과한다")
-    void queueOffSkipsEntryToken() throws Exception {
+    @DisplayName("대기열이 보호하지 않는 회차면 좌석 조회·선점이 입장 토큰 없이 통과한다")
+    void unprotectedScheduleSkipsEntryToken() throws Exception {
         given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
+        given(protectedScopes.protection("schedule:42")).willReturn(Protection.UNPROTECTED);
 
         client.get()
                 .uri("/api/seats/schedules/42")
