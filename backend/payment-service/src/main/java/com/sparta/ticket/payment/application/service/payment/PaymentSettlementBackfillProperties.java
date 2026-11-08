@@ -4,8 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * 정산 보충 잡 설정. 켜고 끄는 것은 payment.settlement.backfill.enabled(스케줄러 조건)로 하고, 포착 스위치와 따로 둔다.
- * 포착을 긴급히 꺼도 보충은 돌아야 꺼진 동안 빠진 결제가 메워지기 때문이다.
+ * 정산 보충 잡 설정. 켜고 끄는 것은 payment.settlement.backfill.enabled(스케줄러 조건)로 한다.
+ * 보충 잡은 계산 실패(UNPOSTED) SALE을 다시 계산한다. 포착 누락은 정산 반영 작업·워커가 맡는다(#304).
  *
  * @param batchSize 한 번 읽는 후보 수
  * @param maxPerRun 한 번 실행에서 처리할 최대 결제 수. 남은 대상은 다음 실행이 처음부터 다시 훑는다

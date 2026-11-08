@@ -129,11 +129,10 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
 
     @Override
     @Query(
-            value = "SELECT p.id FROM p_payments p WHERE p.id > :afterId AND p.status IN ('DONE','CANCELED')"
-                    + " AND p.approved_at IS NOT NULL AND p.deleted_at IS NULL"
-                    + " AND NOT EXISTS (SELECT 1 FROM p_settlement_items i WHERE i.payment_id = p.id AND i.kind = 'SALE'"
-                    + " AND i.status <> 'UNPOSTED' AND i.deleted_at IS NULL)"
-                    + " ORDER BY p.id LIMIT :limit",
+            // Note: 계산 실패(UNPOSTED) SALE만 부분 인덱스로 읽는다. 포착 누락은 정산 반영 작업이 결제 확정과 함께 저장되므로
+            // 결제 전체를 훑어 찾지 않는다(#304, 이전 쿼리는 결제·정산 항목 전체 Anti Join이었다).
+            value = "SELECT i.payment_id FROM p_settlement_items i WHERE i.kind = 'SALE' AND i.status = 'UNPOSTED'"
+                    + " AND i.deleted_at IS NULL AND i.payment_id > :afterId ORDER BY i.payment_id LIMIT :limit",
             nativeQuery = true)
     List<Long> findSettlementBackfillIds(@Param("afterId") Long afterId, @Param("limit") int limit);
 }
