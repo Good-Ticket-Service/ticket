@@ -37,8 +37,9 @@ public class QueueService {
      */
     public QueueStatusResult enter(long roomId, long userId) {
         requireEnabled();
-        findRoom(roomId).verifyEnterable(clock.instant());
-        return toResult(roomId, userId, waitingQueue.enter(roomId, userId));
+        WaitingRoom room = findRoom(roomId);
+        room.verifyEnterable(clock.instant());
+        return toResult(room, userId, waitingQueue.enter(roomId, userId));
     }
 
     /**
@@ -47,10 +48,11 @@ public class QueueService {
      */
     public QueueStatusResult findMyStatus(long roomId, long userId) {
         requireEnabled();
-        findRoom(roomId).verifyNotClosed(clock.instant());
+        WaitingRoom room = findRoom(roomId);
+        room.verifyNotClosed(clock.instant());
         QueueState state =
                 waitingQueue.find(roomId, userId).orElseThrow(() -> new BusinessException(QueueErrorCode.NOT_IN_QUEUE));
-        return toResult(roomId, userId, state);
+        return toResult(room, userId, state);
     }
 
     /** 대기를 취소한다. 줄에 없어도, room이 없거나 끝났어도 성공으로 본다(같은 요청을 다시 보내도 결과가 같다). */
@@ -76,10 +78,14 @@ public class QueueService {
      * 입장 시각은 따로 저장하지 않고 만료 시각 − 입장 유효 시간으로 구한다. 입장 목록에는 만료 시각만 있기 때문이다.
      * 토큰은 저장하지 않고 조회할 때마다 같은 값으로 다시 서명한다.
      */
-    private QueueStatusResult toResult(long roomId, long userId, QueueState state) {
+    private QueueStatusResult toResult(WaitingRoom room, long userId, QueueState state) {
         if (state instanceof QueueAdmission admission) {
             String token = entryTokenIssuer.issue(
-                    userId, roomId, admission.expiresAt().minus(admissionProperties.entryTtl()), admission.expiresAt());
+                    userId,
+                    room.roomId(),
+                    room.scopes(),
+                    admission.expiresAt().minus(admissionProperties.entryTtl()),
+                    admission.expiresAt());
             return QueueStatusResult.entered(token, admission.expiresAt().atOffset(KST));
         }
         QueuePosition position = (QueuePosition) state;

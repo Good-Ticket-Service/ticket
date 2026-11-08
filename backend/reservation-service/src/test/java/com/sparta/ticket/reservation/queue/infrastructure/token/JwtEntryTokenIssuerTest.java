@@ -11,6 +11,7 @@ import io.jsonwebtoken.security.WeakKeyException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ class JwtEntryTokenIssuerTest {
     private static final String SECRET = "test-only-queue-token-secret-0123456789abcdef";
     private static final Instant ADMITTED_AT = Instant.parse("2026-11-02T11:00:00Z");
     private static final Instant EXPIRES_AT = Instant.parse("2026-11-02T11:10:00Z");
+    private static final List<String> SCOPES = List.of("schedule:12", "schedule:13");
 
     private final JwtEntryTokenIssuer issuer = new JwtEntryTokenIssuer(new QueueTokenProperties(SECRET));
 
@@ -35,12 +37,13 @@ class JwtEntryTokenIssuerTest {
     }
 
     @Test
-    @DisplayName("회원(sub), 공연, 입장 시각(iat), 만료 시각(exp)을 같은 키로 서명한다")
+    @DisplayName("회원(sub), room, scope 목록, 입장 시각(iat), 만료 시각(exp)을 같은 키로 서명한다")
     void claims() {
-        Claims claims = parse(issuer.issue(7L, 1L, ADMITTED_AT, EXPIRES_AT), SECRET);
+        Claims claims = parse(issuer.issue(7L, 3L, SCOPES, ADMITTED_AT, EXPIRES_AT), SECRET);
 
         assertThat(claims.getSubject()).isEqualTo("7");
-        assertThat(claims.get(JwtEntryTokenIssuer.PERFORMANCE_ID, Long.class)).isEqualTo(1L);
+        assertThat(claims.get(JwtEntryTokenIssuer.ROOM_ID, Long.class)).isEqualTo(3L);
+        assertThat(claims.get(JwtEntryTokenIssuer.SCOPES, List.class)).containsExactly("schedule:12", "schedule:13");
         assertThat(claims.getIssuedAt().toInstant()).isEqualTo(ADMITTED_AT);
         assertThat(claims.getExpiration().toInstant()).isEqualTo(EXPIRES_AT);
     }
@@ -48,14 +51,14 @@ class JwtEntryTokenIssuerTest {
     @Test
     @DisplayName("같은 입장이면 몇 번 발급해도 같은 토큰이다")
     void sameAdmissionSameToken() {
-        assertThat(issuer.issue(7L, 1L, ADMITTED_AT, EXPIRES_AT))
-                .isEqualTo(issuer.issue(7L, 1L, ADMITTED_AT, EXPIRES_AT));
+        assertThat(issuer.issue(7L, 3L, SCOPES, ADMITTED_AT, EXPIRES_AT))
+                .isEqualTo(issuer.issue(7L, 3L, SCOPES, ADMITTED_AT, EXPIRES_AT));
     }
 
     @Test
     @DisplayName("다른 키(예: 로그인 JWT 키)로는 서명 검증에 실패한다")
     void otherKeyFails() {
-        String token = issuer.issue(7L, 1L, ADMITTED_AT, EXPIRES_AT);
+        String token = issuer.issue(7L, 3L, SCOPES, ADMITTED_AT, EXPIRES_AT);
 
         assertThatThrownBy(() -> parse(token, "other-secret-for-login-jwt-0123456789abcdef"))
                 .isInstanceOf(SignatureException.class);
