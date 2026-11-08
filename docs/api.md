@@ -427,44 +427,61 @@
 
 ## 대기열 — reservation-service / queue
 
-상태: 진입(#100), 순번 조회(#101), 대기 취소(#102), 입장 처리·입장 토큰 발급(#227)은 구현. Gateway의 입장 토큰 검사(#228)도 구현.
+상태: 대기열(room) 생성·scope 조회, 진입·순번 조회·대기 취소, 입장 처리·입장 토큰 발급, Gateway 내부 보호 목록은 구현(#299, 이전 공연 단위 #100·#101·#102·#227 대체). Gateway의 입장 토큰 검사(#228)도 room·scope 기준으로 구현(#299).
 
-| Method URI | 권한 | 성공 | B | R | 추가 오류 |
+| Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
-| POST /api/queues/performances/{performanceId} | JWT | 200 | 없음 | QueueStatus | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
-| GET /api/queues/performances/{performanceId}/me | JWT | 200 | 없음 | QueueStatus | 404 NOT_IN_QUEUE;503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
-| DELETE /api/queues/performances/{performanceId}/me | JWT | 204 | 없음 | 없음 | 503 QUEUE_DISABLED;503 SERVICE_UNAVAILABLE |
+| POST /api/admin/waiting-rooms | MASTER | 201 | scopes:string[],openAt:datetime,closeAt:datetime | WaitingRoom | 400 INVALID_TIME_RANGE;409 WAITING_ROOM_SCOPE_CONFLICT;503 SERVICE_UNAVAILABLE |
+| GET /api/waiting-rooms?scope= | JWT | 200 | scope:string | WaitingRoom | 404 WAITING_ROOM_NOT_FOUND;503 SERVICE_UNAVAILABLE |
+| POST /api/waiting-rooms/{roomId}/entries | JWT | 200 | 없음 | QueueStatus | 404 WAITING_ROOM_NOT_FOUND;409 WAITING_ROOM_NOT_OPEN;409 WAITING_ROOM_CLOSED;503 SERVICE_UNAVAILABLE |
+| GET /api/waiting-rooms/{roomId}/entries/me | JWT | 200 | 없음 | QueueStatus | 404 WAITING_ROOM_NOT_FOUND;404 NOT_IN_QUEUE;409 WAITING_ROOM_CLOSED;503 SERVICE_UNAVAILABLE |
+| DELETE /api/waiting-rooms/{roomId}/entries/me | JWT | 204 | 없음 | 없음 | 503 SERVICE_UNAVAILABLE |
 
+- WaitingRoom = `{roomId:long,scopes:string[],openAt:datetime,closeAt:datetime}`. openAt·closeAt은 +09:00 오프셋이다.
 - QueueStatus = `{status:string(WAITING|ENTERED),position:long,aheadCount:long,estimatedWaitSeconds:long,entryToken:string|null,entryExpiresAt:datetime|null}`. ENTERED면 position·aheadCount·estimatedWaitSeconds는 0(줄에 없음)이고, WAITING이면 entryToken·entryExpiresAt은 null이다. entryExpiresAt은 +09:00 오프셋이다.
-- 줄은 공연 단위로 하나다. 입장 토큰 범위가 공연이고, 회차들이 같은 서버 자원을 쓰기 때문이다.
-- 대기열 경로는 공연 경로(/api/performances) 아래가 아니라 대기열 영역(/api/queues)에 둔다. 대기열은 reservation-service 소유라 공연 담당과 경로를 조율하지 않기 위해서다.
-- 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더로 정한다.
+
+대기열(room)
+- 대기열은 대상 도메인을 모르는 독립 자원(room)이다. 관리자가 보호할 범위(scope)와 시각을 정해 만들고, 줄은 room마다 하나다.
+- scope는 `대상:ID` 형식이다(예: `schedule:12`). 1~100개, ID는 0으로 시작할 수 없다. 형식이 틀리면 400 VALIDATION_ERROR다. 대기열은 scope를 해석하지 않고, Gateway가 요청 URL과 비교한다. 지금 Gateway가 보는 대상은 회차(`schedule:{scheduleId}`)뿐이다.
+- 공연 하나의 대기열이면 그 공연의 회차를 모두 scope에 넣는다. room은 생성 뒤 바꿀 수 없다. 같은 scope는 생성 때 한 번만 남긴다.
+- 끝나지 않은 다른 room과 scope가 하나라도 겹치면 409 WAITING_ROOM_SCOPE_CONFLICT다.
+- openAt은 생성 시각 + 1분 이후, closeAt은 openAt보다 뒤여야 한다. 아니면 400 INVALID_TIME_RANGE다. Gateway가 보호 목록을 받아 둘 시간을 두기 위해서다.
+- 상태는 저장하지 않고 시각으로 판단한다. 지금 < openAt이면 오픈 전, openAt ≤ 지금 < closeAt이면 진행, closeAt 이후면 끝이다. 조기 종료·삭제 API는 없고, room과 줄은 closeAt + 입장 유효 시간(10분) 뒤 Redis 만료로 정리된다.
+- 생성 권한은 MASTER다. Gateway와 reservation이 모두 확인한다.
+- scope 조회는 프런트가 회차 화면에서 대기열이 있는지와 roomId를 알 때 쓴다. 끝나지 않은 room만 찾고, 없으면 404 WAITING_ROOM_NOT_FOUND다. 이때 프런트는 대기열 없이 좌석 화면으로 간다. 오픈 전 room도 찾으므로 프런트는 openAt 전까지 오픈 전 안내를 한다.
+
+진입·순번 조회·대기 취소
+- 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더로 정한다. roomId만 알면 로그인 회원 누구나 진입할 수 있다.
+- 진입은 오픈 전이면 409 WAITING_ROOM_NOT_OPEN, 끝났으면 409 WAITING_ROOM_CLOSED, room이 없으면 404 WAITING_ROOM_NOT_FOUND다.
 - 진입은 이미 서 있으면 원래 순번을 돌려준다. 새로 만들지 않으므로 201이 아니라 200이다.
 - 이미 입장한 회원이 진입하면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다. 입장 만료가 지났으면 새로 줄 맨 뒤에 선다.
 - position은 1부터 센다. aheadCount는 내 앞 인원이다. estimatedWaitSeconds는 aheadCount ÷ 초당 입장 인원을 올림한 초다.
-- 순번 조회는 줄을 선 회원이 몇 초마다 부르는 폴링 API다. 입장 차례가 되면 ENTERED와 입장 토큰을 받는다. 입장 만료가 지나면 404 NOT_IN_QUEUE다.
-- 입장은 입장 스케줄러가 공연마다 초당 입장 인원과 동시 입장 인원 상한 안에서 줄 앞부터 처리한다. 마지막 조회 뒤 이탈 기준 시간이 지난 대기자는 입장시키지 않고 줄에서 뺀다. 값은 config-repo `reservation.queue.*`(측정 전 임시값)다.
+- 순번 조회는 줄을 선 회원이 몇 초마다 부르는 폴링 API다. 입장 차례가 되면 ENTERED와 입장 토큰을 받는다. 줄에 없거나 입장 만료가 지나면 404 NOT_IN_QUEUE다. room이 끝났으면 줄에 있어도 409 WAITING_ROOM_CLOSED이고, 프런트는 대기열 없이 좌석 화면으로 보낸다.
 - 순번 조회는 부를 때마다 마지막 조회 시각을 남긴다. 이탈자(창을 닫고 떠난 회원)를 찾는 데 쓰는 서버 관리 기록이라 GET으로 둔다.
 - 순번 조회 응답에는 Cache-Control: no-store를 붙인다. 캐시되면 요청이 서버에 오지 않아 이탈자로 잘못 판단하기 때문이다.
 - 대기 취소는 대기 줄과 마지막 조회 시각에서 함께 빠진다. 뒤에 선 회원의 순번이 그만큼 당겨진다.
-- 대기 취소는 이미 줄에 없어도 204다. 응답이 유실돼 다시 보낸 요청이 실패로 보이지 않도록 여러 번 불러도 같은 결과를 준다.
+- 대기 취소는 줄에 없어도, room이 없거나 끝났어도 204다. 응답이 유실돼 다시 보낸 요청이 실패로 보이지 않도록 여러 번 불러도 같은 결과를 준다.
 - 취소한 뒤 다시 진입하면 원래 자리가 아니라 맨 뒤에 선다.
 - 입장한 회원의 입장권 반납(일찍 나가기)은 없다. 입장은 입장 만료(10분)로만 끝나며, 대기 취소는 입장한 회원에게 영향이 없다.
-- 대기열이 꺼져 있으면(reservation.queue.enabled=false) 503 QUEUE_DISABLED다.
+- 입장은 입장 스케줄러가 끝나지 않은 room마다 초당 입장 인원과 동시 입장 인원 상한 안에서 줄 앞부터 처리한다. 마지막 조회 뒤 이탈 기준 시간이 지난 대기자는 입장시키지 않고 줄에서 뺀다. 값은 모든 room에 같은 config-repo `reservation.queue.*`(측정 전 임시값)다.
 - Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
-- 오픈 전 진입과 판매 중지 공연의 진입은 아직 막지 않는다. 공연 서비스 확인 방식이 architecture 14절 미합의 항목이기 때문이다.
 
 입장 토큰은 별도 발급 API 없이 진입·순번 조회의 ENTERED 응답 entryToken으로 받는다. 좌석 조회·선점 요청의 X-Queue-Token 헤더에 넣으면 Gateway가 검사한다.
 
-- 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), performanceId(long), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
-- 만료는 입장 시각에 고정된다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다.
-- Gateway 검사 순서는 토큰 있음 → 서명·만료 → 토큰 회원이 로그인 회원과 같은지 → 토큰 공연이 요청한 회차의 공연과 같은지다. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다.
-- 회차의 공연은 Gateway가 공연 서비스의 공개 회차 상세(GET /api/schedules/{scheduleId})의 performanceId로 확인하고 1시간 캐시한다. 회차가 없으면(404) 토큰의 공연과 맞을 수 없으므로 403이고, 회차를 확인하지 못하면 통과시키지 않고 503 SERVICE_UNAVAILABLE이다.
-- 대기열이 꺼져 있으면(QUEUE_ENABLED=false) Gateway는 입장 토큰을 검사하지 않는다.
-- 입장 토큰 X-Queue-Token은 공연(performanceId) 단위이고 TTL은 10분이다. (원본 복원: seat/api.md:17, 담당 확인 필요)
-- 좌석 선점 여부에 따라 입장 토큰 TTL을 늘리거나 없애지 않는다. (원본 복원: seat/api.md:17, 담당 확인 필요)
-- Gateway는 토큰의 회원과 공연 범위를 검증하고, 공연 범위는 경로의 scheduleId로 확인한다. (원본 복원: seat/api.md:17, seat/plan.md:109, 담당 확인 필요)
-- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId})와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다. (원본 복원: seat/api.md:23-25,93,207, 담당 확인 필요)
+- 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), roomId(long), scopes(string[], room의 scope), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
+- 만료는 입장 시각에 고정되고 TTL은 10분이다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다. 좌석 선점 여부에 따라 TTL을 늘리거나 없애지 않는다.
+- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId})와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다.
+- Gateway는 경로의 scheduleId를 숫자로 읽어 `schedule:{scheduleId}`를 만들고, 그 scope를 보호하는 room이 있을 때만 토큰을 검사한다. 보호하는 room이 없거나 closeAt이 지났으면 토큰 없이 통과한다. 오픈 전 room도 보호하므로 오픈 전에는 토큰이 없어 403이다.
+- 검사 순서는 토큰 있음 → 서명·만료 → 토큰 회원이 로그인 회원과 같은지 → 요청 scope가 토큰 scopes에 있는지다. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다.
+- Gateway는 보호 목록을 요청마다 묻지 않고 기동 즉시와 10초마다 내부 API로 받아 메모리에 둔다. 받지 못하면 마지막 목록을 계속 쓰고, 기동 뒤 한 번도 받지 못했으면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE이다.
+
+내부 API (Gateway 전용, 외부 라우트 없음)
+
+| Method URI | 호출자 | 성공 | R |
+|---|---|---|---|
+| GET /internal/waiting-rooms/scopes | gateway-service | 200 | `{rooms:{scopes:string[],closeAt:datetime}[]}` |
+
+- 끝나지 않은(closeAt 전) room 전부를 준다. 오픈 전 room도 넣어 오픈 순간부터 다음 갱신까지 검사 없이 지나가는 틈을 없앤다. 내부 API라 공통 응답으로 감싸지 않는다.
 
 ## 쿠폰 — reservation-service / coupon
 
