@@ -1,5 +1,6 @@
 package com.sparta.ticket.gateway.security;
 
+import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import io.netty.channel.ChannelOption;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.loadbalancer.reactive.ReactorLoadBalancerExchangeFilterFunction;

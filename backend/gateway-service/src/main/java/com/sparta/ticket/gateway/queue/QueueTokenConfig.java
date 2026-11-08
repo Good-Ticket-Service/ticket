@@ -1,5 +1,6 @@
 package com.sparta.ticket.gateway.queue;
 
+import com.sparta.ticket.gateway.infrastructure.client.WaitingRoomClient;
 import io.netty.channel.ChannelOption;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

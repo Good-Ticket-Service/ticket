@@ -13,6 +13,7 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sparta.ticket.common.auth.UserHeaders;
+import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import com.sparta.ticket.gateway.queue.ProtectedScopes;
 import com.sparta.ticket.gateway.queue.ProtectedScopes.Protection;
 import java.net.URI;

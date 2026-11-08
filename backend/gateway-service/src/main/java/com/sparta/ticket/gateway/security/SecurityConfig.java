@@ -2,6 +2,7 @@ package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.gateway.error.ErrorResponseWriter;
+import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import com.sparta.ticket.gateway.queue.ProtectedScopes;
 import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
 import java.nio.charset.StandardCharsets;
