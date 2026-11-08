@@ -80,6 +80,7 @@ class RefundIntegrationTest extends PaymentIntegrationTest {
         jdbc.update("DELETE FROM p_settlement_items");
         jdbc.update("DELETE FROM p_settlement_statements");
         jdbc.update("DELETE FROM p_refunds");
+        jdbc.update("DELETE FROM p_settlement_jobs");
         jdbc.update("DELETE FROM p_payments");
         pg.inquireReturns(request -> {
             Payment payment = payments.findByOrderId(request.orderId()).orElseThrow();

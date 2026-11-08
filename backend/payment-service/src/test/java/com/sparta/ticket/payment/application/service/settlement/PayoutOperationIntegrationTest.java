@@ -101,7 +101,8 @@ class PayoutOperationIntegrationTest extends PaymentIntegrationTest {
     @BeforeEach
     void setUp() {
         admin.clearFaults();
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(request -> new PgResult.Approved(
                 "cancel-" + request.idempotencyKey(), request.amount(), LocalDateTime.now(paymentClock)));
         agency = new PgPayoutAgency(RestClient.builder(), properties(), objectMapper);
@@ -373,6 +374,7 @@ class PayoutOperationIntegrationTest extends PaymentIntegrationTest {
                 refunded.getId());
         statements.issue(seller, schedule, CUTOFF);
         refundService.refund(refunded.getOrderId(), RefundReason.SCHEDULE_CANCELED);
+        settlementJobs.drain();
 
         mockMvc.perform(as(get("/api/admin/settlements/payouts"), MASTER, "MASTER")
                         .param("attention", "FAILED")

@@ -5,6 +5,7 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.payment.application.dto.refund.RefundClaim;
 import com.sparta.ticket.payment.application.dto.refund.RefundResult;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
+import com.sparta.ticket.payment.application.port.settlement.SettlementJobQueue;
 import com.sparta.ticket.payment.application.service.payment.PaymentTransactions;
 import com.sparta.ticket.payment.application.service.settlement.SettlementRefundTransactions;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
@@ -17,6 +18,7 @@ import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
 import com.sparta.ticket.payment.domain.model.refund.RefundRecoveryMode;
 import com.sparta.ticket.payment.domain.model.refund.RefundStatus;
+import com.sparta.ticket.payment.domain.model.settlement.SettlementJobReason;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -52,6 +54,7 @@ public class RefundTransactions {
     private final MeterRegistry meters;
     private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
     private final SettlementRefundTransactions settlementRefunds;
+    private final SettlementJobQueue settlementJobs;
 
     @Transactional
     public RefundResult accept(String orderId, RefundReason reason) {
@@ -345,8 +348,10 @@ public class RefundTransactions {
 
     private void afterCompletion(Payment payment, Refund refund) {
         if (payment.getStatus() == PaymentStatus.DONE) payment.cancel();
-        // 요청·recovery·조회 확정·운영 명령 모두 여기로 모인다. 실패 결제의 자동 취소는 SALE이 없어 정산이 아무것도 하지 않는다.
-        settlementRefunds.refundCompleted(payment.getId(), refund.getId(), refund.getRefundedAt());
+        // 요청·recovery·조회 확정·운영 명령 모두 여기로 모인다. 반대 분개·차감은 정산 워커가 별도 트랜잭션에서 쓴다(#304).
+        // 승인된 적 없는 결제(실패 결제의 자동 취소)는 SALE이 없어 정산할 것이 없으므로 작업을 남기지 않는다.
+        if (payment.getApprovedAt() != null)
+            settlementJobs.enqueue(payment.getId(), SettlementJobReason.REFUND_COMPLETED, LocalDateTime.now(clock));
         publisher.refundFinalized(payment, refund);
         committedCounter("payment.refund.completed", payment.getId());
         if (refund.getCreatedAt() != null)

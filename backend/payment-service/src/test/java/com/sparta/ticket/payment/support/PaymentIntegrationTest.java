@@ -4,6 +4,7 @@ import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
 import com.sparta.ticket.payment.application.port.pg.PgApprovalGate;
 import com.sparta.ticket.payment.application.port.pg.PgClient;
+import com.sparta.ticket.payment.application.service.payment.SettlementJobWorker;
 import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
@@ -17,6 +18,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -36,8 +38,8 @@ import org.springframework.test.context.TestPropertySource;
             "payment.reconcile.enabled=false",
             "payment.recovery.refund.enabled=false",
             "payment.observation.enabled=false",
-            // 운영 기본값은 OFF지만, 모든 결제 통합 시험이 정산 포착을 켠 상태로 돌아 회귀 관문이 되게 한다.
-            "payment.settlement.capture-enabled=true",
+            // 정산 반영 워커는 스케줄러를 끄고, 시험이 결제·환불을 확정한 뒤 settlementJobs.drain()으로 직접 돌린다(#304).
+            "payment.settlement.worker.enabled=false",
             // 운영 기본값은 정산 잡을 모두 켠다. 시험에서는 스케줄러가 공유 DB의 정산서·지급을 건드리지 않도록 끄고,
             // 각 시험이 잡·트랜잭션을 직접 부른다.
             "payment.settlement.backfill.enabled=false",
@@ -56,6 +58,9 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
     protected MutablePaymentClock paymentClock;
+
+    @Autowired
+    protected SettlementJobDrain settlementJobs;
 
     @BeforeEach
     void resetPg() {
@@ -83,6 +88,12 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
         @Primary
         PublisherFixture fixturePublisher() {
             return new PublisherFixture();
+        }
+
+        @Bean
+        SettlementJobDrain settlementJobDrain(
+                SettlementJobWorker worker, JdbcTemplate jdbc, MutablePaymentClock clock) {
+            return new SettlementJobDrain(worker, jdbc, clock);
         }
 
         @Bean

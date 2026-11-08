@@ -39,8 +39,8 @@ class SettlementStatementJobIntegrationTest extends PaymentIntegrationTest {
 
     @Test
     void issuesEveryDuePairOnceAcrossRuns() {
-        SettlementPaymentFlow flow =
-                new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        SettlementPaymentFlow flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         flow.approvedFor(70_001L, 80_001L);
         flow.approvedFor(70_001L, 80_002L);
         flow.approvedFor(70_002L, 80_001L);
@@ -54,8 +54,8 @@ class SettlementStatementJobIntegrationTest extends PaymentIntegrationTest {
 
     @Test
     void doesNotIssueBeforeEligible() {
-        SettlementPaymentFlow flow =
-                new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        SettlementPaymentFlow flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         flow.approvedFor(70_003L, 80_003L);
 
         // 정산 가능일 2026-11-11 00:00 전

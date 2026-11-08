@@ -87,7 +87,8 @@ class PayoutExecutionIntegrationTest extends PaymentIntegrationTest {
     @BeforeEach
     void setUp() {
         admin.clearFaults();
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(request -> new PgResult.Approved(
                 "cancel-" + request.idempotencyKey(), request.amount(), LocalDateTime.now(paymentClock)));
         agency = new RecordingAgency(new PgPayoutAgency(RestClient.builder(), properties(), objectMapper));

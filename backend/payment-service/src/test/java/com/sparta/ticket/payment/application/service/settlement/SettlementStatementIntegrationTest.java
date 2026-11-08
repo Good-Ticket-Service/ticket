@@ -69,7 +69,8 @@ class SettlementStatementIntegrationTest extends PaymentIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(request -> new PgResult.Approved(
                 "cancel-" + request.idempotencyKey(), request.amount(), LocalDateTime.now(paymentClock)));
         seller = SELLERS.incrementAndGet();

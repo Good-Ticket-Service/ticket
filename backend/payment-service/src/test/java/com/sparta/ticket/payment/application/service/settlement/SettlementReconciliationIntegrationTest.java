@@ -99,8 +99,10 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         jdbc.update("DELETE FROM p_settlement_items");
         jdbc.update("DELETE FROM p_settlement_statements");
         jdbc.update("DELETE FROM p_refunds");
+        jdbc.update("DELETE FROM p_settlement_jobs");
         jdbc.update("DELETE FROM p_payments");
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(request -> new PgResult.Approved(
                 "cancel-" + request.idempotencyKey(), request.amount(), LocalDateTime.now(paymentClock)));
         String base = FakePgContainer.baseUrl();
@@ -412,6 +414,7 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         flow.approvedFor(SELLER, 1L);
         statements.issue(SELLER, 1L, CUTOFF);
         refundService.refund(refunded.getOrderId(), RefundReason.SCHEDULE_CANCELED);
+        settlementJobs.drain();
 
         List<Sample> samples = observation.read();
 
@@ -425,7 +428,7 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         assertThat(samples)
                 .filteredOn(sample -> sample.name().equals("settlement.db.jobs.due"))
                 .extracting(sample -> sample.tags().get(1))
-                .containsExactlyInAnyOrder("statement", "payout", "payout_recovery");
+                .containsExactlyInAnyOrder("statement", "payout", "payout_recovery", "settlement_job");
     }
 
     private static List<String> concat(List<String> names, String last) {

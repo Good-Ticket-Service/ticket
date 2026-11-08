@@ -70,7 +70,8 @@ class SellerSettlementApiTest extends PaymentIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(request -> new PgResult.Approved(
                 "cancel-" + request.idempotencyKey(), request.amount(), LocalDateTime.now(paymentClock)));
         seller = SELLERS.incrementAndGet();
@@ -160,6 +161,7 @@ class SellerSettlementApiTest extends PaymentIntegrationTest {
         flow.approvedFor(seller, first);
         statements.issue(seller, first, CUTOFF);
         refundService.refund(refunded.getOrderId(), RefundReason.SCHEDULE_CANCELED);
+        settlementJobs.drain();
         getAs("/api/seller/settlements/receivable", seller)
                 .andExpect(jsonPath("$.data.receivable").value(43_400));
 

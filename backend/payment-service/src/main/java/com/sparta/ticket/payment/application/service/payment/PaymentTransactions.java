@@ -6,7 +6,7 @@ import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
 import com.sparta.ticket.payment.application.dto.payment.PreparedPayment;
 import com.sparta.ticket.payment.application.port.payment.PaymentResultPublisher;
 import com.sparta.ticket.payment.application.port.pg.PgApprovalGate;
-import com.sparta.ticket.payment.application.service.settlement.SettlementCaptureTransactions;
+import com.sparta.ticket.payment.application.port.settlement.SettlementJobQueue;
 import com.sparta.ticket.payment.domain.exception.payment.PaymentErrorCode;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentFailureCode;
@@ -18,6 +18,7 @@ import com.sparta.ticket.payment.domain.model.pg.PgResult;
 import com.sparta.ticket.payment.domain.model.refund.Refund;
 import com.sparta.ticket.payment.domain.model.refund.RefundReason;
 import com.sparta.ticket.payment.domain.model.refund.RefundStatus;
+import com.sparta.ticket.payment.domain.model.settlement.SettlementJobReason;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
 import java.time.Clock;
@@ -46,7 +47,7 @@ public class PaymentTransactions {
     private final Clock clock;
     private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
     private final PaymentReconcileProperties reconcileProperties;
-    private final SettlementCaptureTransactions settlementCapture;
+    private final SettlementJobQueue settlementJobs;
 
     @Value("${payment.recovery.check-interval-seconds:10}")
     private long checkIntervalSeconds;
@@ -165,16 +166,14 @@ public class PaymentTransactions {
                             payment.getConfirmRequestedAt(),
                             "provider",
                             payment.getPgProvider().name());
-                Long requestedRefundId = refundRepository
+                refundRepository
                         .lockByPaymentId(paymentId)
                         .filter(refund -> refund.getStatus() == RefundStatus.WAITING)
-                        .map(refund -> {
-                            refund.ensureRequested(approved.amount(), now, now);
-                            return refund.getId();
-                        })
-                        .orElse(null);
-                // 요청·recovery·reconcile 모두 이 분기를 지나므로 정산 포착 지점은 여기 하나다(payment → refund 잠금 뒤).
-                settlementCapture.captureApproval(SettlementSnapshots.sale(payment), requestedRefundId);
+                        .ifPresent(refund -> refund.ensureRequested(approved.amount(), now, now));
+                // 요청·recovery·reconcile 모두 이 분기를 지나므로 정산 반영 작업을 남기는 지점은 여기 하나다(#304).
+                // SALE·원장은 정산 워커가 별도 트랜잭션에서 쓴다. 정산 쪽 오류가 결제 확정을 롤백하지 않게 한다.
+                // 승인 대기 중 접수된 환불(위에서 REQUESTED가 됨)은 워커가 SALE을 만들 때 보류(HELD)로 반영한다.
+                settlementJobs.enqueue(paymentId, SettlementJobReason.PAYMENT_APPROVED, now);
                 resultPublisher.paymentFinalized(payment);
             }
         } else if (payment.getStatus() == PaymentStatus.IN_PROGRESS) {

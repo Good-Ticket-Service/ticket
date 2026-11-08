@@ -57,7 +57,8 @@ class SettlementRefundIntegrationTest extends PaymentIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        flow = new SettlementPaymentFlow(paymentService, paymentTransactions, payments, jdbc, paymentClock);
+        flow = new SettlementPaymentFlow(
+                paymentService, paymentTransactions, payments, jdbc, paymentClock, settlementJobs);
         pg.cancelReturns(
                 request -> new PgResult.Approved("cancel-" + request.idempotencyKey(), request.amount(), now()));
     }
@@ -95,6 +96,7 @@ class SettlementRefundIntegrationTest extends PaymentIntegrationTest {
                         .refundStatus())
                 .isEqualTo("DONE");
         refundService.refund(payment.getOrderId(), RefundReason.USER_CANCEL);
+        settlementJobs.drain();
 
         assertThat(sale(payment).getStatus()).isEqualTo(SettlementItemStatus.CANCELED);
         assertThat(flow.ledgerTransactions(payment.getId())).as("판매·반대 분개").isEqualTo(2);
@@ -110,6 +112,7 @@ class SettlementRefundIntegrationTest extends PaymentIntegrationTest {
         statements.issue(90_404L, 91_404L, LocalDateTime.of(2026, 11, 12, 4, 0));
 
         refundService.refund(payment.getOrderId(), RefundReason.SCHEDULE_CANCELED);
+        settlementJobs.drain();
 
         SettlementItem deduction =
                 items.findDeductionByRefundId(refundId(payment)).orElseThrow();

@@ -1,7 +1,6 @@
 package com.sparta.ticket.payment.application.service.settlement;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.payment.application.dto.payment.CheckoutCommand;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
@@ -29,13 +28,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 결제 승인 DONE에서 정산 항목·판매 분개를 포착한다(Task 20-3, settlement-design 4.2절, 시험 S2·S3·S5). */
+/**
+ * 결제 승인 DONE에서 정산 항목·판매 분개를 포착한다(Task 20-3, settlement-design 4.2절, 시험 S2·S3·S5).
+ * 포착은 승인 확정과 함께 저장된 작업을 정산 워커가 처리해 이뤄진다(#304). 원장 오류와 결제 확정의 분리는 SettlementJobIntegrationTest가 본다.
+ */
 class SettlementCaptureIntegrationTest extends PaymentIntegrationTest {
 
     private static final AtomicLong RESERVATION_IDS = new AtomicLong(9_000_000);
     private static final LocalDateTime SCHEDULE_START_AT = LocalDateTime.of(2026, 11, 7, 19, 0);
-    /** 원장 INSERT 실패를 주입할 판매자. 다른 시험 데이터와 겹치지 않게 따로 둔다. */
-    private static final long FAILING_SELLER_ID = 90_203L;
 
     @Autowired
     private PaymentService service;
@@ -80,8 +80,10 @@ class SettlementCaptureIntegrationTest extends PaymentIntegrationTest {
         return payments.findById(payment.getId()).orElseThrow();
     }
 
+    /** 승인 확정 뒤 정산 반영 작업까지 처리한다(#304: SALE·원장은 워커가 별도 트랜잭션에서 쓴다). */
     private void approve(Payment payment, int amount, LocalDateTime at) {
         transactions.complete(payment.getId(), new PgResult.Approved("key-" + payment.getId(), amount, at));
+        settlementJobs.drain();
     }
 
     private Optional<SettlementItem> sale(Payment payment) {
@@ -169,32 +171,5 @@ class SettlementCaptureIntegrationTest extends PaymentIntegrationTest {
         assertThat(status(payment)).isEqualTo(PaymentStatus.FAILED);
         assertThat(sale(payment)).isEmpty();
         assertThat(ledgerTransactions(payment)).isZero();
-    }
-
-    /** 원장 INSERT에서 DB 오류가 나면 결제 확정까지 함께 롤백되고, 같은 승인 결과로 다시 처리하면 한 번만 반영된다. */
-    @Test
-    void databaseErrorRollsBackApprovalAndRetryCapturesOnce() {
-        Payment payment = inProgress(FAILING_SELLER_ID, SCHEDULE_START_AT);
-        jdbc.execute("CREATE OR REPLACE FUNCTION fail_ledger_for_test() RETURNS trigger AS $$ BEGIN"
-                + " IF NEW.seller_id = " + FAILING_SELLER_ID
-                + " THEN RAISE EXCEPTION 'injected ledger failure'; END IF;"
-                + " RETURN NEW; END $$ LANGUAGE plpgsql");
-        jdbc.execute("CREATE TRIGGER fail_ledger_for_test BEFORE INSERT ON p_ledger_transactions"
-                + " FOR EACH ROW EXECUTE FUNCTION fail_ledger_for_test()");
-        try {
-            assertThatThrownBy(() -> approve(payment, 45_000, LocalDateTime.now(paymentClock)))
-                    .isInstanceOf(RuntimeException.class);
-            assertThat(status(payment)).isEqualTo(PaymentStatus.IN_PROGRESS);
-            assertThat(sale(payment)).isEmpty();
-        } finally {
-            jdbc.execute("DROP TRIGGER IF EXISTS fail_ledger_for_test ON p_ledger_transactions");
-            jdbc.execute("DROP FUNCTION IF EXISTS fail_ledger_for_test()");
-        }
-
-        approve(payment, 45_000, LocalDateTime.now(paymentClock));
-
-        assertThat(status(payment)).isEqualTo(PaymentStatus.DONE);
-        assertThat(sale(payment)).get().extracting(SettlementItem::getStatus).isEqualTo(SettlementItemStatus.PENDING);
-        assertThat(ledgerTransactions(payment)).isEqualTo(1);
     }
 }

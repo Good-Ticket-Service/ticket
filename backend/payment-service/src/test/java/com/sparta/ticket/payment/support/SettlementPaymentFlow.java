@@ -27,18 +27,21 @@ public final class SettlementPaymentFlow {
     private final PaymentRepository payments;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final SettlementJobDrain settlementJobs;
 
     public SettlementPaymentFlow(
             PaymentService service,
             PaymentTransactions transactions,
             PaymentRepository payments,
             JdbcTemplate jdbc,
-            Clock clock) {
+            Clock clock,
+            SettlementJobDrain settlementJobs) {
         this.service = service;
         this.transactions = transactions;
         this.payments = payments;
         this.jdbc = jdbc;
         this.clock = clock;
+        this.settlementJobs = settlementJobs;
     }
 
     public Payment inProgress() {
@@ -71,12 +74,14 @@ public final class SettlementPaymentFlow {
         Payment payment = inProgress(sellerId, scheduleId);
         transactions.complete(
                 payment.getId(), new PgResult.Approved("key-" + payment.getId(), 45_000, LocalDateTime.now(clock)));
+        settlementJobs.drain();
         return payments.findById(payment.getId()).orElseThrow();
     }
 
     public Payment approved(LocalDateTime approvedAt) {
         Payment payment = inProgress();
         transactions.complete(payment.getId(), new PgResult.Approved("key-" + payment.getId(), 45_000, approvedAt));
+        settlementJobs.drain();
         return payments.findById(payment.getId()).orElseThrow();
     }
 
@@ -84,7 +89,16 @@ public final class SettlementPaymentFlow {
         return approved(LocalDateTime.now(clock));
     }
 
-    /** 포착이 꺼져 있던 것처럼 결제의 정산 기록을 지운다. */
+    /** 정산 반영 작업을 다시 대기로 돌린다. dropSettlement와 함께 쓰면 "아직 처리되지 않은 작업"이 된다(#304). */
+    public void requeueSettlement(Long paymentId) {
+        jdbc.update(
+                "UPDATE p_settlement_jobs SET status = 'PENDING', done_at = NULL, attempts = 0, next_attempt_at = ?"
+                        + " WHERE payment_id = ?",
+                LocalDateTime.now(clock),
+                paymentId);
+    }
+
+    /** 결제의 정산 기록(SALE·분개)을 지운다. 작업은 그대로라, 작업이 끝났는데 기록이 없는 누락 상황이 된다. */
     public void dropSettlement(Long paymentId) {
         jdbc.update(
                 "DELETE FROM p_ledger_entries WHERE transaction_id IN"
