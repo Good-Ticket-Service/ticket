@@ -20,26 +20,26 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 대기열 API. 대기열은 예매 앞의 독립된 관문이라 공연 경로 아래가 아니라 자기 영역(/api/queues)에 둔다.
- * 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더(@CurrentUser)로 정한다.
- * Gateway가 /api/queues/**를 reservation-service로 보낸다. 명세는 docs/api.md 대기열 절이다.
+ * 대기열 줄 서기 API. 줄은 room 단위이고, 줄에 선 기록(entry)을 room 아래 자원으로 둔다.
+ * roomId만 있으면 로그인 회원 누구나 줄을 설 수 있다. 줄을 서는 회원은 경로나 본문이 아니라 Gateway가 넘긴 사용자 헤더(@CurrentUser)로 정한다.
+ * 명세는 docs/api.md 대기열 절이다.
  */
 @Tag(name = "대기열")
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/queues")
+@RequestMapping("/api/waiting-rooms/{roomId}/entries")
 public class QueueController {
 
     private final QueueService queueService;
 
     /**
-     * 공연 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다.
+     * 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다.
      * 이미 입장해 있으면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다.
      */
     @Operation(summary = "대기열 진입")
-    @PostMapping("/performances/{performanceId}")
-    public ApiResponse<QueueStatusResult> enter(@PathVariable Long performanceId, @CurrentUser UserContext user) {
-        return ApiResponse.ok(queueService.enter(performanceId, user.userId()));
+    @PostMapping
+    public ApiResponse<QueueStatusResult> enter(@PathVariable Long roomId, @CurrentUser UserContext user) {
+        return ApiResponse.ok(queueService.enter(roomId, user.userId()));
     }
 
     /**
@@ -48,12 +48,12 @@ public class QueueController {
      * 헤더를 붙여야 해서 다른 API와 달리 ResponseEntity로 돌려준다.
      */
     @Operation(summary = "대기열 순번 조회")
-    @GetMapping("/performances/{performanceId}/me")
+    @GetMapping("/me")
     public ResponseEntity<ApiResponse<QueueStatusResult>> findMyStatus(
-            @PathVariable Long performanceId, @CurrentUser UserContext user) {
+            @PathVariable Long roomId, @CurrentUser UserContext user) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(ApiResponse.ok(queueService.findMyStatus(performanceId, user.userId())));
+                .body(ApiResponse.ok(queueService.findMyStatus(roomId, user.userId())));
     }
 
     /**
@@ -61,9 +61,9 @@ public class QueueController {
      * 응답이 유실돼 앱이 다시 보낸 요청이 실패로 보이지 않도록, 여러 번 불러도 같은 결과(멱등)를 준다.
      */
     @Operation(summary = "대기 취소")
-    @DeleteMapping("/performances/{performanceId}/me")
+    @DeleteMapping("/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void leave(@PathVariable Long performanceId, @CurrentUser UserContext user) {
-        queueService.leave(performanceId, user.userId());
+    public void leave(@PathVariable Long roomId, @CurrentUser UserContext user) {
+        queueService.leave(roomId, user.userId());
     }
 }
