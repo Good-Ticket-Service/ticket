@@ -46,11 +46,7 @@ public class SecurityConfig {
     @Order(0)
     public SecurityWebFilterChain paymentAdminSecurityWebFilterChain(
             ServerHttpSecurity http, UserServiceClient users, ErrorResponseWriter errorWriter) {
-        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(
-                        "/api/admin/payments",
-                        "/api/admin/payments/**",
-                        "/api/admin/settlements",
-                        "/api/admin/settlements/**"))
+        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(GatewayPaths.array(GatewayPaths.PAYMENT_ADMIN)))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().hasRole("MASTER"));
         return authenticatedChain(http, users::fetch, errorWriter);
     }
@@ -60,8 +56,7 @@ public class SecurityConfig {
     @Order(1)
     public SecurityWebFilterChain sellerSettlementSecurityWebFilterChain(
             ServerHttpSecurity http, UserLookup userLookup, ErrorResponseWriter errorWriter) {
-        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(
-                        "/api/seller/settlements", "/api/seller/settlements/**", "/api/seller/payout-account"))
+        http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(GatewayPaths.array(GatewayPaths.SELLER_SETTLEMENT)))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().hasRole("SELLER"));
         return authenticatedChain(http, userLookup, errorWriter);
     }
@@ -84,7 +79,7 @@ public class SecurityConfig {
                         properties.whitelist().toArray(String[]::new))))
                 // 대기열 생성은 MASTER만(#299). 역할은 60초 캐시한 회원 조회로 확인하고, reservation-service도 X-User-Role로 다시 확인한다
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/api/admin/waiting-rooms", "/api/admin/waiting-rooms/**")
+                        .pathMatchers(GatewayPaths.array(GatewayPaths.WAITING_ROOM_ADMIN))
                         .hasRole("MASTER")
                         .anyExchange()
                         .authenticated())
