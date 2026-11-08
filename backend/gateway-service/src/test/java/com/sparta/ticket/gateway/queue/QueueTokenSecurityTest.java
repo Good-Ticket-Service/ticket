@@ -184,6 +184,29 @@ class QueueTokenSecurityTest {
     }
 
     @Test
+    @DisplayName("좌석 조회를 HEAD로 보내도 GET과 같이 입장 토큰을 검사한다")
+    void headIsCheckedLikeGet() throws Exception {
+        for (String path : List.of(
+                "/api/seats/schedules/{scheduleId}",
+                "/api/seats/schedules/{scheduleId}/layout",
+                "/api/seats/schedules/{scheduleId}/status")) {
+            client.head()
+                    .uri(path, scheduleId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                    .exchange()
+                    .expectStatus()
+                    .isForbidden();
+            client.head()
+                    .uri(path, scheduleId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
+                    .header(QueueTokenFilter.QUEUE_TOKEN_HEADER, validEntryToken())
+                    .exchange()
+                    .expectStatus()
+                    .isOk();
+        }
+    }
+
+    @Test
     @DisplayName("토큰이 없거나, 다른 키로 서명했거나, 만료됐으면 403 QUEUE_TOKEN_INVALID")
     void missingForgedOrExpired() throws Exception {
         expectInvalid(getSeats(null));

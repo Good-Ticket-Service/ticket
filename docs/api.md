@@ -470,7 +470,7 @@
 
 - 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), roomId(long), scopes(string[], room의 scope), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
 - 만료는 입장 시각에 고정되고 TTL은 10분이다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다. 좌석 선점 여부에 따라 TTL을 늘리거나 없애지 않는다.
-- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId}, /layout, /status)와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다(layout·status #289). 선점 해제와 공개 잔여석(/remaining)은 검사하지 않는다.
+- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId}, /layout, /status, 같은 경로의 HEAD 포함)와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다(layout·status #289). HEAD는 서비스가 GET 핸들러로 자동 처리하므로 GET과 같이 검사한다. 선점 해제와 공개 잔여석(/remaining)은 검사하지 않는다.
 - Gateway는 경로의 scheduleId를 숫자로 읽어 `schedule:{scheduleId}`를 만들고, 그 scope를 보호하는 room이 있을 때만 토큰을 검사한다. 보호하는 room이 없거나 closeAt이 지났으면 토큰 없이 통과한다. 오픈 전 room도 보호하므로 오픈 전에는 토큰이 없어 403이다.
 - 검사 순서는 토큰 있음 → 서명·만료 → 토큰 회원이 로그인 회원과 같은지 → 요청 scope가 토큰 scopes에 있는지다. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다.
 - Gateway는 보호 목록을 요청마다 묻지 않고 기동 즉시와 10초마다 내부 API로 받아 메모리에 둔다. 받지 못하면 마지막 목록을 계속 쓰고, 기동 뒤 한 번도 받지 못했으면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE이다.

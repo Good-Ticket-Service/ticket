@@ -34,12 +34,23 @@ public class QueueTokenFilter implements WebFilter {
     /** URL의 회차 ID로 scope를 만드는 접두사. 대기열이 room을 만들 때 받는 scope 형식(대상:ID)과 같다. */
     private static final String SCHEDULE_SCOPE_PREFIX = "schedule:";
 
-    /** 검사하는 경로(입장 토큰 검사 대상은 여기서만 정한다). 선점 해제와 공개 잔여석은 검사하지 않는다. */
+    /**
+     * 검사하는 경로(입장 토큰 검사 대상은 여기서만 정한다). 선점 해제와 공개 잔여석은 검사하지 않는다.
+     * 좌석 조회는 HEAD도 검사한다. Spring MVC가 GET 핸들러에 HEAD를 자동으로 열어 두어, GET만 보면 HEAD로 토큰 없이 핸들러를 실행할 수 있다.
+     */
     private static final ServerWebExchangeMatcher SEAT_PATHS = new OrServerWebExchangeMatcher(
-            ServerWebExchangeMatchers.pathMatchers(HttpMethod.GET, "/api/seats/schedules/{scheduleId}"),
-            ServerWebExchangeMatchers.pathMatchers(HttpMethod.GET, "/api/seats/schedules/{scheduleId}/layout"),
-            ServerWebExchangeMatchers.pathMatchers(HttpMethod.GET, "/api/seats/schedules/{scheduleId}/status"),
+            seatQuery(HttpMethod.GET),
+            seatQuery(HttpMethod.HEAD),
             ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/seats/schedules/{scheduleId}/holds"));
+
+    /** 좌석 조회 경로(목록·layout·status)를 주어진 메서드로 매칭한다. */
+    private static ServerWebExchangeMatcher seatQuery(HttpMethod method) {
+        return ServerWebExchangeMatchers.pathMatchers(
+                method,
+                "/api/seats/schedules/{scheduleId}",
+                "/api/seats/schedules/{scheduleId}/layout",
+                "/api/seats/schedules/{scheduleId}/status");
+    }
 
     private enum Decision {
         PASS,
