@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.support;
+package com.sparta.ticket.gateway.error;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
