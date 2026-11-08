@@ -12,10 +12,14 @@ import com.sparta.ticket.reservation.queue.domain.QueueErrorCode;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
 import com.sparta.ticket.reservation.queue.domain.QueueState;
 import com.sparta.ticket.reservation.queue.domain.WaitingQueue;
+import com.sparta.ticket.reservation.queue.domain.WaitingRoom;
+import com.sparta.ticket.reservation.queue.domain.WaitingRoomRepository;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,6 +34,36 @@ class QueueServiceTest {
     /** 받은 값을 그대로 이어 붙여 토큰으로 돌려준다. 서비스가 어떤 값으로 발급을 부르는지 확인한다. */
     private static final EntryTokenIssuer ECHO_ISSUER = (userId, performanceId, admittedAt, expiresAt) ->
             userId + "|" + performanceId + "|" + admittedAt + "|" + expiresAt;
+
+    private static final Instant NOW = Instant.parse("2026-11-02T11:00:00Z");
+
+    /** room 1은 NOW에 열려 있다. 다른 ID는 없는 room이다. */
+    private static final WaitingRoom OPEN_ROOM =
+            new WaitingRoom(1L, List.of("schedule:12"), NOW.minusSeconds(60), NOW.plusSeconds(3600));
+
+    /** 정해 둔 room 하나만 ID로 찾는다. 시각 검사만 보므로 생성·목록은 부르지 않는다. */
+    private record FixedRoomRepository(WaitingRoom room) implements WaitingRoomRepository {
+
+        @Override
+        public WaitingRoom create(List<String> scopes, Instant openAt, Instant closeAt, Instant keepUntil) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<WaitingRoom> findById(long roomId) {
+            return Optional.of(room).filter(r -> r.roomId() == roomId);
+        }
+
+        @Override
+        public Optional<WaitingRoom> findByScope(String scope) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<WaitingRoom> findActive() {
+            throw new UnsupportedOperationException();
+        }
+    }
 
     /** 정해 둔 상태를 돌려주고 호출 횟수를 센다. state가 null이면 순번 조회에서 줄에 없는 회원이 된다. */
     private static final class FixedWaitingQueue implements WaitingQueue {
@@ -74,7 +108,62 @@ class QueueServiceTest {
     }
 
     private static QueueService service(FixedWaitingQueue waitingQueue, boolean enabled) {
-        return new QueueService(waitingQueue, new QueueProperties(enabled, 10), ADMISSION, ECHO_ISSUER);
+        return service(waitingQueue, enabled, OPEN_ROOM);
+    }
+
+    private static QueueService service(FixedWaitingQueue waitingQueue, boolean enabled, WaitingRoom room) {
+        return new QueueService(
+                waitingQueue,
+                new QueueProperties(enabled, 10),
+                ADMISSION,
+                ECHO_ISSUER,
+                new FixedRoomRepository(room),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static void assertError(Runnable call, QueueErrorCode expected) {
+        assertThatThrownBy(call::run)
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("room이 없으면 진입·순번 조회 모두 줄을 보지 않고 404 WAITING_ROOM_NOT_FOUND")
+    void roomNotFound() {
+        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
+        QueueService service = service(waitingQueue, true);
+
+        assertError(() -> service.enter(2L, 7L), QueueErrorCode.WAITING_ROOM_NOT_FOUND);
+        assertError(() -> service.findMyStatus(2L, 7L), QueueErrorCode.WAITING_ROOM_NOT_FOUND);
+        assertThat(waitingQueue.calls).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("오픈 전이면 진입은 409 WAITING_ROOM_NOT_OPEN이고, 순번 조회는 줄을 본다(줄에 없으니 404 NOT_IN_QUEUE)")
+    void roomNotOpen() {
+        WaitingRoom ready = new WaitingRoom(1L, List.of("schedule:12"), NOW.plusSeconds(1), NOW.plusSeconds(3600));
+        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(null);
+        QueueService service = service(waitingQueue, true, ready);
+
+        assertError(() -> service.enter(1L, 7L), QueueErrorCode.WAITING_ROOM_NOT_OPEN);
+        assertError(() -> service.findMyStatus(1L, 7L), QueueErrorCode.NOT_IN_QUEUE);
+        assertThat(waitingQueue.calls).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("closeAt이 되면 진입·순번 조회 모두 줄을 보지 않고 409 WAITING_ROOM_CLOSED. 대기 취소는 그대로 성공")
+    void roomClosed() {
+        WaitingRoom closed = new WaitingRoom(1L, List.of("schedule:12"), NOW.minusSeconds(3600), NOW);
+        FixedWaitingQueue waitingQueue = new FixedWaitingQueue(new QueuePosition(0));
+        QueueService service = service(waitingQueue, true, closed);
+
+        assertError(() -> service.enter(1L, 7L), QueueErrorCode.WAITING_ROOM_CLOSED);
+        assertError(() -> service.findMyStatus(1L, 7L), QueueErrorCode.WAITING_ROOM_CLOSED);
+        assertThat(waitingQueue.calls).hasValue(0);
+
+        service.leave(1L, 7L);
+        assertThat(waitingQueue.calls).hasValue(1);
     }
 
     @Test
