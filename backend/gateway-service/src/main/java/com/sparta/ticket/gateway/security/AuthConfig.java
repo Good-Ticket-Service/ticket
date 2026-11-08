@@ -1,5 +1,9 @@
 package com.sparta.ticket.gateway.security;
 
+import com.sparta.ticket.gateway.auth.AuthProperties;
+import com.sparta.ticket.gateway.auth.CachedUserLookup;
+import com.sparta.ticket.gateway.auth.JwtProperties;
+import com.sparta.ticket.gateway.auth.UserLookup;
 import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;
 import io.netty.channel.ChannelOption;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

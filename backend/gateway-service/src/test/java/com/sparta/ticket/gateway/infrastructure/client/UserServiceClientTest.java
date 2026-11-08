@@ -2,7 +2,7 @@ package com.sparta.ticket.gateway.infrastructure.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.sparta.ticket.gateway.security.UserSnapshot;
+import com.sparta.ticket.gateway.auth.UserSnapshot;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.DisplayName;

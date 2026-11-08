@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.auth;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

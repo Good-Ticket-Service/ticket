@@ -1,6 +1,11 @@
 package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.gateway.auth.AuthProperties;
+import com.sparta.ticket.gateway.auth.JsonAuthenticationEntryPoint;
+import com.sparta.ticket.gateway.auth.JwtProperties;
+import com.sparta.ticket.gateway.auth.UserLookup;
+import com.sparta.ticket.gateway.auth.UserVerifyingJwtConverter;
 import com.sparta.ticket.gateway.error.ErrorResponseWriter;
 import com.sparta.ticket.gateway.header.UserHeaderInjectionFilter;
 import com.sparta.ticket.gateway.infrastructure.client.UserServiceClient;

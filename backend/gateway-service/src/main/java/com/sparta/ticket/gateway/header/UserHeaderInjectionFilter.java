@@ -1,7 +1,7 @@
 package com.sparta.ticket.gateway.header;
 
 import com.sparta.ticket.common.auth.UserHeaders;
-import com.sparta.ticket.gateway.security.UserSnapshot;
+import com.sparta.ticket.gateway.auth.UserSnapshot;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
