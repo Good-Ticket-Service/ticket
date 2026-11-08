@@ -1,6 +1,6 @@
 package com.sparta.ticket.gateway.infrastructure.client;
 
-import com.sparta.ticket.gateway.security.UserSnapshot;
+import com.sparta.ticket.gateway.auth.UserSnapshot;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;

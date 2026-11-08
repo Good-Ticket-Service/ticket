@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

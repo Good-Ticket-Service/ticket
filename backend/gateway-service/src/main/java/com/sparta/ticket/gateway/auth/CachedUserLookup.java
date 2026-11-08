@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.auth;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;

@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.auth;
 
 import java.util.Optional;
 import reactor.core.publisher.Mono;
