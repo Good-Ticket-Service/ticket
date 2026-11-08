@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.support;
+package com.sparta.ticket.gateway.error;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;

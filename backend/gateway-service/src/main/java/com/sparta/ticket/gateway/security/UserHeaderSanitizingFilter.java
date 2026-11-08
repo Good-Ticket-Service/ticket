@@ -2,7 +2,7 @@ package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.gateway.support.ErrorResponseWriter;
+import com.sparta.ticket.gateway.error.ErrorResponseWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;

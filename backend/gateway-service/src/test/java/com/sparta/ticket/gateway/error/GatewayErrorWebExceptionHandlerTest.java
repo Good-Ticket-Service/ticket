@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.support;
+package com.sparta.ticket.gateway.error;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -1,7 +1,7 @@
 package com.sparta.ticket.gateway.security;
 
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.gateway.support.ErrorResponseWriter;
+import com.sparta.ticket.gateway.error.ErrorResponseWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.AuthenticationException;
