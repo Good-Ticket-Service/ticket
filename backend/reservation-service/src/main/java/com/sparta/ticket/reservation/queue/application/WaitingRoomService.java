@@ -52,4 +52,9 @@ public class WaitingRoomService {
                 .map(WaitingRoomResult::from)
                 .orElseThrow(() -> new BusinessException(QueueErrorCode.WAITING_ROOM_NOT_FOUND));
     }
+
+    /** 끝나지 않은(closeAt 전) room 전부. 오픈 전 room도 들어 있다. Gateway가 토큰을 검사할 대상을 정할 때 쓴다. */
+    public List<WaitingRoomResult> findActive() {
+        return repository.findActive().stream().map(WaitingRoomResult::from).toList();
+    }
 }
