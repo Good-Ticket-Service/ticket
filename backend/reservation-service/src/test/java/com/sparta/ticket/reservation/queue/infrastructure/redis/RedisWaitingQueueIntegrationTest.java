@@ -2,9 +2,12 @@ package com.sparta.ticket.reservation.queue.infrastructure.redis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sparta.ticket.reservation.queue.domain.AdmissionPolicy;
 import com.sparta.ticket.reservation.queue.domain.QueueAdmission;
 import com.sparta.ticket.reservation.queue.domain.QueuePosition;
+import com.sparta.ticket.reservation.queue.domain.WaitingRoomRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 
 /**
  * 대기열 진입을 실제 Redis 7.4로 확인한다. Redis는 테스트끼리 공유하므로 테스트마다 다른 공연 ID를 쓴다.
@@ -29,11 +34,18 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
 
     private static final AtomicLong PERFORMANCE_IDS = new AtomicLong(1_000_000);
 
+    /** 키의 만료 시각을 읽는 스크립트. 템플릿에 PEXPIRETIME 메서드가 없다. */
+    private static final RedisScript<Long> EXPIRE_TIME =
+            new DefaultRedisScript<>("return redis.call('PEXPIRETIME', KEYS[1])", Long.class);
+
     @Autowired
     private RedisWaitingQueue waitingQueue;
 
     @Autowired
     private StringRedisTemplate redis;
+
+    @Autowired
+    private WaitingRoomRepository waitingRoomRepository;
 
     private long newPerformanceId() {
         return PERFORMANCE_IDS.incrementAndGet();
@@ -282,5 +294,41 @@ class RedisWaitingQueueIntegrationTest extends ReservationIntegrationTest {
         }
         executor.shutdown();
         return results;
+    }
+
+    /** 키의 만료 시각(ms). 만료가 없으면 -1, 키가 없으면 -2다. */
+    private long expireTime(String key) {
+        return redis.execute(EXPIRE_TIME, List.of(key));
+    }
+
+    @Test
+    @DisplayName("줄 키(줄·번호·조회 시각·입장 목록·마지막 입장 시각)는 room 설정과 같은 시각에 만료된다")
+    void expireWithRoom() {
+        Instant now = Instant.now();
+        Instant closeAt = now.plus(Duration.ofHours(1));
+        long roomId = waitingRoomRepository
+                .create(
+                        List.of("schedule:" + newPerformanceId()),
+                        now.minus(Duration.ofMinutes(1)),
+                        closeAt,
+                        closeAt.plus(Duration.ofMinutes(10)))
+                .roomId();
+        long keepUntil = expireTime(QueueKeys.roomConfig(roomId));
+
+        waitingQueue.enter(roomId, 1L);
+        waitingQueue.enter(roomId, 2L);
+        waitingQueue.admit(
+                roomId,
+                new AdmissionPolicy(
+                        1, Duration.ofSeconds(1), 1000, Duration.ofMinutes(2), Duration.ofMinutes(10), 1000));
+
+        assertThat(keepUntil).isEqualTo(closeAt.plus(Duration.ofMinutes(10)).toEpochMilli());
+        assertThat(List.of(
+                        QueueKeys.waiting(roomId),
+                        QueueKeys.seq(roomId),
+                        QueueKeys.seen(roomId),
+                        QueueKeys.active(roomId),
+                        QueueKeys.lastAdmit(roomId)))
+                .allSatisfy(key -> assertThat(expireTime(key)).as(key).isEqualTo(keepUntil));
     }
 }

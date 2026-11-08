@@ -24,28 +24,31 @@ final class QueueKeys {
         return "queue:scope:" + scope;
     }
 
-    /** 대기 줄(Sorted Set). member는 회원 ID, score는 발급 번호다. */
-    static String waiting(long performanceId) {
-        return "queue:performance:" + performanceId + ":waiting";
+    /**
+     * 대기 줄(Sorted Set). member는 회원 ID, score는 발급 번호다.
+     * 줄 키(대기 줄·번호·조회 시각·입장 목록·마지막 입장 시각)는 room 설정과 같은 시각(closeAt + 입장 유효 시간)에 만료된다.
+     */
+    static String waiting(long roomId) {
+        return "queue:room:" + roomId + ":waiting";
     }
 
     /** 번호 발급 카운터(INCR). */
-    static String seq(long performanceId) {
-        return "queue:performance:" + performanceId + ":seq";
+    static String seq(long roomId) {
+        return "queue:room:" + roomId + ":seq";
     }
 
     /** 마지막 조회 시각(Sorted Set). member는 회원 ID, score는 Redis 시각(ms)이다. */
-    static String seen(long performanceId) {
-        return "queue:performance:" + performanceId + ":seen";
+    static String seen(long roomId) {
+        return "queue:room:" + roomId + ":seen";
     }
 
     /** 입장 목록(Sorted Set). member는 회원 ID, score는 입장 만료 시각(ms)이다. 입장 인원 상한을 이 크기로 센다. */
-    static String active(long performanceId) {
-        return "queue:performance:" + performanceId + ":active";
+    static String active(long roomId) {
+        return "queue:room:" + roomId + ":active";
     }
 
     /** 마지막 입장 시각(ms). 초당 입장 인원을 지키는 토큰 버킷의 기준점이다. */
-    static String lastAdmit(long performanceId) {
-        return "queue:performance:" + performanceId + ":last-admit";
+    static String lastAdmit(long roomId) {
+        return "queue:room:" + roomId + ":last-admit";
     }
 }
