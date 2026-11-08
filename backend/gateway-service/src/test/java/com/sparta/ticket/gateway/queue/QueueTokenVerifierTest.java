@@ -10,6 +10,7 @@ import com.nimbusds.jwt.SignedJWT;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
@@ -20,7 +21,7 @@ class QueueTokenVerifierTest {
 
     private final QueueTokenVerifier verifier = new QueueTokenVerifier(SECRET);
 
-    /** reservation-service가 발급하는 모양(sub 문자열, performanceId 숫자, iat, exp)으로 서명한다. */
+    /** reservation-service가 발급하는 모양(sub 문자열, roomId 숫자, scopes 문자열 배열, iat, exp)으로 서명한다. */
     private static String sign(String secret, JWTClaimsSet claims) throws Exception {
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(secret.getBytes(StandardCharsets.UTF_8)));
@@ -30,18 +31,19 @@ class QueueTokenVerifierTest {
     private static JWTClaimsSet.Builder claims(Instant expiresAt) {
         return new JWTClaimsSet.Builder()
                 .subject("7")
-                .claim(QueueTokenVerifier.PERFORMANCE_ID, 3L)
+                .claim(QueueTokenVerifier.ROOM_ID, 3L)
+                .claim(QueueTokenVerifier.SCOPES, List.of("schedule:12", "schedule:13"))
                 .issueTime(Date.from(expiresAt.minusSeconds(600)))
                 .expirationTime(Date.from(expiresAt));
     }
 
     @Test
-    @DisplayName("같은 키로 서명한 만료 전 토큰이면 회원과 공연을 꺼낸다")
+    @DisplayName("같은 키로 서명한 만료 전 토큰이면 회원·room·scope를 꺼낸다")
     void valid() throws Exception {
         String token = sign(SECRET, claims(Instant.now().plusSeconds(600)).build());
 
         StepVerifier.create(verifier.verify(token))
-                .expectNext(new EntryToken(7, 3))
+                .expectNext(new EntryToken(7, 3, List.of("schedule:12", "schedule:13")))
                 .verifyComplete();
     }
 
@@ -59,24 +61,29 @@ class QueueTokenVerifierTest {
     }
 
     @Test
-    @DisplayName("공연이 없거나 숫자가 아니거나, 회원이 숫자가 아니면 비어 있다")
+    @DisplayName("room·scopes가 없거나 형식이 틀리거나, 회원이 숫자가 아니면 비어 있다")
     void missingOrMalformedClaims() throws Exception {
         Instant expiresAt = Instant.now().plusSeconds(600);
-        String noPerformance = sign(
+        String noRoom = sign(
                 SECRET,
-                new JWTClaimsSet.Builder()
-                        .subject("7")
-                        .issueTime(Date.from(expiresAt.minusSeconds(600)))
-                        .expirationTime(Date.from(expiresAt))
+                claims(expiresAt).claim(QueueTokenVerifier.ROOM_ID, null).build());
+        String noScopes = sign(
+                SECRET, claims(expiresAt).claim(QueueTokenVerifier.SCOPES, null).build());
+        String textRoom = sign(
+                SECRET, claims(expiresAt).claim(QueueTokenVerifier.ROOM_ID, "3").build());
+        String textScopes = sign(
+                SECRET,
+                claims(expiresAt)
+                        .claim(QueueTokenVerifier.SCOPES, "schedule:12")
                         .build());
-        String textPerformance = sign(
+        String numberScopes = sign(
                 SECRET,
-                claims(expiresAt).claim(QueueTokenVerifier.PERFORMANCE_ID, "3").build());
+                claims(expiresAt).claim(QueueTokenVerifier.SCOPES, List.of(12)).build());
         String textSubject = sign(SECRET, claims(expiresAt).subject("hong").build());
 
-        StepVerifier.create(verifier.verify(noPerformance)).verifyComplete();
-        StepVerifier.create(verifier.verify(textPerformance)).verifyComplete();
-        StepVerifier.create(verifier.verify(textSubject)).verifyComplete();
+        for (String token : List.of(noRoom, noScopes, textRoom, textScopes, numberScopes, textSubject)) {
+            StepVerifier.create(verifier.verify(token)).verifyComplete();
+        }
     }
 
     @Test
