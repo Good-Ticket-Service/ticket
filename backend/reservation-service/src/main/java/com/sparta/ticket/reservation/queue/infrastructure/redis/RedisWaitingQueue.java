@@ -58,11 +58,10 @@ public class RedisWaitingQueue implements WaitingQueue {
         List<String> keys = List.of(
                 QueueKeys.waiting(roomId),
                 QueueKeys.seq(roomId),
-                QueueKeys.PERFORMANCES,
                 QueueKeys.seen(roomId),
                 QueueKeys.active(roomId),
                 QueueKeys.roomConfig(roomId));
-        List<?> result = execute(ENTER_SCRIPT, keys, String.valueOf(userId), String.valueOf(roomId));
+        List<?> result = execute(ENTER_SCRIPT, keys, String.valueOf(userId));
         return toState(result).orElseThrow();
     }
 

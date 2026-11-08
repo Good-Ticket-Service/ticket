@@ -22,7 +22,7 @@ public interface WaitingQueue {
 
     /**
      * room 하나의 입장을 처리한다. 만료된 입장자와 떠난 대기자를 빼고, 규칙이 허락하는 만큼 줄 앞에서 입장시킨다.
-     * 대기자도 입장자도 없으면 대기열을 닫고 그 room의 키를 지운다.
+     * 줄이 비어도 키를 지우지 않는다. 줄 키는 room과 함께 만료된다.
      */
     AdmissionResult admit(long roomId, AdmissionPolicy policy);
 }
