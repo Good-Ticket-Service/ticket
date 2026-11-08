@@ -1,10 +1,7 @@
 package com.sparta.ticket.reservation.queue.infrastructure.redis;
 
-/** 대기열 Redis 키 이름. 공연에 묶이지 않게 "queue:{대상}:{ID}:{용도}" 모양으로 짓는다. */
+/** 대기열 Redis 키 이름. room에 딸린 키는 "queue:room:{roomId}:{용도}" 모양으로 짓는다. */
 final class QueueKeys {
-
-    /** 대기열이 있는 공연 목록(Set). */
-    static final String PERFORMANCES = "queue:performances";
 
     /** 끝나지 않은 room 목록(Hash). 필드는 roomId, 값은 closeAt(ms)이다. 필드마다 closeAt에 만료되므로(Redis 7.4 HPEXPIREAT) 지우는 코드가 없다. */
     static final String ACTIVE_ROOMS = "queue:active-rooms";
