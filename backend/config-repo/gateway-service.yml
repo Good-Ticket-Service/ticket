@@ -27,7 +27,8 @@ spring:
             - id: reservation-service
               uri: lb://reservation-service
               predicates:
-                - Path=/api/reservations/**, /api/coupons/**, /api/seats/**, /api/queues/**
+                # 대기열은 /api/waiting-rooms(조회·진입)와 /api/admin/waiting-rooms(생성, MASTER). 내부 목록 /internal/** 은 외부에 열지 않는다
+                - Path=/api/reservations/**, /api/coupons/**, /api/seats/**, /api/waiting-rooms/**, /api/admin/waiting-rooms/**
             - id: payment-service
               uri: lb://payment-service
               predicates:
