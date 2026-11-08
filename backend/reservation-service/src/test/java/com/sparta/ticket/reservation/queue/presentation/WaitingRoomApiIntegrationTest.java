@@ -156,4 +156,18 @@ class WaitingRoomApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("WAITING_ROOM_NOT_FOUND"));
     }
+
+    @Test
+    @DisplayName("내부 목록은 끝나지 않은 room의 scope와 closeAt을 오픈 전 room까지 돌려준다(ApiResponse로 감싸지 않음)")
+    void protectedScopes() throws Exception {
+        String scope = newScope();
+        OffsetDateTime closeAt = now.plusHours(2);
+        create(Role.MASTER, body("[\"%s\"]".formatted(scope), now.plusMinutes(5), closeAt))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/internal/waiting-rooms/scopes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rooms[?(@.scopes[0] == '%s')].closeAt".formatted(scope))
+                        .value(iso(closeAt)));
+    }
 }
