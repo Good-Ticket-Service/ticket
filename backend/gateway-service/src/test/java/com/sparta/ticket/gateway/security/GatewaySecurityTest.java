@@ -144,6 +144,40 @@ class GatewaySecurityTest {
     }
 
     @Test
+    @DisplayName("대기열 생성은 MASTER만 허용하고, 회원 대기열 경로는 로그인만 확인한다")
+    void waitingRoomCreationRequiresMaster() throws Exception {
+        given(userLookup.find(USER_ID)).willReturn(Mono.just(Optional.of(STORED_USER)));
+        client.post()
+                .uri("/api/admin/waiting-rooms")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                .header(UserHeaders.ROLE, "MASTER")
+                .exchange()
+                .expectStatus()
+                .isForbidden()
+                .expectBody()
+                .jsonPath("$.code")
+                .isEqualTo("FORBIDDEN");
+        client.post()
+                .uri("/api/waiting-rooms/3/entries")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("USER"))
+                .exchange()
+                .expectStatus()
+                .isOk();
+
+        given(userLookup.find(USER_ID))
+                .willReturn(Mono.just(Optional.of(new UserSnapshot(USER_ID, "master@ticket.com", "MASTER"))));
+        client.post()
+                .uri("/api/admin/waiting-rooms")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken("MASTER"))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$['X-User-Role']")
+                .isEqualTo("MASTER");
+    }
+
+    @Test
     @DisplayName("판매자 정산·수취 계좌 경로는 SELLER만 허용하고 검증된 사용자 헤더를 주입한다")
     void sellerSettlementsRequireSeller() throws Exception {
         for (String path : new String[] {"/api/seller/settlements", "/api/seller/payout-account"}) {

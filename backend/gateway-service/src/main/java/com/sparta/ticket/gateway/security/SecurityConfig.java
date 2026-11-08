@@ -82,7 +82,12 @@ public class SecurityConfig {
             QueueTokenVerifier queueTokenVerifier) {
         http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
                         properties.whitelist().toArray(String[]::new))))
-                .authorizeExchange(exchanges -> exchanges.anyExchange().authenticated())
+                // 대기열 생성은 MASTER만(#299). 역할은 60초 캐시한 회원 조회로 확인하고, reservation-service도 X-User-Role로 다시 확인한다
+                .authorizeExchange(exchanges -> exchanges
+                        .pathMatchers("/api/admin/waiting-rooms", "/api/admin/waiting-rooms/**")
+                        .hasRole("MASTER")
+                        .anyExchange()
+                        .authenticated())
                 // 좌석 경로는 이 체인에만 온다. 로그인 회원이 정해진 인가 뒤, 체인 맨 끝에서 검사한다
                 .addFilterAt(
                         new QueueTokenFilter(protectedScopes, queueTokenVerifier, errorWriter),
