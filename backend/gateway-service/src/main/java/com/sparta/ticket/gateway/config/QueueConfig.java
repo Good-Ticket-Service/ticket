@@ -1,6 +1,9 @@
-package com.sparta.ticket.gateway.queue;
+package com.sparta.ticket.gateway.config;
 
 import com.sparta.ticket.gateway.infrastructure.client.WaitingRoomClient;
+import com.sparta.ticket.gateway.queue.ProtectedScopes;
+import com.sparta.ticket.gateway.queue.QueueProperties;
+import com.sparta.ticket.gateway.queue.QueueTokenVerifier;
 import io.netty.channel.ChannelOption;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -11,10 +14,10 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
-/** 입장 토큰 검사 구성. 키는 기동 때 검사해 설정 누락을 드러낸다. */
+/** 대기열 구성: 입장 토큰 검증기, 보호 목록 클라이언트와 주기 갱신. 토큰 키는 기동 때 검사해 설정 누락을 드러낸다. */
 @Configuration
 @EnableConfigurationProperties(QueueProperties.class)
-public class QueueTokenConfig {
+public class QueueConfig {
 
     @Bean
     public QueueTokenVerifier queueTokenVerifier(QueueProperties properties) {
