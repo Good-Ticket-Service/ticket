@@ -108,7 +108,7 @@ class QueueServiceTest {
     private static QueueService service(FixedWaitingQueue waitingQueue, WaitingRoom room) {
         return new QueueService(
                 waitingQueue,
-                new QueueProperties(true, 10),
+                new QueueProperties(10),
                 ADMISSION,
                 ECHO_ISSUER,
                 new FixedRoomRepository(room),

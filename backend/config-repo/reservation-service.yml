@@ -20,10 +20,9 @@ spring:
             connect-timeout: 1000
             read-timeout: 3000
 
-# 공연 단위 대기열. 끄고 켜며 같은 조건으로 측정을 비교한다. 바꾸면 reservation-service를 다시 띄운다
+# 대기열. 켜고 끄는 설정은 없다. 관리자가 room을 만들면 그 scope만 대기열을 거친다(room이 없으면 대기열 없음)
 reservation:
   queue:
-    enabled: ${QUEUE_ENABLED:false}
     # 초당 입장 인원. 기준선 측정 전 임시값이다. 서버가 버티는 동시 인원 ÷ 평균 머무는 시간으로 다시 정한다
     admit-per-second: ${QUEUE_ADMIT_PER_SECOND:10}
     # 입장 처리. 아래 값도 측정 전 임시값이다
