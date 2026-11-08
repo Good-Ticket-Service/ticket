@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.header;
 
 import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.exception.CommonErrorCode;
