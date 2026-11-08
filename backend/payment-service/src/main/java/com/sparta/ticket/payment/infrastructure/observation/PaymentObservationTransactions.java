@@ -126,7 +126,7 @@ public class PaymentObservationTransactions {
     static final List<String> PAYOUT_FAILURES = List.of("ACCOUNT_INVALID", "REJECTED", "REQUEST_INVALID");
     static final List<String> HOLD_REASONS =
             List.of("REFUND_IN_PROGRESS", "MISSING_SCHEDULE_START", "CALENDAR_NOT_COVERED");
-    static final List<String> SETTLEMENT_TASKS = List.of("statement", "payout", "payout_recovery");
+    static final List<String> SETTLEMENT_TASKS = List.of("statement", "payout", "payout_recovery", "settlement_job");
 
     /**
      * 정산 위험 지표(Task 20-11, settlement-design 8.3절). 건수·금액·최장 나이만 내고 판매자·지급 ID는 라벨에 넣지 않는다.
@@ -180,10 +180,25 @@ public class PaymentObservationTransactions {
                 SELECT 'payout_recovery', count(*),
                   coalesce(greatest(0, extract(epoch FROM (localtimestamp - min(next_attempt_at)))), 0)
                 FROM p_payouts WHERE status = 'REQUESTED' AND next_attempt_at <= localtimestamp
+                UNION ALL
+                SELECT 'settlement_job', count(*),
+                  coalesce(greatest(0, extract(epoch FROM (localtimestamp - min(next_attempt_at)))), 0)
+                FROM p_settlement_jobs WHERE status = 'PENDING' AND next_attempt_at <= localtimestamp
                 """, rs -> {
             var tags = List.of("task", rs.getString(1));
             result.add(new Sample("settlement.db.jobs.due", tags, rs.getDouble(2)));
             result.add(new Sample("settlement.db.jobs.oldest.due.age.seconds", tags, rs.getDouble(3)));
+        });
+        // 정산 반영 작업(#304): 격리 건수와 아직 정산에 반영되지 않은 결제 금액. 미완료만 부분 인덱스로 읽는다.
+        // Note: 승인 작업만 금액에 넣는다. 환불 완료 작업은 같은 결제의 반대 분개라 금액을 다시 더하지 않는다.
+        jdbc.query("""
+                SELECT count(*) FILTER (WHERE j.status = 'BLOCKED'),
+                  coalesce(sum(p.amount) FILTER (WHERE j.reason = 'PAYMENT_APPROVED'), 0)
+                FROM p_settlement_jobs j JOIN p_payments p ON p.id = j.payment_id
+                WHERE j.status IN ('PENDING', 'BLOCKED')
+                """, rs -> {
+            result.add(new Sample("settlement.db.jobs.blocked", List.of(), rs.getDouble(1)));
+            result.add(new Sample("settlement.db.jobs.unreflected.amount.won", List.of(), rs.getDouble(2)));
         });
         // Note: UNPOSTED·HELD는 드문 상태라 부분 인덱스(ix_p_settlement_items_unposted_sale·held_sale)로 해당 행만 읽는다.
         jdbc.query("""

@@ -169,6 +169,51 @@ groups:
           detail: "UNPOSTED {{ $value | printf \"%.0f\" }}건"
           action: "정책·달력 설정 수정 후 보충 잡 재계산"
 
+      # 결제는 확정됐는데 정산 반영 작업이 반복 실패로 격리됐다(#304). 결제·환불에는 영향이 없지만 정산·지급에서 빠진다.
+      - alert: SettlementCheckFailed
+        expr: max(settlement:jobs_blocked:max) > 0
+        labels:
+          severity: critical
+          application: payment-service
+          reason: job_blocked
+        annotations:
+          summary: "정산 반영 작업 격리"
+          category: "정산 · 반영"
+          detail: "격리 {{ $value | printf \"%.0f\" }}건 · 미반영 {{ with query \"max(settlement:jobs_unreflected_amount_won:max) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}원"
+          action: "p_settlement_jobs last_error와 [정산 반영 작업 격리] 로그로 원인 수정 후 해당 작업을 PENDING으로 되돌림"
+
+      # 켜진 정산 반영 워커가 실행 시각이 지난 작업을 1시간 넘게 처리하지 못했다(허용 지연 1시간, #304). 정산은 일 단위 업무라
+      # 성수기 몰림은 쌓였다가 따라잡으면 된다. 워커 멈춤·DB 병목·한가한 시간에도 따라잡지 못하는 유입이면 이 경보가 뜬다.
+      - alert: SettlementJobOverdue
+        expr: |
+          max by (task) (settlement:jobs_oldest_due_age_seconds:max{task="settlement_job"}) >= 3600
+          and on (task) settlement:job_enabled:max == 1
+        labels:
+          severity: warning
+          application: payment-service
+          reason: job_overdue
+        annotations:
+          summary: "정산 반영 지연 1시간 초과"
+          category: "정산 · 반영"
+          detail: "대기 {{ with query \"max(settlement:jobs_due:max{task='settlement_job'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "워커 스위치·스케줄러·DB 점검. 결제 확정은 영향 없음"
+      # 정산서 발행(매일 KST 04:00) 직전 1시간(KST 03시대 = UTC 18시) 동안에도 1시간 넘게 남아 있다. 이대로면 해당 판매가
+      # 이번 정산서에서 빠지고 다음 차수로 넘어간다(지급 지연, 금액 손실은 아님).
+      - alert: SettlementJobOverdue
+        expr: |
+          max by (task) (settlement:jobs_oldest_due_age_seconds:max{task="settlement_job"}) >= 3600
+          and on (task) settlement:job_enabled:max == 1
+          and on () (hour() == 18)
+        labels:
+          severity: critical
+          application: payment-service
+          reason: job_overdue
+        annotations:
+          summary: "정산서 발행 전 정산 반영 미완료"
+          category: "정산 · 반영"
+          detail: "대기 {{ with query \"max(settlement:jobs_due:max{task='settlement_job'}) or vector(0)\" }}{{ . | first | value | printf \"%.0f\" }}{{ end }}건 · 최장 {{ $value | humanizeDuration }}"
+          action: "워커 중단·격리 여부 확인. 04:00 발행에서 빠진 판매는 다음 차수로 넘어감"
+
       # 지급대행 대사 중 확인하지 못한 지급. 위반은 아니지만 다음 대사까지 검증되지 않은 지급이 남는다.
       - alert: SettlementCheckFailed
         expr: max(settlement:reconcile_provider_unreachable:max) > 0

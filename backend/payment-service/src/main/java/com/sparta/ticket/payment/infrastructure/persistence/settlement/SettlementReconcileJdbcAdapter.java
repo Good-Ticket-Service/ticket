@@ -40,6 +40,8 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                 WHERE p.status IN ('DONE', 'CANCELED') AND p.approved_at IS NOT NULL AND p.deleted_at IS NULL
                   AND (CAST(:since AS TIMESTAMP) IS NULL OR p.approved_at >= CAST(:since AS TIMESTAMP))
                   AND NOT EXISTS (SELECT 1 FROM p_settlement_items i WHERE i.payment_id = p.id AND i.kind = 'SALE')
+                  -- 정산 반영 작업(#304)이 아직 대기 중이면 누락이 아니다. 격리(BLOCKED)는 위반으로 남긴다
+                  AND NOT EXISTS (SELECT 1 FROM p_settlement_jobs j WHERE j.payment_id = p.id AND j.status = 'PENDING')
                 """);
         CHECKS.put("SALE_DUPLICATE", """
                 SELECT payment_id FROM p_settlement_items WHERE kind = 'SALE' GROUP BY payment_id HAVING count(*) > 1
@@ -77,6 +79,7 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                 WHERE r.status = 'DONE' AND r.deleted_at IS NULL AND i.status <> 'UNPOSTED'
                   AND NOT (i.status = 'CANCELED'
                        OR EXISTS (SELECT 1 FROM p_settlement_items d WHERE d.kind = 'DEDUCTION' AND d.refund_id = r.id))
+                  AND NOT EXISTS (SELECT 1 FROM p_settlement_jobs j WHERE j.payment_id = r.payment_id AND j.status = 'PENDING')
                 """);
         // 발행 전 환불 취소는 판매 분개를 뒤집은 반대 분개가 있어야 한다
         CHECKS.put("CANCELED_WITHOUT_REVERSE", """
