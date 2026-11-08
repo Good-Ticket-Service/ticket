@@ -21,7 +21,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -90,11 +89,6 @@ class QueueServiceTest {
         @Override
         public void leave(long performanceId, long userId) {
             calls.incrementAndGet();
-        }
-
-        @Override
-        public Set<Long> performances() {
-            throw new UnsupportedOperationException("순번 서비스는 입장 처리를 부르지 않는다");
         }
 
         @Override
