@@ -63,14 +63,18 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
         clock.set(BookingTestConfig.START_TIME);
     }
 
-    /** 지금 열려 있는 room을 만든다. Redis는 테스트끼리 공유하므로 테스트마다 다른 회차로 scope를 만든다. */
+    /** 지금 열려 있는 room을 만든다. */
     private long newRoom() {
         Instant now = clock.instant();
-        Instant closeAt = now.plus(Duration.ofHours(1));
+        return newRoom(now.minus(Duration.ofMinutes(1)), now.plus(Duration.ofHours(1)));
+    }
+
+    /** Redis는 테스트끼리 공유하므로 테스트마다 다른 회차로 scope를 만든다. */
+    private long newRoom(Instant openAt, Instant closeAt) {
         return waitingRoomRepository
                 .create(
                         List.of("schedule:" + SCHEDULE_IDS.incrementAndGet()),
-                        now.minus(Duration.ofMinutes(1)),
+                        openAt,
                         closeAt,
                         closeAt.plus(Duration.ofMinutes(10)))
                 .roomId();
@@ -216,6 +220,44 @@ class QueueApiIntegrationTest extends ReservationIntegrationTest {
 
         leave(roomId, 1L).andExpect(status().isNoContent());
         leave(roomId, 1L).andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("없는 room이면 진입·순번 조회 모두 404 WAITING_ROOM_NOT_FOUND")
+    void roomNotFound() throws Exception {
+        enter(Long.MAX_VALUE, 1L)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WAITING_ROOM_NOT_FOUND"));
+        findMyStatus(Long.MAX_VALUE, 1L)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WAITING_ROOM_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("오픈 전에 진입하면 409 WAITING_ROOM_NOT_OPEN")
+    void roomNotOpen() throws Exception {
+        Instant openAt = clock.instant().plus(Duration.ofMinutes(5));
+        long roomId = newRoom(openAt, openAt.plus(Duration.ofHours(1)));
+
+        enter(roomId, 1L)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WAITING_ROOM_NOT_OPEN"));
+    }
+
+    @Test
+    @DisplayName("closeAt이 지나면 줄에 서 있던 회원도 진입·순번 조회 모두 409 WAITING_ROOM_CLOSED")
+    void roomClosed() throws Exception {
+        long roomId = newRoom();
+        enter(roomId, 1L).andExpect(status().isOk());
+
+        clock.set(LocalDateTime.now().plusHours(1));
+
+        enter(roomId, 1L)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WAITING_ROOM_CLOSED"));
+        findMyStatus(roomId, 1L)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WAITING_ROOM_CLOSED"));
     }
 
     @Test

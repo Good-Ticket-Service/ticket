@@ -62,6 +62,30 @@ class RedisWaitingRoomRepositoryIntegrationTest extends ReservationIntegrationTe
     }
 
     @Test
+    @DisplayName("한 번 찾은 room은 메모리 캐시에서 돌려준다(Redis 설정이 지워져도 찾음)")
+    void cache() {
+        WaitingRoom room = create(List.of(newScope()), now(), now().plus(Duration.ofHours(1)));
+        assertThat(repository.findById(room.roomId())).contains(room);
+
+        redis.delete(QueueKeys.roomConfig(room.roomId()));
+
+        assertThat(repository.findById(room.roomId())).contains(room);
+    }
+
+    @Test
+    @DisplayName("없는 room은 캐시하지 않아, 그 ID로 나중에 만든 room을 찾는다")
+    void cacheSkipsMissing() {
+        String seq = redis.opsForValue().get(QueueKeys.ROOM_SEQ);
+        long nextId = (seq == null ? 0 : Long.parseLong(seq)) + 1;
+        assertThat(repository.findById(nextId)).isEmpty();
+
+        WaitingRoom created = create(List.of(newScope()), now(), now().plus(Duration.ofHours(1)));
+
+        assertThat(created.roomId()).isEqualTo(nextId);
+        assertThat(repository.findById(nextId)).contains(created);
+    }
+
+    @Test
     @DisplayName("room 설정은 closeAt + 입장 유효 시간에, scope 키는 closeAt에 만료된다")
     void expiry() {
         String scope = newScope();
