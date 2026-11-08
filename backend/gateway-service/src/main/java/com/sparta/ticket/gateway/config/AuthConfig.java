@@ -1,4 +1,4 @@
-package com.sparta.ticket.gateway.security;
+package com.sparta.ticket.gateway.config;
 
 import com.sparta.ticket.gateway.auth.AuthProperties;
 import com.sparta.ticket.gateway.auth.CachedUserLookup;
