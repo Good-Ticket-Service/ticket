@@ -3,12 +3,11 @@
 -- KEYS[2] 마지막 조회 시각(Sorted Set, score = 시각 ms)
 -- KEYS[3] 입장 목록(Sorted Set, score = 입장 만료 시각 ms)
 -- KEYS[4] 마지막 입장 시각(ms). 토큰 버킷의 기준점이다
--- KEYS[5] 번호 발급 카운터
--- KEYS[6] 대기열이 있는 room 목록(Set)
--- KEYS[7] room 설정(Hash). 입장 목록·마지막 입장 시각을 이 키와 같은 시각에 만료시킨다
+-- KEYS[5] room 설정(Hash). 입장 목록·마지막 입장 시각을 이 키와 같은 시각에 만료시킨다
 -- ARGV[1] 초당 입장 인원, ARGV[2] 한 번에 쌓아 둘 수 있는 입장 시간(ms), ARGV[3] 입장 인원 상한, ARGV[4] 입장 유효 시간(ms)
--- ARGV[5] 이탈 기준(ms), ARGV[6] 한 번에 정리할 이탈자 수, ARGV[7] room ID
--- 반환: { 입장 인원, 만료로 빠진 입장자 수, 이탈로 빠진 대기자 수, 대기열을 닫았으면 1, 처리 뒤 대기 인원, 처리 뒤 입장 중 인원 }
+-- ARGV[5] 이탈 기준(ms), ARGV[6] 한 번에 정리할 이탈자 수
+-- 반환: { 입장 인원, 만료로 빠진 입장자 수, 이탈로 빠진 대기자 수, 처리 뒤 대기 인원, 처리 뒤 입장 중 인원 }
+-- 줄이 비어도 키를 지우지 않는다. 줄 키는 room 설정과 같은 시각(closeAt + 입장 유효 시간)에 만료된다
 -- 꺼내기와 입장 등록을 한 스크립트에서 하므로 그 사이에 장애가 나도 회원이 사라지지 않고, 서버가 여러 대여도 같은 room을 겹쳐 처리하지 않는다
 local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
@@ -60,22 +59,14 @@ end
 redis.call('SET', KEYS[4], string.format('%.3f', last))
 
 -- SET은 만료를 지우고 입장 목록은 새로 생겼을 수 있으므로, 매번 room 설정의 만료 시각을 다시 건다
-local keepUntil = redis.call('PEXPIRETIME', KEYS[7])
+local keepUntil = redis.call('PEXPIRETIME', KEYS[5])
 if keepUntil > 0 then
     redis.call('PEXPIREAT', KEYS[3], keepUntil)
     redis.call('PEXPIREAT', KEYS[4], keepUntil)
 end
 
--- 5. 대기자도 입장자도 없으면 대기열을 닫는다. 키를 모두 지우므로 다시 열리면 번호가 1부터 시작한다.
--- 입장자가 남아 있으면 닫지 않는다. 만료 정리와 상한 계산을 계속해야 하기 때문이다
--- 대기·입장 중 인원은 지표로도 내보낸다. 지표가 따로 세면 room마다 Redis 호출이 늘어나므로 여기서 함께 돌려준다
+-- 5. 대기·입장 중 인원은 지표로 내보낸다. 지표가 따로 세면 room마다 Redis 호출이 늘어나므로 여기서 함께 돌려준다
 local waiting = redis.call('ZCARD', KEYS[1])
 local active = redis.call('ZCARD', KEYS[3])
-local closed = 0
-if waiting == 0 and active == 0 then
-    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5])
-    redis.call('SREM', KEYS[6], ARGV[7])
-    closed = 1
-end
 
-return { admitted, expired, #stale + leftAtFront, closed, waiting, active }
+return { admitted, expired, #stale + leftAtFront, waiting, active }

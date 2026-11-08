@@ -49,12 +49,11 @@ public class QueueAdmissionService {
                 waiting += result.waiting();
                 active += result.active();
                 log.debug(
-                        "room {} 입장 처리: 입장 {}, 만료 {}, 이탈 {}, 닫힘 {}",
+                        "room {} 입장 처리: 입장 {}, 만료 {}, 이탈 {}",
                         roomId,
                         result.admitted(),
                         result.expired(),
-                        result.left(),
-                        result.closed());
+                        result.left());
             } catch (BusinessException e) {
                 metrics.failed(sample);
                 log.warn("room {} 입장 처리에 실패했다. 다음 주기에 다시 처리한다.", roomId, e);

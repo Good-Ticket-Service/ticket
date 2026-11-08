@@ -100,7 +100,7 @@ class QueueAdmissionServiceTest {
             if (failing.contains(roomId)) {
                 throw new BusinessException(CommonErrorCode.SERVICE_UNAVAILABLE);
             }
-            return new AdmissionResult(3, 1, 2, false, 5, 10);
+            return new AdmissionResult(3, 1, 2, 5, 10);
         }
     }
 
