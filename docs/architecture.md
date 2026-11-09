@@ -21,7 +21,8 @@ flowchart LR
         RB["booking<br/>예매·티켓·Saga 조정"]
         RC["coupon<br/>이전 예정·#125 합의"]
     end
-    RB ==>|"준비·승인·조회 Feign 동기<br/>환불만 Phase 2 Kafka 가안"| PP["payment :8084<br/>결제·환불·할인액 검증"]
+    RB ==>|"준비·조회 Feign 동기<br/>승인 요청·환불 명령 Kafka 합의"| PP["payment :8084<br/>결제·환불·할인액 검증"]
+    PP -.->|"결과·환불 접수 Kafka 합의"| RB
     RB -->|로컬 CouponUsage #125| RC
     P -->|"회차 좌석 준비 Feign 이슈 #175"| RS
     RS -->|판매 검증| P
@@ -29,7 +30,7 @@ flowchart LR
 ```
 
 - 실선은 동기 HTTP 또는 서비스 안 모듈 호출이다. 굵은 선은 예매가 조정하는 결제·환불 흐름이다.
-- 승인은 고도화 후에도 Feign 동기다(D16). 환불 명령과 확정 결과 메시징은 후속 계약이며 그림이 토픽·스키마 합의를 대신하지 않는다.
+- 점선은 결제가 예매에 보내는 메시지다. 승인 요청·결과·환불 메시지는 #318·#319로 합의했고 아직 구현 전이다. 토픽과 필드는 6절과 api.md 「메시지 — Kafka」에 있다.
 - 업무 서비스는 Eureka·Config를 사용하고 Prometheus가 지표를 수집한다. fake-pg는 독립 PG 모의 서버이므로 Config·Eureka·공통 업무 모듈을 사용하지 않는다.
 
 ## 2. 서비스와 책임
@@ -61,9 +62,13 @@ flowchart LR
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. POST /internal/schedules/{scheduleId}/seat-setups (api 「좌석 내부 API」). 성능 측정 뒤 Kafka 전환 | 합의(이슈 #175). 공연 쪽 호출 구현됨(이슈 #131), 좌석 쪽 엔드포인트 구현됨(이슈 #190) |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
 | booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, coupon 구현됨(#159), 예매 연결됨 |
-| booking → payment 준비·승인·조회 | Feign 동기 유지. 승인 응답 DONE/FAILED/IN_PROGRESS | HTTP 계약 합의, D16 적용 |
-| booking → payment 환불 | MVP HTTP 동기. 200과 해석 가능한 refundStatus면 인수(#127). Phase 2 Kafka 명령은 P3 가안 | MVP 구현됨(#127), 토픽 미합의 |
-| payment → 예매 확정 결과 | MVP 동기 응답과 예매 폴링. 고도화 결과 이벤트·Outbox | 결과 메시지 미합의 |
+| booking → payment 준비·조회 | Feign 동기 | 구현됨 |
+| booking → payment 승인(현행) | Feign 동기. 승인 응답 DONE/FAILED/IN_PROGRESS | 구현됨 |
+| booking → payment 승인(목표) | Outbox로 `payment.confirm.requested`를 보내고 사용자에게 바로 PAYMENT_IN_PROGRESS를 준다(#318) | 합의, 구현 전 |
+| booking → payment 환불(현행) | HTTP 동기. 200과 해석 가능한 refundStatus면 인수(#127) | 구현됨 |
+| booking → payment 환불(목표) | Outbox로 `payment.refund.requested`를 보내고 `payment.refund.result`로 접수 결과를 받는다(#319). HTTP 환불 API는 재요청 경로로 남는다 | 합의, 구현 전 |
+| payment → 예매 결과(현행) | 승인 동기 응답과 예매의 결과 확인 조회 | 구현됨 |
+| payment → 예매 결과(목표) | 결제가 결과를 정하면 Outbox로 `payment.result`를 보낸다(#319). 결과 확인 조회는 메시지가 빠졌을 때의 안전망으로 남는다 | 합의, 구현 전 |
 | payment → fake-pg | RestClient + JDK HttpClient HTTP/1.1. 연결2초·읽기10초(D17) | PG 어댑터 구현됨 |
 | 잔여석 조회 | seat가 GET /api/seats/schedules/{scheduleId}/remaining 제공. 공연 카운터 갱신 이벤트는 보류 | 좌석 API 초안 |
 | 쿠폰 발급 | POST /api/coupons/{couponId}/issue 동기201 | 구현됨(동기201). Kafka202 전환 미합의 |
@@ -105,7 +110,7 @@ sequenceDiagram
     U->>B: 결과 불명이면 예매 조회
 ```
 
-준비 실패 상태를 성공 URL로 매핑하지 않는다. 준비 순서·오래된 요청 역전·HTTP200+FAILED 매핑은 14절에서 조율한다. PG 인증값은 Kafka로 보내지 않는다. 환불 실행·확정 결과 전달만 고도화 비교 대상이며, 두 단계가 전송 방식만 다르다고 가정하지 않는다.
+준비 실패 상태를 성공 URL로 매핑하지 않는다. 준비 순서·오래된 요청 역전·HTTP200+FAILED 매핑은 14절에서 조율한다. 위 그림은 현행 동기 승인이다. 메시지 승인(#318 합의)에서는 예매가 PAYMENT_IN_PROGRESS와 승인 요청 메시지를 한 트랜잭션에 커밋하고 바로 답하며, 결과는 `payment.result`로 받는다(6절).
 
 ## 5. 예매 상태
 
@@ -134,17 +139,41 @@ stateDiagram-v2
 
 ## 6. Kafka 메시징 범위
 
-아래는 후속 설계 목록이다. 토픽 이름·Envelope·스키마·버전·파티션 키·DLT 정책은 최종 계약이 아니다. 승인 명령·인증값을 메시지에 싣지 않는다(D16).
+예매 ↔ 결제 메시지는 #318(승인 요청)과 #319(결과·환불)로 합의했다. 필드와 소비 처리는 api.md 「메시지 — Kafka」에 있다. 그 밖의 토픽은 아직 제안이다.
 
-| 제안 이름 | 용도·발행 → 소비 | 상태 |
+| 토픽 | 발행 → 소비 | 상태 |
 |---|---|---|
+| payment.confirm.requested | 예매 → 결제. 승인 요청과 PG 인증값 | 합의(#318), 구현 전 |
+| payment.result | 결제 → 예매. 한 orderId의 최종 결과 DONE 또는 FAILED | 합의(#319). 예매 소비는 이슈 #320에서 구현 중, 결제 발행은 구현 전 |
+| payment.refund.requested | 예매 → 결제. 환불 명령 | 합의(#319), 구현 전 |
+| payment.refund.result | 결제 → 예매. 환불 접수 결과 | 합의(#319), 구현 전 |
 | coupon.issue.requested | 쿠폰 비동기 발급. 후보 식별자 couponId·userId | 미합의. 현재 계약은 동기201 |
 | seat.status.changed | seat → 공연 잔여석 반영. 후보 식별자 scheduleId·venueSeatGradeId | 보류. 현재 조회 소유자는 seat |
-| payment.completed / payment.failed | payment → 예매 확정 결과 | 고도화 초안. paidAmount/amount·reason/failureType 등 필드 미합의 |
-| payment.refund.requested | 예매 → 결제 환불/확정 실패 보상 | 고도화 초안. 접수 확인 의미 미합의 |
-| payment.refunded | 결제 → 결과 소비자 환불 확정 사실 | 고도화 초안. 실제 계좌 반영 보장 아님 |
 
-eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각각 막는다. 파티션 내 순서만으로 다른 시도의 늦은 결과를 막지 못한다. DB 인계 전 offset 커밋 금지, Outbox와 업무 상태는 함께 저장한다. DLT 이동은 업무 완료가 아니며 수동 재처리 책임을 남긴다.
+공통 규칙(합의한 예매 ↔ 결제 토픽)
+
+- 키는 reservationId 10진수 문자열이다. 같은 예약의 요청과 결과가 같은 파티션 번호에 모이고, 본문이 깨져도 DLT에서 키로 예약을 찾을 수 있다.
+- 파티션은 12로 시작한다. 결제는 PG 대기를 리스너 스레드에서 하지 않아 동시 처리 수가 파티션 수에 묶이지 않게 한다.
+- 소비자 그룹은 토픽마다 따로 둔다. 한 그룹에 구독 토픽이 다른 컨테이너가 있으면 한쪽이 켜지고 꺼질 때마다 다른 쪽도 리밸런스되기 때문이다.
+- 발행은 업무 상태와 같은 트랜잭션에 Outbox로 저장한 뒤 발행기가 보낸다. 커밋 뒤 직접 발행은 쓰지 않는다. 적어도 한 번 전달이므로 중복이 올 수 있다.
+- eventId로 메시지 중복을, orderId로 업무 중복을 막는다. 파티션 안의 순서만으로 다른 시도의 늦은 결과를 막지 못한다.
+- 소비는 DB에 반영한 뒤 offset을 커밋한다. 해석할 수 없는 메시지만 `<토픽>.DLT`로 보낸다. DLT 이동은 업무 완료가 아니며 수동 재처리 대상이다.
+- 메시지 본문을 로그에 통째로 남기지 않는다. 승인 요청에 PG 인증값이 있기 때문이다.
+
+승인 요청의 불변 조건(#318)
+
+- 예매는 선점이 유효할 때만 승인 요청을 받는다. 받는 일은 `HOLD → PAYMENT_IN_PROGRESS` 조건부 UPDATE이고 조건에 선점 만료 전이 들어 있다.
+- confirmBefore는 예매가 승인 요청을 받은 시각 + 5분이다. 그래서 confirmBefore는 선점 만료 + 5분보다 이르다. 결제의 READY 결제 정리가 이 조건에 기대므로, 5분(예매 설정 `reservation.booking.payment-confirm.window`)을 바꾸려면 이 계약을 먼저 고친다.
+- 결제는 confirmBefore가 지난 요청에 PG를 부르지 않고 FAILED로 끝낸다. 도착했을 때 이미 지났으면 IN_PROGRESS로 바꾸지 않고 바로 FAILED로 끝낸다.
+- 결제는 IN_PROGRESS를 커밋한 상태에서 confirmBefore를 확인한 뒤에만 PG를 부른다. 확인한 뒤 IN_PROGRESS를 커밋하면, 그사이 결제가 멈춘 동안 예매가 READY를 보고 실패로 끝낸 뒤 결제가 PG를 불러 돈이 나갈 수 있다. 두 단계를 `status = 'READY' AND confirm_before > now()` 조건부 UPDATE 하나로 해도 된다.
+- 예매의 결과 확인은 confirmBefore + 1분이 지난 결제 중 예약만 결제에 묻는다. 1분은 두 서버의 시계 차이 여유다. 결제가 READY(받지 못함)나 FAILED면 실패로 끝내고 HTTP로 승인을 다시 보내지 않는다.
+
+결과의 보장(#319)
+
+- 결제는 한 orderId의 결과를 한 번 정하면 바꾸지 않는다. 결제 상태는 READY·IN_PROGRESS에서만 FAILED로, IN_PROGRESS에서만 DONE으로 바뀐다.
+- FAILED로 정한 뒤 늦게 승인되면 결제는 상태를 FAILED로 둔 채 그 orderId만 `AUTO_VOID`로 환불하고, DONE을 발행하지 않는다.
+- DONE 결제가 환불돼 CANCELED가 되는 것은 결과 변경이 아니므로 `payment.result`를 다시 보내지 않는다.
+- 결과가 정해지는 모든 경로에서 발행한다. 승인 직후, 결과 확인 복구, 결과 확정 시한 FAILED, confirmBefore 초과 FAILED, 준비 만료가 모두 포함된다. 동기 응답으로 이미 알린 결과도 보낸다. 결제는 예매가 응답을 받았는지 알 수 없기 때문이다.
 
 ## 7. 실패와 보상
 
@@ -153,7 +182,8 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 | 선점 만료·미결제 | HOLD만 EXPIRED로 전이하고 좌석·쿠폰 해제 |
 | 승인 실패 | 현재 시도의 결과만 반영. 시간 남으면 HOLD, 지났으면 EXPIRED |
 | 승인 응답 유실·조회 장애 | PAYMENT_IN_PROGRESS 유지·폴링.60초 판정 기준은9절, 조회 불가만으로 좌석 반환 금지 |
-| PG 호출 전 READY | 승인 접수 여부를 조회하고 같은 orderId·인증값으로 재전송. 세부 재전송 시각·404 분기는14절 |
+| PG 호출 전 READY(현행 동기 승인) | 승인 접수 여부를 조회하고 같은 orderId·인증값으로 재전송. 세부 재전송 시각·404 분기는14절 |
+| PG 호출 전 READY(메시지 승인, #318) | confirmBefore + 1분 뒤에도 READY면 결제가 요청을 받지 못한 것으로 보고 실패로 끝낸다. 결제는 confirmBefore가 지난 요청에 PG를 부르지 않으므로 다시 보내지 않는다 |
 | FAILED 종료 후 늦은 과금 | 해당 orderId만 AUTO_VOID, 새 예매 시도·쿠폰은 보존. 결제 담당의 단계별 최소 Reconcile로 확인하며 최종 누락 부재의 증명은 아님. 실제 PG 취소와 전체 내역 대사는 별도 |
 | 과금됐으나 확정 불가(F6) | 현재 시도의 성공을 좌석 때문에 확정하지 못하면 refund_required_at에 기록한다(커밋되므로 재시작 뒤에도 남는다). 결과 확인 스레드가 같은 orderId로 refund(CONFIRM_FAILED)를 요청하고, 200과 해석 가능한 refundStatus면 PAYMENT_IN_PROGRESS→CANCELED·쿠폰 반환. 결과 모름은 결과 확인 기준 시간 뒤 같은 orderId로 다시 요청하고, 404는 결제 중을 유지해 체류 알림으로 넘긴다(#155) |
 | 환불 접수 응답 유실 | CANCELING 유지. 취소 확인 스케줄러가 조회 없이 CANCELING 진입 때 고정한 orderId로 재요청한다. 200과 해석 가능한 refundStatus면 CANCELED. 404는 알림·CANCELING 유지(#127) |
@@ -178,8 +208,10 @@ eventId로 메시지 중복을, orderId 등 업무 키로 업무 중복을 각�
 
 1~7절에 없는, 예매와 결제가 함께 지켜야 하는 규칙이다. 결제 내부 동작(복구·대사·워커·검증 관문)은 결제 담당 문서에서 관리한다.
 
-- **PG 인증값:** 토스 paymentKey·카카오 pg_token은 미완료 승인을 재전송하는 동안만 예매가 보관하고, 끝나면 지운다. 응답·로그·이벤트·메시지에 남기지 않는다. 결제는 인증값을 저장하지 않는다.
-- **현재 시도만 반영:** 결과의 orderId가 예매의 현재 orderId와 같을 때만 반영한다. 다르면 지난 시도의 결과다(실패는 무시, 성공은 F6으로 환불). 고도화 전에는 승인 시작이 다른 orderId를 막아 지금 시도의 확정 불가만 생기고 7절 F6 행대로 환불한다. 다른 orderId의 늦은 성공은 결과 메시지 계약과 함께 다룬다.
+- **PG 인증값(현행 동기 승인):** 토스 paymentKey·카카오 pg_token은 미완료 승인을 재전송하는 동안만 예매가 보관하고, 끝나면 지운다. 응답·로그·이벤트·메시지에 남기지 않는다.
+- **PG 인증값(메시지 승인, #318):** 승인 요청 메시지에 싣는다. 인증값만으로는 승인을 부를 수 없기 때문이다. 토스는 결제 서버에만 있는 시크릿 키가, 카카오는 cid·tid·가맹점 키가 함께 필요하다. 보관은 원 토픽 1일, DLT 7일이고 예매 발행·결제 소비만 접근한다. 예매는 재전송하지 않으므로 예약 행에 보관하지 않고, Outbox 행은 발행한 뒤 지운다. 응답·로그에는 남기지 않는다. 토스 paymentKey는 결제가 거래 ID(pgTransactionId)로 저장한다.
+- **현재 시도만 반영:** 결과의 orderId가 예매의 현재 orderId와 같고 예약이 결제 중일 때만 반영한다. 지금 시도의 성공을 좌석 때문에 확정하지 못하면 7절 F6 행대로 환불한다.
+- **지난 시도·끝난 예약의 성공:** 예매는 환불하지 않고 지표와 경고 로그만 남긴다(#319). 예매가 다른 시도로 넘어가거나 예약을 끝내는 것은 그 orderId가 FAILED로 정해진 뒤뿐이고, 결제는 FAILED를 DONE으로 바꾸지 않고 늦은 승인을 `AUTO_VOID`로 돌려주기 때문이다(6절 결과의 보장). 확정한 orderId의 DONE은 같은 결과를 다시 받은 것이다.
 - **결과 확정 시한:** 결제는 PG 승인 호출 시각부터 60초가 지나도 결과를 모르면 FAILED(`PG_UNRESOLVED`)로 확정한다. 서버 중단·적체 중에도 정확히 60초에 끝난다는 보장은 아니고, 실제 과금이 없었다는 증명도 아니다. 그래서 늦은 승인은 결제가 그 orderId만 자동 환불(`AUTO_VOID`)하고, 새 시도의 예매·쿠폰·티켓은 건드리지 않는다.
 - **조회가 안 될 때:** 결제 조회가 실패했다는 이유만으로 예매가 좌석·쿠폰을 풀지 않는다.
 - **환불의 세 단계:** 환불 접수, PG 취소 성공, 고객 카드·계좌 반영은 각각 다른 시점에 끝난다. `NOT_REQUIRED`·`SKIPPED`의 의미는 api.md 결제 계약을 따른다.
@@ -229,11 +261,11 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 
 | 번호 | 뜻 | 상태 |
 |---|---|---|
-| D16 | (결제) 예매 → 결제 준비·승인·조회는 고도화 후에도 Feign 동기. Kafka는 환불 명령, 확정 실패 보상, 확정 결과 전달에만 쓰고 승인 명령·PG 인증값은 싣지 않는다 | 결제 결정. 승인 응답 유지는 결제 계약에 반영 |
+| D16 | (결제) 예매 → 결제 준비·조회는 Feign 동기다. 승인은 #318로 바꿔 메시지로 요청하고 PG 인증값을 싣는다. 처음에는 승인도 동기로 두고 인증값을 메시지에 싣지 않기로 했다 | #318로 변경 합의(결제 담당 확인). 구현 전 |
 | D17 | (결제) PG는 Feign이 아니라 RestClient + JDK HttpClient로 부른다. 공통 Feign의 `X-User-*` 헤더·오류 변환이 외부 PG에 맞지 않는다 | 구현됨 (#45) |
 | D18 | (결제) 확정할 수 없는 결제는 보상 의도를 영속 저장해 재시작 뒤에도 이어서 처리한다. 로그·지표만으로 완료로 보지 않는다 | 결제 결정. 예매는 refund_required_at 기록과 CONFIRM_FAILED 환불로 반영(#155) |
 | B19 | (예매) "결제는 됐는데 표가 없는" 상태(F6)는 자동 환불로 끝낸다. MVP부터 같은 orderId로 CONFIRM_FAILED 환불을 요청하고, 결제가 받으면 예매를 CANCELED로 끝낸다 | 예매 결정. 구현 #155 |
-| F6 | (예매 실패 유형) 이미 끝난 예약이나 다른 시도(orderId 불일치)에 결제 성공이 도착한 경우. 그 orderId로 환불을 요청한다 | 예매 설계 |
+| F6 | (예매 실패 유형) 지금 시도의 결제는 성공했는데 좌석 때문에 확정하지 못한 경우. 그 orderId로 CONFIRM_FAILED 환불을 요청한다. 지난 시도·끝난 예약에 온 성공은 #319에 따라 환불하지 않는다 | 예매 설계 |
 | #22 | 결제는 쿠폰을 처리하지 않는다. 예매가 확정한 정가·할인액만 받아 검증·저장한다 | 합의 (#25에서 예매 담당 승인) |
 | #27 | CouponUsage를 예매 기준(reservationId 점유)으로 바꾸는 계약 | #125로 이어서 합의 |
 | #125 | CouponUsage의 메서드·반환 타입, USED 복원, 취소 확정 때 복원, 할인액은 예매가 자름 | 합의 (쿠폰·결제 담당 확인) |
@@ -243,7 +275,9 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | #86 | 결제 준비의 sellerId·performanceId는 판매 검증(P21) 응답에서 받아 선점 때 예약에 저장한 값을 쓴다 | 합의 |
 | #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
 | #175 | 회차 좌석 준비는 MVP Feign(`POST /internal/schedules/{scheduleId}/seat-setups`)으로 하고 성능 측정 뒤 Kafka로 바꾼다. 좌석은 (scheduleId, configVersion)으로 멱등 판단하고 응답에 requestId를 돌려준다 | 합의 (좌석·공연 담당 확인) |
-| P3·P4 | (Notion) 환불(P3)·승인(P4) Phase 2 전환 안건 | P4는 D16으로 철회, P3는 환불·결과 토픽 미합의 |
+| P3·P4 | (Notion) 환불(P3)·승인(P4) Phase 2 전환 안건 | P4는 D16으로 철회했다가 #318로 다시 합의, P3는 #319로 합의 |
+| #318 | 승인을 `payment.confirm.requested` 메시지로 요청하고 PG 인증값을 싣는다. confirmBefore·처리 순서 불변 조건 | 합의 (결제 담당 확인) |
+| #319 | 결과(`payment.result`)·환불 명령·환불 접수 결과 메시지. 결과는 한 번 정하면 바꾸지 않음 | 합의 (결제 담당 확인) |
 | T3 | (Notion) 취소 상태 이름을 CANCELING·CANCELED로 정한 결정 | 확정 |
 | #25 | (PR) #22 할인액 전달·쿠폰 책임 분리에 예매 담당이 동의한 리뷰 | 합의 근거 |
 | #30 | (PR) fake-pg의 카카오 호환 API 추가 | 구현됨 |
@@ -281,7 +315,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 좌석 준비 통신 | MVP Feign 계약은 이슈 #175로 합의했다(api 「좌석 내부 API」). read 타임아웃 5초는 유지한다(좌석 직접 호출 측정: 2만 석 최악 0.53초, 이슈 #175). 좌석 쪽 잠금 대기 상한 3초는 잠금마다 걸려 전체 대기가 5초를 넘을 수 있지만, 넘으면 같은 requestId 재시도로 같은 결과를 받는다. 공연 → 좌석 연동을 local에서 확인했다(회차 등록 응답 1,000석 p95 약 48ms, 이슈 #190). 결과 불명 복구는 이슈 #252에서 제한된 자동 확인·운영자 명령으로 구현했다. 남은 것: Kafka 전환 일정·토픽·스키마 | 공연·좌석 |
 | 공연 복원 검토 | 등급/좌석 미존재 오류, 공개 정적배치 권한, 취소 목록 포함, 공개검증, salesStatus/period 대상 회차 확인. 공개 wrapper/숫자ID/UNAUTHORIZED는 공통 기준 유지 | 공연·좌석 |
 | 판매 검증 경계 | 중지 후 기존 유효 HOLD 결제 허용은 기존 정책. 취소 경합·판매 마감 이후 확정 경계·필요한 재검증 확인 | 공연·예매·좌석 |
-| 결과·환불 토픽 | 토픽·스키마·버전, paidAmount/amount 및 reason/failureType/failureCode 명칭, 수신/DB 인계/PG 완료를 구분한 접수 보장 합의. 승인 토픽은 D16으로 철회 | 예매·결제 |
+| 결제 메시지 전환 | 계약은 #318·#319로 합의했다. 남은 것은 결제의 Outbox·발행기·승인 요청 소비자, 예매의 메시지 승인(이슈 #321)·환불 명령 구현이다. 메시지 승인은 예매 인스턴스가 모두 새 버전이 된 뒤 켠다. HTTP 승인 API를 지우는 시점은 전환 뒤 정한다 | 예매·결제 |
 | 쿠폰 발급 방식 | 현재 동기201 유지. Kafka202 전환 대상·접수 보장·시점 미합의 | 쿠폰·플랫폼 |
 | 잔여석 이벤트 | 소유는 seat. performance 카운터·seat.status.changed 도입 여부와 조회 구현 연결 확인 | 좌석·공연 |
 | Facade 조회 경계 | 모든 메서드 MANDATORY. getReservation은 호출자 트랜잭션에서 비잠금 사전 조회, 좌석→예약 변경 순서 유지 | 좌석·예매 |
