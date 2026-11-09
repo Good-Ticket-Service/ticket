@@ -232,6 +232,18 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CONSTRAINT ck_p_tickets_price CHECK (price >= 0)`.
 
+### p_payment_result_events — reservation-service/booking.sql + A
+
+| 필드 | 타입·제약·기본값 |
+|---|---|
+| event_id | VARCHAR(36) PRIMARY KEY |
+| order_id | VARCHAR(64) NOT NULL |
+| reservation_id | BIGINT NOT NULL |
+| occurred_at | TIMESTAMP NOT NULL |
+| received_at | TIMESTAMP NOT NULL |
+
+- payment가 보낸 결제 결과 메시지(`payment.result`)의 수신 기록이다. 같은 event_id를 두 번 반영하지 않는다. received_at - occurred_at이 payment가 결과를 정한 뒤 예약이 안 시간이다(#319, #320).
+
 ### p_coupons — reservation-service/coupon.sql + A
 
 | 필드 | 타입 | 제약·설명 |
