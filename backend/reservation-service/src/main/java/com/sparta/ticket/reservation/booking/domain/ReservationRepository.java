@@ -20,6 +20,9 @@ public interface ReservationRepository {
 
     Optional<Reservation> findById(Long id);
 
+    /** 폴링에 답할 상태와 소유자만 읽는다. 티켓을 읽지 않아 결제 중 사용자가 몰려 조회해도 한 번의 비용이 작다. */
+    Optional<ReservationStatusView> findStatus(Long id);
+
     /** 이 회원의 예약 가운데 주어진 상태인 것. 같은 시각의 예약도 페이지마다 순서가 같도록 정렬에 ID를 덧붙인다. */
     Page<ReservationSummary> findMine(Long userId, Collection<ReservationStatus> statuses, Pageable pageable);
 

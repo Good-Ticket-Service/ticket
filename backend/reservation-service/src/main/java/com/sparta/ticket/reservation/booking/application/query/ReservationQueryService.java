@@ -7,6 +7,7 @@ import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.ReservationStatusView;
 import com.sparta.ticket.reservation.booking.domain.ReservationSummary;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.util.EnumSet;
@@ -38,6 +39,15 @@ public class ReservationQueryService {
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
         user.validateSelfOrMaster(reservation.getUserId());
         return ReservationResult.from(reservation);
+    }
+
+    /** 결제 결과를 기다리는 폴링용 상태 조회. 상태와 소유자만 읽는다. 본인과 MASTER만 볼 수 있다. */
+    public ReservationStatusView getStatus(UserContext user, Long reservationId) {
+        ReservationStatusView view = reservationRepository
+                .findStatus(reservationId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVATION_NOT_FOUND));
+        user.validateSelfOrMaster(view.userId());
+        return view;
     }
 
     /** 내 예매 목록. 페이지·크기 보정과 기본 정렬은 공통 리졸버가 하고, 조회 대상은 요청 값이 아니라 인증한 회원으로 정한다. */

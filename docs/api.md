@@ -370,6 +370,7 @@
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/reservations/{reservationId} | 본인 USER 또는 MASTER | 200 | 없음 | Reservation | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
+| GET /api/reservations/{reservationId}/status | 본인 USER 또는 MASTER | 200 | 없음 | ReservationStatus | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
 | POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
 | POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;503 SERVICE_UNAVAILABLE |
 | GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC(createdAt,ASC/DESC) | PageC<ReservationSummary> | 400 VALIDATION_ERROR;403 FORBIDDEN(USER가 아님) |
@@ -377,6 +378,7 @@
 
 - Reservation = `{reservationId:long,scheduleId:long,performanceId:long,performanceTitle:string,scheduleStartAt:datetime,scheduleSeatIds:long[],status:string,holdExpiresAt:datetime,orderId:string|null,totalPrice:long,userCouponId:long|null,discountAmount:long|null,paymentAmount:long|null,tickets:Ticket[]}`.
 - Ticket = `{scheduleSeatId:long,price:int,ticketCode:string|null}`. tickets는 좌석 ID 오름차순이다. ticketCode는 CONFIRMED일 때만 주고, 그 밖의 상태는 null이다.
+- ReservationStatus = `{reservationId:long,status:string}`. 결제 결과를 기다리는 폴링용이며 티켓과 금액을 읽지 않는다. 응답은 `Cache-Control: no-store`다. (#321)
 - ReservationSummary = `{reservationId:long,scheduleId:long,performanceId:long,performanceTitle:string,scheduleStartAt:datetime,status:string,paymentAmount:long|null,seatCount:int,createdAt:datetime}`.
 - performanceTitle·scheduleStartAt은 선점 시점 값이다. totalPrice는 할인 전 금액이다. userCouponId는 이 예약에 잡힌 회원 쿠폰이다. checkout은 쿠폰을 보내지 않으면 잡은 쿠폰을 빼므로, 결제 실패 뒤 같은 쿠폰으로 다시 결제하려면 이 값을 그대로 보낸다. 좌석 구역·열·번호와 공연장 이름은 응답에 없다.
 - 내 예매 목록: 본인 예약만 준다. status를 보내지 않으면 결제 없이 끝난 EXPIRED·RELEASED를 빼고, 보내면 그 상태만 준다. 같은 시각의 예약은 나중에 만든 것부터다.
@@ -403,7 +405,8 @@
 - confirm: 응답 status는 결제 성공이면 CONFIRMED이다. (원본 복원: reservation/orchestration.md:223,254, 담당 확인 필요)
 - confirm: 결제 실패이고 선점 시간이 남았으면 응답 status는 HOLD이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
 - confirm: 결제 실패이고 선점 시간이 지났으면 응답 status는 EXPIRED이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
-- confirm: 결과를 모르면 응답 status는 PAYMENT_IN_PROGRESS이다. 클라이언트는 GET /api/reservations/{reservationId}로 폴링한다. (원본 복원: reservation/orchestration.md:225,249, 담당 확인 필요)
+- confirm: 결과를 모르면 응답 status는 PAYMENT_IN_PROGRESS이다. 클라이언트는 GET /api/reservations/{reservationId}/status로 폴링한다.
+- 폴링: 예매가 PAYMENT_IN_PROGRESS이면 단건 조회와 상태 조회 모두 `Retry-After` 헤더(초)로 다음 조회까지 기다릴 시간을 준다. 결제 중 예약이 많으면 서버가 간격을 늘린다(기본 1초, 최대 5초). 헤더가 없으면 결과가 정해진 것이므로 조회를 멈춘다. (#321)
 - confirm: 승인 뒤 결과 반영이 실패해도 오류 대신 200과 현재 상태(PAYMENT_IN_PROGRESS)를 준다. (원본 복원: reservation/booking-decisions.md:61, 담당 확인 필요)
 - confirm: 같은 orderId의 승인이 다시 왔을 때 예매가 PAYMENT_IN_PROGRESS나 CONFIRMED이면 결제를 다시 부르지 않는다. 이때 200과 현재 상태를 준다. (원본 복원: reservation/orchestration.md:219,231, reservation/booking-decisions.md:60, 담당 확인 필요)
 - confirm: 선점 시간이 지난 뒤의 승인은 만료 스케줄러가 돌았는지와 관계없이 409 HOLD_EXPIRED이다. (원본 복원: reservation/orchestration.md:220, reservation/booking-decisions.md:60, 담당 확인 필요)

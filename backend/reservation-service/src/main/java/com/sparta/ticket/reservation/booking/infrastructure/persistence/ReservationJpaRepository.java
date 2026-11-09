@@ -4,6 +4,7 @@ import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
+import com.sparta.ticket.reservation.booking.domain.ReservationStatusView;
 import com.sparta.ticket.reservation.booking.domain.ReservationSummary;
 import com.sparta.ticket.reservation.booking.domain.ReservationTransition;
 import java.time.LocalDateTime;
@@ -29,6 +30,14 @@ import org.springframework.data.repository.query.Param;
  */
 public interface ReservationJpaRepository
         extends JpaRepository<Reservation, Long>, ReservationRepository, ReservationReloader {
+
+    @Override
+    @Query("""
+            SELECT new com.sparta.ticket.reservation.booking.domain.ReservationStatusView(r.id, r.userId, r.status)
+              FROM Reservation r
+             WHERE r.id = :id
+            """)
+    Optional<ReservationStatusView> findStatus(@Param("id") Long id);
 
     @Override
     default Page<ReservationSummary> findMine(Long userId, Collection<ReservationStatus> statuses, Pageable pageable) {
