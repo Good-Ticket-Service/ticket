@@ -410,8 +410,12 @@
 - confirm: 마지막 checkout의 orderId가 아닌 승인은 409 ORDER_ID_MISMATCH로 거절한다(현행 enum 확인). (원본 복원: reservation/orchestration.md:229,353, 담당 확인 필요)
 - confirm: 결제가 실패해 HOLD로 돌아가면 예매의 order_id와 payment_amount를 지운다. 다시 결제하려면 checkout부터 다시 한다. (원본 복원: reservation/booking-decisions.md:59, reservation/tables.md:86,105, 담당 확인 필요)
 - confirm: 지운 orderId로 다시 온 승인은 결제를 부르지 않고 거절한다. (원본 복원: reservation/booking-decisions.md:59, 담당 확인 필요)
-- confirm: 지난 시도의 결과가 늦게 와도 현재 시도에 반영하지 않는다. 실패는 무시하고 성공은 그 orderId만 F6 환불 대상으로 남긴다. 고도화 전에는 지금 시도의 확정 불가만 생긴다(architecture 9절). (원본 복원: reservation/booking-decisions.md:38, reservation/orchestration.md:164, 담당 확인 필요)
+- confirm: 지난 시도의 결과가 늦게 와도 현재 시도에 반영하지 않는다. 실패는 무시한다. 성공도 예매는 환불하지 않고 지표와 경고 로그만 남긴다. 결제가 FAILED로 정한 orderId를 DONE으로 바꾸지 않고 늦은 승인을 AUTO_VOID로 돌려주기 때문이다(#319, architecture 9절).
 - confirm: pgAuthToken은 PAYMENT_IN_PROGRESS 동안만 예매에 남는다. CONFIRMED·HOLD·EXPIRED·CANCELED로 바뀌면 지운다. (원본 복원: reservation/orchestration.md:176, reservation/tables.md:90, 담당 확인 필요)
+- confirm(메시지 승인, #318 합의, 구현 전): HOLD, 만료 전, order_id 일치일 때 PAYMENT_IN_PROGRESS와 승인 요청 메시지(`payment.confirm.requested`)를 한 트랜잭션에 커밋하고, 결제를 기다리지 않고 200 PAYMENT_IN_PROGRESS를 준다. 결과는 `payment.result`로 받아 위 규칙대로 반영한다.
+- confirm(메시지 승인): 결제를 부르지 않으므로 결제 대기 한도가 차서 나던 503은 없다. DB 장애 같은 다른 503은 남는다. 400·409는 동기 승인과 같다.
+- confirm(메시지 승인): 예매는 pgAuthToken을 예약에 남기지 않는다. 승인을 다시 보내지 않기 때문이다. 인증값은 Outbox 행에만 있고 발행한 뒤 지운다.
+- 단건 조회(#318 합의, 구현 전): 예약이 PAYMENT_IN_PROGRESS이면 다음 조회까지 기다릴 초를 `Retry-After` 헤더로 준다. 결제 중 예약이 많으면 서버가 늘린다. 결과가 정해지면 헤더가 없다.
 - 확정 불가 환불: 지금 시도의 성공을 좌석 때문에 확정하지 못하면 결과 확인 스레드가 같은 orderId로 refund(orderId, CONFIRM_FAILED)를 요청한다. 접수 판정은 cancel과 같다. 받으면 PAYMENT_IN_PROGRESS→CANCELED로 끝내고 쿠폰을 돌려준다. 좌석은 이미 이 예매의 것이 아니므로 바꾸지 않는다. 클라이언트는 GET으로 CANCELED를 본다. (#155)
 - 결과 확인: 결제 조회가 404이면 예매는 알림을 남기고 PAYMENT_IN_PROGRESS를 그대로 둔다. (원본 복원: reservation/orchestration.md:242, 담당 확인 필요)
 - cancel: CONFIRMED이고 now < scheduleStartAt인 예매만 CANCELING으로 바꾼다. 회차 시작 시각과 같거나 지났으면 409 NOT_CANCELLABLE이다. scheduleStartAt은 선점 때 저장한 값이다. (#126, #127)
@@ -530,7 +534,7 @@
 
 권한: 내부 예매 호출(서비스 인증 방식 미정). orderId는 예매가 시도마다 발급하는 1~64자 문자열, 같은 시도 재시도는 같은 값. 준비/승인/환불은 orderId 멱등. HTTP 200에도 업무 FAILED가 올 수 있다.
 
-결제 HTTP 계약은 합의 상태(#22·PR #25), 구현 완료와 구분한다. D16에 따라 고도화에도 준비·승인 동기 계약을 유지한다.
+결제 HTTP 계약은 합의 상태(#22·PR #25), 구현 완료와 구분한다. 준비·조회는 동기 계약을 유지한다. 승인은 메시지 요청(#318)으로 바꾸며, HTTP 승인 API는 전환 동안 남기고 지우는 시점은 전환 뒤 정한다. 환불 HTTP API는 메시지 환불(#319) 뒤에도 접수 결과가 오지 않을 때의 재요청 경로로 남는다. 같은 orderId는 HTTP와 메시지 어느 쪽으로 와도 환불 행이 하나다.
 
 | Method URI | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|
@@ -606,6 +610,47 @@
 - 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는 409 PAYOUT_COMMAND_CONFLICT. 기대 version·attempt가 다르면 STALE, FAILED가 아니면 DENIED이며 둘 다 409 INVALID_STATUS_TRANSITION이고 명령 결과는 저장한다.
 - SellerReceivable=`{sellerId:long,receivable:long,openCount:int,oldestAt:datetime}`. 아직 상계하지 못한 차감(OPEN DEDUCTION)이 있는 판매자만, sellerId 오름차순(after/nextCursor는 sellerId).
 
+## 메시지 — Kafka (예매 ↔ 결제)
+
+상태: #318·#319로 합의했다. 결과 메시지의 예매 소비는 이슈 #320에서 구현 중이고, 나머지는 구현 전이다. 공통 규칙(키, 파티션, Outbox, 중복, DLT)과 보장·불변 조건은 [architecture.md](architecture.md) 6절에 있다.
+
+직렬화는 JSON 문자열이고 키는 reservationId 10진수 문자열이다(예: `"1001"`). 모든 메시지에 아래 공통 필드가 있다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| eventId | string(UUID) | 메시지 중복 식별. 36자 이하 |
+| schemaVersion | int | 1 |
+| occurredAt | datetime(+09:00) | 메시지를 만든 시각. 업무 상태를 바꾼 트랜잭션에서 Outbox에 쓴 시각이며 발행 시각이 아니다 |
+
+- 소비자는 모르는 필드를 무시한다. 필드를 더해도 소비가 멈추지 않는다. 뜻이 바뀌는 변경은 schemaVersion을 올린다.
+- 소비자는 모르는 schemaVersion이나 status를 짐작해 반영하지 않고 해석 불가로 DLT에 보낸다.
+
+| 토픽 | 발행 → 소비 | 소비자 그룹 | 필드 |
+|---|---|---|---|
+| payment.confirm.requested | 예매 → 결제 | 결제가 정함 | orderId:string(1~64),reservationId:long,amount:int,confirmBefore:datetime(+09:00),pgAuthToken:string(1~255) |
+| payment.result | 결제 → 예매 | reservation-booking-payment-result | orderId:string,reservationId:long,paymentId:long,status:DONE/FAILED,amount:int,failureType:string?,failureCode:string?,approvedAt:datetime? |
+| payment.refund.requested | 예매 → 결제 | 결제가 정함 | orderId:string,reservationId:long,reason:USER_CANCEL/SCHEDULE_CANCELED/CONFIRM_FAILED |
+| payment.refund.result | 결제 → 예매 | 예매가 정함 | orderId:string,reservationId:long,refundStatus:WAITING/REQUESTED/DONE/FAILED/SKIPPED/NOT_REQUIRED,refundAmount:int,reason:string |
+
+- payment.confirm.requested: 예매가 PAYMENT_IN_PROGRESS로 바꾸는 트랜잭션에 Outbox로 저장한다. amount는 예매에 저장한 payment_amount다. pgAuthToken은 토스 paymentKey 또는 카카오 pg_token이다.
+- payment.confirm.requested: 결제는 eventId와 orderId로 중복을 막아 같은 orderId의 PG 승인을 한 번만 부른다. confirmBefore 처리 순서는 architecture 6절 「승인 요청의 불변 조건」을 따른다.
+- payment.confirm.requested: 토픽 보관은 1일, DLT는 7일이다. DLT로 간 승인은 confirmBefore가 지나 예매의 결과 확인이 실패로 끝낸다.
+- payment.result: 필드 이름은 결제 조회 API(GET /internal/payments/{orderId})와 같다. failureType·failureCode는 FAILED일 때, approvedAt은 DONE일 때만 있다.
+- payment.result: 예매는 지금 eventId, schemaVersion, occurredAt, orderId, reservationId, status만 읽는다.
+- payment.refund.requested: 예매가 환불을 정한 트랜잭션(사용자 취소의 CANCELING, 확정 실패 표시, 회차 취소의 CANCELING)에서 Outbox에 저장한다. 결제 처리는 POST /internal/payments/{orderId}/refund와 같다. orderId 멱등이고, 이미 환불 행이 있으면 최초 사유와 상태를 유지한다.
+- payment.refund.result: 결제가 환불 행을 커밋하거나 환불이 필요 없다고 정한 트랜잭션에서 Outbox에 저장한다. 접수 보장은 "결제가 환불 행을 커밋함"이며 #127의 HTTP 200 인수와 뜻이 같다.
+- payment.refund.result: PG 취소는 커밋 뒤 따로 실행하므로 refundStatus는 대부분 REQUESTED(PG 취소 전)나 WAITING(결제 확정 전)이다. DONE은 드물다. 예매는 DONE을 기다리지 않고, 해석 가능한 refundStatus면 #127 규칙대로 CANCELED로 끝낸다.
+
+예매의 payment.result 처리
+
+| 예매 상태 | 처리 |
+|---|---|
+| 같은 orderId의 결제 중 | DONE이면 확정한다. 좌석을 확정할 수 없으면 CONFIRM_FAILED 환불을 요청한다. FAILED면 선점 시간이 남았으면 HOLD, 지났으면 EXPIRED |
+| 같은 결과를 이미 반영함 | 없음 |
+| 지난 시도이거나 끝난 예약에 온 DONE | 없음. 지표와 경고 로그만 남긴다(architecture 9절) |
+| 지난 시도이거나 끝난 예약에 온 FAILED | 없음 |
+
+- 동기 응답과 메시지는 같은 반영 코드로 처리한다. 먼저 온 쪽이 반영되고 나중 것은 바꾸지 않는다.
 ## 내부 정산 대조 운영 — payment-service (#317)
 
 상태: 결제 담당 설계 합의·구현 중. MASTER 인증과 ApiResponse를 사용한다.
