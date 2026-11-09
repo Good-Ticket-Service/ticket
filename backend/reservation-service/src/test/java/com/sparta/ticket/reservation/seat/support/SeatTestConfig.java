@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.support;
 
+import com.sparta.ticket.reservation.seat.infrastructure.cache.SeatSnapshotRefreshExecutor;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -23,5 +24,21 @@ public class SeatTestConfig {
     @Primary
     public MutableTicker mutableTicker() {
         return new MutableTicker();
+    }
+
+    /** 좌석 배치도 캐시의 refresh·정리 작업. 테스트가 runPending()을 부를 때 실행된다(#311). */
+    @Bean
+    public DeferredTasks seatSnapshotRefreshTasks() {
+        return new DeferredTasks();
+    }
+
+    /**
+     * 좌석 배치도 캐시의 refresh를 전용 스레드 대신 쌓아 둔다(#311). refresh 뒤 첫 요청은 이전 스냅샷을, 테스트가 쌓인 작업을 실행한 뒤의
+     * 요청은 새 스냅샷을 받는 것을 기다리지 않고 확인한다.
+     */
+    @Bean
+    @Primary
+    public SeatSnapshotRefreshExecutor deferredSeatSnapshotRefreshExecutor(DeferredTasks seatSnapshotRefreshTasks) {
+        return SeatSnapshotRefreshExecutor.using(seatSnapshotRefreshTasks::execute);
     }
 }

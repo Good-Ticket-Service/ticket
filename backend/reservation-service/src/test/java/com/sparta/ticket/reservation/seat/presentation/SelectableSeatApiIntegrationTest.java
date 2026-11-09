@@ -17,6 +17,7 @@ import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.support.DeferredTasks;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;
@@ -42,6 +43,8 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 20, 0);
     private static final Long SCHEDULE = 501L;
+    // 배치도 캐시는 refresh 시간(테스트 설정 1초)을 "넘어야" 뒤에서 다시 만든다
+    private static final Duration PAST_REFRESH = Duration.ofSeconds(1).plusMillis(1);
 
     @Autowired
     private MockMvc mockMvc;
@@ -70,6 +73,9 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private MeterRegistry meters;
 
+    @Autowired
+    private DeferredTasks seatSnapshotRefreshTasks;
+
     private long nextVenueSeatId = 1000;
 
     @BeforeEach
@@ -78,8 +84,10 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(NOW);
-        // 배치도 캐시는 컨텍스트 하나를 모든 테스트가 같이 쓴다. 앞 테스트가 같은 회차를 캐시해 두었을 수 있어 TTL을 넘긴다
+        // 배치도 캐시는 컨텍스트 하나를 모든 테스트가 같이 쓴다. 앞 테스트가 같은 회차를 캐시해 두었을 수 있어 최대 보관 시간(cache-max-age)을 넘긴다
         ticker.advance(Duration.ofMinutes(1));
+        // 앞 테스트가 남긴 refresh·정리 작업을 비운다. 좌석을 지운 뒤라 남은 refresh는 404로 끝나 캐시에 남지 않는다
+        seatSnapshotRefreshTasks.runPending();
     }
 
     private Long seat(Long scheduleId, boolean sellable) {
@@ -169,7 +177,7 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("TTL 안에서는 좌석 상태가 바뀌어도 같은 스냅샷(같은 asOf)을 주고, TTL이 지나면 바뀐 상태를 준다")
+    @DisplayName("refresh 전에는 좌석 상태가 바뀌어도 같은 스냅샷(같은 asOf)을 주고, refresh 뒤 첫 요청은 이전 asOf, 그다음 요청은 바뀐 상태를 준다")
     void snapshotWithinTtl() throws Exception {
         Long target = seat(SCHEDULE, true);
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
@@ -182,7 +190,13 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(jsonPath("$.data.seats[0].selectable").value(true))
                 .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:00+09:00"));
 
-        ticker.advance(Duration.ofSeconds(1));
+        // refresh 시간(1초)을 넘긴 첫 요청은 기다리지 않고 이전 스냅샷을 받는다. 다시 만드는 일은 refresh 작업이 한다
+        ticker.advance(PAST_REFRESH);
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
+                .andExpect(jsonPath("$.data.seats[0].selectable").value(true))
+                .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:00+09:00"));
+
+        seatSnapshotRefreshTasks.runPending();
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
                 .andExpect(jsonPath("$.data.seats[0].selectable").value(false))
                 .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:01+09:00"));
@@ -359,8 +373,13 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
 
         jdbcTemplate.update(
                 "UPDATE p_schedule_seats SET config_version = 3, base_price = 160000 WHERE schedule_id = ?", SCHEDULE);
-        ticker.advance(Duration.ofSeconds(1));
+        ticker.advance(PAST_REFRESH);
+        // refresh 뒤 첫 요청은 이전 스냅샷(ETag "2")을 받고, 새 스냅샷은 뒤에서 만든다
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("If-None-Match", "\"2\""))
+                .andExpect(status().isNotModified());
 
+        seatSnapshotRefreshTasks.runPending();
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
                         .header("If-None-Match", "\"2\""))
                 .andExpect(status().isOk())

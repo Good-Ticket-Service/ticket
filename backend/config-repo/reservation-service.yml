@@ -54,8 +54,11 @@ reservation:
       cache-ttl: 3s
     # 좌석 배치도(선택 가능 좌석) 조회(#270). 회차별 판정 결과를 서버 메모리에 짧게 캐시해 같은 회차 요청이 DB 연결을 나눠 쓰지 않게 한다.
     # 배치도는 표시용이고 선점 API가 잠근 뒤 다시 판정하므로, 길수록 409 SEAT_ALREADY_TAKEN만 늘고 이중 선점은 생기지 않는다
+    # 만든 지 cache-refresh가 지난 스냅샷은 기존 값을 주면서 전용 스레드가 뒤에서 다시 만들고, cache-max-age가 지나면 만료한다(#311).
+    # cache-max-age는 cache-refresh보다 길어야 한다(아니면 기동 실패)
     selectable:
-      cache-ttl: 1s
+      cache-refresh: 1s
+      cache-max-age: 5s
 
   # booking의 만료·결과 확인·취소 확인 스케줄러. 측정하면서 바꿀 값이라 코드에 기본값을 두지 않는다(docs/architecture.md의 복구 설계)
   booking:
