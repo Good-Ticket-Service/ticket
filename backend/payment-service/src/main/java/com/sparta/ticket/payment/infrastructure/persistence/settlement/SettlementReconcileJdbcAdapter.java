@@ -285,13 +285,19 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, propagation = Propagation.REQUIRES_NEW)
     public List<CheckResult> runChecks(LocalDateTime paymentsSince) {
+        return runChecksInSnapshot(paymentsSince, Map.of());
+    }
+
+    // Note: Batch의 RR 트랜잭션에서 검사·결과·기준 확정을 함께 수행한다.
+    List<CheckResult> runChecksInSnapshot(LocalDateTime paymentsSince, Map<String, String> replacements) {
         jdbc.execute("SET LOCAL statement_timeout = '" + statementTimeout.toMillis() + "ms'");
         Timestamp since = paymentsSince == null ? null : Timestamp.valueOf(paymentsSince);
         List<CheckResult> results = new ArrayList<>();
         for (Map.Entry<String, String> check : CHECKS.entrySet()) {
+            String query = replacements.getOrDefault(check.getKey(), check.getValue());
             String sql = "SELECT count(*), array_to_string((array_agg(v.id ORDER BY v.id))[1:" + SAMPLE_SIZE + "], ',')"
-                    + " FROM (SELECT x.* FROM (" + check.getValue().replace(":since", "?") + ") AS x(id)) v";
-            Object[] args = check.getValue().contains(":since") ? new Object[] {since, since} : new Object[] {};
+                    + " FROM (SELECT x.* FROM (" + query.replace(":since", "?") + ") AS x(id)) v";
+            Object[] args = query.contains(":since") ? new Object[] {since, since} : new Object[] {};
             long started = System.nanoTime();
             jdbc.execute("SAVEPOINT reconcile_check");
             try {
@@ -354,7 +360,9 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
             jdbc.update(
                     "INSERT INTO p_settlement_reconcile_results"
                             + " (run_id, check_name, completed, violations, sample, duration_ms, error)"
-                            + " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            + " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id,check_name) DO UPDATE SET"
+                            + " completed=EXCLUDED.completed,violations=EXCLUDED.violations,sample=EXCLUDED.sample,"
+                            + " duration_ms=EXCLUDED.duration_ms,error=EXCLUDED.error",
                     runId,
                     result.check(),
                     result.completed(),

@@ -130,6 +130,31 @@ public class SettlementReconciliationJob {
 
     private record ProviderResult(CheckResult result, int unreachable) {}
 
+    /** Batch의 DB 완료 마커 이후 HTTP 단계만 재시작한다. 외부 조회 불명은 완료로 표시하지 않는다. */
+    public Report runProvider(long runId, List<CheckResult> databaseResults) {
+        List<DonePayout> done =
+                repository.findDonePayouts(LocalDateTime.now(clock).minusHours(providerWindowHours), providerLimit);
+        ProviderResult provider = reconcileProvider(done);
+        List<CheckResult> results = new ArrayList<>(databaseResults);
+        results.add(provider.result());
+        long violations = results.stream()
+                .filter(CheckResult::completed)
+                .mapToLong(CheckResult::violations)
+                .sum();
+        boolean valid = provider.unreachable() == 0 && violations == 0;
+        repository.finishRun(
+                runId,
+                new Finished(
+                        valid ? "SUCCEEDED" : "FAILED",
+                        LocalDateTime.now(clock),
+                        violations,
+                        done.size(),
+                        provider.unreachable(),
+                        valid ? null : provider.unreachable() > 0 ? "HTTP_UNKNOWN" : "PROVIDER_MISMATCH",
+                        results));
+        return new Report(runId, violations, List.copyOf(results), provider.unreachable());
+    }
+
     /** 실행 기록 error 열(200자)에 맞춘다. */
     private static String truncate(String error) {
         return error.length() <= 200 ? error : error.substring(0, 197) + "...";
