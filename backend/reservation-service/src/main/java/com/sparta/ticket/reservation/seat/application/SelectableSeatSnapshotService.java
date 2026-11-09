@@ -27,6 +27,7 @@ public class SelectableSeatSnapshotService {
 
     private final SelectableSeatQueryService queryService;
     private final SelectableSeatCache cache;
+    private final SeatSnapshotMetrics metrics;
 
     /** 기존 좌석 조회 응답용 판정 결과. */
     public SelectableSeatsResult getSelectableSeats(Long scheduleId) {
@@ -35,6 +36,8 @@ public class SelectableSeatSnapshotService {
 
     /** layout·status 응답용 스냅샷. 좌석이 없는 회차는 404 SEAT_NOT_FOUND다(캐시하지 않음). */
     public SeatMapSnapshot getSnapshot(Long scheduleId) {
-        return cache.getOrLoad(scheduleId, () -> SeatMapSnapshot.of(queryService.getSelectableSeats(scheduleId)));
+        return metrics.timeGet(() -> cache.getOrLoad(
+                scheduleId,
+                () -> metrics.timeLoad(() -> SeatMapSnapshot.of(queryService.getSelectableSeats(scheduleId)))));
     }
 }
