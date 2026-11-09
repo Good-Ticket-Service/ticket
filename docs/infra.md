@@ -54,12 +54,13 @@ flowchart LR
         CADDY[Caddy] --> GW[gateway :8080]
         GW --> US[user :8081]
         GW --> EV[performance :8082]
+        GW --> WR[waiting-room :8085]
         CFG[config-server :8888]
         EU[eureka :8761]
     end
 
     subgraph CORE[vm-core · 실험 대상]
-        RS["reservation :8083<br/>queue · seat · booking · coupon"]
+        RS["reservation :8083<br/>seat · booking · coupon"]
         PS[payment :8084]
     end
 
@@ -125,12 +126,12 @@ flowchart LR
 
 | 서버 | 프라이빗 IP | 컨테이너 (포트) | 인스턴스 | 디스크 | Compose 파일 |
 | --- | --- | --- | --- | --- | --- |
-| vm-edge | `<채우기>` | Caddy(80·443), gateway(8080, 관리 9080), user(8081), performance(8082), config-server(8888), eureka(8761) | m7i.large | gp3 30GB | `compose.edge.yml` |
+| vm-edge | `<채우기>` | Caddy(80·443), gateway(8080, 관리 9080), user(8081), performance(8082), waiting-room(8085), config-server(8888), eureka(8761) | m7i.large | gp3 30GB | `compose.edge.yml` |
 | vm-core | `<채우기>` | reservation(8083, 쿠폰 모듈 포함), payment(8084) | m7i.large | gp3 30GB | `compose.core.yml` |
 | vm-data | `<채우기>` | Postgres(5432), Redis(6379), Kafka(29092), fake-pg(8090), Prometheus(9090), Grafana(3000), Kafka UI(8989) | m7i.large | gp3 50GB | `compose.data.yml` |
 | vm-k6 | `<채우기>` | k6 (실행할 때만) | c8i.large | gp3 20GB | — |
 
-- m7i.large = 2 vCPU, 8GB. vm-edge는 JVM 5개 × 약 600MB ≈ 3GB, vm-core는 실험용으로 서비스당 힙 1GB.
+- m7i.large = 2 vCPU, 8GB. vm-edge는 JVM 6개 × 약 600MB ≈ 3.6GB(waiting-room은 예매 서버와 CPU를 나눠 쓰지 않게 vm-edge에 둔다, #298), vm-core는 실험용으로 서비스당 힙 1GB.
 - 쿠폰 모듈은 reservation-service로 이전 예정이다. 예매와의 연결 계약은 #125에서 합의했다. 쿠폰 발급은 현재 동기201 계약이며 Kafka 소비는 미합의다. 오픈 부하가 겹치면 reservation CPU·힙·HikariCP를 함께 측정한다(I8).
 - gateway 외부 경로는 `/api/**`다. 버전(`v1`)은 붙이지 않는다.
 - OS는 Ubuntu 24.04 x86_64. 이미지는 amd64로만 만든다(Mac에서 빌드할 때는 `--platform linux/amd64`).
@@ -245,7 +246,7 @@ flowchart LR
 - Config: `backend/config-repo/{서비스}.yml`, 공통 `application.yml`, 로컬 `application-local.yml`. 앱의 `application.yml`은 이름과 config import 중심이다. fake-pg는 Config·Eureka·common에 의존하지 않는다.
 - 서버별 `compose.edge/core/data.yml`과 기동·중지 워크플로는 구현·존재를 확인한 뒤 사용한다. 현재 루트 `docker-compose.yml`을 서버 배포 완료 증거로 보지 않는다. Config 파일은 config-server 이미지에 포함되므로 바꾸면 재빌드·재배포가 필요하다.
 - 데이터 초기화·볼륨 삭제는 승인 없이 하지 않는다. 운영 DB에서 `ddl-auto: create`를 쓰지 않는다. DDL 이행·백업·복원 뒤에는 미완료 작업 보존과 PG 재대조를 확인한다(실제 과금 운영 전 검증 항목).
-- Gateway 현행 라우트(`backend/config-repo/gateway-service.yml`): `/api/auth/**`·`/api/users/**` → user, `/api/reservations/**`·`/api/coupons/**`·`/api/seats/**`·`/api/waiting-rooms/**`·`/api/admin/waiting-rooms/**` → reservation, `/api/v1/payments/**`·`/api/admin/payments/**`·`/api/admin/settlements/**`·`/api/seller/settlements/**`·`/api/seller/payout-account` → payment. 공연은 공개 조회 `/api/performances/**`·`/api/schedules/{scheduleId}`(한 단계)와 판매자·관리자 `/api/seller/performances/**`·`/api/seller/schedules/**`·`/api/seller/venues/**`·`/api/admin/venues/**`·`/api/admin/schedules/**`·`/api/admin/performances/**` → performance다(이슈 #134). `/api/v1/payments/**`는 현재 API 명세(`v1` 없음)와 다른 이전 라우트다.
+- Gateway 현행 라우트(`backend/config-repo/gateway-service.yml`): `/api/auth/**`·`/api/users/**` → user, `/api/reservations/**`·`/api/coupons/**`·`/api/seats/**` → reservation, `/api/waiting-rooms/**`·`/api/admin/waiting-rooms/**` → waiting-room, `/api/v1/payments/**`·`/api/admin/payments/**`·`/api/admin/settlements/**`·`/api/seller/settlements/**`·`/api/seller/payout-account` → payment. 공연은 공개 조회 `/api/performances/**`·`/api/schedules/{scheduleId}`(한 단계)와 판매자·관리자 `/api/seller/performances/**`·`/api/seller/schedules/**`·`/api/seller/venues/**`·`/api/admin/venues/**`·`/api/admin/schedules/**`·`/api/admin/performances/**` → performance다(이슈 #134). `/api/v1/payments/**`는 현재 API 명세(`v1` 없음)와 다른 이전 라우트다.
 - 공연 판매자·관리자는 `/api/seller/**`·`/api/admin/**`로 넓히지 않고 리소스별로 나열한다. 넓히면 공연 라우트가 결제의 `/api/seller/settlements/**`·`/api/admin/payments/**`를 먼저 잡는다. 판매자·관리자 리소스를 새로 만들면 이 목록에 더한다.
 - 인증 제외(whitelist): 공개 공연 조회 `/api/performances/**`, 공개 회차 상세 `/api/schedules/*`, 공개 잔여석 `/api/seats/schedules/*/remaining`. 회차 단건은 한 단계 경로만 매칭해 `/api/schedules/{id}/queue`(reservation)와 겹치지 않는다(#115). 공연 판매자·관리자 경로는 인증이 필요하다.
 - Gateway 역할 검사: 결제 관리자(`/api/admin/payments/**`·`/api/admin/settlements/**`)는 MASTER(매 요청 사용자 조회, 12절), 판매자 정산·수취 계좌는 SELLER. 공연 판매자·관리자 경로는 Gateway가 로그인만 확인하고 역할은 공연 서비스(`@RequireRole`)가 확인한다. Gateway에서도 역할을 검사할지는 이슈 #236에서 정한다.

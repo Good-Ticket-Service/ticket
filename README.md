@@ -35,6 +35,7 @@ ticket/
 | `performance-service` | 8082 | 공연·회차·좌석 |
 | `reservation-service` | 8083 | 좌석 선점·예매 (Redis 사용) |
 | `payment-service` | 8084 | 결제 |
+| `waiting-room-service` | 8085 | 대기열(room)·순번·입장 토큰 (Redis만 사용) |
 | `fake-pg` | 8090 | 테스트용 PG. 토스 호환 API와 장애 주입 관리 API (아래 "fake PG") |
 | `common-core` | - | 웹 스택 무관 공통 계약: 에러 코드·응답 형식, 사용자 헤더 이름 |
 | `common` | - | MVC 서비스 공통: 예외 처리, `@CurrentUser`, `@RequireRole`, BaseEntity(Audit), Feign 헤더 전달·에러 변환, 페이징 |
