@@ -15,7 +15,12 @@ import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
+import com.zaxxer.hikari.HikariDataSource;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -29,6 +34,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -53,6 +59,10 @@ class PaymentResultConsumerIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingFacade bookingFacade;
+
+    @Autowired
+    @Qualifier("bookingMainDataSource")
+    private HikariDataSource requestPool;
 
     @Autowired
     private ReservationPaymentService paymentService;
@@ -116,6 +126,38 @@ class PaymentResultConsumerIntegrationTest extends BookingIntegrationTest {
     private List<String> ticketCodes(Long reservationId) {
         return jdbcTemplate.queryForList(
                 "SELECT ticket_code FROM p_tickets WHERE reservation_id = ?", String.class, reservationId);
+    }
+
+    /** 사용자 요청 풀의 연결을 모두 쥔 채로 상태를 읽는다. 결제 결과 반영은 이 풀이 비어 있어도 끝나야 한다. */
+    private static String statusVia(Connection connection, Long reservationId) throws Exception {
+        try (Statement statement = connection.createStatement();
+                ResultSet rs = statement.executeQuery(
+                        "SELECT status FROM p_reservations WHERE reservation_id = " + reservationId)) {
+            rs.next();
+            return rs.getString(1);
+        }
+    }
+
+    @Test
+    @DisplayName("사용자 요청이 DB 연결 풀을 모두 차지해도 결제 결과는 반영된다")
+    void confirmsWhileRequestPoolIsExhausted() throws Exception {
+        InProgress target = unansweredConfirm();
+        List<Connection> held = new ArrayList<>();
+        try {
+            for (int i = 0; i < requestPool.getMaximumPoolSize(); i++) {
+                held.add(requestPool.getConnection());
+            }
+            sendResult(target, "DONE");
+
+            Connection reader = held.get(0);
+            await().atMost(Duration.ofSeconds(20))
+                    .untilAsserted(() -> assertThat(statusVia(reader, target.reservationId()))
+                            .isEqualTo("CONFIRMED"));
+        } finally {
+            for (Connection connection : held) {
+                connection.close();
+            }
+        }
     }
 
     @Test
