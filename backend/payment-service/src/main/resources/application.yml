@@ -48,6 +48,8 @@ payment:
     # 매일 KST 03:00 정산 전체 대조(읽기 전용). 기동 1분 뒤에도 1회 돈다.
     reconcile:
       enabled: true
+      # 검사 SQL 하나의 제한 시간. 넘으면 그 검사만 미완료로 남기고 나머지를 계속하며, 실행은 FAILED다(#310)
+      statement-timeout: 60s
     policies:
       - version: "2026-10-30-v1"
         effective-from: "2026-01-01T00:00:00"
