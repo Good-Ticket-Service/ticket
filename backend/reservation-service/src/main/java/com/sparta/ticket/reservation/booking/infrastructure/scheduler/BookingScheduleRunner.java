@@ -7,6 +7,7 @@ import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconc
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
+import com.sparta.ticket.reservation.booking.infrastructure.persistence.CompletionPool;
 import com.sparta.ticket.reservation.booking.infrastructure.scheduler.BookingSchedulerProperties.CancelReconcile;
 import com.sparta.ticket.reservation.booking.infrastructure.scheduler.BookingSchedulerProperties.HoldExpiry;
 import com.sparta.ticket.reservation.booking.infrastructure.scheduler.BookingSchedulerProperties.Outbox;
@@ -87,7 +88,8 @@ public class BookingScheduleRunner implements SmartLifecycle {
                 () -> outboxPublisher.publish(outbox.batchSize(), outbox.sendTimeout()), outbox.interval());
 
         PaymentBacklog backlog = properties.paymentBacklog();
-        scheduler.scheduleWithFixedDelay(paymentBacklogService::refresh, backlog.interval());
+        // 집계도 전용 풀로 센다. 기본 풀이 꽉 찼을 때 폴링 간격의 기준이 멈추지 않게 하기 위해서다
+        scheduler.scheduleWithFixedDelay(() -> CompletionPool.run(paymentBacklogService::refresh), backlog.interval());
     }
 
     /** 같은 주기에 묶은 작업 하나가 실패해도 다음 작업은 돈다. 실패한 작업은 다음 주기에 다시 돈다. */

@@ -49,6 +49,7 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.booking.payment-polling.base=1s",
             "reservation.booking.payment-polling.max=5s",
             "reservation.booking.payment-polling.busy-above=1000",
+            "reservation.booking.completion-pool.maximum-pool-size=3",
             "reservation.seat.remaining.cache-ttl=3s",
             "reservation.seat.selectable.cache-refresh=1s",
             "reservation.seat.selectable.cache-max-age=5s",

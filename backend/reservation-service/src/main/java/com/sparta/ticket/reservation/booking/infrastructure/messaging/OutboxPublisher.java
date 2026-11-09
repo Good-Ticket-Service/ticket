@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.booking.infrastructure.messaging;
 
 import com.sparta.ticket.reservation.booking.application.BookingMetrics;
+import com.sparta.ticket.reservation.booking.infrastructure.persistence.CompletionPool;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +33,7 @@ public class OutboxPublisher {
      * 하나라도 보내지 못하면 거기서 멈춘다. 브로커가 멈췄을 때 남은 행마다 보내기 대기를 되풀이하며 DB 연결을 오래 잡지 않기 위해서다.
      */
     public int publish(int batchSize, Duration sendTimeout) {
-        Integer sent = transactionTemplate.execute(status -> {
+        Integer sent = CompletionPool.call(() -> transactionTemplate.execute(status -> {
             List<OutboxRow> rows = outbox.lockOldest(batchSize);
             List<Long> sentIds = new ArrayList<>();
             for (OutboxRow row : rows) {
@@ -43,7 +44,7 @@ public class OutboxPublisher {
             }
             outbox.deleteAllByIdInBatch(sentIds);
             return sentIds.size();
-        });
+        }));
         int count = sent == null ? 0 : sent;
         if (count > 0) {
             metrics.outboxPublished(count);
