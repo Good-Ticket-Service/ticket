@@ -12,6 +12,11 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(SettlementProperties.class)
 public class SettlementConfiguration {
 
+    @Bean
+    BusinessCalendarBook businessCalendarBook(SettlementProperties properties) {
+        return new BusinessCalendarBook(map(properties.calendars(), SettlementProperties.Calendar::toDomain));
+    }
+
     /**
      * 정책·달력 설정이 비었거나 틀리면 여기서 예외가 나 기동이 멈춘다.
      * Note: 정산 포착을 끄는 긴급 설정과 관계없이 항상 검증한다. 잘못된 정책으로 다시 켜는 일을 막기 위해서다.
