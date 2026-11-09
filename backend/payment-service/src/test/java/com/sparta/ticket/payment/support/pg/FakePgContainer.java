@@ -44,6 +44,13 @@ public final class FakePgContainer {
         return "http://" + PG.getHost() + ":" + PG.getMappedPort(PORT);
     }
 
+    /** PG 정산 계약 시험에서 과거 승인·취소 사실을 만드는 전용 테스트 DB 연결이다. */
+    public static org.springframework.jdbc.core.JdbcTemplate jdbc() {
+        return new org.springframework.jdbc.core.JdbcTemplate(
+                new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                        DB.getJdbcUrl(), DB.getUsername(), DB.getPassword()));
+    }
+
     private static Path jar() {
         String path = System.getProperty("fakePg.jar");
         if (path == null || !Files.exists(Path.of(path))) {
