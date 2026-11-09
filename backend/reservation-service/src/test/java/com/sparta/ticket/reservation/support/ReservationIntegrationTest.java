@@ -24,8 +24,8 @@ import org.testcontainers.utility.DockerImageName;
  * open-in-view는 운영(config-repo/application.yml)과 같이 끈다. 켜 두면 요청 내내 DB 연결을 잡아
  * "원격 호출은 트랜잭션 밖" 검사가 운영과 다른 조건에서 통과한다.
  *
- * 대기열(queue)은 Redis를 쓰므로 Redis 7.4 컨테이너도 여기서 한 번만 띄운다. 운영 Compose와 같은 버전이다.
- * 대기열 테스트용 부모를 따로 두면 컨텍스트가 둘로 갈려 위의 스키마 문제가 생기므로, 같은 부모에 둔다.
+ * 좌석 선점·쿠폰은 Redis를 쓰므로 Redis 7.4 컨테이너도 여기서 한 번만 띄운다. 운영 Compose와 같은 버전이다.
+ * 모듈별 테스트 부모를 따로 두면 컨텍스트가 둘로 갈려 위의 스키마 문제가 생기므로, 같은 부모에 둔다.
  */
 @AutoConfigureMockMvc
 @Import({BookingTestConfig.class, SeatTestConfig.class})
@@ -43,13 +43,6 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.booking.payment-guard.open-duration=10s",
             "reservation.booking.payment-guard.half-open-calls=5",
             "reservation.booking.payment-guard.half-open-max-wait=1m",
-            "reservation.queue.admit-per-second=10",
-            "reservation.queue.admission.max-active=1000",
-            "reservation.queue.admission.burst=2s",
-            "reservation.queue.admission.leave-after=2m",
-            "reservation.queue.admission.entry-ttl=10m",
-            "reservation.queue.admission.leave-batch-size=1000",
-            "reservation.queue.token.secret=test-only-queue-token-secret-0123456789abcdef",
             "reservation.seat.remaining.cache-ttl=3s",
             "reservation.seat.selectable.cache-refresh=1s",
             "reservation.seat.selectable.cache-max-age=5s",
@@ -62,7 +55,7 @@ public abstract class ReservationIntegrationTest extends PostgresIntegrationTest
     protected static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:7.4")).withExposedPorts(6379);
 
-    /** 회차 취소 이벤트 수신용. 운영 Compose와 같은 버전이다. 대기열의 Redis와 같은 이유로 여기서 한 번만 띄운다. */
+    /** 회차 취소 이벤트 수신용. 운영 Compose와 같은 버전이다. Redis와 같은 이유로 여기서 한 번만 띄운다. */
     @ServiceConnection
     protected static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.1"));
 

@@ -1,0 +1,17 @@
+package com.sparta.ticket.waitingroom.application;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * 입장 토큰 발급 기능. application은 서명 라이브러리를 모르고, 구현(JwtEntryTokenIssuer)은 infrastructure에 둔다.
+ * Gateway는 Redis에 닿지 않으므로 명부를 조회하지 않고 서명만으로 토큰을 검사한다.
+ */
+public interface EntryTokenIssuer {
+
+    /**
+     * 회원이 room에 입장했음을 서명한 토큰. room의 scope를 함께 실어 Gateway가 요청 URL과 비교하게 한다.
+     * 같은 입장이면 몇 번 불러도 같은 토큰이 나온다.
+     */
+    String issue(long userId, long roomId, List<String> scopes, Instant admittedAt, Instant expiresAt);
+}
