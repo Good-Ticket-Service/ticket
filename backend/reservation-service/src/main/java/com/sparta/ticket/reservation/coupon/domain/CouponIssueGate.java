@@ -3,6 +3,8 @@ package com.sparta.ticket.reservation.coupon.domain;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 쿠폰 발급 판단(문지기). 받았는지·남았는지를 DB 행 잠금 대신 빠른 저장소에서 한 번에 판단한다(#300).
@@ -54,6 +56,26 @@ public interface CouponIssueGate {
 
     /** 정보가 있는 쿠폰들의 받은 회원 수. 정보가 없는 쿠폰은 결과에 넣지 않는다. 남은 수량 표시에 쓴다. */
     Map<Long, Integer> issuedCounts(Collection<Long> couponIds);
+
+    // ---- 맞추는 작업(#323): Redis 사본을 DB 원본에 맞춘다 ----
+
+    /** 총 수량·삭제 표시·받은 회원 수를 한 번에 읽는다. 정보가 없으면 비어 있다. */
+    Optional<IssueSnapshot> snapshot(Long couponId);
+
+    /** 받은 회원 ID 전부. 큰 회원 키도 Redis를 오래 붙잡지 않도록 나눠 읽는다. */
+    Set<Long> issuedUserIds(Long couponId);
+
+    /** DB에만 있는 회원을 추가한다. 정보가 없으면 추가하지 않는다. 추가는 발급을 막는 쪽이라 바로 해도 된다. */
+    void addIssued(Long couponId, Collection<Long> userIds);
+
+    /** 총 수량·삭제 표시를 DB 값으로 덮어쓴다. 정보가 없으면 만들지 않는다. 호출자는 쿠폰 행을 잠근 채 부른다. */
+    void syncMeta(Long couponId, int totalQuantity, boolean deleted);
+
+    /** 정보 키와 회원 키에 남겨 둘 시간을 다시 건다. 종료 시각이 바뀌었거나 첫 발급이 회원 키를 새로 만들었을 때 맞춘다. */
+    void expire(Long couponId, Duration ttl);
+
+    /** 맞추는 작업이 DB와 비교하는 Redis 상태. */
+    record IssueSnapshot(int totalQuantity, boolean deleted, int issuedCount) {}
 
     /** 발급 판단 결과. */
     enum IssueDecision {

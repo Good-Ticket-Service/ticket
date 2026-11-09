@@ -9,6 +9,8 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.sparta.ticket.reservation.coupon.application.CouponIssueReconcileService;
+import com.sparta.ticket.reservation.coupon.application.CouponIssueReconcileService.Result;
 import com.sparta.ticket.reservation.coupon.application.UserCouponExpiryService;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
@@ -17,23 +19,27 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-/** 통합 테스트에서는 만료 배치 스케줄러가 꺼져 있으므로, 켜고 끄는 조건과 설정 검증은 DB 없는 작은 컨텍스트로 확인한다. */
+/** 통합 테스트에서는 쿠폰 스케줄러가 꺼져 있으므로, 켜고 끄는 조건과 설정 검증은 DB 없는 작은 컨텍스트로 확인한다. */
 class CouponSchedulingConfigTest {
 
     private final UserCouponExpiryService expiryService = mock(UserCouponExpiryService.class);
 
+    private final CouponIssueReconcileService reconcileService = mock(CouponIssueReconcileService.class);
+
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
             .withUserConfiguration(CouponSchedulingConfig.class)
-            .withBean(UserCouponExpiryService.class, () -> expiryService);
+            .withBean(UserCouponExpiryService.class, () -> expiryService)
+            .withBean(CouponIssueReconcileService.class, () -> reconcileService);
 
-    /** 켜고 만료 배치 설정값을 모두 넣은 컨텍스트. */
+    /** 켜고 만료 배치·맞추는 작업 설정값을 모두 넣은 컨텍스트. */
     private ApplicationContextRunner enabled() {
         return runner.withPropertyValues(
                 "reservation.coupon.scheduler.enabled=true",
                 "reservation.coupon.scheduler.expiry.interval=50ms",
                 "reservation.coupon.scheduler.expiry.batch-size=100",
-                "reservation.coupon.scheduler.expiry.time-budget=40ms");
+                "reservation.coupon.scheduler.expiry.time-budget=40ms",
+                "reservation.coupon.scheduler.reconcile.interval=50ms");
     }
 
     @Test
@@ -42,6 +48,29 @@ class CouponSchedulingConfigTest {
         enabled().run(context -> {
             assertThat(context).hasSingleBean(CouponExpiryScheduleRunner.class);
             verify(expiryService, timeout(2_000).atLeast(2)).expireDue(100, Duration.ofMillis(40));
+        });
+    }
+
+    @Test
+    @DisplayName("enabled=true면 맞추는 작업도 설정한 주기마다 돌린다(#323)")
+    void runsReconcile() {
+        when(reconcileService.reconcile()).thenReturn(new Result(0, 0, 0, 0, 0, 0, 0));
+
+        enabled().run(context -> {
+            assertThat(context).hasSingleBean(CouponIssueReconcileScheduleRunner.class);
+            verify(reconcileService, timeout(2_000).atLeast(2)).reconcile();
+        });
+    }
+
+    @Test
+    @DisplayName("맞추는 작업이 실패해도 다음 주기에 다시 돈다")
+    void reconcileKeepsRunningAfterFailure() {
+        when(reconcileService.reconcile()).thenThrow(new IllegalStateException("redis down"));
+
+        enabled().run(context -> {
+            verify(reconcileService, timeout(2_000).atLeastOnce()).reconcile();
+            clearInvocations(reconcileService);
+            verify(reconcileService, timeout(2_000).atLeastOnce()).reconcile();
         });
     }
 
@@ -63,6 +92,7 @@ class CouponSchedulingConfigTest {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context).doesNotHaveBean(CouponExpiryScheduleRunner.class);
+            assertThat(context).doesNotHaveBean(CouponIssueReconcileScheduleRunner.class);
         });
     }
 
@@ -79,6 +109,13 @@ class CouponSchedulingConfigTest {
     void rejectsInvalidValues() {
         enabled()
                 .withPropertyValues("reservation.coupon.scheduler.expiry.batch-size=0")
+                .run(context -> assertThat(context).hasFailed());
+        // 맞추는 작업 주기가 빠져도 실패한다
+        runner.withPropertyValues(
+                        "reservation.coupon.scheduler.enabled=true",
+                        "reservation.coupon.scheduler.expiry.interval=50ms",
+                        "reservation.coupon.scheduler.expiry.batch-size=100",
+                        "reservation.coupon.scheduler.expiry.time-budget=40ms")
                 .run(context -> assertThat(context).hasFailed());
         runner.withPropertyValues("reservation.coupon.scheduler.enabled=true")
                 .run(context -> assertThat(context).hasFailed());

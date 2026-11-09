@@ -42,7 +42,7 @@ public class Coupon extends BaseEntity {
     private int totalQuantity;
 
     /**
-     * 발급 수량의 참고값. 발급할 때 올리지 않고, 맞추는 작업이 주기적으로 회원 쿠폰 수로 갱신한다(#300, 갱신은 후속 이슈).
+     * 발급 수량의 참고값. 발급할 때 올리지 않고, 맞추는 작업이 주기적으로 회원 쿠폰 수로 갱신한다(#300, #323 CouponIssueReconcileService).
      * 그래서 늦은 값일 수 있어 판단·응답에 쓰지 않는다. 정확한 발급 수는 회원 쿠폰 수이고, 발급 판단은 Redis 받은 회원 수로 한다.
      * Note: JPA는 변경 감지로 UPDATE할 때 모든 컬럼을 다시 쓴다. 관리자 수정이 읽어 둔 옛 값으로 갱신값을 덮지 않도록
      * updatable = false로 Entity의 UPDATE에서 이 컬럼을 뺀다.

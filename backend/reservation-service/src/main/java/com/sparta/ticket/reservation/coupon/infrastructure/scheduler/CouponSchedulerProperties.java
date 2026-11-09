@@ -7,10 +7,11 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** 회원 쿠폰 만료 배치 스케줄러 설정(#183). 값은 config-repo/reservation-service.yml 한 곳에만 둔다. */
+/** 쿠폰 스케줄러 설정. 회원 쿠폰 만료 배치(#183)와 발급 판단 맞추는 작업(#323). 값은 config-repo/reservation-service.yml 한 곳에만 둔다. */
 @Validated
 @ConfigurationProperties(prefix = "reservation.coupon.scheduler")
-public record CouponSchedulerProperties(@Valid @NotNull Expiry expiry) {
+public record CouponSchedulerProperties(
+        @Valid @NotNull Expiry expiry, @Valid @NotNull Reconcile reconcile) {
 
     /**
      * @param interval 앞 실행이 끝난 뒤 다음 실행까지 쉬는 시간
@@ -21,4 +22,9 @@ public record CouponSchedulerProperties(@Valid @NotNull Expiry expiry) {
             @NotNull Duration interval,
             @Positive int batchSize,
             @NotNull Duration timeBudget) {}
+
+    /**
+     * @param interval 앞 실행이 끝난 뒤 다음 실행까지 쉬는 시간. Redis가 DB와 어긋난 채 남는 최대 시간이 된다
+     */
+    public record Reconcile(@NotNull Duration interval) {}
 }

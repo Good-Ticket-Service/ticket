@@ -7,12 +7,17 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.StringRedisConnection;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -41,6 +46,18 @@ public class RedisCouponIssueGate implements CouponIssueGate {
     private static final RedisScript<Long> MARK_DELETED_SCRIPT = loadScript("coupon/mark-deleted.lua");
 
     private static final RedisScript<Long> UNMARK_DELETED_SCRIPT = loadScript("coupon/unmark-deleted.lua");
+
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> SNAPSHOT_SCRIPT = loadScript("coupon/snapshot.lua", List.class);
+
+    private static final RedisScript<Long> ADD_ISSUED_SCRIPT = loadScript("coupon/add-issued.lua");
+
+    private static final RedisScript<Long> SYNC_META_SCRIPT = loadScript("coupon/sync-meta.lua");
+
+    private static final RedisScript<Long> EXPIRE_SCRIPT = loadScript("coupon/expire.lua");
+
+    /** 회원 키를 나눠 읽을 때 한 번에 가져오는 개수(SSCAN COUNT). 큰 키를 한 번에 읽어 다른 명령을 오래 막지 않는다. */
+    private static final int SCAN_COUNT = 1_000;
 
     /** issue.lua 반환값 순서와 같다. */
     private static final IssueDecision[] ISSUE_DECISIONS = {
@@ -152,6 +169,57 @@ public class RedisCouponIssueGate implements CouponIssueGate {
         return counts;
     }
 
+    @Override
+    public Optional<IssueSnapshot> snapshot(Long couponId) {
+        // 정보 키가 없으면 빈 배열, 있으면 { 총 수량, 삭제 표시, 받은 회원 수 }
+        List<?> result = execute(SNAPSHOT_SCRIPT, keys(couponId));
+        if (result == null || result.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new IssueSnapshot(
+                ((Number) result.get(0)).intValue(),
+                ((Number) result.get(1)).intValue() == 1,
+                ((Number) result.get(2)).intValue()));
+    }
+
+    @Override
+    public Set<Long> issuedUserIds(Long couponId) {
+        // SMEMBERS는 큰 키를 한 번에 읽는 동안 발급·대기열 명령을 막는다. SSCAN으로 조금씩 나눠 읽는다
+        return call(() -> {
+            Set<Long> ids = new HashSet<>();
+            ScanOptions options = ScanOptions.scanOptions().count(SCAN_COUNT).build();
+            try (Cursor<String> cursor = redis.opsForSet().scan(CouponKeys.users(couponId), options)) {
+                cursor.forEachRemaining(id -> ids.add(Long.valueOf(id)));
+            }
+            return ids;
+        });
+    }
+
+    @Override
+    public void addIssued(Long couponId, Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return;
+        }
+        execute(
+                ADD_ISSUED_SCRIPT,
+                keys(couponId),
+                userIds.stream().map(String::valueOf).toArray(String[]::new));
+    }
+
+    @Override
+    public void syncMeta(Long couponId, int totalQuantity, boolean deleted) {
+        execute(
+                SYNC_META_SCRIPT,
+                List.of(CouponKeys.meta(couponId)),
+                String.valueOf(totalQuantity),
+                deleted ? "1" : "0");
+    }
+
+    @Override
+    public void expire(Long couponId, Duration ttl) {
+        execute(EXPIRE_SCRIPT, keys(couponId), String.valueOf(ttl.toSeconds()));
+    }
+
     private static List<String> keys(Long couponId) {
         return List.of(CouponKeys.meta(couponId), CouponKeys.users(couponId));
     }
@@ -163,7 +231,7 @@ public class RedisCouponIssueGate implements CouponIssueGate {
     /**
      * Redis에 연결하지 못하면 503으로 거절한다(대기열과 같은 오류). 발급을 DB로 대신하면 두 곳이 따로 판단해 초과 발급이 생긴다.
      * Note: 응답을 못 받은 경우(시간 초과)도 여기로 온다. 발급이면 Redis에 기록됐을 수도 있지만 DB에 저장하지 않으므로
-     * 덜 발급되는 쪽이다. 남은 기록은 맞추는 작업(후속 이슈)이 DB 기준으로 지운다.
+     * 덜 발급되는 쪽이다. 남은 기록은 맞추는 작업(CouponIssueReconcileService)이 DB 기준으로 지운다.
      */
     private static <T> T call(RedisCall<T> action) {
         try {
@@ -179,9 +247,13 @@ public class RedisCouponIssueGate implements CouponIssueGate {
     }
 
     private static RedisScript<Long> loadScript(String path) {
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        return loadScript(path, Long.class);
+    }
+
+    private static <T> RedisScript<T> loadScript(String path, Class<T> resultType) {
+        DefaultRedisScript<T> script = new DefaultRedisScript<>();
         script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
-        script.setResultType(Long.class);
+        script.setResultType(resultType);
         return script;
     }
 }
