@@ -21,13 +21,18 @@ public class PgSettlementRecoveryTransactions {
 
     @Transactional
     public JobExecution recover(long id, String reason, String actor, boolean processTerminated) {
+        return recoverForJob(id, reason, actor, processTerminated, "pgSettlementJob");
+    }
+
+    @Transactional
+    public JobExecution recoverForJob(long id, String reason, String actor, boolean processTerminated, String jobName) {
+        if (!java.util.Set.of("pgSettlementJob", "reconcileJob").contains(jobName))
+            throw new IllegalArgumentException("알 수 없는 복구 Job이다");
         if (!processTerminated || reason == null || reason.isBlank())
             throw new com.sparta.ticket.common.exception.BusinessException(
                     com.sparta.ticket.common.exception.CommonErrorCode.INVALID_REQUEST, "프로세스 종료 확인과 복구 사유가 필요하다");
         var execution = explorer.getJobExecution(id);
-        if (execution == null
-                || !"pgSettlementJob".equals(execution.getJobInstance().getJobName())
-                || !execution.isRunning())
+        if (execution == null || !jobName.equals(execution.getJobInstance().getJobName()) || !execution.isRunning())
             throw new com.sparta.ticket.common.exception.BusinessException(
                     com.sparta.ticket.common.exception.CommonErrorCode.INVALID_STATUS_TRANSITION,
                     "종료 확인 대상 정산 실행이 아니다");

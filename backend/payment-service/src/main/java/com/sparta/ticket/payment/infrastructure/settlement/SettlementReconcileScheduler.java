@@ -1,37 +1,74 @@
 package com.sparta.ticket.payment.infrastructure.settlement;
 
-import com.sparta.ticket.payment.application.service.settlement.SettlementReconciliationJob;
+import java.time.Clock;
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.core.explore.JobExplorer;
+import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 매일 KST 03:00 정산 전체 대조(04:00 발행 전). 실패는 실행 기록에 남고, 마지막 성공 시각이 오래되면 경보가 뜬다. 운영 기본은 꺼 두고
- * 정산 발행을 켤 때 함께 켠다. 여러 인스턴스가 같이 돌아도 읽기만 하므로 금융 상태를 바꾸지 않는다.
- * Note: 기동 직후에도 1회 돈다. 대조를 처음 켜거나 오래 멈춘 뒤 재기동하면 성공 기록이 없거나 오래돼, 다음 03:00까지
- * "대조 26시간 미성공"(CRITICAL)이 오탐으로 울리기 때문이다(Task 20-12 시험 발견).
+ * KST 최근 도래한 03시 슬롯을 확인한다. Batch가 다중 인스턴스의 같은 정기 키를 보호한다.
+ * 기술 실패만 같은 JobInstance를 제한 재시도하고 금융 위반은 운영 조치를 기다린다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "payment.settlement.reconcile.enabled", havingValue = "true")
 public class SettlementReconcileScheduler {
-    private final SettlementReconciliationJob job;
+    private final ReconcileRunner runner;
+    private final JobRepository repository;
+    private final JobExplorer explorer;
+    private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    /** 기동 뒤 한 번만 돈다(fixedDelay를 사실상 무한으로 둔다). 다른 기동 작업과 겹치지 않게 조금 늦춰 시작한다. */
+    /** 기동 1분 뒤 보충하고 매분 기술적 실패의 제한 재시도를 확인한다. */
     @Scheduled(
             initialDelayString = "${payment.settlement.reconcile.startup-delay-ms:60000}",
-            fixedDelay = Long.MAX_VALUE)
+            fixedDelayString = "${payment.settlement.reconcile.schedule-delay-ms:60000}")
     public void reconcileOnStartup() {
         reconcile();
     }
 
     @Scheduled(cron = "${payment.settlement.reconcile.cron:0 0 3 * * *}", zone = "Asia/Seoul")
     public void reconcile() {
+        var now = LocalDateTime.now(clock);
+        var date = now.toLocalTime().isBefore(LocalTime.of(3, 0))
+                ? now.toLocalDate().minusDays(1)
+                : now.toLocalDate();
+        String mode = date.getDayOfWeek() == DayOfWeek.SUNDAY ? "FULL" : "DAILY";
+        boolean covered = Boolean.TRUE.equals(jdbc.queryForObject(
+                """
+                SELECT EXISTS(SELECT 1 FROM p_settlement_reconcile_runs r
+                JOIN batch_job_execution e ON e.job_instance_id=r.batch_job_instance_id
+                JOIN batch_job_execution_params p ON p.job_execution_id=e.job_execution_id
+                WHERE r.db_valid AND r.mode='FULL' AND r.status='SUCCEEDED'
+                  AND p.parameter_name='businessDate' AND p.parameter_value=? AND r.started_at>=?)
+                """, Boolean.class, date.toString(), java.sql.Timestamp.valueOf(date.atTime(3, 0))));
+        if (covered) return;
+        var last = repository.getLastJobExecution("reconcileJob", ReconcileRunner.scheduledParameters(date, mode));
+        if (last != null) {
+            if (last.isRunning()
+                    || last.getStatus() == BatchStatus.COMPLETED
+                    || last.getEndTime() == null
+                    || last.getEndTime().plusMinutes(30).isAfter(now)
+                    || explorer.getJobExecutions(last.getJobInstance()).size() >= 4) return;
+            var runs = jdbc.queryForList(
+                    "SELECT status,technical_failure FROM p_settlement_reconcile_runs WHERE batch_job_instance_id=? ORDER BY id DESC LIMIT 1",
+                    last.getJobInstance().getInstanceId());
+            if (!runs.isEmpty()
+                    && !Boolean.TRUE.equals(runs.get(0).get("technical_failure"))
+                    && !"RUNNING".equals(runs.get(0).get("status"))) return;
+        }
         try {
-            job.run();
+            runner.scheduled(date, mode);
         } catch (RuntimeException e) {
             // Note: 실패는 실행 기록과 로그에 이미 남았다. 스케줄러가 다음 실행을 계속하게 삼킨다.
             log.debug("정산 대조 실패를 기록했다", e);
