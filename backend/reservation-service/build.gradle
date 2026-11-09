@@ -12,12 +12,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
-    // 좌석 선점(임시 점유)·대기열. 연결 정보는 config-repo/application.yml의 spring.data.redis
+    // 좌석 선점(임시 점유)·쿠폰 발급 판단. 연결 정보는 config-repo/application.yml의 spring.data.redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    // 입장 토큰 서명(HS256). user-service의 로그인 JWT와 같은 라이브러리다
-    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
-    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
-    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
     // 회차 취소 이벤트 수신. 연결 정보는 config-repo/application.yml의 spring.kafka
     implementation 'org.springframework.kafka:spring-kafka'
     // 결제 호출 보호(Bulkhead, Circuit Breaker). 사용자 요청의 결제 준비·승인만 감싼다. 버전은 Spring Cloud BOM이 정한다
