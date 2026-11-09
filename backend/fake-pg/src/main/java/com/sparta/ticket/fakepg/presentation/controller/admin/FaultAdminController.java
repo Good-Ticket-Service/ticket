@@ -29,6 +29,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class FaultAdminController {
 
     private final FaultInjector faults;
+    private final com.sparta.ticket.fakepg.application.service.settlement.FakeSettlementService settlements;
+
+    @PutMapping("/settlements/{provider}")
+    public ResponseEntity<Void> settlementFault(
+            @PathVariable PgProvider provider,
+            @RequestBody com.sparta.ticket.fakepg.application.service.settlement.FakeSettlementService.Fault fault) {
+        settlements.fault(provider, fault);
+        return ResponseEntity.noContent().build();
+    }
 
     @GetMapping
     public Map<String, FaultConfig> all() {
@@ -78,6 +87,7 @@ public class FaultAdminController {
     @DeleteMapping
     public ResponseEntity<Void> reset() {
         faults.reset();
+        settlements.resetFaults();
         return ResponseEntity.noContent().build();
     }
 }

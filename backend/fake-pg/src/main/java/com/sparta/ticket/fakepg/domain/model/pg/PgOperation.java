@@ -10,5 +10,6 @@ public enum PgOperation {
     /** 판매자 정산 지급대행 요청. 토스형 지급대행으로 보고 TOSS 장애 설정을 쓴다. */
     PAYOUT,
     /** 지급대행 결과 조회. */
-    PAYOUT_INQUIRE
+    PAYOUT_INQUIRE,
+    SETTLEMENT
 }
