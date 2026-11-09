@@ -301,6 +301,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `ck_p_user_coupons_reservation ; CHECK ; (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL)`
 - `ck_p_user_coupons_used ; CHECK ; (status = 'USED') = (used_at IS NOT NULL)`
 - `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
+- `ix_p_user_coupons_coupon_user ; INDEX ; (coupon_id, user_id)` — 쿠폰별 받은 회원 조회·개수(#323)
 
 ### p_schedule_seats — reservation-service/seat.sql + A
 
