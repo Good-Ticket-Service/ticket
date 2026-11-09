@@ -132,6 +132,11 @@ class PgSettlementPerformanceTest extends PaymentIntegrationTest {
     }
 
     private void seed() {
+        new org.springframework.transaction.support.TransactionTemplate(manager)
+                .executeWithoutResult(status -> seedInTransaction());
+    }
+
+    private void seedInTransaction() {
         jdbc.execute("TRUNCATE p_payments,p_pg_settlement_days,batch_job_instance CASCADE");
         jdbc.update("""
                 INSERT INTO p_payments(order_id,reservation_id,user_id,seller_id,performance_id,schedule_id,pg_provider,
@@ -169,9 +174,11 @@ class PgSettlementPerformanceTest extends PaymentIntegrationTest {
     }
 
     private void resetSettlement() {
-        jdbc.execute(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "DELETE FROM p_ledger_entries e USING p_ledger_transactions t WHERE t.id=e.transaction_id AND t.source_type IN ('PG_SETTLEMENT','PG_ADJUST')");
-        jdbc.execute("DELETE FROM p_ledger_transactions WHERE source_type IN ('PG_SETTLEMENT','PG_ADJUST')");
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc, "DELETE FROM p_ledger_transactions WHERE source_type IN ('PG_SETTLEMENT','PG_ADJUST')");
         jdbc.execute("TRUNCATE p_pg_settlement_days,batch_job_instance CASCADE");
     }
 

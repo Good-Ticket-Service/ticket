@@ -103,8 +103,7 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
     void setUp() {
         jdbc.update("DELETE FROM p_settlement_reconcile_results");
         jdbc.update("DELETE FROM p_settlement_reconcile_runs");
-        jdbc.update("DELETE FROM p_ledger_entries");
-        jdbc.update("DELETE FROM p_ledger_transactions");
+        com.sparta.ticket.payment.support.LedgerTestFixture.clear(jdbc);
         jdbc.update("DELETE FROM p_settlement_statement_lines");
         jdbc.update("DELETE FROM p_payout_operation_commands");
         jdbc.update("DELETE FROM p_payouts");
@@ -242,14 +241,17 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         // ③ 판매 누락(덜 지급): 승인 결제의 SALE·분개가 사라짐
         flow.dropSettlement(pendingPayment);
         // ③ 원장 불균형: 판매 분개의 한 줄만 금액이 바뀜
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "UPDATE p_ledger_entries SET credit = credit + 1 WHERE transaction_id = ? AND account = 'COMMISSION_REVENUE'",
                 saleJournal);
         // ③ 판매자 몫과 원장이 다름(균형은 맞음): SELLER_PAYABLE과 PG_CLEARING을 같이 늘림
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "UPDATE p_ledger_entries SET credit = credit + 100 WHERE transaction_id = ? AND account = 'SELLER_PAYABLE'",
                 saleJournal);
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "UPDATE p_ledger_entries SET debit = debit + 100 WHERE transaction_id = ? AND account = 'PG_CLEARING'",
                 saleJournal);
         // ③ 정산서 합계가 명세와 다름
@@ -329,9 +331,12 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         jdbc.update("DELETE FROM p_settlement_statement_lines WHERE kind = 'DEDUCTION'");
         jdbc.update("DELETE FROM p_settlement_items WHERE kind = 'DEDUCTION'");
         // ③ 발행 전 환불의 반대 분개가 사라짐
-        jdbc.update("DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
-                + " WHERE source_type = 'REFUND' AND action = 'REVERSE')");
-        jdbc.update("DELETE FROM p_ledger_transactions WHERE source_type = 'REFUND' AND action = 'REVERSE'");
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
+                "DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
+                        + " WHERE source_type = 'REFUND' AND action = 'REVERSE')");
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc, "DELETE FROM p_ledger_transactions WHERE source_type = 'REFUND' AND action = 'REVERSE'");
         // ① 환불이 진행 중인데 판매가 정산 대상(PENDING)으로 남음
         jdbc.update(
                 "INSERT INTO p_refunds (payment_id, reservation_id, refund_amount, reason, status,"
@@ -340,11 +345,15 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
                         + " FROM p_payments WHERE id = ?",
                 pendingPayment);
         // ① 지급 분개가 사라짐 → 지급 확정 누적액과 DONE 지급액이 다름
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
                         + " WHERE source_type = 'PAYOUT' AND source_id = ?)",
                 s.donePayout());
-        jdbc.update("DELETE FROM p_ledger_transactions WHERE source_type = 'PAYOUT' AND source_id = ?", s.donePayout());
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
+                "DELETE FROM p_ledger_transactions WHERE source_type = 'PAYOUT' AND source_id = ?",
+                s.donePayout());
 
         Map<String, CheckResult> results = byCheck(job.run());
 
@@ -496,9 +505,12 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
         // 차감 원금이 배분 합 + 잔액과 다름
         jdbc.update("UPDATE p_settlement_items SET principal = principal + 50 WHERE id = ?", deduction);
         // 발행 전 취소의 반대 분개 누락
-        jdbc.update("DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
-                + " WHERE source_type = 'REFUND' AND action = 'REVERSE')");
-        jdbc.update("DELETE FROM p_ledger_transactions WHERE source_type = 'REFUND' AND action = 'REVERSE'");
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
+                "DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
+                        + " WHERE source_type = 'REFUND' AND action = 'REVERSE')");
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc, "DELETE FROM p_ledger_transactions WHERE source_type = 'REFUND' AND action = 'REVERSE'");
 
         Map<String, CheckResult> results = byCheck(job.run());
 
