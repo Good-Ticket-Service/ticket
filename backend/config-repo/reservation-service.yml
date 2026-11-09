@@ -133,3 +133,7 @@ reservation:
         batch-size: 500
         # 한 번 실행이 이 시간을 넘기면 남은 건은 다음 실행에 넘긴다
         time-budget: 30s
+      # 쿠폰 발급 판단 맞추는 작업(#323). Redis 사본(받은 회원, 총 수량, 삭제 표시, 유효 시간)과 issued_quantity를 DB에 맞춘다.
+      # 실패 즉시 되돌리기를 못 한 어긋남이 남는 최대 시간이다. Redis에만 남은 회원은 처음 본 뒤 1분이 지나야 지운다
+      reconcile:
+        interval: 1m

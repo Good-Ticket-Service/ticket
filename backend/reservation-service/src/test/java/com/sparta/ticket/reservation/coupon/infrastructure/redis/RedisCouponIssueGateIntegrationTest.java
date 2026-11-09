@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.DeleteMark;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.IssueDecision;
+import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.IssueSnapshot;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.TotalChange;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.Duration;
@@ -212,6 +213,63 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
             long absent = IDS.incrementAndGet();
             gate.unmarkDeleted(absent);
             assertThat(gate.isLoaded(absent)).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("맞추는 작업(#323)")
+    class Reconcile {
+
+        @Test
+        @DisplayName("상태 읽기는 총 수량·삭제 표시·받은 회원 수를 돌려주고, 정보가 없으면 비어 있다")
+        void snapshot() {
+            long issued = newCoupon(5);
+            gate.tryIssue(issued, 1L, true);
+            long deleted = newCoupon(7);
+            gate.markDeleted(deleted);
+
+            assertThat(gate.snapshot(issued)).contains(new IssueSnapshot(5, false, 1));
+            assertThat(gate.snapshot(deleted)).contains(new IssueSnapshot(7, true, 0));
+            assertThat(gate.snapshot(IDS.incrementAndGet())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("받은 회원 전부를 나눠 읽는다")
+        void issuedUserIds() {
+            long id = IDS.incrementAndGet();
+            List<Long> users = LongStream.rangeClosed(1, 2_500).boxed().toList();
+            gate.loadIfAbsent(id, 3_000, false, users, FAR);
+
+            assertThat(gate.issuedUserIds(id)).hasSize(2_500).containsAll(users);
+        }
+
+        @Test
+        @DisplayName("회원 추가와 정보 덮어쓰기는 정보가 있을 때만 한다. 정보 키 없이 값만 생기면 0명으로 판단해 초과 발급된다")
+        void onlyWhenLoaded() {
+            long id = newCoupon(5);
+            long absent = IDS.incrementAndGet();
+
+            gate.addIssued(id, List.of(10L, 11L));
+            gate.syncMeta(id, 2, false);
+            gate.addIssued(absent, List.of(10L));
+            gate.syncMeta(absent, 2, false);
+
+            assertThat(gate.snapshot(id)).contains(new IssueSnapshot(2, false, 2));
+            assertThat(gate.tryIssue(id, 12L, true)).isEqualTo(IssueDecision.SOLD_OUT);
+            assertThat(gate.isLoaded(absent)).isFalse();
+            assertThat(redis.hasKey(CouponKeys.users(absent))).isFalse();
+        }
+
+        @Test
+        @DisplayName("유효 시간을 두 키에 다시 건다. 첫 발급이 만든 회원 키에도 걸린다")
+        void expire() {
+            long id = newCoupon(5);
+            gate.tryIssue(id, 1L, true);
+
+            gate.expire(id, Duration.ofHours(2));
+
+            assertThat(redis.getExpire(CouponKeys.meta(id))).isBetween(7_190L, 7_200L);
+            assertThat(redis.getExpire(CouponKeys.users(id))).isBetween(7_190L, 7_200L);
         }
     }
 

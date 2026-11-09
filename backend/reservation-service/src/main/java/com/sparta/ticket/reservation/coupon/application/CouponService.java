@@ -170,7 +170,7 @@ public class CouponService {
         });
     }
 
-    /** 트랜잭션이 끝난 뒤(커밋·롤백·결과 모름) 상태를 받아 실행한다. 되돌리기에 실패하면 맞추는 작업(후속 이슈)이 바로잡는다. */
+    /** 트랜잭션이 끝난 뒤(커밋·롤백·결과 모름) 상태를 받아 실행한다. 되돌리기에 실패하면 맞추는 작업(CouponIssueReconcileService)이 바로잡는다. */
     private static void afterCompletion(IntConsumer action) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

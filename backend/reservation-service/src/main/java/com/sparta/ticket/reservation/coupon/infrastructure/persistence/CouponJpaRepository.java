@@ -5,17 +5,19 @@ import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
  * CouponRepository의 구현. Spring Data JPA가 실행 시점에 구현체를 만들어 준다.
- * save·findById는 JpaRepository가 제공하고, 잠금 조회·발급 수량 증가·목록 조회만 쿼리를 직접 적는다.
+ * save·findById는 JpaRepository가 제공하고, 잠금 조회·목록 조회·맞추는 작업 쿼리만 직접 적는다.
  */
 public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, CouponRepository {
 
@@ -40,6 +42,26 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
             case ENDED -> findEnded(now, stable);
         });
     }
+
+    /** 맞추는 작업 대상. 쿠폰 정의는 관리자가 만드는 적은 데이터라 인덱스 없이 읽는다(searchByIssueStatus와 같은 이유). */
+    @Override
+    @Query("SELECT c FROM Coupon c WHERE c.issueEndAt > :endAfter ORDER BY c.id")
+    List<Coupon> findIssueStateTargets(@Param("endAfter") LocalDateTime endAfter);
+
+    /**
+     * 회원 쿠폰 수로 issued_quantity를 맞춘다. 컬럼이 Entity에서 updatable = false라 SQL로 쓴다.
+     * 총 수량을 넘는 값은 CHECK 제약에 걸리므로 조건으로 걸러 바꾸지 않는다(호출자가 초과 발급 경보를 남긴다).
+     */
+    @Override
+    @Modifying
+    @Query(value = """
+            UPDATE p_coupons
+            SET issued_quantity = :issuedCount
+            WHERE coupon_id = :id
+              AND issued_quantity <> :issuedCount
+              AND :issuedCount <= total_quantity
+            """, nativeQuery = true)
+    int syncIssuedQuantity(@Param("id") Long id, @Param("issuedCount") int issuedCount);
 
     /** 발급 시작 전 쿠폰. */
     @Query("SELECT c FROM Coupon c WHERE c.issueStartAt > :now")
