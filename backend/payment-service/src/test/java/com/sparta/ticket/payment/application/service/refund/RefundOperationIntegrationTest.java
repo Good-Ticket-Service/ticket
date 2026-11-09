@@ -215,8 +215,7 @@ class RefundOperationIntegrationTest extends PaymentIntegrationTest {
     @BeforeEach
     void isolateOperations() {
         jdbc.update("DELETE FROM p_refund_operation_commands");
-        jdbc.update("DELETE FROM p_ledger_entries");
-        jdbc.update("DELETE FROM p_ledger_transactions");
+        com.sparta.ticket.payment.support.LedgerTestFixture.clear(jdbc);
         jdbc.update("DELETE FROM p_settlement_statement_lines");
         jdbc.update("DELETE FROM p_payout_operation_commands");
         jdbc.update("DELETE FROM p_payouts");

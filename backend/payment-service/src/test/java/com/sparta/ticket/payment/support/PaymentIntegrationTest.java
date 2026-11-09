@@ -64,8 +64,14 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
     @Autowired
     protected SettlementJobDrain settlementJobs;
 
+    @Autowired
+    private JdbcTemplate fixtureJdbc;
+
     @BeforeEach
     void resetPg() {
+        // Note: 공유 시험 DB의 파생 기준이 다음 시험의 원장·실행 기록을 참조하지 않게 초기화한다.
+        fixtureJdbc.update("UPDATE p_reconcile_checkpoint SET valid=false,run_id=NULL,snapshot=NULL,accepted_at=NULL");
+        fixtureJdbc.update("DELETE FROM p_reconcile_account_balances");
         pg.reset();
         publisher.fail = false;
         paymentClock.reset();

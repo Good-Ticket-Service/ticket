@@ -48,3 +48,33 @@ tasks.register('pgSettlementPerformance', Test) {
         systemProperty 'payment.jar', tasks.bootJar.archiveFile.get().asFile.absolutePath
     }
 }
+
+// Note: 기본 build와 분리한다. 임시 DB에서 기존 SQL·실행 계획을 반복 측정한다.
+tasks.register('reconcilePerformance', Test) {
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*ReconcilePerformanceTest' }
+    maxHeapSize = '1g'
+    systemProperty 'reconcile.measure', 'true'
+    systemProperty 'reconcile.rows', providers.gradleProperty('reconcileRows').getOrElse('10000')
+    systemProperty 'reconcile.phase', providers.gradleProperty('reconcilePhase').getOrElse('M0')
+    systemProperty 'reconcile.repeats', providers.gradleProperty('reconcileRepeats').getOrElse('3')
+    systemProperty 'reconcile.output', providers.gradleProperty('reconcileOutput').getOrElse('build/reconcile-performance')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('reconcileRecovery', Test) {
+    dependsOn testClasses, bootJar
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*ReconcileProcessRecoveryTest' }
+    maxHeapSize = '768m'
+    systemProperty 'reconcile.recovery', 'true'
+    systemProperty 'baseline.payment.jar', providers.gradleProperty('reconcileBaselineJar').getOrElse('')
+    systemProperty 'reconcile.output', providers.gradleProperty('reconcileOutput').getOrElse('build/reconcile-recovery')
+    doFirst { systemProperty 'payment.jar', tasks.bootJar.archiveFile.get().asFile.absolutePath }
+    outputs.upToDateWhen { false }
+}

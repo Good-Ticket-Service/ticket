@@ -100,14 +100,17 @@ public final class SettlementPaymentFlow {
 
     /** 결제의 정산 기록(SALE·분개)을 지운다. 작업은 그대로라, 작업이 끝났는데 기록이 없는 누락 상황이 된다. */
     public void dropSettlement(Long paymentId) {
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "DELETE FROM p_ledger_entries WHERE transaction_id IN"
                         + " (SELECT id FROM p_ledger_transactions WHERE payment_id = ?)",
                 paymentId);
-        jdbc.update(
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc,
                 "DELETE FROM p_ledger_transactions WHERE payment_id = ? AND reverses_transaction_id IS NOT NULL",
                 paymentId);
-        jdbc.update("DELETE FROM p_ledger_transactions WHERE payment_id = ?", paymentId);
+        com.sparta.ticket.payment.support.LedgerTestFixture.corrupt(
+                jdbc, "DELETE FROM p_ledger_transactions WHERE payment_id = ?", paymentId);
         jdbc.update("DELETE FROM p_settlement_items WHERE payment_id = ?", paymentId);
     }
 
