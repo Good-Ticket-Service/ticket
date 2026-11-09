@@ -12,6 +12,76 @@ public final class LedgerJournals {
 
     private LedgerJournals() {}
 
+    /** 명세 지급액을 입금으로 가정한다. 음수 순액은 PG_PAYABLE로 이월한다. */
+    public static java.util.Optional<LedgerTransaction> pgSettlement(
+            long dayId,
+            long payout,
+            long fee,
+            long clearing,
+            long suspense,
+            long carryIn,
+            long carryOut,
+            LocalDateTime at) {
+        List<LedgerLine> lines = new ArrayList<>();
+        signed(lines, LedgerAccount.CASH, payout);
+        signed(lines, LedgerAccount.PG_FEE_EXPENSE, fee);
+        signed(lines, LedgerAccount.PG_CLEARING, -clearing);
+        signed(lines, LedgerAccount.PG_SUSPENSE, -suspense);
+        signed(lines, LedgerAccount.PG_PAYABLE, carryIn - carryOut);
+        if (lines.isEmpty()) return java.util.Optional.empty();
+        return java.util.Optional.of(LedgerTransaction.create(
+                new LedgerKey(LedgerSourceType.PG_SETTLEMENT, dayId, LedgerAction.POST),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                at,
+                lines));
+    }
+
+    /** 뒤늦게 판매·환불 분개가 확인된 줄의 가계정을 정리한다. 원명세 분개는 바꾸지 않는다. */
+    public static LedgerTransaction pgAdjustment(long lineId, long amount, LocalDateTime at) {
+        List<LedgerLine> lines = new ArrayList<>();
+        signed(lines, LedgerAccount.PG_SUSPENSE, amount);
+        signed(lines, LedgerAccount.PG_CLEARING, -amount);
+        return LedgerTransaction.create(
+                new LedgerKey(LedgerSourceType.PG_ADJUST, lineId, LedgerAction.POST),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                at,
+                lines);
+    }
+
+    /** 지급 확정 누적 기록을 현금 출금으로 연결한다. PG 지급대행은 우리 현금으로 지급한다고 가정한다. */
+    public static LedgerTransaction payoutCash(
+            long payoutId, long statementId, long sellerId, long amount, LocalDateTime at) {
+        return LedgerTransaction.create(
+                new LedgerKey(LedgerSourceType.PAYOUT_CASH, payoutId, LedgerAction.POST),
+                sellerId,
+                null,
+                null,
+                statementId,
+                payoutId,
+                null,
+                null,
+                at,
+                List.of(
+                        LedgerLine.debit(LedgerAccount.PAYOUT_CLEARING, positive(amount)),
+                        LedgerLine.credit(LedgerAccount.CASH, amount)));
+    }
+
+    private static void signed(List<LedgerLine> lines, LedgerAccount account, long debit) {
+        if (debit != 0) lines.add(debit > 0 ? LedgerLine.debit(account, debit) : LedgerLine.credit(account, -debit));
+    }
+
     /** 판매 승인. 차변 PG_CLEARING E·DISCOUNT_EXPENSE P, 대변 SELLER_PAYABLE N·COMMISSION_REVENUE F·BOOKING_FEE_REVENUE Bn·VAT_PAYABLE V+Bv. */
     public static LedgerTransaction sale(SettlementItem sale, LocalDateTime occurredAt) {
         return LedgerTransaction.create(
