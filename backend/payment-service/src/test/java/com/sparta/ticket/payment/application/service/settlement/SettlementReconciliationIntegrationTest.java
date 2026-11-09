@@ -428,6 +428,99 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
                 .containsExactlyInAnyOrder("statement", "payout", "payout_recovery");
     }
 
+    /** #310 이전 SQL. 새 SQL이 같은 행을 짚는지 비교하는 기준으로만 쓴다. */
+    private static final Map<String, String> PREVIOUS_SQL = Map.of(
+            "SALE_STATEMENT_LINK", """
+                    SELECT i.id FROM p_settlement_items i
+                    WHERE i.kind = 'SALE' AND (
+                        (SELECT count(*) FROM p_settlement_statement_lines l WHERE l.item_id = i.id) > 1
+                        OR (i.status = 'ON_STATEMENT' AND NOT EXISTS (SELECT 1 FROM p_settlement_statement_lines l
+                            WHERE l.item_id = i.id AND l.statement_id = i.statement_id))
+                        OR (i.status <> 'ON_STATEMENT'
+                            AND EXISTS (SELECT 1 FROM p_settlement_statement_lines l WHERE l.item_id = i.id)))
+                    """,
+            "DEDUCTION_ALLOCATION", """
+                    SELECT d.id FROM p_settlement_items d
+                    WHERE d.kind = 'DEDUCTION' AND d.principal <> d.remaining
+                        + coalesce((SELECT sum(amount) FROM p_settlement_statement_lines l WHERE l.item_id = d.id), 0)
+                    """,
+            "CANCELED_WITHOUT_REVERSE", """
+                    SELECT i.id FROM p_settlement_items i
+                    WHERE i.kind = 'SALE' AND i.status = 'CANCELED'
+                      AND (SELECT count(*) FROM p_ledger_transactions t
+                           WHERE t.source_type = 'REFUND' AND t.action = 'REVERSE' AND t.payment_id = i.payment_id) <> 1
+                    """);
+
+    /**
+     * #310: 반복 조회를 집계 후 결합으로 바꾼 세 검사가 이전 SQL과 같은 행을 짚는다. 명세 중복(종류가 다른 명세)·누락·다른 정산서
+     * 연결·발행 전 판매의 명세, 차감 배분 불일치, 반대 분개 누락을 한꺼번에 만든다.
+     */
+    @Test
+    void rewrittenChecksPointSameRowsAsPreviousSql() throws Exception {
+        Scenario s = scenario();
+        long settledSale = saleOf(s.settledSale());
+        List<Long> secondRound = jdbc.queryForList(
+                "SELECT id FROM p_settlement_items WHERE kind = 'SALE' AND statement_id = ? ORDER BY id",
+                Long.class,
+                s.offsetStatement());
+        long pendingSale = jdbc.queryForObject(
+                "SELECT id FROM p_settlement_items WHERE kind = 'SALE' AND status = 'PENDING'", Long.class);
+        long deduction = jdbc.queryForObject("SELECT id FROM p_settlement_items WHERE kind = 'DEDUCTION'", Long.class);
+
+        // 명세 2개(종류가 다른 명세가 판매를 가리킴)
+        insertLine(s.offsetStatement(), settledSale, "DEDUCTION");
+        // 편입됐는데 명세 없음
+        jdbc.update("DELETE FROM p_settlement_statement_lines WHERE item_id = ?", secondRound.get(0));
+        // 명세가 다른 정산서에 있음
+        jdbc.update(
+                "UPDATE p_settlement_statement_lines SET statement_id = ? WHERE item_id = ?",
+                s.paidStatement(),
+                secondRound.get(1));
+        // 발행 전 판매에 명세가 있음
+        insertLine(s.paidStatement(), pendingSale, "SALE");
+        // 차감 원금이 배분 합 + 잔액과 다름
+        jdbc.update("UPDATE p_settlement_items SET principal = principal + 50 WHERE id = ?", deduction);
+        // 발행 전 취소의 반대 분개 누락
+        jdbc.update("DELETE FROM p_ledger_entries WHERE transaction_id IN (SELECT id FROM p_ledger_transactions"
+                + " WHERE source_type = 'REFUND' AND action = 'REVERSE')");
+        jdbc.update("DELETE FROM p_ledger_transactions WHERE source_type = 'REFUND' AND action = 'REVERSE'");
+
+        Map<String, CheckResult> results = byCheck(job.run());
+
+        assertThat(previous("SALE_STATEMENT_LINK"))
+                .containsExactlyInAnyOrder(settledSale, secondRound.get(0), secondRound.get(1), pendingSale);
+        for (String check : PREVIOUS_SQL.keySet()) {
+            List<Long> expected = previous(check);
+            assertThat(expected).as(check).isNotEmpty();
+            assertThat(results.get(check).violations()).as(check).isEqualTo(expected.size());
+            assertThat(sample(results, check))
+                    .as(check)
+                    .containsExactlyElementsOf(
+                            expected.stream().map(String::valueOf).toList());
+        }
+    }
+
+    private long saleOf(Payment payment) {
+        return jdbc.queryForObject(
+                "SELECT id FROM p_settlement_items WHERE payment_id = ? AND kind = 'SALE'",
+                Long.class,
+                payment.getId());
+    }
+
+    private void insertLine(long statementId, long itemId, String kind) {
+        jdbc.update(
+                "INSERT INTO p_settlement_statement_lines (statement_id, item_id, kind, amount,"
+                        + " created_at, created_by, updated_at, updated_by) VALUES (?, ?, ?, 1, now(), 't', now(), 't')",
+                statementId,
+                itemId,
+                kind);
+    }
+
+    private List<Long> previous(String check) {
+        return jdbc.queryForList(
+                "SELECT x.id FROM (" + PREVIOUS_SQL.get(check) + ") AS x(id) ORDER BY 1 LIMIT 10", Long.class);
+    }
+
     private static List<String> concat(List<String> names, String last) {
         return java.util.stream.Stream.concat(names.stream(), java.util.stream.Stream.of(last))
                 .toList();

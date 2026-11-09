@@ -79,11 +79,15 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                        OR EXISTS (SELECT 1 FROM p_settlement_items d WHERE d.kind = 'DEDUCTION' AND d.refund_id = r.id))
                 """);
         // 발행 전 환불 취소는 판매 분개를 뒤집은 반대 분개가 있어야 한다
+        // Note: 반대 분개를 결제별로 한 번 센 뒤 붙인다(#310). 취소 SALE마다 원장을 payment_id로 다시 세면 그 열에 인덱스가 없어
+        // REFUND 분개 범위 전체를 매번 훑는다(취소 수 × 환불 분개 수). REFUND 분개는 부분 인덱스로 그 범위만 읽는다
         CHECKS.put("CANCELED_WITHOUT_REVERSE", """
                 SELECT i.id FROM p_settlement_items i
-                WHERE i.kind = 'SALE' AND i.status = 'CANCELED'
-                  AND (SELECT count(*) FROM p_ledger_transactions t
-                       WHERE t.source_type = 'REFUND' AND t.action = 'REVERSE' AND t.payment_id = i.payment_id) <> 1
+                LEFT JOIN (
+                    SELECT t.payment_id, count(*) AS reverses FROM p_ledger_transactions t
+                    WHERE t.source_type = 'REFUND' AND t.action = 'REVERSE'
+                    GROUP BY t.payment_id) r ON r.payment_id = i.payment_id
+                WHERE i.kind = 'SALE' AND i.status = 'CANCELED' AND coalesce(r.reverses, 0) <> 1
                 """);
         // 발행 뒤 환불 차감마다 채권 분개 1개, 채권(SELLER_RECEIVABLE 차변) = 차감 원금
         CHECKS.put("DEDUCTION_JOURNAL", """
@@ -97,14 +101,18 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                 WHERE d.kind = 'DEDUCTION' AND (j.refund_id IS NULL OR j.journals <> 1 OR j.receivable <> d.principal)
                 """);
         // 같은 SALE이 두 정산서에 들어가거나, 편입 표시와 명세행이 어긋나면 이중 지급·누락이 된다
+        // Note: 명세를 항목별로 한 번 모은 뒤 붙인다(#310). 항목마다 명세를 item_id로 다시 세면 (statement_id, item_id) 인덱스를
+        // 매번 전체 훑어 이력 규모에서 끝나지 않는다. 명세 종류(l.kind)로 거르지 않는다. 거르면 종류가 잘못된 연결을 놓친다.
+        // 명세가 2개 이상이면 그것만으로 위반이라, 1개일 때의 정산서 비교는 min(statement_id)로 충분하다
         CHECKS.put("SALE_STATEMENT_LINK", """
                 SELECT i.id FROM p_settlement_items i
+                LEFT JOIN (
+                    SELECT l.item_id, count(*) AS lines, min(l.statement_id) AS statement_id
+                    FROM p_settlement_statement_lines l GROUP BY l.item_id) l ON l.item_id = i.id
                 WHERE i.kind = 'SALE' AND (
-                    (SELECT count(*) FROM p_settlement_statement_lines l WHERE l.item_id = i.id) > 1
-                    OR (i.status = 'ON_STATEMENT' AND NOT EXISTS (SELECT 1 FROM p_settlement_statement_lines l
-                        WHERE l.item_id = i.id AND l.statement_id = i.statement_id))
-                    OR (i.status <> 'ON_STATEMENT'
-                        AND EXISTS (SELECT 1 FROM p_settlement_statement_lines l WHERE l.item_id = i.id)))
+                    coalesce(l.lines, 0) > 1
+                    OR (i.status = 'ON_STATEMENT' AND (l.lines IS NULL OR l.statement_id IS DISTINCT FROM i.statement_id))
+                    OR (i.status <> 'ON_STATEMENT' AND l.lines IS NOT NULL))
                 """);
         // 정산서 합계 = 명세 합, 지급액 = 판매 합계 − 상계액
         CHECKS.put("STATEMENT_TOTALS", """
@@ -128,10 +136,16 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                    OR (s.offset_total > 0 AND (j.statement_id IS NULL OR j.journals <> 1 OR j.payable <> s.offset_total))
                 """);
         // 차감 원금 = 모든 정산서에 배분한 합 + 잔액. 어긋나면 과다 상계(덜 지급)나 회수 누락이다
+        // Note: 차감에 걸린 명세를 한 번 합산한 뒤 붙인다(#310). 차감마다 명세를 item_id로 다시 합산하면 SALE 부분 인덱스를 못 써
+        // 명세 인덱스 전체를 매번 훑는다(차감 수 × 명세 수). 명세 종류로 거르지 않는다
         CHECKS.put("DEDUCTION_ALLOCATION", """
                 SELECT d.id FROM p_settlement_items d
-                WHERE d.kind = 'DEDUCTION' AND d.principal <> d.remaining
-                    + coalesce((SELECT sum(amount) FROM p_settlement_statement_lines l WHERE l.item_id = d.id), 0)
+                LEFT JOIN (
+                    SELECT l.item_id, sum(l.amount) AS allocated
+                    FROM p_settlement_statement_lines l
+                    JOIN p_settlement_items x ON x.id = l.item_id AND x.kind = 'DEDUCTION'
+                    GROUP BY l.item_id) a ON a.item_id = d.id
+                WHERE d.kind = 'DEDUCTION' AND d.principal <> d.remaining + coalesce(a.allocated, 0)
                 """);
         // 지급할 정산서(ISSUED·PAID)는 같은 금액의 지급 1개, 지급액 0(NO_PAYOUT)은 지급 없음
         CHECKS.put("STATEMENT_PAYOUT", """
