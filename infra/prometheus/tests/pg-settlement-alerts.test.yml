@@ -1,0 +1,53 @@
+rule_files:
+  - ../rules/pg-settlement-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: unknown-transaction-is-deduplicated-across-instances
+    interval: 1m
+    input_series:
+      - series: 'payment_pg_settlement_open{provider="TOSS",kind="ONLY_IN_PG",instance="a"}'
+        values: '2+0x10'
+      - series: 'payment_pg_settlement_open{provider="TOSS",kind="ONLY_IN_PG",instance="b"}'
+        values: '2+0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PgSettlementUnknownTransaction
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: PgSettlementUnknownTransaction
+        exp_alerts:
+          - exp_labels:
+              provider: TOSS
+              severity: critical
+              application: payment-service
+            exp_annotations:
+              summary: "내부 기록에 없는 PG 정산 거래"
+              action: "PG 정산 판정 조회에서 거래와 미환불 과금 확인"
+  - name: pending-and-suspense-age-have-separate-thresholds
+    interval: 1m
+    input_series:
+      - series: 'payment_pg_settlement_oldest{provider="TOSS",kind="PENDING"}'
+        values: '86401+0x10'
+      - series: 'payment_pg_settlement_oldest{provider="KAKAO",kind="SUSPENSE"}'
+        values: '604801+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgSettlementPendingAging
+        exp_alerts:
+          - exp_labels:
+              provider: TOSS
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "PG 정산 판정 대기 24시간 초과"
+              action: "체크포인트 대사와 환불 복구 상태 확인"
+      - eval_time: 1m
+        alertname: PgSettlementSuspenseAging
+        exp_alerts:
+          - exp_labels:
+              provider: KAKAO
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "PG 가계정 미결 7일 초과"
+              action: "판매·환불 분개 반영 상태와 미확인 거래 원인 확인"

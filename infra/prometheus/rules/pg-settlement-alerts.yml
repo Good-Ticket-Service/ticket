@@ -1,0 +1,53 @@
+groups:
+  - name: pg-settlement
+    rules:
+      - alert: PgSettlementUnknownTransaction
+        expr: max by (provider) (payment_pg_settlement_open{kind="ONLY_IN_PG"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          application: payment-service
+        annotations:
+          summary: "내부 기록에 없는 PG 정산 거래"
+          action: "PG 정산 판정 조회에서 거래와 미환불 과금 확인"
+      - alert: PgSettlementMismatch
+        expr: max by (provider, kind) (payment_pg_settlement_open{kind!~"MATCHED|PENDING|ONLY_IN_PG|SUSPENSE"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "PG 정산 명세 불일치"
+          action: "내부 기대값과 PG 명세 비교 후 원인 처리"
+      - alert: PgSettlementPendingAging
+        expr: max by (provider) (payment_pg_settlement_oldest{kind="PENDING"}) > 86400
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "PG 정산 판정 대기 24시간 초과"
+          action: "체크포인트 대사와 환불 복구 상태 확인"
+      - alert: PgSettlementSuspenseAging
+        expr: max by (provider) (payment_pg_settlement_oldest{kind="SUSPENSE"}) > 604800
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "PG 가계정 미결 7일 초과"
+          action: "판매·환불 분개 반영 상태와 미확인 거래 원인 확인"
+      - alert: PgSettlementJobFailed
+        expr: sum by (provider) (increase(payment_pg_settlement_jobs_total{status="FAILED"}[3h])) >= 4
+        labels:
+          severity: critical
+          application: payment-service
+        annotations:
+          summary: "PG 정산 Job 반복 실패"
+          action: "실행 기록 확인 후 재시작. 잔류 실행은 프로세스 종료 확인 후 복구"
+      - alert: PgSettlementMetricsFailed
+        expr: sum(increase(payment_pg_settlement_metrics_failures_total[10m])) > 0
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "PG 정산 관측 집계 실패"
+          action: "DB 연결과 이행 017 적용 여부 확인"
