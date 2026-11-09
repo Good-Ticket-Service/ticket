@@ -127,6 +127,18 @@ services:
       - ${INTEGRATION_RESULTS}/jfr:/jfr
       - *agents
     healthcheck: *health
+  # 대기열은 예매(core)와 CPU를 나눠 쓰지 않게 edge에 둔다(#298)
+  waiting-room-service:
+    <<: *edge
+    image: ticket-integration/waiting-room-service:${INTEGRATION_SOURCE_SHA}
+    mem_limit: 768m
+    environment:
+      <<: *env
+      SERVER_PORT: "8085"
+      OTEL_SERVICE_NAME: waiting-room-service
+      PYROSCOPE_APPLICATION_NAME: waiting-room-service
+    volumes: [*agents]
+    healthcheck: *health
   payment-service:
     <<: *core
     image: ticket-integration/payment-service:${INTEGRATION_SOURCE_SHA}
