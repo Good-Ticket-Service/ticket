@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.coupon.domain;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Map;
 
@@ -22,11 +23,19 @@ public interface CouponIssueGate {
     /** 발급 판단 정보가 있는지. 다시 채우기를 한 요청만 하게 할 때 쓴다. */
     boolean isLoaded(Long couponId);
 
-    /** 정보가 없을 때만 DB 값으로 채운다. 이미 있으면 그사이 기록된 회원을 덮지 않도록 아무것도 하지 않는다. */
-    void loadIfAbsent(Long couponId, int totalQuantity, boolean deleted, Collection<Long> issuedUserIds);
+    /**
+     * 정보가 없을 때만 DB 값으로 채운다. 이미 있으면 그사이 기록된 회원을 덮지 않도록 아무것도 하지 않는다.
+     *
+     * @param ttl 정보를 남겨 둘 시간. 지금부터 발급 종료 + 1일까지다(CouponIssueState.ttl)
+     */
+    void loadIfAbsent(Long couponId, int totalQuantity, boolean deleted, Collection<Long> issuedUserIds, Duration ttl);
 
-    /** 새 쿠폰의 정보를 만든다. 같은 ID로 남은 이전 값(로컬 테이블 재생성 등)이 있으면 지우고 받은 회원 0명으로 시작한다. */
-    void reset(Long couponId, int totalQuantity);
+    /**
+     * 새 쿠폰의 정보를 만든다. 같은 ID로 남은 이전 값(로컬 테이블 재생성 등)이 있으면 지우고 받은 회원 0명으로 시작한다.
+     *
+     * @param ttl 정보를 남겨 둘 시간. 지금부터 발급 종료 + 1일까지다(CouponIssueState.ttl)
+     */
+    void reset(Long couponId, int totalQuantity, Duration ttl);
 
     /** DB 저장이 실패한 발급의 기록을 되돌린다. 회원 수가 곧 발급 수량이라 회원만 빼면 된다. */
     void cancel(Long couponId, Long userId);

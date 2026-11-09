@@ -107,6 +107,6 @@ class CouponIssueServiceUndoTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(CouponErrorCode.COUPON_SOLD_OUT);
-        verify(issueState).ensureLoaded(COUPON_ID, 10);
+        verify(issueState).ensureLoaded(COUPON_ID, 10, NOW.plusDays(1));
     }
 }

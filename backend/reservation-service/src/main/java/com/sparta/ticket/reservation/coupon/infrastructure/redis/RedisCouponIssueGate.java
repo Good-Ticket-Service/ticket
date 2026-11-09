@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.coupon.infrastructure.redis;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -78,18 +79,20 @@ public class RedisCouponIssueGate implements CouponIssueGate {
     }
 
     @Override
-    public void loadIfAbsent(Long couponId, int totalQuantity, boolean deleted, Collection<Long> issuedUserIds) {
-        // 인자: 총 수량, 삭제 표시, 받은 회원 ID들
-        List<String> args = new ArrayList<>(issuedUserIds.size() + 2);
+    public void loadIfAbsent(
+            Long couponId, int totalQuantity, boolean deleted, Collection<Long> issuedUserIds, Duration ttl) {
+        // 인자: 총 수량, 삭제 표시, 남겨 둘 시간(초), 받은 회원 ID들
+        List<String> args = new ArrayList<>(issuedUserIds.size() + 3);
         args.add(String.valueOf(totalQuantity));
         args.add(deleted ? "1" : "0");
+        args.add(String.valueOf(ttl.toSeconds()));
         issuedUserIds.forEach(id -> args.add(String.valueOf(id)));
         execute(LOAD_SCRIPT, keys(couponId), args.toArray(String[]::new));
     }
 
     @Override
-    public void reset(Long couponId, int totalQuantity) {
-        execute(RESET_SCRIPT, keys(couponId), String.valueOf(totalQuantity));
+    public void reset(Long couponId, int totalQuantity, Duration ttl) {
+        execute(RESET_SCRIPT, keys(couponId), String.valueOf(totalQuantity), String.valueOf(ttl.toSeconds()));
     }
 
     @Override

@@ -54,7 +54,7 @@ public class CouponIssueService {
         // 2) Redis에서 판단하고, 통과하면 받은 회원으로 기록한다. 정보가 없으면 DB에서 채운 뒤 한 번 더 판단한다
         IssueDecision decision = issueGate.tryIssue(couponId, userId, periodOpen);
         if (decision == IssueDecision.NOT_LOADED) {
-            issueState.ensureLoaded(couponId, coupon.getTotalQuantity());
+            issueState.ensureLoaded(couponId, coupon.getTotalQuantity(), coupon.getIssueEndAt());
             decision = issueGate.tryIssue(couponId, userId, periodOpen);
         }
         rejectIfNotIssued(decision);

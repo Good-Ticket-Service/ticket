@@ -10,6 +10,7 @@ import com.sparta.ticket.reservation.coupon.application.dto.CreateCouponCommand;
 import com.sparta.ticket.reservation.coupon.application.dto.UpdateCouponCommand;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.DisplayName;
@@ -77,6 +78,16 @@ class CouponServiceIssueGateIntegrationTest extends ReservationIntegrationTest {
 
         assertThat(redisTotal(couponId)).isEqualTo("3");
         assertThat(redis.opsForSet().size("coupon:" + couponId + ":users")).isZero();
+    }
+
+    @Test
+    @DisplayName("생성하면 정보 키가 발급 종료 + 1일까지 남도록 유효 시간을 건다(#323)")
+    void createSetsTtl() {
+        // 발급 종료가 지금 + 1일이므로 2일 남긴다
+        Long couponId = createIssuingCoupon(3);
+
+        long twoDays = Duration.ofDays(2).toSeconds();
+        assertThat(redis.getExpire("coupon:" + couponId + ":meta")).isBetween(twoDays - 10, twoDays);
     }
 
     @Test
