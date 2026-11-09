@@ -605,6 +605,34 @@
 - 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는 409 PAYOUT_COMMAND_CONFLICT. 기대 version·attempt가 다르면 STALE, FAILED가 아니면 DENIED이며 둘 다 409 INVALID_STATUS_TRANSITION이고 명령 결과는 저장한다.
 - SellerReceivable=`{sellerId:long,receivable:long,openCount:int,oldestAt:datetime}`. 아직 상계하지 못한 차감(OPEN DEDUCTION)이 있는 판매자만, sellerId 오름차순(after/nextCursor는 sellerId).
 
+## PG 정산 대사 운영 — payment-service (#316)
+
+상태: 결제 담당 설계 합의, 구현 중. 은행 잔액과 대조하지 않으며 명세 지급액이 입금됐다고 가정한다.
+권한은 기존 정산 관리자와 같은 MASTER다. 성공 응답은 ApiResponse로 감싼다.
+
+| Method URI | 요청 | 응답 |
+|---|---|---|
+| POST /api/admin/settlements/pg/runs | provider:TOSS/KAKAO, settlementDate:date | executionId:long, status:string |
+| GET /api/admin/settlements/pg/executions/{executionId} | 없음 | executionId, provider, settlementDate, status, steps:[{name,status,readCount,writeCount}] |
+| POST /api/admin/settlements/pg/executions/{executionId}/recover | reason:string(1~500), processTerminated:true | 새 executionId와 status |
+| GET /api/admin/settlements/pg/days | provider, after:date=2025-12-31, limit:int=20(1~100) | 날짜 오름차순 요약 배열 |
+| GET /api/admin/settlements/pg/findings | provider, after:long=0, limit:int=20(1~100), status:OPEN/RESOLVED=OPEN | ID 오름차순 판정 배열 |
+| POST /api/admin/settlements/pg/findings/{id}/resolve | reason:string(1~500) | null |
+| GET /api/admin/settlements/pg/balances | 없음 | bookCash, pgClearing, sellerPayable, pgPayable, pgSuspense:long, bankVerified:false |
+
+- runs는 비동기 실행을 접수한다. 같은 PG·날짜의 실행 중 또는 완료된 Job은 409 INVALID_STATUS_TRANSITION이다.
+- 날짜는 KST 기준 정산 시작일 이후의 마감된 과거 날짜다. 미래·당일·알 수 없는 PG는 400 INVALID_REQUEST다.
+- recover는 종료된 프로세스의 STARTING/STARTED/STOPPING 잔류 실행에만 사용한다. 종료 확인 없이 시간만으로 실행권을 회수하지 않는다.
+- recover는 작업자·사유를 이전 실행의 종료 설명에 기록하고 같은 JobInstance를 재시작한다.
+- 수수료·날짜 차이만 운영 확인 후 resolve할 수 있다. 원금·거래 불명은 원인 해소 후 재대사하며 409로 수동 종결을 거부한다.
+- resolve는 판정에 사유·작업자·시각 이력을 추가한다. 원장 금액을 바꾸지 않는다.
+- days 요약은 id, provider, settlementDate, snapshotId, lineCount, amount, fee, carryIn, payout, carryOut, status다.
+- findings는 원명세 사건 키, PG 금액·수수료, 기대 금액·수수료·날짜, 정책 버전, 판정, 처리 상태와 처리 근거를 준다.
+- 장부 기초 현금은 0원이다. 기존 지급은 추가 출금 분개로 연결한다. 과거 PG 입금이 수집되지 않았으면 잔액이 음수일 수 있다.
+- bookCash는 자유롭게 쓸 수 있는 이익이 아니다. sellerPayable과 pgPayable을 별도로 확인한다.
+- 배포 시 `backend/sql/payment-service/migrations/017-pg-settlement.sql`을 먼저 적용한다. 자동 실행은 `payment.pg.enabled=true`가 기본이며, 기동 전 수집 시작일과 수수료·영업일 정책을 확인한다.
+- 정산 회계는 PG별 날짜 순서로 처리한다. 이월액이 직전 회계와 다르면 입금 분개를 중단한다.
+
 ## 서비스 내부 모듈 계약
 
 상태: BookingFacade는 합의·구현됨. HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이고, 예매는 CouponPort 어댑터로 연결했다.
@@ -691,6 +719,24 @@
 - KakaoPayment=`{aid:string,tid:string,cid:string,status:string,partner_order_id:string,partner_user_id:string,payment_method_type:string,amount:Money,canceled_amount:Money,cancel_available_amount:Money,item_name:string,quantity:int,created_at:datetime,approved_at:datetime|null,canceled_at:datetime|null}`; Money=`{total:int,tax_free:int,vat:int,point:int,discount:int}`.
 - E: 400 -2(입력),-701(사용자 인증 전),-702(기승인/종료),-703(tid 없음/만료),-704(조회/취소 대상 없음),-721(기취소),-722(취소 불가),-780(승인 거절);401 -401;429 -429;500 -500.
 - 같은 주문의 재준비는 새 tid로 이전 tid를 무효화한다. 같은 tid 사용자 인증은 같은 pg_token. 주문번호로 카카오 거래 조회 불가.
+
+### 정산 명세 조회 (#316)
+
+상태: 결제 담당 설계 합의, 구현 중. 실제 PG 호환 API가 아닌 대사 시험 도구다.
+
+`GET /fake/settlements?provider=TOSS&date=2026-10-21&cursor=&size=2000&snapshotId=`
+
+- provider는 TOSS/KAKAO, date는 KST 기준 마감된 과거 정산 지급일이다. size는 1~5000이다.
+- 응답: `{provider,settlementDate,snapshotId,totals:{count,amount,fee,carryIn,payout,carryOut},lines:[{lineKey,paymentKey,orderId,type,amount,fee,occurredAt}],nextCursor}`.
+- type은 APPROVAL/CANCEL이다. 승인 금액·수수료는 양수, 취소는 음수다. net은 amount-fee로 계산한다.
+- 사건 키는 paymentKey+":"+type이다. 전액 취소 한 번만 지원한다. 키의 C collation 오름차순으로 페이지를 읽는다.
+- 승인·취소 줄을 모두 보존한다. 승인 정산일 00:00 전 취소는 같은 정산일에 음수 줄로 상쇄하고, 그 이후 취소는 취소일+N 영업일로 귀속한다.
+- 취소 수수료는 원승인 수수료의 환급이다. 시험 요율·공휴일은 각 서비스 설정에 독립적으로 둔다.
+- 보존식: amount-fee-carryIn+carryOut=payout. 지급액·이월액은 음수가 아니며 동시에 양수가 될 수 없다.
+- snapshotId를 다음 요청에 전달한다. 원본·설정·합계가 바뀌면 수집을 중단한다. 최종 페이지에서도 원본 합계를 다시 검증한다.
+- HTTP 지연·오류·429는 기존 `/fake/admin/faults/{provider}/SETTLEMENT`로 주입한다.
+- `PUT /fake/admin/faults/settlements/{provider}`는 `{paymentKey,hidden,amountDelta,feeDelta,dateShiftDays}`를 설정한다. hidden은 줄과 합계에서 함께 숨긴다.
+- 빈 paymentKey와 0값은 변조 없음이다. 별도 명세·입금 테이블이나 지급 스케줄러는 만들지 않는다.
 
 ### 장애 관리
 

@@ -480,8 +480,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | 필드 | 타입·제약 |
 |---|---|
 | id | BIGINT IDENTITY PK |
-| source_type, source_id, action | VARCHAR(20)·BIGINT·VARCHAR(20) NOT NULL; 업무 키 UNIQUE. SALE-POST(결제 ID), REFUND-REVERSE/RECEIVABLE(환불 ID), STATEMENT-OFFSET(정산서 ID), PAYOUT-DONE(지급 ID) CHECK |
-| seller_id | BIGINT NOT NULL |
+| source_type, source_id, action | VARCHAR(20)·BIGINT·VARCHAR(20) NOT NULL; 업무 키 UNIQUE. SALE-POST(결제 ID), REFUND-REVERSE/RECEIVABLE(환불 ID), STATEMENT-OFFSET(정산서 ID), PAYOUT-DONE(지급 ID). PG·현금 연결은 아래 이행 017 절 참조 |
+| seller_id | BIGINT; PG 분개 외에는 NOT NULL CHECK |
 | payment_id | BIGINT FK p_payments; SALE·REFUND 필수 |
 | refund_id | BIGINT FK p_refunds; REFUND면 source_id와 같다 |
 | statement_id, payout_id | BIGINT FK p_settlement_statements, p_payouts |
@@ -499,7 +499,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | id | BIGINT IDENTITY PK |
 | transaction_id | BIGINT NOT NULL FK p_ledger_transactions |
 | line_no | INT NOT NULL ≥ 1; UNIQUE(transaction_id, line_no). 차변 먼저, 같은 쪽은 계정 순서 |
-| account | VARCHAR(30) NOT NULL; PG_CLEARING/DISCOUNT_EXPENSE/SELLER_RECEIVABLE/SELLER_PAYABLE/COMMISSION_REVENUE/BOOKING_FEE_REVENUE/VAT_PAYABLE/PAYOUT_CLEARING |
+| account | VARCHAR(30) NOT NULL; LedgerAccount enum CHECK. PG 입금 계정은 아래 이행 017 절 참조 |
 | debit, credit | BIGINT NOT NULL; 한쪽만 양수, 다른 쪽 0 |
 
 - `deleted_at IS NULL` CHECK. 0원 줄은 만들지 않는다.
@@ -657,7 +657,27 @@ MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트�
 - 부분 인덱스: 대기 작업 `(next_attempt_at, id) WHERE status='PENDING'`, 격리 작업 `(id) WHERE status='BLOCKED'`.
 - 015-settlement-jobs.sql은 테이블을 추가하고, 전환 전에 승인됐는데 정상 SALE이 없는 결제를 한 번 작업으로 옮긴다. 다시 실행해도 안전하다.
 
+### PG 정산 명세·판정 — payment-service 이행 017 (#316)
+
+상태: 결제 담당 설계 합의, 구현 중. 테이블의 감사 필드와 CHECK는 schema.sql·017-pg-settlement.sql을 따른다.
+
+| 테이블 | 주요 데이터·제약 |
+|---|---|
+| p_pg_settlement_days | PG·정산일 UNIQUE, 원본 snapshot_id, 줄 건수·금액·수수료·이월·지급액. RECEIVING→RECEIVED→MATCHED→POSTED |
+| p_pg_settlement_lines | day_id FK, (provider,line_key) UNIQUE, 승인·취소 원문, clearing_amount, suspense_amount, matched, adjusted |
+| p_pg_reconcile_results | (provider,line_key) UNIQUE, line_id FK(누락이면 null), 기대값·정책 버전·판정, OPEN/RESOLVED, 처리 사유·작업자·시각·resolution_history |
+
+- p_payments.pg_approved_at(TIMESTAMP)·pg_approved_amount(INT)는 FAILED AUTO_VOID에도 남기는 PG 승인 사실이다. 결제 상태를 DONE으로 되살리지 않는다.
+- 원장 계정에 CASH·PG_FEE_EXPENSE·PG_SUSPENSE·PG_PAYABLE을 추가한다. PG_SETTLEMENT-POST의 source_id는 정산일 행 ID, PG_ADJUST-POST는 명세 줄 ID다.
+- PG 분개만 seller_id가 null이다. 기존 판매자 단위 분개의 seller_id 필수 조건은 유지한다.
+- PAYOUT_CASH-POST는 기존 지급 ID를 업무 키로 PAYOUT_CLEARING 차변·CASH 대변을 추가한다. 기존 PAYOUT-DONE은 보존한다.
+- 최초 이행은 기존 DONE 지급에도 출금 연결 분개를 한 번 추가한다. 기존 원장을 수정·삭제하지 않는다.
+- 분개와 POSTED 전이는 같은 트랜잭션이다. 가계정 조정과 명세 줄 회계 배정 갱신도 함께 커밋한다.
+- 판정 OPEN 금액과 가계정 잔액은 동일하지 않다. 가계정 대조는 POSTED 줄에 남은 suspense_amount 합으로 검증한다.
+- Batch 5 메타데이터 6개 테이블과 3개 시퀀스를 같은 payment_schema에 둔다. 자동 초기화는 never다.
+
 ### pg_transaction — fake-pg/schema.sql
+
 
 | 필드 | 타입·제약·기본값 |
 |---|---|
