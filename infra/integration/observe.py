@@ -90,6 +90,19 @@ def container(cid):
             metric(lines,'integration_cgroup_collection_up',0,**lab)
     return lines,d
 
+def container_or_failure(cid):
+    """컨테이너 하나의 수집 실패가 다른 컨테이너 지표를 막지 않게 한다(#312).
+    --rm 컨테이너(k6 등)는 docker ps 뒤 docker inspect 전에 지워질 수 있다. 실패한 컨테이너는 inspect_up 0만 남기고 실행 중이 아닌 것으로 본다."""
+    try:
+        lines,d=container(cid)
+        metric(lines,'integration_container_inspect_up',1,service=d['service'],container=cid[:12])
+        return lines,d
+    except Exception as e:
+        print('container '+cid[:12]+': '+type(e).__name__,flush=True)
+        lines=[]
+        metric(lines,'integration_container_inspect_up',0,container=cid[:12])
+        return lines,{'running':False,'service':None}
+
 def vm(lines,cid):
     script='for f in /proc/meminfo /proc/vmstat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; do echo FILE:$f; cat $f || exit 1; done; echo FILE:disk; df -Pk /'
     raw=run(['docker','exec',cid,'sh','-c',script]); section=''
@@ -136,7 +149,7 @@ def collect():
         ids=run(['docker','ps','-aq','--filter','label=com.docker.compose.project=ticket-integration']).split()
         running=[]
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            for cid,(metrics,d) in zip(ids,pool.map(container,ids)):
+            for cid,(metrics,d) in zip(ids,pool.map(container_or_failure,ids)):
                 lines.extend(metrics)
                 if d['running']: running.append((cid,d))
         if running:
