@@ -511,17 +511,25 @@ CREATE TABLE p_settlement_reconcile_runs
 );
 CREATE INDEX ix_p_settlement_reconcile_runs_latest ON p_settlement_reconcile_runs (status, finished_at DESC);
 
--- 대조 항목별 위반 수와 확인용 ID 일부. 금액·계좌 원문은 남기지 않는다
+-- 대조 항목별 위반 수와 확인용 ID 일부. 금액·계좌 원문은 남기지 않는다.
+-- 항목이 제한 시간을 넘거나 실패하면 그 항목만 미완료(completed=false, violations 없음)로 남기고 나머지는 계속한다(#310).
+-- 미완료가 있는 실행은 FAILED다. 0건과 "확인하지 못함"을 구분한다
 CREATE TABLE p_settlement_reconcile_results
 (
-    run_id     BIGINT       NOT NULL,
-    check_name VARCHAR(40)  NOT NULL,
-    violations BIGINT       NOT NULL,
-    sample     VARCHAR(400),
+    run_id      BIGINT       NOT NULL,
+    check_name  VARCHAR(40)  NOT NULL,
+    completed   BOOLEAN      NOT NULL DEFAULT TRUE,
+    violations  BIGINT,
+    sample      VARCHAR(400),
+    -- 항목 실행 시간(DB 밖 지급대행 대사는 없음)
+    duration_ms BIGINT,
+    -- 미완료 이유(예외 클래스 이름)
+    error       VARCHAR(80),
 
     CONSTRAINT pk_p_settlement_reconcile_results PRIMARY KEY (run_id, check_name),
     CONSTRAINT fk_p_settlement_reconcile_results_run FOREIGN KEY (run_id) REFERENCES p_settlement_reconcile_runs (id),
-    CONSTRAINT ck_p_settlement_reconcile_results_violations CHECK (violations >= 0)
+    CONSTRAINT ck_p_settlement_reconcile_results_violations CHECK (violations >= 0),
+    CONSTRAINT ck_p_settlement_reconcile_results_completed CHECK (completed = (violations IS NOT NULL))
 );
 
 -- 발행 후보 조회: 정산 가능일이 지난 PENDING SALE, 판매자의 미회수 차감

@@ -631,10 +631,14 @@ MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트�
 |---|---|
 | run_id | BIGINT NOT NULL FK p_settlement_reconcile_runs |
 | check_name | VARCHAR(40) NOT NULL; PK(run_id, check_name) |
-| violations | BIGINT NOT NULL ≥ 0 |
+| completed | BOOLEAN NOT NULL DEFAULT TRUE; false면 항목이 제한 시간 초과·실패로 미완료 |
+| violations | BIGINT ≥ 0; 완료 항목만 값이 있다(CHECK completed = (violations IS NOT NULL)) |
 | sample | VARCHAR(400); 위반 행 ID 일부(최대 10개). 금액·계좌 원문 없음 |
+| duration_ms | BIGINT; 항목 실행 시간. 지급대행 대사는 NULL |
+| error | VARCHAR(80); 미완료 이유(예외 클래스 이름) |
 
 - 013-settlement-reconcile-runs.sql은 위 두 테이블을 추가하며, 다시 실행해도 안전하다.
+- 016-reconcile-check-isolation.sql은 completed·duration_ms·error를 추가하고 violations의 NOT NULL을 푼다. 다시 실행해도 안전하다. 미완료 항목이 있는 실행은 FAILED다.
 
 ### p_settlement_jobs — payment-service/schema.sql + A (정산 반영 작업)
 

@@ -223,26 +223,32 @@ public class PaymentObservationTransactions {
             result.add(new Sample("settlement.db.deductions.open.amount.won", List.of(), rs.getDouble(2)));
             result.add(new Sample("settlement.db.deductions.oldest.age.seconds", List.of(), rs.getDouble(3)));
         });
-        // 마지막 성공 대조와 그 결과. 실행 기록이 DB에 있어 재시작·인스턴스와 무관하게 같은 값이다
-        List<long[]> latest = new ArrayList<>();
+        // 마지막 성공 대조 시각. 실행 기록이 DB에 있어 재시작·인스턴스와 무관하게 같은 값이다
         jdbc.query("""
-                SELECT id, extract(epoch FROM (finished_at AT TIME ZONE 'Asia/Seoul')), provider_unreachable
+                SELECT extract(epoch FROM (finished_at AT TIME ZONE 'Asia/Seoul')), provider_unreachable
                 FROM p_settlement_reconcile_runs WHERE status = 'SUCCEEDED'
                 ORDER BY finished_at DESC, id DESC LIMIT 1
                 """, rs -> {
-            latest.add(new long[] {rs.getLong(1)});
-            result.add(new Sample("settlement.reconcile.last.success.timestamp.seconds", List.of(), rs.getDouble(2)));
-            result.add(new Sample("settlement.reconcile.provider.unreachable", List.of(), rs.getDouble(3)));
+            result.add(new Sample("settlement.reconcile.last.success.timestamp.seconds", List.of(), rs.getDouble(1)));
+            result.add(new Sample("settlement.reconcile.provider.unreachable", List.of(), rs.getDouble(2)));
         });
-        for (long[] run : latest) {
-            jdbc.query(
-                    "SELECT check_name, violations FROM p_settlement_reconcile_results WHERE run_id = ?",
-                    rs -> {
-                        result.add(new Sample(
-                                "settlement.reconcile.violations", List.of("check", rs.getString(1)), rs.getDouble(2)));
-                    },
-                    run[0]);
-        }
+        // 항목별 결과는 결과를 남긴 마지막 실행에서 읽는다(#310). 일부 항목이 미완료인 FAILED 실행도 끝난 항목의 위반은 경보에 올린다.
+        // 미완료 항목은 위반 수 대신 미완료 표시를 낸다. 결과가 없는 실패(트랜잭션 자체 실패)는 건너뛰고 그 전 실행을 본다
+        jdbc.query("""
+                SELECT r.check_name, r.completed, r.violations, r.duration_ms FROM p_settlement_reconcile_results r
+                WHERE r.run_id = (SELECT s.id FROM p_settlement_reconcile_runs s
+                                  WHERE s.status <> 'RUNNING'
+                                    AND EXISTS (SELECT 1 FROM p_settlement_reconcile_results x WHERE x.run_id = s.id)
+                                  ORDER BY s.finished_at DESC, s.id DESC LIMIT 1)
+                """, rs -> {
+            List<String> check = List.of("check", rs.getString(1));
+            boolean completed = rs.getBoolean(2);
+            if (completed) result.add(new Sample("settlement.reconcile.violations", check, rs.getDouble(3)));
+            result.add(new Sample("settlement.reconcile.check.incomplete", check, completed ? 0 : 1));
+            long duration = rs.getLong(4);
+            if (!rs.wasNull())
+                result.add(new Sample("settlement.reconcile.check.duration.seconds", check, duration / 1000.0));
+        });
         jdbc.query("""
                 SELECT CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END FROM p_settlement_reconcile_runs
                 WHERE status <> 'RUNNING' ORDER BY finished_at DESC, id DESC LIMIT 1

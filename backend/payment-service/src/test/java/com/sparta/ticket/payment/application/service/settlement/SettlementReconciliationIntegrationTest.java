@@ -26,16 +26,22 @@ import com.sparta.ticket.payment.support.PaymentIntegrationTest;
 import com.sparta.ticket.payment.support.SettlementPaymentFlow;
 import com.sparta.ticket.payment.support.pg.FakePgContainer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -81,6 +87,12 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private SettlementPaymentFlow flow;
     private PayoutAgency agency;
@@ -501,6 +513,90 @@ class SettlementReconciliationIntegrationTest extends PaymentIntegrationTest {
                     .containsExactlyElementsOf(
                             expected.stream().map(String::valueOf).toList());
         }
+    }
+
+    /**
+     * #310: 검사 하나가 제한 시간을 넘어도 그 검사만 미완료로 남고, 같은 스냅샷에서 나머지 검사와 지급대행 대사를 계속한다.
+     * 미완료가 있으면 실행은 FAILED이고, 끝난 검사의 위반은 지표로 그대로 나간다. 명세 테이블을 다른 연결이 잠가 명세를 읽는
+     * 검사만 대기하다 제한 시간을 넘게 한다.
+     */
+    @Test
+    void checkTimeoutLeavesOtherResultsAndFailsRun() throws Exception {
+        scenario();
+        flow.dropSettlement(jdbc.queryForObject(
+                "SELECT payment_id FROM p_settlement_items WHERE kind = 'SALE' AND status = 'PENDING'", Long.class));
+        SettlementReconcileJdbcAdapter fast = new SettlementReconcileJdbcAdapter(jdbc, Duration.ofMillis(500));
+        TransactionTemplate snapshot = new TransactionTemplate(transactionManager);
+        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        snapshot.setReadOnly(true);
+        SettlementReconcileRepository timed = new SettlementReconcileRepository() {
+            @Override
+            public List<CheckResult> runChecks(LocalDateTime paymentsSince) {
+                return snapshot.execute(status -> fast.runChecks(paymentsSince));
+            }
+
+            @Override
+            public List<DonePayout> findDonePayouts(LocalDateTime doneSince, int limit) {
+                return repository.findDonePayouts(doneSince, limit);
+            }
+
+            @Override
+            public long startRun(LocalDateTime now) {
+                return repository.startRun(now);
+            }
+
+            @Override
+            public void finishRun(long runId, Finished finished) {
+                repository.finishRun(runId, finished);
+            }
+        };
+
+        Report report;
+        try (Connection lock = dataSource.getConnection()) {
+            lock.setAutoCommit(false);
+            try (Statement statement = lock.createStatement()) {
+                statement.execute("LOCK TABLE p_settlement_statement_lines IN ACCESS EXCLUSIVE MODE");
+            }
+            try {
+                report = new SettlementReconciliationJob(timed, agency, paymentClock, "", 48, 500).run();
+            } finally {
+                lock.rollback();
+            }
+        }
+        Map<String, CheckResult> results = byCheck(report);
+
+        List<String> readsLines = List.of("SALE_STATEMENT_LINK", "STATEMENT_TOTALS", "DEDUCTION_ALLOCATION");
+        assertThat(report.results())
+                .filteredOn(result -> !result.completed())
+                .extracting(CheckResult::check)
+                .containsExactlyInAnyOrderElementsOf(readsLines);
+        assertThat(results.get("SALE_STATEMENT_LINK").error()).isEqualTo("QueryTimeoutException");
+        assertThat(results.get("SALE_STATEMENT_LINK").violations()).isNull();
+        // 뒤 검사·지급대행 대사도 실행했고, 끝난 검사의 위반은 남는다
+        assertThat(results.get("PAYOUT_CLEARING_BALANCE").violations()).isZero();
+        assertThat(results.get(SettlementReconciliationJob.PROVIDER_CHECK).violations())
+                .isZero();
+        assertThat(results.get("SALE_MISSING").violations()).isEqualTo(1);
+        assertThat(report.succeeded()).isFalse();
+        assertThat(jdbc.queryForMap("SELECT * FROM p_settlement_reconcile_runs WHERE id = ?", report.runId()))
+                .containsEntry("status", "FAILED")
+                .containsEntry("error", "INCOMPLETE SALE_STATEMENT_LINK,STATEMENT_TOTALS,DEDUCTION_ALLOCATION");
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM p_settlement_reconcile_results WHERE run_id = ? AND NOT completed",
+                        Integer.class,
+                        report.runId()))
+                .isEqualTo(readsLines.size());
+
+        List<Sample> samples = observation.read();
+        assertThat(samples)
+                .contains(
+                        new Sample("settlement.reconcile.check.incomplete", List.of("check", "SALE_STATEMENT_LINK"), 1))
+                .contains(new Sample("settlement.reconcile.check.incomplete", List.of("check", "SALE_MISSING"), 0))
+                .contains(new Sample("settlement.reconcile.violations", List.of("check", "SALE_MISSING"), 1))
+                .contains(new Sample("settlement.reconcile.last.failed", List.of(), 1));
+        assertThat(samples)
+                .noneMatch(sample -> sample.name().equals("settlement.reconcile.violations")
+                        && sample.tags().equals(List.of("check", "SALE_STATEMENT_LINK")));
     }
 
     private long saleOf(Payment payment) {

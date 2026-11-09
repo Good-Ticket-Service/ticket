@@ -115,7 +115,10 @@ public class PaymentObservation {
                 "settlement.reconcile.last.failed")) register(new Key(name, List.of()));
         List<String> checks = new ArrayList<>(SettlementReconcileJdbcAdapter.checkNames());
         checks.add(SettlementReconciliationJob.PROVIDER_CHECK);
-        for (String check : checks) register(new Key("settlement.reconcile.violations", List.of("check", check)));
+        for (String check : checks) {
+            register(new Key("settlement.reconcile.violations", List.of("check", check)));
+            register(new Key("settlement.reconcile.check.incomplete", List.of("check", check)));
+        }
     }
 
     private record Key(String name, List<String> tags) {}

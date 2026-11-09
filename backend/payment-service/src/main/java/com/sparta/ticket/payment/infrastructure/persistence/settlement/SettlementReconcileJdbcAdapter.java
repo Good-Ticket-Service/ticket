@@ -2,11 +2,14 @@ package com.sparta.ticket.payment.infrastructure.persistence.settlement;
 
 import com.sparta.ticket.payment.domain.repository.settlement.SettlementReconcileRepository;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Isolation;
@@ -208,9 +211,14 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
     }
 
     private final JdbcTemplate jdbc;
+    private final Duration statementTimeout;
 
-    public SettlementReconcileJdbcAdapter(JdbcTemplate jdbc) {
+    /** @param statementTimeout 검사 SQL 하나의 제한 시간. 넘으면 그 검사만 미완료로 남긴다 */
+    public SettlementReconcileJdbcAdapter(
+            JdbcTemplate jdbc,
+            @Value("${payment.settlement.reconcile.statement-timeout:60s}") Duration statementTimeout) {
         this.jdbc = jdbc;
+        this.statementTimeout = statementTimeout;
     }
 
     /** 대조 항목 이름(시험·지표가 같은 이름을 쓴다). */
@@ -218,20 +226,43 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
         return List.copyOf(CHECKS.keySet());
     }
 
+    /**
+     * 모든 검사를 한 스냅샷에서 순서대로 실행한다. 검사마다 SAVEPOINT를 두어, 한 검사가 제한 시간을 넘거나 실패하면 그 검사만
+     * 되돌리고 미완료로 남긴 채 다음 검사를 계속한다(#310). 되돌려도 REPEATABLE READ 스냅샷은 트랜잭션 끝까지 그대로라
+     * 뒤 검사도 같은 시점을 본다. 연결이 끊기는 등 트랜잭션 자체가 실패하면 예외로 끝난다.
+     */
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, propagation = Propagation.REQUIRES_NEW)
     public List<CheckResult> runChecks(LocalDateTime paymentsSince) {
-        jdbc.execute("SET LOCAL statement_timeout = '60s'");
+        jdbc.execute("SET LOCAL statement_timeout = '" + statementTimeout.toMillis() + "ms'");
         Timestamp since = paymentsSince == null ? null : Timestamp.valueOf(paymentsSince);
         List<CheckResult> results = new ArrayList<>();
         for (Map.Entry<String, String> check : CHECKS.entrySet()) {
             String sql = "SELECT count(*), array_to_string((array_agg(v.id ORDER BY v.id))[1:" + SAMPLE_SIZE + "], ',')"
                     + " FROM (SELECT x.* FROM (" + check.getValue().replace(":since", "?") + ") AS x(id)) v";
             Object[] args = check.getValue().contains(":since") ? new Object[] {since, since} : new Object[] {};
-            results.add(jdbc.queryForObject(
-                    sql, (rs, i) -> new CheckResult(check.getKey(), rs.getLong(1), rs.getString(2)), args));
+            long started = System.nanoTime();
+            jdbc.execute("SAVEPOINT reconcile_check");
+            try {
+                CheckResult result = jdbc.queryForObject(
+                        sql,
+                        (rs, i) -> CheckResult.completed(
+                                check.getKey(), rs.getLong(1), rs.getString(2), elapsedMillis(started)),
+                        args);
+                jdbc.execute("RELEASE SAVEPOINT reconcile_check");
+                results.add(result);
+            } catch (DataAccessException e) {
+                // 실패한 문장 뒤 트랜잭션은 SAVEPOINT로 되돌리기 전까지 다른 문장을 받지 않는다
+                jdbc.execute("ROLLBACK TO SAVEPOINT reconcile_check");
+                results.add(CheckResult.incomplete(
+                        check.getKey(), elapsedMillis(started), e.getClass().getSimpleName()));
+            }
         }
         return results;
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000;
     }
 
     @Override
@@ -270,11 +301,16 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                 runId);
         for (CheckResult result : finished.results()) {
             jdbc.update(
-                    "INSERT INTO p_settlement_reconcile_results (run_id, check_name, violations, sample) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO p_settlement_reconcile_results"
+                            + " (run_id, check_name, completed, violations, sample, duration_ms, error)"
+                            + " VALUES (?, ?, ?, ?, ?, ?, ?)",
                     runId,
                     result.check(),
+                    result.completed(),
                     result.violations(),
-                    result.sample());
+                    result.sample(),
+                    result.durationMs(),
+                    result.error());
         }
     }
 }

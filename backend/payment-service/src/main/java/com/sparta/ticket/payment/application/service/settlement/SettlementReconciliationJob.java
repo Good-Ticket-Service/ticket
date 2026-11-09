@@ -51,7 +51,13 @@ public class SettlementReconciliationJob {
         this.providerLimit = providerLimit;
     }
 
-    public record Report(long runId, long violations, List<CheckResult> results, int providerUnreachable) {}
+    /** @param violations 끝난 항목의 위반 합. 미완료 항목은 results에서 completed()가 false다 */
+    public record Report(long runId, long violations, List<CheckResult> results, int providerUnreachable) {
+
+        public boolean succeeded() {
+            return results.stream().allMatch(CheckResult::completed);
+        }
+    }
 
     public Report run() {
         long runId = repository.startRun(LocalDateTime.now(clock));
@@ -61,20 +67,34 @@ public class SettlementReconciliationJob {
                     repository.findDonePayouts(LocalDateTime.now(clock).minusHours(providerWindowHours), providerLimit);
             ProviderResult provider = reconcileProvider(done);
             results.add(provider.result());
-            long violations =
-                    results.stream().mapToLong(CheckResult::violations).sum();
+            // 미완료 항목이 있으면 끝난 항목의 위반은 남기되 실행은 성공으로 치지 않는다(#310)
+            List<String> incomplete = results.stream()
+                    .filter(result -> !result.completed())
+                    .map(CheckResult::check)
+                    .toList();
+            long violations = results.stream()
+                    .filter(CheckResult::completed)
+                    .mapToLong(CheckResult::violations)
+                    .sum();
             repository.finishRun(
                     runId,
                     new Finished(
-                            "SUCCEEDED",
+                            incomplete.isEmpty() ? "SUCCEEDED" : "FAILED",
                             LocalDateTime.now(clock),
                             violations,
                             done.size(),
                             provider.unreachable(),
-                            null,
+                            incomplete.isEmpty() ? null : truncate("INCOMPLETE " + String.join(",", incomplete)),
                             results));
             for (CheckResult result : results) {
-                if (result.violations() > 0)
+                if (!result.completed())
+                    log.error(
+                            "[RECONCILE] 정산 대조 항목 미완료. 위반 0건이 아니라 확인하지 못한 것이다. runId={}, check={}, error={}, durationMs={}",
+                            runId,
+                            result.check(),
+                            result.error(),
+                            result.durationMs());
+                else if (result.violations() > 0)
                     log.error(
                             "[RECONCILE] 정산 대조 위반. runId={}, check={}, violations={}, sample={}",
                             runId,
@@ -85,9 +105,11 @@ public class SettlementReconciliationJob {
             if (provider.unreachable() > 0)
                 log.warn("[RECONCILE] 지급대행 대사 중 확인 못 한 지급. runId={}, unreachable={}", runId, provider.unreachable());
             log.info(
-                    "[RECONCILE] 정산 대조 완료. runId={}, violations={}, providerChecked={}",
+                    "[RECONCILE] 정산 대조 {}. runId={}, violations={}, incomplete={}, providerChecked={}",
+                    incomplete.isEmpty() ? "완료" : "실패(미완료 항목)",
                     runId,
                     violations,
+                    incomplete.size(),
                     done.size());
             return new Report(runId, violations, results, provider.unreachable());
         } catch (RuntimeException e) {
@@ -107,6 +129,11 @@ public class SettlementReconciliationJob {
     }
 
     private record ProviderResult(CheckResult result, int unreachable) {}
+
+    /** 실행 기록 error 열(200자)에 맞춘다. */
+    private static String truncate(String error) {
+        return error.length() <= 200 ? error : error.substring(0, 197) + "...";
+    }
 
     /**
      * DONE 지급마다 같은 키로 지급대행을 조회해 완료·금액·계좌·거래 ID를 맞춘다. 지급대행이 모른다고(404) 하거나 다르게 답하면 돈이
@@ -133,7 +160,8 @@ public class SettlementReconciliationJob {
             }
         }
         return new ProviderResult(
-                new CheckResult(PROVIDER_CHECK, mismatched, sample.isEmpty() ? null : String.join(",", sample)),
+                CheckResult.completed(
+                        PROVIDER_CHECK, mismatched, sample.isEmpty() ? null : String.join(",", sample), null),
                 unreachable);
     }
 
