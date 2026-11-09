@@ -32,3 +32,15 @@ create_service_schema reservation_schema reservation_app "$RESERVATION_DB_PASSWO
 create_service_schema payment_schema payment_app "$PAYMENT_DB_PASSWORD"
 # 테스트용 fake PG(backend/fake-pg)의 거래 기록
 create_service_schema fake_pg_schema fake_pg_app "$FAKE_PG_DB_PASSWORD"
+
+# 결제는 JDBC 운영 테이블·Batch 메타데이터·원장 불변 트리거도 사용한다.
+# Hibernate create는 이 계약을 만들 수 없고 재기동 시 금융 원장을 지우므로, 결제 local도 validate를 쓴다.
+# 기본 Compose가 공식 SQL을 마운트한다. 자체 스키마를 준비하는 독립 시험 환경은 역할 생성만 재사용할 수 있다.
+if [[ -f /ticket-sql/payment-service/schema.sql ]]; then
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+SET ROLE payment_app;
+SET search_path = payment_schema;
+\i /ticket-sql/payment-service/schema.sql
+RESET ROLE;
+SQL
+fi
