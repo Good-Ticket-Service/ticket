@@ -266,7 +266,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
 | discount_amount | INT | NOT NULL; 정액 할인액(원). 발급 시작 후 변경 불가 |
 | total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 받은 회원 수 이상으로 변경 가능 |
-| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급 수량 참고값. 발급 때 올리지 않고 주기적으로 p_user_coupons 수로 갱신해 늦을 수 있다. 판단·응답에 쓰지 않으며 정확한 발급 수는 p_user_coupons 수다(#300) |
+| issued_quantity | INT | NOT NULL; DEFAULT 0; 발급 수량 참고값. 발급 때 올리지 않고 맞추는 작업이 1분마다 p_user_coupons 수로 갱신해 늦을 수 있다. p_user_coupons 수가 총 수량을 넘으면(초과 발급) 갱신하지 않고 오류 로그를 남긴다. 판단·응답에 쓰지 않으며 정확한 발급 수는 p_user_coupons 수다(#300, #323) |
 | issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
 | issue_end_at | TIMESTAMP | NOT NULL; 발급 종료 시각. 발급 중단 시 현재 시각으로 당김 |
 | valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가 |
