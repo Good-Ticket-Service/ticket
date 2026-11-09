@@ -168,7 +168,9 @@ public class PaymentRequestTransactions {
         boolean started = reservationRepository.startPayment(
                         reservationId, userId, command.orderId(), command.pgAuthToken(), stamp)
                 == 1;
-        Reservation reservation = reload(reservationId);
+        // 이 트랜잭션은 UPDATE로 시작해 예약을 아직 읽지 않았으므로 findById가 바뀐 행을 그대로 가져온다.
+        // reload는 영속성 컨텍스트에 남은 예약을 위한 것이라 여기서는 SELECT를 두 번 낸다
+        Reservation reservation = find(reservationId);
         if (started) {
             return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));
         }
@@ -188,7 +190,7 @@ public class PaymentRequestTransactions {
         boolean started = reservationRepository.startPaymentByMessage(
                         reservationId, userId, command.orderId(), confirmBefore, stamp)
                 == 1;
-        Reservation reservation = reload(reservationId);
+        Reservation reservation = find(reservationId);
         if (!started) {
             return notStarted(reservation, userId, command, stamp);
         }
