@@ -67,7 +67,7 @@ class WaitingRoomClientTest {
     }
 
     @Test
-    @DisplayName("reservation-service가 응답하지 않으면 제한 시간 뒤 실패한다")
+    @DisplayName("waiting-room-service가 응답하지 않으면 제한 시간 뒤 실패한다")
     void timesOut() {
         WebClient hanging =
                 WebClient.builder().exchangeFunction(request -> Mono.never()).build();

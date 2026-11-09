@@ -21,7 +21,7 @@ class QueueTokenVerifierTest {
 
     private final QueueTokenVerifier verifier = new QueueTokenVerifier(SECRET);
 
-    /** reservation-service가 발급하는 모양(sub 문자열, roomId 숫자, scopes 문자열 배열, iat, exp)으로 서명한다. */
+    /** waiting-room-service가 발급하는 모양(sub 문자열, roomId 숫자, scopes 문자열 배열, iat, exp)으로 서명한다. */
     private static String sign(String secret, JWTClaimsSet claims) throws Exception {
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(secret.getBytes(StandardCharsets.UTF_8)));

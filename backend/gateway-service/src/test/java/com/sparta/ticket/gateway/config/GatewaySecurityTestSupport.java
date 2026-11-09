@@ -69,7 +69,7 @@ abstract class GatewaySecurityTestSupport {
     @MockitoBean
     protected UserServiceClient userServiceClient;
 
-    /** 기동 때 reservation-service에서 보호 목록을 받지 않게 대역으로 둔다. 입장 토큰 검사는 QueueTokenSecurityTest에서 본다. */
+    /** 기동 때 waiting-room-service에서 보호 목록을 받지 않게 대역으로 둔다. 입장 토큰 검사는 QueueTokenSecurityTest에서 본다. */
     @MockitoBean
     protected ProtectedScopes protectedScopes;
 

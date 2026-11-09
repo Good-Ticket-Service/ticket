@@ -100,7 +100,7 @@ class QueueTokenSecurityTest {
                         .build());
     }
 
-    /** reservation-service 대기열이 발급하는 모양의 입장 토큰. */
+    /** waiting-room-service가 발급하는 모양의 입장 토큰. */
     private static String entryToken(String secret, long userId, List<String> scopes, Instant expiresAt)
             throws Exception {
         return sign(

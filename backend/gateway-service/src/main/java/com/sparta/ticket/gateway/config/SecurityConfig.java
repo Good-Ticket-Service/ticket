@@ -77,7 +77,7 @@ public class SecurityConfig {
             QueueTokenVerifier queueTokenVerifier) {
         http.securityMatcher(new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers(
                         properties.whitelist().toArray(String[]::new))))
-                // 대기열 생성은 MASTER만(#299). 역할은 60초 캐시한 회원 조회로 확인하고, reservation-service도 X-User-Role로 다시 확인한다
+                // 대기열 생성은 MASTER만(#299). 역할은 60초 캐시한 회원 조회로 확인하고, waiting-room-service도 X-User-Role로 다시 확인한다
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(GatewayPaths.array(GatewayPaths.WAITING_ROOM_ADMIN))
                         .hasRole("MASTER")

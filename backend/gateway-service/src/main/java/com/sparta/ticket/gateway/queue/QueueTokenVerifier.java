@@ -10,7 +10,7 @@ import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import reactor.core.publisher.Mono;
 
 /**
- * 입장 토큰의 서명과 만료를 확인하고 회원·room·scope를 꺼낸다. 토큰은 reservation-service 대기열이 같은 키로 발급한다(docs/api.md 대기열 절).
+ * 입장 토큰의 서명과 만료를 확인하고 회원·room·scope를 꺼낸다. 토큰은 waiting-room-service가 같은 키로 발급한다(docs/api.md 대기열 절).
  *
  * Note: 로그인 JWT 디코더(SecurityConfig)와 같은 생성기(Hs256JwtDecoders)를 쓰지만 키가 달라 따로 둔다. ReactiveJwtDecoder 빈으로
  * 내놓으면 로그인 인증이 어느 디코더를 쓸지 모호해지므로 이 클래스 안에 감춘다.

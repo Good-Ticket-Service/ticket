@@ -28,7 +28,7 @@ public class QueueConfig {
             ReactorLoadBalancerExchangeFilterFunction loadBalancer,
             QueueProperties properties) {
         WebClient webClient = LoadBalancedWebClients.create(
-                webClientBuilder, loadBalancer, "reservation-service", properties.protectedScopesTimeout());
+                webClientBuilder, loadBalancer, "waiting-room-service", properties.protectedScopesTimeout());
         return new WaitingRoomClient(webClient, properties.protectedScopesTimeout());
     }
 
