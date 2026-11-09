@@ -158,6 +158,11 @@ public class BookingMetrics {
         confirmedAfterCompleted.set(count);
     }
 
+    /** 결과 확인 스케줄러가 마지막으로 센 결제 중 예약 수. 폴링 간격을 정하는 부하 신호로 쓴다. */
+    public long paymentsInProgressCount() {
+        return paymentsInProgress.get();
+    }
+
     public void paymentBacklog(long inProgress, long stuck) {
         paymentsInProgress.set(inProgress);
         stuckPayments.set(stuck);
