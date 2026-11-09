@@ -179,6 +179,8 @@ public class PayoutExecutionTransactions {
             statement.markPaid(now);
             ledger.post(LedgerJournals.payoutDone(
                     payout.getId(), statement.getId(), payout.getSellerId(), payout.getAmount(), now));
+            ledger.post(LedgerJournals.payoutCash(
+                    payout.getId(), statement.getId(), payout.getSellerId(), payout.getAmount(), now));
             return Applied.DONE;
         }
         if (verdict instanceof Verdict.Failed failed) {
