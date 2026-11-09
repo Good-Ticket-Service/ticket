@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -30,6 +31,14 @@ import org.springframework.data.repository.query.Param;
  */
 public interface ReservationJpaRepository
         extends JpaRepository<Reservation, Long>, ReservationRepository, ReservationReloader {
+
+    /**
+     * 예약을 읽는 곳은 거의 모두 티켓도 쓴다(선점 응답의 좌석 목록, 결제 준비의 금액 합, 확정의 티켓 코드, 응답 DTO).
+     * 따로 읽으면 사용자 1명당 티켓 조회가 3~4번 더 나간다(측정). 한 쿼리로 같이 읽는다.
+     */
+    @Override
+    @EntityGraph(attributePaths = "tickets")
+    Optional<Reservation> findById(Long id);
 
     @Override
     @Query("""
