@@ -29,6 +29,10 @@ record PaymentResultMessage(
 
     static PaymentResult parse(String payload, ObjectMapper objectMapper) {
         PaymentResultMessage message;
+        // Note: 본문이 없는 메시지(tombstone)는 readValue가 JSON 예외가 아닌 예외를 던져 끝없이 재시도된다. 해석 불가로 걸러 DLT로 보낸다
+        if (payload == null) {
+            throw new InvalidPaymentResultMessage("결제 결과 메시지에 본문이 없다");
+        }
         try {
             message = objectMapper.readValue(payload, PaymentResultMessage.class);
         } catch (JsonProcessingException e) {
