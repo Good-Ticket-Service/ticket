@@ -67,6 +67,10 @@ reservation:
         interval: 200ms
         batch-size: 100
         send-timeout: 5s
+      # 결제 중 예약 수를 세어 폴링 간격(Retry-After)의 기준 게이지를 갱신한다. 결과 확인 주기(30초)로는 결제 중이 분당 수천 건 늘 때
+      # 간격이 늦게 늘어 폴링이 세 배로 치솟았다. COUNT는 부분 인덱스를 읽어 2만 건에 수 ms다
+      payment-backlog:
+        interval: 1s
 
     # 결제 승인 방식(#321). 켜면 승인 API가 payment를 기다리지 않고 승인 요청을 메시지로 남긴 뒤 결제 중으로 바로 답한다.
     # payment의 승인 요청 소비자가 없으면 메시지 승인은 시한이 지나 모두 실패로 끝나므로, 소비자가 생길 때까지 끈다. 바꾸면 다시 띄운다.

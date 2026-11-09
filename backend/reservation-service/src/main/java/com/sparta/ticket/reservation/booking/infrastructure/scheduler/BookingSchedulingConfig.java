@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
 
 import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileService;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklogService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
@@ -33,7 +34,8 @@ public class BookingSchedulingConfig {
             UnconfirmedRefundService unconfirmedRefundService,
             CancelReconcileService cancelReconcileService,
             ScheduleCancellationService scheduleCancellationService,
-            OutboxPublisher outboxPublisher) {
+            OutboxPublisher outboxPublisher,
+            PaymentBacklogService paymentBacklogService) {
         return new BookingScheduleRunner(
                 properties,
                 holdExpiryService,
@@ -41,6 +43,7 @@ public class BookingSchedulingConfig {
                 unconfirmedRefundService,
                 cancelReconcileService,
                 scheduleCancellationService,
-                outboxPublisher);
+                outboxPublisher,
+                paymentBacklogService);
     }
 }

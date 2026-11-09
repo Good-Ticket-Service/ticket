@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.booking.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,6 +15,7 @@ import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.payment.ReservationPaymentService;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklogService;
 import com.sparta.ticket.reservation.booking.support.BookingIntegrationTest;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestIds;
@@ -45,6 +47,9 @@ class PaymentPollingIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private BookingMetrics metrics;
+
+    @Autowired
+    private PaymentBacklogService backlogService;
 
     private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
 
@@ -122,6 +127,19 @@ class PaymentPollingIntegrationTest extends BookingIntegrationTest {
 
         metrics.paymentBacklog(10_000, 0);
         pollStatus(reservationId).andExpect(header().string("Retry-After", "5"));
+    }
+
+    @Test
+    @DisplayName("결제 중 집계는 지금 결제 중인 예약 수를 세어 폴링 간격의 기준을 갱신한다")
+    void backlogRefreshCountsInProgress() {
+        paymentInProgress();
+        paymentInProgress();
+        hold();
+        metrics.paymentBacklog(5_000, 0);
+
+        assertThat(backlogService.refresh()).isEqualTo(2);
+
+        assertThat(metrics.paymentsInProgressCount()).isEqualTo(2);
     }
 
     @Test

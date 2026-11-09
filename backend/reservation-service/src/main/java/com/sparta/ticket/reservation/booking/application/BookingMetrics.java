@@ -163,6 +163,11 @@ public class BookingMetrics {
         return paymentsInProgress.get();
     }
 
+    /** 결제 중 예약 수만 갱신한다. 폴링 간격이 이 값을 읽으므로 결과 확인보다 자주 센다. */
+    public void paymentsInProgress(long count) {
+        paymentsInProgress.set(count);
+    }
+
     public void paymentBacklog(long inProgress, long stuck) {
         paymentsInProgress.set(inProgress);
         stuckPayments.set(stuck);
