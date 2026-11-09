@@ -20,6 +20,7 @@ import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
@@ -65,6 +66,9 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private MeterRegistry meters;
 
     private long nextVenueSeatId = 1000;
 
@@ -182,6 +186,39 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}", SCHEDULE))
                 .andExpect(jsonPath("$.data.seats[0].selectable").value(false))
                 .andExpect(jsonPath("$.data.asOf").value("2026-11-01T20:00:01+09:00"));
+    }
+
+    @Test
+    @DisplayName("스냅샷 지표: 요청마다 get이, 생성할 때만 load가 남고, Caffeine 적중·실패가 cache=seat-snapshot으로 나온다")
+    void snapshotMetrics() throws Exception {
+        seat(SCHEDULE, true);
+        // 같은 레지스트리를 다른 테스트와 함께 쓰므로 차이로 확인한다
+        long gets = timerCount("reservation.seat.snapshot.get");
+        long loads = timerCount("reservation.seat.snapshot.load", "result", "success");
+        double hits = cacheGets("hit");
+        double misses = cacheGets("miss");
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(get("/api/seats/schedules/{scheduleId}/status", SCHEDULE))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(timerCount("reservation.seat.snapshot.get") - gets).isEqualTo(2);
+        assertThat(timerCount("reservation.seat.snapshot.load", "result", "success") - loads)
+                .isEqualTo(1);
+        assertThat(cacheGets("miss") - misses).isEqualTo(1);
+        assertThat(cacheGets("hit") - hits).isEqualTo(1);
+    }
+
+    private long timerCount(String name, String... tags) {
+        return meters.get(name).tags(tags).timer().count();
+    }
+
+    private double cacheGets(String result) {
+        return meters.get("cache.gets")
+                .tags("cache", "seat-snapshot", "result", result)
+                .functionCounter()
+                .count();
     }
 
     @Test
