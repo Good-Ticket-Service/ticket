@@ -640,6 +640,31 @@ MASTER의 지급 retry 명령 최종 결과. 지급 상태 변경과 같은 트�
 - 013-settlement-reconcile-runs.sql은 위 두 테이블을 추가하며, 다시 실행해도 안전하다.
 - 016-reconcile-check-isolation.sql은 completed·duration_ms·error를 추가하고 violations의 NOT NULL을 푼다. 다시 실행해도 안전하다. 미완료 항목이 있는 실행은 FAILED다.
 
+이행 018 (#317, 결제 내부 설계 합의·구현 중)은 실행에 batch_job_instance_id, mode, db_valid,
+technical_failure, pending_excluded, db_duration_ms, http_duration_ms를 추가한다.
+DB 검사 결과와 db_valid 완료 마커는 같은 REPEATABLE READ 트랜잭션으로 저장한다.
+같은 JobInstance의 db_valid=true 행은 부분 UNIQUE로 하나만 허용한다.
+외부 지급대행 조회 실패로 Job이 실패해도 정상 DB 완료 마커는 유지한다.
+금융 위반 또는 검사 미완료는 db_valid=false이며, 다시 실행할 때 전체 DB 검사를 새 스냅샷으로 수행한다.
+
+이행 019 (#317, 결제 내부 설계 합의·구현 중)은 다음 파생 집계와 원장 쓰기 제약을 추가한다.
+
+| 대상 | 계약 |
+|---|---|
+| p_ledger_transactions.writer_xid | xid8 NULL. 기존 행은 NULL 유지, 신규 BEFORE INSERT가 최상위 pg_current_xact_id()로 강제 설정. 부분 인덱스(writer_xid) |
+| 원장 트리거 | header·entry UPDATE/DELETE 거부. entry INSERT는 같은 최상위 트랜잭션의 header만 허용. 정정은 새 분개로 기록 |
+| p_reconcile_checkpoint | id=1 단일 head, generation·valid·검증 snapshot 텍스트·확정 run_id·accepted_at. 최초 invalid. 세대 갱신과 캐시·검사 결과가 같은 트랜잭션 |
+| p_reconcile_account_balances | (account,scope,owner_id) PK. SELLER 미지급/미회수와 GLOBAL 지급 연결의 차변·대변 누계. UNKNOWN은 잘못된 NULL 소유자를 숨기지 않는 범위. 금융 원장 아닌 재생성 가능한 캐시 |
+| 대조 실행 확장 | input/output_generation, snapshot, 후보/증분 header·entry 수, 변경 키 수, 캐시 차이 건수·샘플, baseline_reason |
+
+- 캐시 차이의 전체 차변·대변 절대 차이 합은 cache_difference_debit/credit(NUMERIC)에 보존한다. 샘플 10개로 전체 차이 금액을 대신하지 않는다.
+- 이행 020의 p_reconcile_commands는 command_id(UUID) PK와 business_date·FULL 모드·reason·actor·created_at을 저장한다. 같은 명령 ID의 다른 입력은 거부한다.
+
+- DAILY는 이전 snapshot에서 보이지 않았던 신규 writer의 분개를 반영한다. 원천 기대값은 같은 RR에서 독립 계산한다.
+- FULL은 전체 금융 대조가 정상일 때만 캐시를 재생성한다. 캐시 차이는 FULL_REBASELINE 사유·샘플로 남긴다.
+- DB 복원·클러스터 이전 시 head.valid=false로 무효화하고 FULL을 수행한다. 저장 snapshot은 다른 클러스터의 기준으로 재사용하지 않는다.
+- 이행 019는 DDL 전환을 한 트랜잭션으로 적용한다. 테이블 소유자의 TRUNCATE·트리거 해제까지 방어하는 제약은 아니다.
+
 ### p_settlement_jobs — payment-service/schema.sql + A (정산 반영 작업)
 
 | 필드 | 타입·제약 |
