@@ -1,0 +1,29 @@
+server:
+  port: 8085
+
+# 대기열. 켜고 끄는 설정은 없다. 관리자가 room을 만들면 그 scope만 대기열을 거친다(room이 없으면 대기열 없음)
+# 데이터는 Redis에만 둔다(연결은 application.yml의 spring.data.redis). DB는 쓰지 않는다
+waiting-room:
+  # 초당 입장 인원. 기준선 측정 전 임시값이다. 서버가 버티는 동시 인원 ÷ 평균 머무는 시간으로 다시 정한다
+  admit-per-second: ${QUEUE_ADMIT_PER_SECOND:10}
+  # 입장 처리. 아래 값도 측정 전 임시값이다
+  admission:
+    # 동시에 입장해 있을 수 있는 인원. 입장 속도 × 실제 평균 체류 시간으로 다시 정한다
+    max-active: ${QUEUE_MAX_ACTIVE:1000}
+    # 입장할 사람이 없는 동안 쌓아 둘 수 있는 입장 시간. 다음 처리에서 이만큼을 한꺼번에 들여보낸다.
+    # 스케줄 주기의 2~3배로 둔다. 주기와 같으면 스케줄러가 늦을 때 늦은 만큼의 입장분을 잃어 평균 속도가 떨어진다
+    burst: 2s
+    # 마지막 조회 뒤 이 시간이 지나면 떠난 회원으로 본다. 백그라운드 탭은 조회가 늦어지므로 넉넉하게 둔다
+    leave-after: ${QUEUE_LEAVE_AFTER:2m}
+    # 입장 유효 시간 = 입장 토큰 만료(계약 10분)
+    entry-ttl: 10m
+    # 입장 처리 한 번에 정리할 이탈자 수
+    leave-batch-size: 1000
+  # 입장 토큰 서명 키(HS256, 32바이트 이상). 로그인 JWT 키와 다른 값을 쓴다. Gateway도 같은 키로 검사한다(#228).
+  # 서명 키는 저장소에 두지 않는다. compose는 .env의 QUEUE_TOKEN_SECRET을 넘기고, 로컬 실행은 환경 변수로 지정한다.
+  token:
+    secret: ${QUEUE_TOKEN_SECRET}
+  # 입장 스케줄러. 앞 처리가 끝난 뒤 interval만큼 쉬고 다시 돈다
+  scheduler:
+    enabled: true
+    interval: ${QUEUE_ADMIT_INTERVAL:1s}
