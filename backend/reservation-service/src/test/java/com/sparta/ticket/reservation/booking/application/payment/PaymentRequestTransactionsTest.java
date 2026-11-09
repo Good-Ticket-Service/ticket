@@ -143,7 +143,7 @@ class PaymentRequestTransactionsTest {
     @DisplayName("다시 읽을 예약이 없으면 RESERVATION_NOT_FOUND다")
     void missingReservation() {
         givenStarted(false);
-        when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.empty());
+        when(reservationRepository.findById(RESERVATION_ID)).thenReturn(Optional.empty());
 
         assertError(ReservationErrorCode.RESERVATION_NOT_FOUND);
     }
@@ -163,7 +163,7 @@ class PaymentRequestTransactionsTest {
         ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
         ReflectionTestUtils.setField(reservation, "status", status);
         ReflectionTestUtils.setField(reservation, "orderId", sameAttempt ? ORDER_ID : "order-other");
-        when(reservationRepository.reload(RESERVATION_ID)).thenReturn(Optional.of(reservation));
+        when(reservationRepository.findById(RESERVATION_ID)).thenReturn(Optional.of(reservation));
         return reservation;
     }
 
