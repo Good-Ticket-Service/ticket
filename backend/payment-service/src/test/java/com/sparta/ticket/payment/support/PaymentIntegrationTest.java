@@ -38,6 +38,8 @@ import org.springframework.test.context.TestPropertySource;
             "payment.reconcile.enabled=false",
             "payment.recovery.refund.enabled=false",
             "payment.observation.enabled=false",
+            // Note: PG 정산은 기본 활성화한다. 시험에서는 공유 DB의 자동 수집을 끄고 Job을 직접 실행한다.
+            "payment.pg.enabled=false",
             // 정산 반영 워커는 스케줄러를 끄고, 시험이 결제·환불을 확정한 뒤 settlementJobs.drain()으로 직접 돌린다(#304).
             "payment.settlement.worker.enabled=false",
             // 운영 기본값은 정산 잡을 모두 켠다. 시험에서는 스케줄러가 공유 DB의 정산서·지급을 건드리지 않도록 끄고,

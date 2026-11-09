@@ -8,6 +8,7 @@ dependencies {
 
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-batch'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
@@ -29,5 +30,21 @@ tasks.named('test') {
     inputs.file(fakePgJar)
     doFirst {
         systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath
+    }
+}
+
+// 정규 build와 분리한 명시적 측정. 실제 PostgreSQL·FakePG HTTP와 별도 결제 JVM을 사용한다.
+tasks.register('pgSettlementPerformance', Test) {
+    dependsOn testClasses, bootJar, ':fake-pg:bootJar'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*PgSettlementPerformanceTest' }
+    maxHeapSize = '1g'
+    systemProperty 'pg.settlement.measure', 'true'
+    systemProperty 'pg.settlement.rows', providers.gradleProperty('pgSettlementRows').getOrElse('500000')
+    doFirst {
+        systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath
+        systemProperty 'payment.jar', tasks.bootJar.archiveFile.get().asFile.absolutePath
     }
 }
