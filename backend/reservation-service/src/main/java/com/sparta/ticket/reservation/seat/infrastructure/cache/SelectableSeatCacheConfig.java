@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.seat.infrastructure.cache;
 
 import com.sparta.ticket.reservation.seat.application.SelectableSeatProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
 public class SelectableSeatCacheConfig {
 
     @Bean(destroyMethod = "shutdown")
-    public SeatSnapshotRefreshExecutor seatSnapshotRefreshExecutor() {
-        return SeatSnapshotRefreshExecutor.dedicatedThreads();
+    public SeatSnapshotRefreshExecutor seatSnapshotRefreshExecutor(MeterRegistry meters) {
+        return SeatSnapshotRefreshExecutor.dedicatedThreads(meters);
     }
 }

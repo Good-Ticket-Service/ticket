@@ -3,6 +3,8 @@ package com.sparta.ticket.reservation.seat.infrastructure.cache;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.reservation.seat.application.SelectableSeatProperties;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -10,8 +12,9 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 /** 좌석 배치도 캐시 설정 검사(#311). cache-max-age가 cache-refresh보다 길지 않거나 값이 없으면 기동이 멈춘다. */
 class SelectableSeatCacheConfigTest {
 
-    private final ApplicationContextRunner runner =
-            new ApplicationContextRunner().withUserConfiguration(SelectableSeatCacheConfig.class);
+    private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+            .withUserConfiguration(SelectableSeatCacheConfig.class);
 
     @Test
     @DisplayName("cache-max-age가 cache-refresh보다 길면 기동한다")
