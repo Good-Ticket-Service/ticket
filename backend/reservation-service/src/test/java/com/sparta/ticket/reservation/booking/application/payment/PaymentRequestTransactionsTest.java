@@ -14,6 +14,7 @@ import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestTransactions.PaymentStart;
 import com.sparta.ticket.reservation.booking.application.port.CouponPort;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmRequests;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -48,7 +49,11 @@ class PaymentRequestTransactionsTest {
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
     private final ChangeStamps changeStamps = mock(ChangeStamps.class);
     private final PaymentRequestTransactions transactions = new PaymentRequestTransactions(
-            reservationRepository, mock(ScheduleCancellationRepository.class), changeStamps, mock(CouponPort.class));
+            reservationRepository,
+            mock(ScheduleCancellationRepository.class),
+            changeStamps,
+            mock(CouponPort.class),
+            mock(PaymentConfirmRequests.class));
 
     @BeforeEach
     void setUp() {

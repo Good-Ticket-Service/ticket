@@ -36,6 +36,12 @@ public class BookingTestConfig {
     }
 
     @Bean
+    @Primary
+    public SwitchableConfirmSettings switchableConfirmSettings() {
+        return new SwitchableConfirmSettings();
+    }
+
+    @Bean
     public CouponFixture couponFixture(JdbcTemplate jdbcTemplate, MutableClock clock) {
         return new CouponFixture(jdbcTemplate, clock);
     }

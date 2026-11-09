@@ -75,6 +75,8 @@ public class Reservation extends BaseEntity {
     @Column(length = 255)
     private String pgAuthToken;
 
+    private LocalDateTime confirmBefore;
+
     private LocalDateTime paymentCheckedAt;
 
     private LocalDateTime refundRequiredAt;

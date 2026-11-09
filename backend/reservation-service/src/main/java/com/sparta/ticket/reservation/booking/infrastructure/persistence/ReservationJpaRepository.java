@@ -85,7 +85,14 @@ public interface ReservationJpaRepository
     @Override
     default int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp) {
         ReservationTransition t = ReservationTransition.START_PAYMENT;
-        return updateStartPayment(id, t.from(), t.to(), userId, orderId, pgAuthToken, stamp.at(), stamp.by());
+        return updateStartPayment(id, t.from(), t.to(), userId, orderId, pgAuthToken, null, stamp.at(), stamp.by());
+    }
+
+    @Override
+    default int startPaymentByMessage(
+            Long id, Long userId, String orderId, LocalDateTime confirmBefore, ChangeStamp stamp) {
+        ReservationTransition t = ReservationTransition.START_PAYMENT;
+        return updateStartPayment(id, t.from(), t.to(), userId, orderId, null, confirmBefore, stamp.at(), stamp.by());
     }
 
     @Override
@@ -169,8 +176,8 @@ public interface ReservationJpaRepository
     }
 
     @Override
-    default List<Long> findStalePaymentIds(LocalDateTime updatedBefore, int limit) {
-        return selectStalePaymentIds(updatedBefore, PageRequest.of(0, limit));
+    default List<Long> findStalePaymentIds(LocalDateTime updatedBefore, LocalDateTime requestedBefore, int limit) {
+        return selectStalePaymentIds(updatedBefore, requestedBefore, PageRequest.of(0, limit));
     }
 
     /** user_coupon_id를 처음 읽은 값과 비교한다. 쿠폰을 쓰지 않아 둘 다 null인 경우도 같다고 본다. 회원 쿠폰 ID는 1부터다. */
@@ -219,7 +226,8 @@ public interface ReservationJpaRepository
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
-               SET r.status = :to, r.pgAuthToken = :pgAuthToken, r.updatedAt = :at, r.updatedBy = :by
+               SET r.status = :to, r.pgAuthToken = :pgAuthToken, r.confirmBefore = :confirmBefore,
+                   r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.userId = :userId
                AND r.orderId = :orderId AND r.holdExpiresAt > :at
                AND NOT EXISTS (SELECT 1 FROM ScheduleCancellationRow c WHERE c.scheduleId = r.scheduleId)
@@ -231,6 +239,7 @@ public interface ReservationJpaRepository
             @Param("userId") Long userId,
             @Param("orderId") String orderId,
             @Param("pgAuthToken") String pgAuthToken,
+            @Param("confirmBefore") LocalDateTime confirmBefore,
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
@@ -396,11 +405,13 @@ public interface ReservationJpaRepository
                AND r.updatedAt <= :checkedBefore
                AND r.refundRequiredAt IS NULL
                AND COALESCE(r.paymentCheckedAt, r.updatedAt) <= :checkedBefore
+               AND (r.confirmBefore IS NULL OR r.confirmBefore <= :requestedBefore)
             """)
     int markPaymentChecked(
             @Param("id") Long id,
             @Param("checkedAt") LocalDateTime checkedAt,
-            @Param("checkedBefore") LocalDateTime checkedBefore);
+            @Param("checkedBefore") LocalDateTime checkedBefore,
+            @Param("requestedBefore") LocalDateTime requestedBefore);
 
     @Modifying(flushAutomatically = true)
     @Query("""
@@ -523,9 +534,13 @@ public interface ReservationJpaRepository
              WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
                AND r.updatedAt <= :updatedBefore
                AND r.refundRequiredAt IS NULL
+               AND (r.confirmBefore IS NULL OR r.confirmBefore <= :requestedBefore)
              ORDER BY COALESCE(r.paymentCheckedAt, r.updatedAt), r.id
             """)
-    List<Long> selectStalePaymentIds(@Param("updatedBefore") LocalDateTime updatedBefore, Pageable pageable);
+    List<Long> selectStalePaymentIds(
+            @Param("updatedBefore") LocalDateTime updatedBefore,
+            @Param("requestedBefore") LocalDateTime requestedBefore,
+            Pageable pageable);
 
     @Override
     @Query("""

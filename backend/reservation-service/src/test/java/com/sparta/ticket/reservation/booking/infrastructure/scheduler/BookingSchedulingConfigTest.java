@@ -16,6 +16,7 @@ import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryServic
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
+import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -33,6 +34,7 @@ class BookingSchedulingConfigTest {
     private final UnconfirmedRefundService unconfirmedRefundService = mock(UnconfirmedRefundService.class);
     private final CancelReconcileService cancelReconcileService = mock(CancelReconcileService.class);
     private final ScheduleCancellationService scheduleCancellationService = mock(ScheduleCancellationService.class);
+    private final OutboxPublisher outboxPublisher = mock(OutboxPublisher.class);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
@@ -42,6 +44,7 @@ class BookingSchedulingConfigTest {
             .withBean(UnconfirmedRefundService.class, () -> unconfirmedRefundService)
             .withBean(CancelReconcileService.class, () -> cancelReconcileService)
             .withBean(ScheduleCancellationService.class, () -> scheduleCancellationService)
+            .withBean(OutboxPublisher.class, () -> outboxPublisher)
             .withPropertyValues(
                     "reservation.booking.scheduler.hold-expiry.interval=50ms",
                     "reservation.booking.scheduler.hold-expiry.batch-size=100",
@@ -58,7 +61,10 @@ class BookingSchedulingConfigTest {
                     "reservation.booking.scheduler.schedule-cancel.interval=50ms",
                     "reservation.booking.scheduler.schedule-cancel.batch-size=30",
                     "reservation.booking.scheduler.schedule-cancel.complete-after=1m",
-                    "reservation.booking.scheduler.schedule-cancel.time-budget=40ms");
+                    "reservation.booking.scheduler.schedule-cancel.time-budget=40ms",
+                    "reservation.booking.scheduler.outbox.interval=50ms",
+                    "reservation.booking.scheduler.outbox.batch-size=100",
+                    "reservation.booking.scheduler.outbox.send-timeout=1s");
 
     @Test
     @DisplayName("컨텍스트가 뜨면 만료, 결과 확인과 확정 못 한 결제의 환불, 취소 확인을 설정값으로 돌린다")

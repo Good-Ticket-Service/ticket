@@ -13,6 +13,9 @@ public class BookingMetrics {
     private final Counter expiredHolds;
     private final Counter releasedHolds;
     private final Counter resentConfirms;
+    private final Counter unreceivedConfirms;
+    private final Counter outboxPublished;
+    private final Counter outboxPublishFailures;
     private final Counter lateSuccesses;
     private final Counter canceled;
     private final Counter resentRefunds;
@@ -36,6 +39,15 @@ public class BookingMetrics {
                 .register(registry);
         this.resentConfirms = Counter.builder("reservation.payment.confirm.resent")
                 .description("payment가 받지 못한 승인 요청을 다시 보낸 수")
+                .register(registry);
+        this.unreceivedConfirms = Counter.builder("reservation.payment.confirm.unreceived")
+                .description("메시지로 요청한 승인이 시한까지 payment에 닿지 않아 실패로 끝낸 수. 늘면 발행기나 브로커를 확인한다")
+                .register(registry);
+        this.outboxPublished = Counter.builder("reservation.outbox.published")
+                .description("Outbox에서 보내고 지운 메시지 수")
+                .register(registry);
+        this.outboxPublishFailures = Counter.builder("reservation.outbox.publish_failed")
+                .description("Outbox 메시지를 보내지 못한 수. 행은 남아 다음 차례에 다시 보낸다")
                 .register(registry);
         this.lateSuccesses = Counter.builder("reservation.payment.late_success")
                 .description("이미 끝났거나 지난 시도인 예약에 도착한 결제 성공 수. 자동 환불 대상")
@@ -88,6 +100,18 @@ public class BookingMetrics {
 
     public void resentConfirm() {
         resentConfirms.increment();
+    }
+
+    public void unreceivedConfirm() {
+        unreceivedConfirms.increment();
+    }
+
+    public void outboxPublished(int count) {
+        outboxPublished.increment(count);
+    }
+
+    public void outboxPublishFailed() {
+        outboxPublishFailures.increment();
     }
 
     public void lateSuccess() {

@@ -6,6 +6,8 @@ import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
 import com.sparta.ticket.reservation.booking.application.dto.ReservationResult;
 import com.sparta.ticket.reservation.booking.application.port.CouponPort;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmRequests;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmRequests.PaymentConfirmRequest;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.DiscountCap;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
@@ -13,6 +15,7 @@ import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
 import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import com.sparta.ticket.reservation.booking.domain.ScheduleCancellationRepository;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +36,7 @@ public class PaymentRequestTransactions {
     private final ScheduleCancellationRepository scheduleCancellationRepository;
     private final ChangeStamps changeStamps;
     private final CouponPort couponPort;
+    private final PaymentConfirmRequests confirmRequests;
 
     /** 결제 준비 대상. currentOrderId는 기록할 때, userCouponId는 쿠폰을 바꿀 때 조건으로 쓴다. */
     public record CheckoutTarget(
@@ -169,6 +173,32 @@ public class PaymentRequestTransactions {
             return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));
         }
         return notStarted(reservation, userId, command, stamp);
+    }
+
+    /**
+     * 메시지로 승인을 요청하며 HOLD → PAYMENT_IN_PROGRESS. 조건과 0행의 판정은 startPayment와 같다.
+     * 전이와 승인 요청을 한 트랜잭션에 남겨, 결제 중인데 요청이 없거나 요청만 있고 HOLD인 상태가 생기지 않게 한다.
+     * 인증값은 예약에 남기지 않는다. 다시 보내지 않으므로 필요 없고, 요청 메시지에만 싣는다.
+     */
+    @Transactional
+    public PaymentStart startPaymentByMessage(
+            Long userId, Long reservationId, ConfirmCommand command, Duration window) {
+        ChangeStamp stamp = changeStamps.stamp();
+        LocalDateTime confirmBefore = stamp.at().plus(window);
+        boolean started = reservationRepository.startPaymentByMessage(
+                        reservationId, userId, command.orderId(), confirmBefore, stamp)
+                == 1;
+        Reservation reservation = reload(reservationId);
+        if (!started) {
+            return notStarted(reservation, userId, command, stamp);
+        }
+        confirmRequests.request(new PaymentConfirmRequest(
+                command.orderId(),
+                reservationId,
+                reservation.getPaymentAmount(),
+                command.pgAuthToken(),
+                confirmBefore));
+        return new PaymentStart(true, reservation.getPaymentAmount(), ReservationResult.from(reservation));
     }
 
     /** 전이가 0행이었을 때, 다시 읽은 예약으로 이유를 가린다. 본인 예약인지, 같은 시도의 orderId인지를 상태보다 먼저 본다. */
