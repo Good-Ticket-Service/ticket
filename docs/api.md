@@ -426,9 +426,9 @@
 - cancel: CANCELING→CONFIRMED로 되돌리는 경로는 없다. 결제가 받은 환불이 PG에서 실패해도 티켓을 되살리지 않는다. (#127)
 - 취소 확인 스케줄러: 오래 머문 CANCELING은 결제 조회 없이 같은 orderId로 refund를 다시 요청하고, 받으면 위 순서로 CANCELED까지 마무리한다. 결제는 같은 orderId 재요청에 최초 사유를 보존하고 최신 refundStatus와 금액을 준다. 클라이언트는 GET /api/reservations/{reservationId}로 확인한다. (#127)
 
-## 대기열 — reservation-service / queue
+## 대기열 — waiting-room-service
 
-상태: 대기열(room) 생성·scope 조회, 진입·순번 조회·대기 취소, 입장 처리·입장 토큰 발급, Gateway 내부 보호 목록은 구현(#299, 이전 공연 단위 #100·#101·#102·#227 대체). Gateway의 입장 토큰 검사(#228)도 room·scope 기준으로 구현(#299).
+상태: 대기열(room) 생성·scope 조회, 진입·순번 조회·대기 취소, 입장 처리·입장 토큰 발급, Gateway 내부 보호 목록은 구현(#299, 이전 공연 단위 #100·#101·#102·#227 대체). reservation-service 안 queue 모듈에서 waiting-room-service로 분리했고 계약은 그대로다(#298). Gateway의 입장 토큰 검사(#228)도 room·scope 기준으로 구현(#299).
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -464,7 +464,7 @@
 - 대기 취소는 줄에 없어도, room이 없거나 끝났어도 204다. 응답이 유실돼 다시 보낸 요청이 실패로 보이지 않도록 여러 번 불러도 같은 결과를 준다.
 - 취소한 뒤 다시 진입하면 원래 자리가 아니라 맨 뒤에 선다.
 - 입장한 회원의 입장권 반납(일찍 나가기)은 없다. 입장은 입장 만료(10분)로만 끝나며, 대기 취소는 입장한 회원에게 영향이 없다.
-- 입장은 입장 스케줄러가 끝나지 않은 room마다 초당 입장 인원과 동시 입장 인원 상한 안에서 줄 앞부터 처리한다. 마지막 조회 뒤 이탈 기준 시간이 지난 대기자는 입장시키지 않고 줄에서 뺀다. 값은 모든 room에 같은 config-repo `reservation.queue.*`(측정 전 임시값)다.
+- 입장은 입장 스케줄러가 끝나지 않은 room마다 초당 입장 인원과 동시 입장 인원 상한 안에서 줄 앞부터 처리한다. 마지막 조회 뒤 이탈 기준 시간이 지난 대기자는 입장시키지 않고 줄에서 뺀다. 값은 모든 room에 같은 config-repo `waiting-room-service.yml`의 `waiting-room.*`(측정 전 임시값)다.
 - Redis에 연결하지 못하면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE로 거절한다. 통과시키면 막으려던 요청이 예매 서버로 몰리기 때문이다.
 
 입장 토큰은 별도 발급 API 없이 진입·순번 조회의 ENTERED 응답 entryToken으로 받는다. 좌석 조회·선점 요청의 X-Queue-Token 헤더에 넣으면 Gateway가 검사한다.

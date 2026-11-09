@@ -13,9 +13,10 @@ flowchart LR
     GW --> U["user :8081<br/>회원·인증"]
     GW --> P["performance :8082<br/>공연·회차·정적 좌석 배치"]
     GW --> R
+    GW --> WR["waiting-room :8085<br/>대기열·입장 토큰"]
     GW -->|사용자 재확인| U
+    GW -->|보호 목록| WR
     subgraph R["reservation :8083"]
-        RQ["queue<br/>대기열·입장 토큰"]
         RS["seat<br/>선점·좌석 조회·잔여석"]
         RB["booking<br/>예매·티켓·Saga 조정"]
         RC["coupon<br/>이전 예정·#125 합의"]
@@ -38,11 +39,11 @@ flowchart LR
 | gateway-service | 8080 | 라우팅·JWT·검증된 사용자 헤더, 내부 경로 차단, 좌석 조회·선점의 입장 토큰 검사(#228, 대기열 보호 회차만 #299). 요청 제한은 구현 상태 별도 확인 | 태현·윤범 |
 | user-service | 8081 | 회원·인증·역할, user_schema | 태현 |
 | performance-service | 8082 | 공연장·고정 좌석 등급/배치·공연 가격·회차·공개·판매 검증, performance_schema | 의연 |
-| reservation-service / queue | 8083 | 대기열 순번·입장 토큰, Redis | 태현 |
 | reservation-service / seat | 8083 | 회차 좌석 스냅샷·선점·실시간 좌석/잔여석 조회, reservation_schema | 정민 |
 | reservation-service / booking | 8083 | 예매·티켓·만료·결제 준비/승인·취소/보상 조정, reservation_schema | 한얼 |
 | reservation-service / coupon | 8083 | 쿠폰 정책·동기 발급·점유/사용/복원. reservation_schema로 이전 예정, CouponUsage #125 합의 | 윤범 |
 | payment-service | 8084 | 결제·환불·PG 실행·결과 확인, payment_schema. 쿠폰 ID/상태는 처리하지 않음 | 현민 |
+| waiting-room-service | 8085 | 대기열(room)·순번·입장 토큰, Redis만 사용(DB 없음). 예매 서버와 자원을 나눠 쓰지 않게 분리(#298) | 태현 |
 | fake-pg | 8090 | 토스·카카오 호환 거래·장애 주입·결과 조회, fake_pg_schema | 현민 |
 
 - 서비스별 계정·스키마를 격리하고 다른 서비스 데이터의 직접 조회·물리 FK를 두지 않는다. common-core는 비웹 계약, common은 MVC 공통이다.
@@ -55,7 +56,7 @@ flowchart LR
 |---|---|---|
 | 클라이언트 → 서비스 | Gateway → Eureka lb 라우팅. 실 라우트 차이는 infra 10절 | 기반 구현됨 |
 | gateway → user | WebClient GET /internal/users/{userId}, 일반 요청 캐시60초. 결제 관리자 요청은 캐시 우회·MASTER 검사 | 일반 인증 구현됨. 관리자 예외는 #88 브랜치 구현 |
-| gateway → reservation(queue) | 기동 즉시와 10초마다 WebClient GET /internal/waiting-rooms/scopes로 대기열 보호 목록(scope·closeAt)을 받아 메모리에 둔다. 실패는 마지막 목록 유지, 한 번도 못 받으면 좌석 조회·선점 503. 입장 토큰 검사는 토큰 scopes와 URL 회차로만 하고 공연 서비스를 조회하지 않는다 | 구현됨(#299, #228의 gateway → performance 회차 조회 대체) |
+| gateway → waiting-room | 기동 즉시와 10초마다 WebClient GET /internal/waiting-rooms/scopes로 대기열 보호 목록(scope·closeAt)을 받아 메모리에 둔다. 실패는 마지막 목록 유지, 한 번도 못 받으면 좌석 조회·선점 503. 입장 토큰 검사는 토큰 scopes와 URL 회차로만 하고 공연 서비스를 조회하지 않는다 | 구현됨(#299, #228의 gateway → performance 회차 조회 대체). 대상 서비스는 #298로 waiting-room-service |
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
 | performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. POST /internal/schedules/{scheduleId}/seat-setups (api 「좌석 내부 API」). 성능 측정 뒤 Kafka 전환 | 합의(이슈 #175). 공연 쪽 호출 구현됨(이슈 #131), 좌석 쪽 엔드포인트 구현됨(이슈 #190) |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
@@ -286,4 +287,4 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | Facade 조회 경계 | 모든 메서드 MANDATORY. getReservation은 호출자 트랜잭션에서 비잠금 사전 조회, 좌석→예약 변경 순서 유지 | 좌석·예매 |
 | 실제 Gateway 경로 | 공통 계약 경로와 현행 하위 라우팅의 이행 확인. HOLD_EXPIRED는 합의·현행409 유지, 이전410을 재적용하지 않음 | 공연·좌석·예매·Gateway |
 | fake-pg 결제창 경로 | 브라우저 접근 경로는 미구현. Gateway 라우트가 없고 서비스 포트를 외부에 열지 않는 배포 기준과 연결 필요 | 플랫폼·결제 |
-| 대기열 분리 | 별도 서비스 분리는 측정 후 결정 | 대기열·플랫폼 |
+| 대기열 분리 | 측정 근거로 waiting-room-service 분리 구현(#298, 근거는 이슈 본문). 합의 필요 | 대기열·플랫폼 |
