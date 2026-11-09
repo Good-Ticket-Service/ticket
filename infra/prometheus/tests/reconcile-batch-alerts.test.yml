@@ -1,0 +1,32 @@
+rule_files:
+  - ../rules/reconcile-batch-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: invalid-baseline-and-cache-difference-are-distinct
+    interval: 1m
+    input_series:
+      - series: 'settlement_reconcile_baseline_valid{application="payment-service"}'
+        values: '0+0x10'
+      - series: 'settlement_job_enabled{application="payment-service",task="reconcile"}'
+        values: '1+0x10'
+      - series: 'settlement_reconcile_cache_differences{application="payment-service"}'
+        values: '2+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SettlementReconcileBaselineInvalid
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "내부 대조의 유효한 기준 없음"
+              action: "최초 FULL 또는 복원 후 FULL 실행 결과와 금융 위반·미완료 확인"
+      - eval_time: 5m
+        alertname: SettlementReconcileCacheRebaseline
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "FULL 대조에서 파생 캐시 차이 발견"
+              action: "FULL_REBASELINE 감사 기록의 이전·새 generation과 차이 샘플 확인"

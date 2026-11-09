@@ -230,7 +230,6 @@ public class PaymentObservationTransactions {
                 ORDER BY finished_at DESC, id DESC LIMIT 1
                 """, rs -> {
             result.add(new Sample("settlement.reconcile.last.success.timestamp.seconds", List.of(), rs.getDouble(1)));
-            result.add(new Sample("settlement.reconcile.provider.unreachable", List.of(), rs.getDouble(2)));
         });
         // 항목별 결과는 결과를 남긴 마지막 실행에서 읽는다(#310). 일부 항목이 미완료인 FAILED 실행도 끝난 항목의 위반은 경보에 올린다.
         // 미완료 항목은 위반 수 대신 미완료 표시를 낸다. 결과가 없는 실패(트랜잭션 자체 실패)는 건너뛰고 그 전 실행을 본다
@@ -250,10 +249,29 @@ public class PaymentObservationTransactions {
                 result.add(new Sample("settlement.reconcile.check.duration.seconds", check, duration / 1000.0));
         });
         jdbc.query("""
-                SELECT CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END FROM p_settlement_reconcile_runs
+                SELECT CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END,coalesce(provider_unreachable,0),
+                  coalesce(candidate_headers,0),coalesce(delta_headers,0),coalesce(delta_entries,0),coalesce(changed_keys,0),
+                  coalesce(db_duration_ms,0),coalesce(http_duration_ms,0),coalesce(pending_excluded,0),coalesce(cache_difference_count,0)
+                FROM p_settlement_reconcile_runs
                 WHERE status <> 'RUNNING' ORDER BY finished_at DESC, id DESC LIMIT 1
                 """, rs -> {
             result.add(new Sample("settlement.reconcile.last.failed", List.of(), rs.getDouble(1)));
+            result.add(new Sample("settlement.reconcile.provider.unreachable", List.of(), rs.getDouble(2)));
+            result.add(new Sample("settlement.reconcile.candidate.headers", List.of(), rs.getDouble(3)));
+            result.add(new Sample("settlement.reconcile.delta.headers", List.of(), rs.getDouble(4)));
+            result.add(new Sample("settlement.reconcile.delta.entries", List.of(), rs.getDouble(5)));
+            result.add(new Sample("settlement.reconcile.changed.keys", List.of(), rs.getDouble(6)));
+            result.add(new Sample("settlement.reconcile.db.duration.seconds", List.of(), rs.getDouble(7) / 1000));
+            result.add(new Sample("settlement.reconcile.http.duration.seconds", List.of(), rs.getDouble(8) / 1000));
+            result.add(new Sample("settlement.reconcile.pending.excluded", List.of(), rs.getDouble(9)));
         });
+        jdbc.query(
+                "SELECT h.valid,h.generation,coalesce(greatest(0,extract(epoch FROM (LOCALTIMESTAMP-h.accepted_at))),0),CASE WHEN h.valid THEN coalesce(r.cache_difference_count,0) ELSE 0 END FROM p_reconcile_checkpoint h LEFT JOIN p_settlement_reconcile_runs r ON r.id=h.run_id WHERE h.id=1",
+                rs -> {
+                    result.add(new Sample("settlement.reconcile.baseline.valid", List.of(), rs.getBoolean(1) ? 1 : 0));
+                    result.add(new Sample("settlement.reconcile.baseline.generation", List.of(), rs.getDouble(2)));
+                    result.add(new Sample("settlement.reconcile.baseline.age.seconds", List.of(), rs.getDouble(3)));
+                    result.add(new Sample("settlement.reconcile.cache.differences", List.of(), rs.getDouble(4)));
+                });
     }
 }

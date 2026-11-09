@@ -112,7 +112,18 @@ public class PaymentObservation {
                 "settlement.db.deductions.oldest.age.seconds",
                 "settlement.reconcile.last.success.timestamp.seconds",
                 "settlement.reconcile.provider.unreachable",
-                "settlement.reconcile.last.failed")) register(new Key(name, List.of()));
+                "settlement.reconcile.last.failed",
+                "settlement.reconcile.baseline.valid",
+                "settlement.reconcile.baseline.age.seconds",
+                "settlement.reconcile.baseline.generation",
+                "settlement.reconcile.candidate.headers",
+                "settlement.reconcile.delta.headers",
+                "settlement.reconcile.delta.entries",
+                "settlement.reconcile.changed.keys",
+                "settlement.reconcile.db.duration.seconds",
+                "settlement.reconcile.http.duration.seconds",
+                "settlement.reconcile.pending.excluded",
+                "settlement.reconcile.cache.differences")) register(new Key(name, List.of()));
         List<String> checks = new ArrayList<>(SettlementReconcileJdbcAdapter.checkNames());
         checks.add(SettlementReconciliationJob.PROVIDER_CHECK);
         for (String check : checks) {

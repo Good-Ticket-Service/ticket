@@ -1,0 +1,20 @@
+groups:
+  - name: reconcile-batch
+    rules:
+      - alert: SettlementReconcileBaselineInvalid
+        expr: max(settlement_reconcile_baseline_valid{application="payment-service"}) == 0 and on () max(settlement_job_enabled{task="reconcile",application="payment-service"}) == 1
+        for: 5m
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "내부 대조의 유효한 기준 없음"
+          action: "최초 FULL 또는 복원 후 FULL 실행 결과와 금융 위반·미완료 확인"
+      - alert: SettlementReconcileCacheRebaseline
+        expr: max(settlement_reconcile_cache_differences{application="payment-service"}) > 0
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "FULL 대조에서 파생 캐시 차이 발견"
+          action: "FULL_REBASELINE 감사 기록의 이전·새 generation과 차이 샘플 확인"
