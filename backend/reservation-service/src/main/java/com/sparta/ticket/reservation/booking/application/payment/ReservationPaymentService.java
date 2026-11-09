@@ -11,6 +11,7 @@ import com.sparta.ticket.reservation.booking.application.payment.PaymentRequestT
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentCallGuard;
 import com.sparta.ticket.reservation.booking.application.port.PaymentCallGuard.Call;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmSettings;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPrepareRequest;
 import com.sparta.ticket.reservation.booking.application.port.PreparedPayment;
@@ -35,6 +36,7 @@ public class ReservationPaymentService {
     private final PaymentResultApplier resultApplier;
     private final PaymentPort paymentPort;
     private final PaymentCallGuard paymentCallGuard;
+    private final PaymentConfirmSettings confirmSettings;
 
     /**
      * 결제를 준비한다. 상태는 HOLD 그대로이고, 고른 쿠폰을 예약에 잡은 뒤 새 orderId와 결제 금액을 기록한다.
@@ -118,6 +120,9 @@ public class ReservationPaymentService {
      * 같은 승인이 다시 와도 막혀 있는 동안은 503이다. 지금 상태는 조회 API로 본다.
      */
     public ReservationResult confirm(UserContext user, Long reservationId, ConfirmCommand command) {
+        if (confirmSettings.viaMessage()) {
+            return confirmByMessage(user, reservationId, command);
+        }
         Call call = paymentCallGuard.start();
         try {
             PaymentStart start = transactions.startPayment(user.userId(), reservationId, command);
@@ -144,6 +149,16 @@ public class ReservationPaymentService {
             call.skipped();
             throw e;
         }
+    }
+
+    /**
+     * 결제 중으로 바꾸며 승인 요청을 같은 트랜잭션에 남기고 바로 답한다. payment를 기다리지 않으므로 요청 스레드를 PG 시간만큼 잡지 않고,
+     * 결제 호출 보호(PaymentCallGuard)를 거치지 않아 payment가 느려도 503으로 돌려보내지 않는다. 결과는 결과 메시지로 받는다.
+     */
+    private ReservationResult confirmByMessage(UserContext user, Long reservationId, ConfirmCommand command) {
+        return transactions
+                .startPaymentByMessage(user.userId(), reservationId, command, confirmSettings.window())
+                .current();
     }
 
     private ConfirmOutcome requestConfirm(Call call, ConfirmCommand command, long amount) {

@@ -4,6 +4,7 @@ import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.payment.PaymentResultApplier;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmSettings;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentPort;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileTransactions.PendingPayment;
@@ -29,6 +30,7 @@ public class PaymentReconcileService {
     private final PaymentPort paymentPort;
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
+    private final PaymentConfirmSettings confirmSettings;
 
     /**
      * threshold 이상 결제 중인 예약을 한 묶음 확인하고, 상태가 바뀐 건수를 돌려준다.
@@ -40,7 +42,8 @@ public class PaymentReconcileService {
         LocalDateTime now = changeStamps.now();
         LocalDateTime staleBefore = now.minus(threshold);
         int changed = 0;
-        for (Long reservationId : reservationRepository.findStalePaymentIds(staleBefore, batchSize)) {
+        for (Long reservationId :
+                reservationRepository.findStalePaymentIds(staleBefore, now.minus(confirmSettings.grace()), batchSize)) {
             if (System.nanoTime() > deadline) {
                 break;
             }
@@ -65,7 +68,10 @@ public class PaymentReconcileService {
         PaymentLookup lookup = paymentPort.find(pending.orderId());
         return switch (lookup.status()) {
             case SUCCEEDED, FAILED -> resultApplier.apply(reservationId, pending.orderId(), lookup.toOutcome());
-            case NOT_RECEIVED -> System.nanoTime() <= deadline && resend(pending);
+            case NOT_RECEIVED ->
+                pending.requestedByMessage()
+                        ? failUnreceived(pending)
+                        : System.nanoTime() <= deadline && resend(pending);
             case IN_PROGRESS -> false;
             case UNKNOWN_ORDER -> {
                 log.error(
@@ -77,7 +83,20 @@ public class PaymentReconcileService {
         };
     }
 
-    /** payment가 승인 요청을 받지 못했다. 같은 orderId, 인증값, 금액으로 다시 보낸다. payment는 orderId 기준으로 멱등이다. */
+    /**
+     * 메시지로 요청한 승인이 시한과 여유 시간이 지나도록 payment에 닿지 않았다. payment는 시한이 지난 요청에 PG를 부르지 않으므로
+     * 돈이 오가지 않은 것으로 보고 실패로 끝낸다. 인증값을 남기지 않았고, 다시 보내도 시한이 지나 PG를 부르지 않으므로 보내지 않는다.
+     */
+    private boolean failUnreceived(PendingPayment pending) {
+        metrics.unreceivedConfirm();
+        log.warn(
+                "메시지로 요청한 승인이 시한까지 payment에 닿지 않아 실패로 끝낸다. reservationId={}, orderId={}",
+                pending.reservationId(),
+                pending.orderId());
+        return resultApplier.apply(pending.reservationId(), pending.orderId(), ConfirmOutcome.failed());
+    }
+
+    /** payment가 동기 승인 요청을 받지 못했다. 같은 orderId, 인증값, 금액으로 다시 보낸다. payment는 orderId 기준으로 멱등이다. */
     private boolean resend(PendingPayment pending) {
         metrics.resentConfirm();
         ConfirmOutcome outcome;

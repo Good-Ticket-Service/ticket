@@ -55,6 +55,12 @@ public interface ReservationRepository {
      */
     int startPayment(Long id, Long userId, String orderId, String pgAuthToken, ChangeStamp stamp);
 
+    /**
+     * 메시지로 승인을 요청하며 HOLD → PAYMENT_IN_PROGRESS. 조건은 startPayment와 같다.
+     * 인증값은 남기지 않고 승인 시한을 남긴다. 결과 확인은 이 시한 뒤에만 묻는다.
+     */
+    int startPaymentByMessage(Long id, Long userId, String orderId, LocalDateTime confirmBefore, ChangeStamp stamp);
+
     /** PAYMENT_IN_PROGRESS → CONFIRMED. 결과의 orderId가 지금 시도일 때만 바꾼다. */
     int confirm(Long id, String orderId, ChangeStamp stamp);
 
@@ -116,8 +122,12 @@ public interface ReservationRepository {
     /** 넘긴 id 중 결제 중인 예약의 id. 빈 목록을 넘기지 않는다. */
     List<Long> findPaymentInProgressIds(Collection<Long> ids);
 
-    /** 결과 확인 스케줄러가 확인한 시각을 남긴다. checkedBefore 뒤로 이미 집은 인스턴스가 있으면 0행이다. 상태와 감사 컬럼은 바꾸지 않는다. */
-    int markPaymentChecked(Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore);
+    /**
+     * 결과 확인 스케줄러가 확인한 시각을 남긴다. checkedBefore 뒤로 이미 집은 인스턴스가 있으면 0행이다.
+     * 메시지로 요청한 승인은 시한이 requestedBefore 이전일 때만 집는다. 상태와 감사 컬럼은 바꾸지 않는다.
+     */
+    int markPaymentChecked(
+            Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore, LocalDateTime requestedBefore);
 
     /**
      * 결제 중인 지금 시도가 성공했는데 확정하지 못했다고 기록한다. 이미 기록됐으면 0행이다.
@@ -128,8 +138,11 @@ public interface ReservationRepository {
     /** 시간이 지난 HOLD를 오래된 순으로 고른다. 잠그지 않는다. */
     List<Long> findExpiredHoldIds(LocalDateTime now, int limit);
 
-    /** updatedBefore보다 먼저 결제 중이 된 예약을 오래 확인하지 않은 순으로 고른다. 환불이 필요하다고 기록된 예약은 빼고, 잠그지 않는다. */
-    List<Long> findStalePaymentIds(LocalDateTime updatedBefore, int limit);
+    /**
+     * updatedBefore보다 먼저 결제 중이 된 예약을 오래 확인하지 않은 순으로 고른다. 메시지로 요청한 승인은 시한이 requestedBefore
+     * 이전인 것만 고른다. 환불이 필요하다고 기록된 예약은 빼고, 잠그지 않는다.
+     */
+    List<Long> findStalePaymentIds(LocalDateTime updatedBefore, LocalDateTime requestedBefore, int limit);
 
     long countPaymentsInProgress();
 
