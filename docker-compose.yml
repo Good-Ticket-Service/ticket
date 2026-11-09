@@ -64,7 +64,7 @@ services:
       retries: 10
     networks: [ticket-data]
 
-  # 좌석 선점·대기열·캐시용. 데이터는 컨테이너 안에만 둔다(로컬 개발용). 컨테이너를 다시 만들면 사라진다.
+  # 좌석 선점·쿠폰·대기열용. 데이터는 컨테이너 안에만 둔다(로컬 개발용). 컨테이너를 다시 만들면 사라진다.
   redis:
     image: redis:7.4
     ports:
@@ -239,7 +239,24 @@ services:
     environment:
       <<: *service-env
       RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD}
+
+  # 대기열(room·순번·입장 토큰). Redis만 쓰고 DB·Kafka는 쓰지 않는다(#298)
+  waiting-room-service:
+    <<: *app
+    build:
+      context: ./backend
+      args: { MODULE: waiting-room-service }
+    networks: [ticket-net, ticket-data]
+    environment:
+      <<: *service-env
       QUEUE_TOKEN_SECRET: ${QUEUE_TOKEN_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
 
   payment-service:
     <<: *db-service
