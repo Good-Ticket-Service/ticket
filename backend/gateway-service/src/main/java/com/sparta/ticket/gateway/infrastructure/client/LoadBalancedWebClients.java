@@ -8,7 +8,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
 /**
- * Eureka 서비스 이름으로 다른 서비스를 부르는 WebClient를 만든다. user-service·reservation-service 클라이언트가 같이 쓴다.
+ * Eureka 서비스 이름으로 다른 서비스를 부르는 WebClient를 만든다. user-service·waiting-room-service 클라이언트가 같이 쓴다.
  *
  * Note: Boot가 만든 WebClient.Builder를 복제(clone)해서 쓴다. @LoadBalanced WebClient.Builder 빈을 새로 정의하면 Boot 기본 빌더가
  * 사라지고, 그 빌더에 baseUrl을 지정하면 같은 빈을 주입받는 다른 코드까지 그 서비스 주소를 갖게 된다.

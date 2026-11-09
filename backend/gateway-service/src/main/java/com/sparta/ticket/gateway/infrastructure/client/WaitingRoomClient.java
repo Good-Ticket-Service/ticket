@@ -9,7 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 /**
- * reservation-service 대기열의 보호 대상 목록(GET /internal/waiting-rooms/scopes) 호출.
+ * waiting-room-service의 보호 대상 목록(GET /internal/waiting-rooms/scopes) 호출.
  * 내부 API라 응답이 ApiResponse로 감싸져 있지 않다. 실패는 모두 에러로 넘기고, 마지막 목록을 계속 쓸지는 ProtectedScopes가 정한다.
  */
 @RequiredArgsConstructor

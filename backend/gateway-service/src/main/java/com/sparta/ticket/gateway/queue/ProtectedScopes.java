@@ -13,7 +13,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
 
 /**
- * 대기열이 보호하는 scope 목록. 기동하면 바로 한 번, 그 뒤 정해진 간격마다 reservation-service에서 받아 메모리에 둔다.
+ * 대기열이 보호하는 scope 목록. 기동하면 바로 한 번, 그 뒤 정해진 간격마다 waiting-room-service에서 받아 메모리에 둔다.
  * 좌석 요청마다 대기열 서비스를 부르지 않으려는 것이다. room은 생성 뒤 바뀌지 않고 openAt이 지금 + 1분 이후라 오픈 전에 목록에 들어온다.
  *
  * Note: 받기에 실패하면 마지막 목록을 그대로 쓰고 다음 간격에 다시 받는다. 한 번도 받지 못했으면 UNKNOWN이고, 검사하는 쪽은
