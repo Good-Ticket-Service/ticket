@@ -1,0 +1,74 @@
+package com.sparta.ticket.reservation.seat.infrastructure.cache;
+
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * 좌석 배치도 스냅샷을 뒤에서 다시 만드는(refresh) 전용 스레드(#311). Caffeine의 정리 작업(만료·상한 초과 제거)도 이 스레드에서 돈다.
+ *
+ * Note: Executor를 구현하지 않는 래퍼다. Executor 타입 빈이 하나라도 있으면 Spring Boot가 기본 applicationTaskExecutor를
+ * 만들지 않는다(TaskExecutorConfigurations.OnExecutorCondition). 이 스레드는 캐시 전용이라 다른 곳에서 주입받지 못하게 감춘다.
+ */
+public final class SeatSnapshotRefreshExecutor {
+
+    /**
+     * 스레드 수. 측정으로 조정하는 값이 아니라 refresh가 동시에 쓰는 DB 연결 수(Hikari 최대 10)를 묶는 안전장치라 상수로 둔다.
+     * 동시에 다시 만드는 스냅샷 수도 이 값으로 묶여, refresh 중 캐시 밖에 잠깐 더 있는 스냅샷도 최대 이만큼이다(MAX_CACHED_SEATS 참고).
+     */
+    static final int THREADS = 2;
+
+    /**
+     * 대기 작업 수 상한. 같은 회차의 refresh는 Caffeine이 하나로 합치므로 대기 작업 수는 동시에 갱신할 회차 수를 넘지 않는다.
+     * 넘치면 AbortPolicy로 거절한다. 거절되면 Caffeine이 기존 스냅샷을 그대로 주고 다음 요청에서 다시 시도하며,
+     * cache-max-age(5초)가 지나면 요청이 직접 로딩한다. 정리 작업이 거절되면 Caffeine이 호출한 스레드에서 실행한다.
+     */
+    static final int QUEUE_CAPACITY = 16;
+
+    private final Executor executor;
+    private final Runnable shutdown;
+
+    private SeatSnapshotRefreshExecutor(Executor executor, Runnable shutdown) {
+        this.executor = executor;
+        this.shutdown = shutdown;
+    }
+
+    /** 운영용 전용 스레드 seat-snapshot-refresh-N. */
+    public static SeatSnapshotRefreshExecutor dedicatedThreads() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+                THREADS,
+                THREADS,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(QUEUE_CAPACITY),
+                namedThreads(),
+                new ThreadPoolExecutor.AbortPolicy());
+        return new SeatSnapshotRefreshExecutor(pool, pool::shutdown);
+    }
+
+    /** 테스트용. refresh와 정리 작업을 테스트가 정한 executor에서 실행해, 스레드를 기다리지 않고 확인한다. 종료할 것이 없다. */
+    public static SeatSnapshotRefreshExecutor using(Executor executor) {
+        return new SeatSnapshotRefreshExecutor(executor, () -> {});
+    }
+
+    Executor executor() {
+        return executor;
+    }
+
+    /** 빈을 없앨 때 부른다(destroyMethod). 대기 중인 refresh는 마저 끝내고 새 작업은 거절한다. */
+    public void shutdown() {
+        shutdown.run();
+    }
+
+    private static ThreadFactory namedThreads() {
+        AtomicInteger sequence = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable, "seat-snapshot-refresh-" + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+}
