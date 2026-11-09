@@ -149,15 +149,18 @@ public class PaymentTransactions {
                 return;
             }
             if (payment.getStatus() == PaymentStatus.FAILED) {
+                payment.recordPgApproval(approved.at(), approved.amount());
                 ensureRefund(payment, approved.amount(), now, approved.at());
                 log.error("종료된 결제의 늦은 승인. 자동 취소가 필요하다. paymentId={}", paymentId);
             } else if (approved.amount() != payment.getAmount()) {
+                payment.recordPgApproval(approved.at(), approved.amount());
                 payment.fail(PaymentFailureCode.AMOUNT_MISMATCH, "PG_APPROVED_AMOUNT_MISMATCH");
                 payment.recordFailure(now, reconcileProperties.schedule());
                 ensureRefund(payment, approved.amount(), now, approved.at());
                 resultPublisher.paymentFinalized(payment);
             } else {
                 payment.approve(approved.transactionId(), approved.at());
+                payment.recordPgApproval(approved.at(), approved.amount());
                 observation.counter(
                         "payment.approved", "provider", payment.getPgProvider().name());
                 if (payment.getConfirmRequestedAt() != null)

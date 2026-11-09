@@ -169,10 +169,18 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                     FROM p_ledger_transactions t JOIN p_ledger_entries e ON e.transaction_id = t.id
                     WHERE t.source_type = 'PAYOUT' AND t.action = 'DONE'
                     GROUP BY t.source_id) j ON j.payout_id = p.id
+                LEFT JOIN (
+                    SELECT t.source_id AS payout_id,count(DISTINCT t.id) AS journals,
+                      coalesce(sum(e.credit-e.debit) FILTER(WHERE e.account='CASH'),0) AS cash,
+                      coalesce(sum(e.debit-e.credit) FILTER(WHERE e.account='PAYOUT_CLEARING'),0) AS clearing
+                    FROM p_ledger_transactions t JOIN p_ledger_entries e ON e.transaction_id=t.id
+                    WHERE t.source_type='PAYOUT_CASH' GROUP BY t.source_id) c ON c.payout_id=p.id
                 WHERE (p.status = 'DONE') <> (s.status = 'PAID')
                    OR (p.status = 'DONE' AND (j.payout_id IS NULL OR j.journals <> 1
                        OR j.payable <> p.amount OR j.clearing <> p.amount))
                    OR (p.status <> 'DONE' AND j.payout_id IS NOT NULL)
+                   OR (p.status='DONE' AND (c.payout_id IS NULL OR c.journals<>1 OR c.cash<>p.amount OR c.clearing<>p.amount))
+                   OR (p.status<>'DONE' AND c.payout_id IS NOT NULL)
                 """);
         // 판매자별 미지급 잔액(SELLER_PAYABLE 대변 − 차변) = 아직 발행 안 한 SALE(PENDING·HELD)의 N + 미지급 정산서(ISSUED) 지급액
         CHECKS.put("SELLER_PAYABLE_BALANCE", """
@@ -205,8 +213,51 @@ public class SettlementReconcileJdbcAdapter implements SettlementReconcileReposi
                 SELECT 0 FROM (
                     SELECT coalesce((SELECT sum(e.credit - e.debit) FROM p_ledger_entries e
                                      WHERE e.account = 'PAYOUT_CLEARING'), 0) AS balance,
-                           coalesce((SELECT sum(amount) FROM p_payouts WHERE status = 'DONE'), 0) AS expected) c
+                           coalesce((SELECT sum(amount) FROM p_payouts WHERE status = 'DONE'), 0)
+                             - coalesce((SELECT sum(e.debit) FROM p_ledger_entries e
+                               JOIN p_ledger_transactions t ON t.id=e.transaction_id
+                               WHERE t.source_type='PAYOUT_CASH' AND e.account='PAYOUT_CLEARING'),0) AS expected) c
                 WHERE c.balance <> c.expected
+                """);
+        CHECKS.put("PG_SETTLEMENT_JOURNAL", """
+                SELECT d.id FROM p_pg_settlement_days d LEFT JOIN (
+                  SELECT t.source_id,count(DISTINCT t.id) AS journals,
+                    sum(e.debit-e.credit) FILTER(WHERE e.account='CASH') AS cash,
+                    sum(e.debit-e.credit) FILTER(WHERE e.account='PG_FEE_EXPENSE') AS fee,
+                    sum(e.debit-e.credit) FILTER(WHERE e.account='PG_PAYABLE') AS payable
+                  FROM p_ledger_transactions t JOIN p_ledger_entries e ON e.transaction_id=t.id
+                  WHERE t.source_type='PG_SETTLEMENT' GROUP BY t.source_id) j ON j.source_id=d.id
+                WHERE d.status='POSTED' AND (coalesce(j.cash,0)<>d.payout OR coalesce(j.fee,0)<>d.fee
+                  OR coalesce(j.payable,0)<>d.carry_in-d.carry_out
+                  OR coalesce(j.journals,0)>1)
+                """);
+        CHECKS.put("PG_SUSPENSE_BALANCE", """
+                SELECT 0 FROM (SELECT coalesce((SELECT sum(e.credit-e.debit) FROM p_ledger_entries e
+                  WHERE e.account='PG_SUSPENSE'),0) AS actual,
+                  coalesce((SELECT sum(l.suspense_amount) FROM p_pg_settlement_lines l
+                    JOIN p_pg_settlement_days d ON d.id=l.day_id WHERE d.status='POSTED'),0) AS expected) b
+                WHERE b.actual<>b.expected
+                """);
+        CHECKS.put("PG_CLEARING_BALANCE", """
+                WITH actual AS (
+                  SELECT coalesce(p.pg_provider,d.provider,l.provider) AS provider,sum(e.debit-e.credit) AS amount
+                  FROM p_ledger_entries e JOIN p_ledger_transactions t ON t.id=e.transaction_id
+                  LEFT JOIN p_payments p ON p.id=t.payment_id
+                  LEFT JOIN p_pg_settlement_days d ON t.source_type='PG_SETTLEMENT' AND d.id=t.source_id
+                  LEFT JOIN p_pg_settlement_lines l ON t.source_type='PG_ADJUST' AND l.id=t.source_id
+                  WHERE e.account='PG_CLEARING' GROUP BY coalesce(p.pg_provider,d.provider,l.provider)),
+                expected AS (
+                  SELECT provider,sum(amount) AS amount FROM (
+                    SELECT p.pg_provider AS provider,p.amount::bigint AS amount FROM p_payments p
+                    WHERE EXISTS(SELECT 1 FROM p_ledger_transactions t WHERE t.source_type='SALE' AND t.source_id=p.id)
+                    UNION ALL
+                    SELECT p.pg_provider,-r.refund_amount::bigint FROM p_refunds r JOIN p_payments p ON p.id=r.payment_id
+                    WHERE EXISTS(SELECT 1 FROM p_ledger_transactions t WHERE t.source_type='REFUND' AND t.source_id=r.id)
+                    UNION ALL
+                    SELECT l.provider,-l.clearing_amount FROM p_pg_settlement_lines l
+                    JOIN p_pg_settlement_days d ON d.id=l.day_id WHERE d.status='POSTED') x GROUP BY provider)
+                SELECT hashtext(coalesce(a.provider,e.provider))::bigint FROM actual a FULL JOIN expected e ON e.provider=a.provider
+                WHERE coalesce(a.amount,0)<>coalesce(e.amount,0)
                 """);
     }
 
