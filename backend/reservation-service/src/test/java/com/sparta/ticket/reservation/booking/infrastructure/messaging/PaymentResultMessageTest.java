@@ -70,6 +70,13 @@ class PaymentResultMessageTest {
     }
 
     @Test
+    @DisplayName("본문이 없는 메시지는 끝없이 재시도하지 않도록 해석 불가로 거른다")
+    void rejectsNullPayload() {
+        assertThatThrownBy(() -> PaymentResultMessage.parse(null, objectMapper))
+                .isInstanceOf(InvalidPaymentResultMessage.class);
+    }
+
+    @Test
     @DisplayName("저장할 수 없는 길이의 eventId와 orderId는 해석 불가로 거른다")
     void rejectsTooLongIds() {
         String longEventId = VALID.replace("\"e-1\"", "\"" + "e".repeat(37) + "\"");
