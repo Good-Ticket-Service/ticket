@@ -62,3 +62,5 @@ CREATE TABLE p_user_coupons
 CREATE UNIQUE INDEX uk_p_user_coupons_reservation ON p_user_coupons (reservation_id) WHERE reservation_id IS NOT NULL;
 -- 만료 배치가 기간이 지난 AVAILABLE 쿠폰을 찾는다
 CREATE INDEX ix_p_user_coupons_expire ON p_user_coupons (expires_at) WHERE status = 'AVAILABLE';
+-- 쿠폰별 받은 회원 조회·개수(Redis 다시 채우기, 남은 수량 대체 계산, 맞추는 작업). UNIQUE (user_id, coupon_id)는 user_id가 앞이라 쓰지 못한다(#323)
+CREATE INDEX ix_p_user_coupons_coupon_user ON p_user_coupons (coupon_id, user_id);
