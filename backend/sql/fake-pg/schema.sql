@@ -88,3 +88,13 @@ CREATE TABLE IF NOT EXISTS pg_payout
     CONSTRAINT ck_pg_payout_outcome CHECK (outcome IN ('COMPLETED', 'FAILED')),
     CONSTRAINT ck_pg_payout_failure CHECK ((outcome = 'FAILED') = (failure_code IS NOT NULL))
 );
+
+-- 정산 명세 조회의 승인·취소 기간 후보 탐색.
+CREATE INDEX IF NOT EXISTS ix_pg_transaction_settlement_approval ON pg_transaction(provider,approved_at)
+    WHERE approved_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_pg_transaction_settlement_cancel ON pg_transaction(provider,canceled_at)
+    WHERE canceled_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_pg_settlement_approval_cursor ON pg_transaction(provider,((payment_key||':APPROVAL') COLLATE "C"))
+    WHERE approved_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_pg_settlement_cancel_cursor ON pg_transaction(provider,((payment_key||':CANCEL') COLLATE "C"))
+    WHERE canceled_at IS NOT NULL;
