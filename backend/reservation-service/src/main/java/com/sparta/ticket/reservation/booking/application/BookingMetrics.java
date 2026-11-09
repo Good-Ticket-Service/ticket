@@ -18,6 +18,9 @@ public class BookingMetrics {
     private final Counter resentRefunds;
     private final Counter unknownRefundOrders;
     private final Counter unconfirmedRefunds;
+    private final Counter paymentResultsApplied;
+    private final Counter paymentResultDeadLetters;
+    private final Counter paymentResultDeliveryFailures;
     private final Counter scheduleCancelDeadLetters;
     private final Counter scheduleCancelDeliveryFailures;
     private final AtomicLong confirmedAfterCompleted = new AtomicLong();
@@ -48,6 +51,15 @@ public class BookingMetrics {
                 .register(registry);
         this.unconfirmedRefunds = Counter.builder("reservation.payment.unconfirmed_refunded")
                 .description("결제는 성공했는데 확정하지 못해, payment가 환불 요청을 받고 CANCELED로 끝낸 예약 수")
+                .register(registry);
+        this.paymentResultsApplied = Counter.builder("reservation.payment_result.applied")
+                .description("payment의 결과 메시지로 예약 상태를 바꾼 수. 승인 응답이나 결과 확인이 먼저 반영한 결과는 세지 않는다")
+                .register(registry);
+        this.paymentResultDeadLetters = Counter.builder("reservation.payment_result.dead_letter")
+                .description("해석하지 못해 DLT로 옮긴 결제 결과 메시지 수. 그 결제는 결과 확인 스케줄러가 끝내므로 빠른 전달만 잃는다")
+                .register(registry);
+        this.paymentResultDeliveryFailures = Counter.builder("reservation.payment_result.delivery_failed")
+                .description("결제 결과 메시지 처리 실패 수. 계속 늘면 재시도로 파티션이 멈춘 것이다")
                 .register(registry);
         this.scheduleCancelDeadLetters = Counter.builder("reservation.schedule_cancel.dead_letter")
                 .description("해석하지 못해 DLT로 옮긴 회차 취소 메시지 수. 그 회차는 예약 정리가 시작되지 않으므로 관리자가 확인한다")
@@ -96,6 +108,18 @@ public class BookingMetrics {
 
     public void unconfirmedRefunded() {
         unconfirmedRefunds.increment();
+    }
+
+    public void paymentResultApplied() {
+        paymentResultsApplied.increment();
+    }
+
+    public void paymentResultDeadLetter() {
+        paymentResultDeadLetters.increment();
+    }
+
+    public void paymentResultDeliveryFailed() {
+        paymentResultDeliveryFailures.increment();
     }
 
     public void scheduleCancelDeadLetter() {

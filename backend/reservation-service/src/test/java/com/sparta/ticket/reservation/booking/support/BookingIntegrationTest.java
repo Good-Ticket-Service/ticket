@@ -49,6 +49,7 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
         jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         jdbcTemplate.update("DELETE FROM p_schedule_cancellations");
+        jdbcTemplate.update("DELETE FROM p_payment_result_events");
         coupons.reset();
         couponPort.reset();
         clock.set(BookingTestConfig.START_TIME);

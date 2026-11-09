@@ -105,3 +105,14 @@ CREATE TABLE p_schedule_cancellations
 
     CONSTRAINT ck_p_schedule_cancellations_status CHECK (status IN ('RECEIVED', 'COMPLETED'))
 );
+
+-- payment가 보낸 결제 결과 메시지. 같은 eventId를 두 번 반영하지 않는다.
+-- 받은 시각을 남겨, payment가 결과를 정한 뒤 예약이 그 결과를 알기까지 걸린 시간을 메시지 단위로 잰다
+CREATE TABLE p_payment_result_events
+(
+    event_id       VARCHAR(36) PRIMARY KEY,
+    order_id       VARCHAR(64) NOT NULL,
+    reservation_id BIGINT      NOT NULL,
+    occurred_at    TIMESTAMP   NOT NULL,
+    received_at    TIMESTAMP   NOT NULL
+);
