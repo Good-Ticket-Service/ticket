@@ -190,9 +190,10 @@ class CaffeineSelectableSeatCacheTest {
     }
 
     @Test
-    @DisplayName("refresh 전용 스레드가 모두 바쁘고 큐가 차서 거절하면, 요청 스레드에서 조회하지 않고 기존 스냅샷을 준다. 다음 요청이 다시 시도한다")
+    @DisplayName("refresh 전용 스레드가 모두 바쁘고 큐가 차서 거절하면, 요청 스레드에서 조회하지 않고 기존 스냅샷을 주며 거절 수를 남긴다. " + "다음 요청이 다시 시도한다")
     void rejectedRefreshKeepsOldValue() throws Exception {
-        SeatSnapshotRefreshExecutor refreshExecutor = SeatSnapshotRefreshExecutor.dedicatedThreads();
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        SeatSnapshotRefreshExecutor refreshExecutor = SeatSnapshotRefreshExecutor.dedicatedThreads(meters);
         CountDownLatch busy = new CountDownLatch(1);
         try {
             CaffeineSelectableSeatCache saturated = cache(refreshExecutor.executor());
@@ -209,9 +210,11 @@ class CaffeineSelectableSeatCacheTest {
             assertThat(fillUntilRejected(refreshExecutor, block))
                     .isLessThanOrEqualTo(SeatSnapshotRefreshExecutor.QUEUE_CAPACITY);
             ticker.advance(PAST_REFRESH);
+            double rejectedBefore = rejected(meters); // 위에서 채우다 거절된 테스트 작업도 세어져 있다
 
             assertThat(saturated.get(1L)).isSameAs(first);
             assertThat(loads).hasValue(1);
+            assertThat(rejected(meters)).isGreaterThan(rejectedBefore);
 
             CountDownLatch reloaded = new CountDownLatch(1);
             nextLoad = id -> {
@@ -342,6 +345,12 @@ class CaffeineSelectableSeatCacheTest {
         }
         // 세 회차가 모두 남아 있다면 다시 조회가 0번이어야 한다. 하나 이상 버려졌어야 한다
         assertThat(loads.get() - before).isPositive();
+    }
+
+    private static double rejected(SimpleMeterRegistry meters) {
+        return meters.get("reservation.seat.snapshot.refresh.rejected")
+                .counter()
+                .count();
     }
 
     /** 거절될 때까지 작업을 넣고, 넣은 개수를 돌려준다. */
