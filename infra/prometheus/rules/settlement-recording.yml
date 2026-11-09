@@ -112,6 +112,12 @@ groups:
             settlement_reconcile_violations{application="payment-service"}
             and on (instance) payment:observation_fresh_age_seconds
           )
+      - record: settlement:reconcile_check_incomplete:max
+        expr: |
+          max by (check) (
+            settlement_reconcile_check_incomplete{application="payment-service"}
+            and on (instance) payment:observation_fresh_age_seconds
+          )
       - record: settlement:reconcile_last_failed:max
         expr: |
           max(
