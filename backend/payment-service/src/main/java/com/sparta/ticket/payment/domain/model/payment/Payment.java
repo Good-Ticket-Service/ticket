@@ -103,6 +103,19 @@ public class Payment extends BaseEntity {
 
     private LocalDateTime approvedAt;
 
+    /** FAILED로 끝난 늦은 과금도 대사할 수 있도록 PG에서 확인한 승인 사실을 보존한다. */
+    private LocalDateTime pgApprovedAt;
+
+    private Integer pgApprovedAmount;
+
+    public void recordPgApproval(LocalDateTime at, int approvedAmount) {
+        if (at == null || approvedAmount <= 0) throw new IllegalArgumentException("PG 승인 사실이 올바르지 않다");
+        if (pgApprovedAt == null) {
+            pgApprovedAt = at;
+            pgApprovedAmount = approvedAmount;
+        }
+    }
+
     /** 최초 실패 확정 시각. 후속 조회·환불 반영으로 변경하지 않는다. */
     private LocalDateTime failedAt;
 

@@ -5,5 +5,8 @@ public enum LedgerSourceType {
     SALE,
     REFUND,
     STATEMENT,
-    PAYOUT
+    PAYOUT,
+    PG_SETTLEMENT,
+    PG_ADJUST,
+    PAYOUT_CASH
 }

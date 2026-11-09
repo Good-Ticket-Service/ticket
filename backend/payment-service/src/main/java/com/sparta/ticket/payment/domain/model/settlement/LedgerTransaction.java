@@ -52,7 +52,6 @@ public class LedgerTransaction extends BaseEntity {
     @Column(nullable = false, length = 20)
     private LedgerAction action;
 
-    @Column(nullable = false)
     private Long sellerId;
 
     private Long paymentId;
@@ -89,7 +88,8 @@ public class LedgerTransaction extends BaseEntity {
             LocalDateTime occurredAt,
             List<LedgerLine> lines) {
         Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(sellerId, "sellerId");
+        if (key.sourceType() != LedgerSourceType.PG_SETTLEMENT && key.sourceType() != LedgerSourceType.PG_ADJUST)
+            Objects.requireNonNull(sellerId, "sellerId");
         Objects.requireNonNull(occurredAt, "occurredAt");
         if (lines.isEmpty()) throw new IllegalArgumentException("줄이 없는 분개는 만들지 않는다");
         long debit = 0;
@@ -130,7 +130,7 @@ public class LedgerTransaction extends BaseEntity {
      */
     public boolean sameMeaningAs(LedgerTransaction other) {
         return key().equals(other.key())
-                && sellerId.equals(other.sellerId)
+                && Objects.equals(sellerId, other.sellerId)
                 && Objects.equals(paymentId, other.paymentId)
                 && Objects.equals(refundId, other.refundId)
                 && Objects.equals(statementId, other.statementId)
