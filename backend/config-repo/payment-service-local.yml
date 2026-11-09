@@ -1,0 +1,7 @@
+# 결제 원장·Batch·JDBC 운영 테이블은 공식 SQL로 생성한다. 로컬 재기동도 금융 기록을 지우지 않는다.
+# Compose의 빈 DB는 infra/postgres/init.sh가 payment_app으로 schema.sql을 적용한다.
+# 기존 DB는 필요한 이행을 먼저 적용한다(docs/infra.md).
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate

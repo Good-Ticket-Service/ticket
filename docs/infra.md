@@ -246,6 +246,11 @@ flowchart LR
 - Config: `backend/config-repo/{서비스}.yml`, 공통 `application.yml`, 로컬 `application-local.yml`. 앱의 `application.yml`은 이름과 config import 중심이다. fake-pg는 Config·Eureka·common에 의존하지 않는다.
 - 서버별 `compose.edge/core/data.yml`과 기동·중지 워크플로는 구현·존재를 확인한 뒤 사용한다. 현재 루트 `docker-compose.yml`을 서버 배포 완료 증거로 보지 않는다. Config 파일은 config-server 이미지에 포함되므로 바꾸면 재빌드·재배포가 필요하다.
 - 데이터 초기화·볼륨 삭제는 승인 없이 하지 않는다. 운영 DB에서 `ddl-auto: create`를 쓰지 않는다. DDL 이행·백업·복원 뒤에는 미완료 작업 보존과 PG 재대조를 확인한다(실제 과금 운영 전 검증 항목).
+
+- 결제 서비스는 local에서도 `payment-service-local.yml`의 `ddl-auto: validate`를 사용한다(#317). 금융 원장과 JDBC 운영 테이블·트리거·Batch 메타데이터를 재기동 때 보존하기 위한 예외다. 다른 서비스의 local 기본 create는 유지한다.
+- 기본 Compose의 빈 PostgreSQL은 `infra/postgres/init.sh`가 마운트된 결제 `schema.sql`을 `SET ROLE payment_app`으로 적용한다. 새 DB는 현재 schema.sql만 적용하며 이행을 다시 실행할 필요가 없다.
+- 기존 DB 볼륨에는 초기화 스크립트가 다시 실행되지 않는다. 결제 프로세스를 멈추고 필요한 이행을 payment_app으로 적용한 뒤 새 코드·validate 설정으로 기동한다. #316 적용 DB는 018→019→020 순서이며, PG 입금 회계 미적용 DB는 017도 먼저 필요하다. 볼륨을 지워 이행을 대신하지 않는다.
+- 대조 기준이 없거나 무효하면 최초 FULL을 수행한다. DB 복원·클러스터 이전 시 `p_reconcile_checkpoint.valid=false`로 무효화하고 FULL을 다시 수행한다. 기존 클러스터의 가시성 snapshot을 그대로 쓰지 않는다.
 - Gateway 현행 라우트(`backend/config-repo/gateway-service.yml`): `/api/auth/**`·`/api/users/**` → user, `/api/reservations/**`·`/api/coupons/**`·`/api/seats/**` → reservation, `/api/waiting-rooms/**`·`/api/admin/waiting-rooms/**` → waiting-room, `/api/v1/payments/**`·`/api/admin/payments/**`·`/api/admin/settlements/**`·`/api/seller/settlements/**`·`/api/seller/payout-account` → payment. 공연은 공개 조회 `/api/performances/**`·`/api/schedules/{scheduleId}`(한 단계)와 판매자·관리자 `/api/seller/performances/**`·`/api/seller/schedules/**`·`/api/seller/venues/**`·`/api/admin/venues/**`·`/api/admin/schedules/**`·`/api/admin/performances/**` → performance다(이슈 #134). `/api/v1/payments/**`는 현재 API 명세(`v1` 없음)와 다른 이전 라우트다.
 - 공연 판매자·관리자는 `/api/seller/**`·`/api/admin/**`로 넓히지 않고 리소스별로 나열한다. 넓히면 공연 라우트가 결제의 `/api/seller/settlements/**`·`/api/admin/payments/**`를 먼저 잡는다. 판매자·관리자 리소스를 새로 만들면 이 목록에 더한다.
 - 인증 제외(whitelist): 공개 공연 조회 `/api/performances/**`, 공개 회차 상세 `/api/schedules/*`, 공개 잔여석 `/api/seats/schedules/*/remaining`. 회차 단건은 한 단계 경로만 매칭해 `/api/schedules/{id}/queue`(reservation)와 겹치지 않는다(#115). 공연 판매자·관리자 경로는 인증이 필요하다.
