@@ -8,7 +8,7 @@ import org.hibernate.validator.constraints.time.DurationMin;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** 만료·결과 확인·취소 확인·회차 취소 정리·Outbox 발행 스케줄러 설정. 값은 config-repo/reservation-service.yml 한 곳에만 둔다. */
+/** 만료·결과 확인·취소 확인·회차 취소 정리·Outbox 발행·결제 중 집계 스케줄러 설정. 값은 config-repo/reservation-service.yml 한 곳에만 둔다. */
 @Validated
 @ConfigurationProperties(prefix = "reservation.booking.scheduler")
 public record BookingSchedulerProperties(
@@ -16,7 +16,8 @@ public record BookingSchedulerProperties(
         @Valid @NotNull PaymentReconcile paymentReconcile,
         @Valid @NotNull CancelReconcile cancelReconcile,
         @Valid @NotNull ScheduleCancel scheduleCancel,
-        @Valid @NotNull Outbox outbox) {
+        @Valid @NotNull Outbox outbox,
+        @Valid @NotNull PaymentBacklog paymentBacklog) {
 
     public record HoldExpiry(
             @NotNull Duration interval,
@@ -51,4 +52,7 @@ public record BookingSchedulerProperties(
             @NotNull Duration interval,
             @Positive int batchSize,
             @NotNull Duration sendTimeout) {}
+
+    /** @param interval 결제 중 예약 수를 다시 세는 간격. 폴링 간격이 이 값만큼 늦게 반응한다 */
+    public record PaymentBacklog(@NotNull Duration interval) {}
 }
