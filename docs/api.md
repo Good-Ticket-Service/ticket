@@ -606,6 +606,26 @@
 - 같은 사용자·commandId·입력은 최초 결과를 재현한다. 다른 입력/사용자는 409 PAYOUT_COMMAND_CONFLICT. 기대 version·attempt가 다르면 STALE, FAILED가 아니면 DENIED이며 둘 다 409 INVALID_STATUS_TRANSITION이고 명령 결과는 저장한다.
 - SellerReceivable=`{sellerId:long,receivable:long,openCount:int,oldestAt:datetime}`. 아직 상계하지 못한 차감(OPEN DEDUCTION)이 있는 판매자만, sellerId 오름차순(after/nextCursor는 sellerId).
 
+## 내부 정산 대조 운영 — payment-service (#317)
+
+상태: 결제 담당 설계 합의·구현 중. MASTER 인증과 ApiResponse를 사용한다.
+
+| Method URI | 요청 | 응답 |
+|---|---|---|
+| POST /api/admin/settlements/reconciliation/runs | businessDate:date, mode:FULL, commandId:UUID, reason:string(1~500) | executionId:long, status:string |
+| GET /api/admin/settlements/reconciliation/executions/{executionId} | 없음 | 실행 식별자·파라미터·Batch 상태·Step 상태·DB 실행/검사 결과·현재 기준 |
+| POST /api/admin/settlements/reconciliation/executions/{executionId}/retry | 없음 | 같은 JobInstance의 새 executionId·status |
+| POST /api/admin/settlements/reconciliation/executions/{executionId}/recover | reason:string(1~500), processTerminated:true | 같은 JobInstance의 새 executionId·status |
+
+- 수동 신규 요청은 FULL 점검이다. 같은 commandId는 같은 사용자·기준일·모드·사유에만 허용한다. 입력 충돌은 409 INVALID_STATUS_TRANSITION이다.
+- businessDate는 오늘 이전 또는 오늘이며, 실제 검사는 실행 시점 스냅샷이다. 기준일을 과거 상태 복원 시각으로 해석하지 않는다.
+- 완료·진행 중 요청의 중복 실행은 409다. 실패는 새 commandId로 우회하지 않고 retry로 같은 식별 파라미터를 재사용한다.
+- retry는 FAILED/STOPPED에만 허용한다. recover는 프로세스 종료를 확인한 STARTING/STARTED/STOPPING 잔류에만 허용한다. 대상 Job이 다르면 거부한다.
+- DB 검사가 정상이어도 외부 조회 불명으로 Job이 실패할 수 있다. db_valid·위반·미완료·외부 불명과 전체 Batch 상태를 구분한다.
+- 조회 JSON은 camelCase다. mode는 요청 모드, effectiveMode는 DB가 실제 사용한 모드다. runs에는 dbValid·technicalFailure·input/outputGeneration·후보/증분 수·DB/HTTP 시간·캐시 차이·기준 확정 사유가 있고 checks에는 검사별 completed·violations·sample·durationMs·error가 있다. baseline은 현재 공통 기준이다.
+- 정기 슬롯은 KST 03시 월~토 DAILY·일요일 FULL이다. 최초·무효 기준은 FULL로 전환한다. 기동 1분 후 최근 도래 슬롯을 확인하고 기술 실패만 30분 간격·최대 4회 재시도한다.
+- 은행 잔액·판매자 지급 정책은 변경하지 않는다. PG 05시 명세 Job과 별도다.
+
 ## PG 정산 대사 운영 — payment-service (#316)
 
 상태: 결제 담당 설계 합의, 구현 중. 은행 잔액과 대조하지 않으며 명세 지급액이 입금됐다고 가정한다.

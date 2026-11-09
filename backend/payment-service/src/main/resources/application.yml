@@ -79,7 +79,8 @@ payment:
       enabled: true
       recovery:
         enabled: true
-    # 매일 KST 03:00 정산 전체 대조(읽기 전용). 기동 1분 뒤에도 1회 돈다.
+    # KST 03시 내부 대조 Batch: 월~토 DAILY·일요일 FULL. 금융 원천은 읽고 파생 기준·결과만 기록한다.
+    # 기동 1분 뒤 최근 도래 슬롯을 보충하고, 매분 기술 실패의 제한 재시도를 확인한다.
     reconcile:
       enabled: true
       # 검사 SQL 하나의 제한 시간. 넘으면 그 검사만 미완료로 남기고 나머지를 계속하며, 실행은 FAILED다(#310)
