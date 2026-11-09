@@ -7,6 +7,7 @@ import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.DeleteMark;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.IssueDecision;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.TotalChange;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
@@ -22,6 +23,9 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
     /** DB 쿠폰과 겹치지 않는 큰 ID부터 쓴다. 이 테스트는 DB를 쓰지 않는다. */
     private static final AtomicLong IDS = new AtomicLong(9_000_000_000L + System.nanoTime() % 1_000_000);
 
+    /** 테스트 중에 지워지지 않을 만큼 긴 유효 시간. 유효 시간 자체를 보는 테스트만 따로 정한다. */
+    private static final Duration FAR = Duration.ofDays(1);
+
     @Autowired
     private CouponIssueGate gate;
 
@@ -31,7 +35,7 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
     /** 총 수량으로 정보를 만든 새 쿠폰 ID. */
     private long newCoupon(int totalQuantity) {
         long id = IDS.incrementAndGet();
-        gate.reset(id, totalQuantity);
+        gate.reset(id, totalQuantity, FAR);
         return id;
     }
 
@@ -99,11 +103,11 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("정보가 없으면 DB 값으로 채우고, 이미 있으면 그사이 기록된 회원을 덮지 않는다")
         void loadOnlyIfAbsent() {
             long id = IDS.incrementAndGet();
-            gate.loadIfAbsent(id, 3, false, List.of(1L, 2L));
+            gate.loadIfAbsent(id, 3, false, List.of(1L, 2L), FAR);
             gate.tryIssue(id, 3L, true);
 
             // 늦게 온 채우기가 옛 목록(회원 1, 2)으로 덮으면 회원 3이 사라진다
-            gate.loadIfAbsent(id, 3, false, List.of(1L, 2L));
+            gate.loadIfAbsent(id, 3, false, List.of(1L, 2L), FAR);
 
             assertThat(redis.opsForSet().members(CouponKeys.users(id))).containsExactlyInAnyOrder("1", "2", "3");
             assertThat(gate.tryIssue(id, 4L, true)).isEqualTo(IssueDecision.SOLD_OUT);
@@ -115,7 +119,7 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
             long id = IDS.incrementAndGet();
             List<Long> users = LongStream.rangeClosed(1, 2_500).boxed().toList();
 
-            gate.loadIfAbsent(id, 3_000, false, users);
+            gate.loadIfAbsent(id, 3_000, false, users, FAR);
 
             assertThat(redis.opsForSet().size(CouponKeys.users(id))).isEqualTo(2_500);
         }
@@ -126,9 +130,23 @@ class RedisCouponIssueGateIntegrationTest extends ReservationIntegrationTest {
             long id = newCoupon(1);
             gate.tryIssue(id, 1L, true);
 
-            gate.reset(id, 1);
+            gate.reset(id, 1, FAR);
 
             assertThat(gate.tryIssue(id, 1L, true)).isEqualTo(IssueDecision.ISSUED);
+        }
+
+        @Test
+        @DisplayName("새로 만들기와 다시 채우기는 정해 준 시간이 지나면 키가 지워지도록 유효 시간을 건다(#323)")
+        void setsTtl() {
+            long created = IDS.incrementAndGet();
+            long loaded = IDS.incrementAndGet();
+
+            gate.reset(created, 10, Duration.ofHours(1));
+            gate.loadIfAbsent(loaded, 10, false, List.of(1L), Duration.ofHours(1));
+
+            assertThat(redis.getExpire(CouponKeys.meta(created))).isBetween(3_590L, 3_600L);
+            assertThat(redis.getExpire(CouponKeys.meta(loaded))).isBetween(3_590L, 3_600L);
+            assertThat(redis.getExpire(CouponKeys.users(loaded))).isBetween(3_590L, 3_600L);
         }
     }
 

@@ -57,7 +57,9 @@ public class CouponService {
         // 커밋된 뒤 발급 판단용 Redis 정보를 받은 회원 0명으로 새로 만든다(같은 ID로 남은 이전 값을 지운다)
         // Note: 로컬은 ddl-auto: create라 재시작하면 쿠폰 ID가 1부터 다시 쓰이는데, Redis에는 이전 쿠폰의 회원이 남아 있다
         // Note: Redis 장애로 못 만들어도 생성은 성공으로 둔다. 첫 발급 때 DB에서 채운다(정보 키가 없을 때만)
-        afterCommit(() -> issueGate.reset(saved.getId(), saved.getTotalQuantity()));
+        // 키는 발급 종료 + 1일에 Redis가 지운다(#323)
+        afterCommit(
+                () -> issueGate.reset(saved.getId(), saved.getTotalQuantity(), issueState.ttl(saved.getIssueEndAt())));
         return CouponResult.of(saved, saved.getTotalQuantity(), now);
     }
 
@@ -83,7 +85,7 @@ public class CouponService {
         // 3) 총 수량이 바뀌었으면 Redis에서 받은 회원 수와 비교하고 바꾼다. 거절되면 예외로 DB 변경도 롤백된다
         int newTotal = coupon.getTotalQuantity();
         if (newTotal != oldTotal) {
-            changeTotal(couponId, oldTotal, newTotal);
+            changeTotal(coupon, oldTotal, newTotal);
         }
         return CouponResult.of(coupon, issueState.remainingQuantity(coupon), now);
     }
@@ -111,7 +113,7 @@ public class CouponService {
         // 1) Redis에서 받은 회원이 없을 때만 삭제 표시를 남긴다. 정보가 없으면 DB에서 채운 뒤 다시 한다
         DeleteMark mark = issueGate.markDeleted(couponId);
         if (mark == DeleteMark.NOT_LOADED) {
-            issueState.ensureLoaded(couponId, coupon.getTotalQuantity());
+            issueState.ensureLoaded(couponId, coupon.getTotalQuantity(), coupon.getIssueEndAt());
             mark = issueGate.markDeleted(couponId);
         }
         if (mark == DeleteMark.ISSUED_EXISTS) {
@@ -135,11 +137,12 @@ public class CouponService {
      * 커밋 결과를 모르면(STATUS_UNKNOWN) 두 값 중 작은 쪽으로 둔다. DB가 큰 값으로 저장됐다면 덜 발급될 뿐이고,
      * 작은 값으로 저장됐다면 그대로 맞다. 큰 쪽으로 두면 DB 총 수량보다 더 발급될 수 있다.
      */
-    private void changeTotal(Long couponId, int oldTotal, int newTotal) {
+    private void changeTotal(Coupon coupon, int oldTotal, int newTotal) {
+        Long couponId = coupon.getId();
         TotalChange change = issueGate.changeTotal(couponId, newTotal);
         if (change == TotalChange.NOT_LOADED) {
             // 채울 때는 DB에 아직 저장된 옛 총 수량으로 채운다(엔티티 값은 이미 새 값이다)
-            issueState.ensureLoaded(couponId, oldTotal);
+            issueState.ensureLoaded(couponId, oldTotal, coupon.getIssueEndAt());
             change = issueGate.changeTotal(couponId, newTotal);
         }
         if (change == TotalChange.BELOW_ISSUED) {

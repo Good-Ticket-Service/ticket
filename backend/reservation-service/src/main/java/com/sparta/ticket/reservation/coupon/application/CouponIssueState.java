@@ -4,6 +4,9 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -21,6 +24,12 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class CouponIssueState {
 
+    /**
+     * 발급이 끝난 뒤 발급 판단 정보(Redis 키)를 남겨 두는 시간(#323 D1). 이 시간이 지나면 Redis가 키를 지운다.
+     * 끝난 직후 늦게 온 요청과, 맞추는 작업이 마지막으로 맞출 시간을 두려고 1일로 둔다. 맞추는 작업의 대상 범위도 같은 기준이다.
+     */
+    public static final Duration RETENTION = Duration.ofDays(1);
+
     /** 쿠폰 ID로 고르는 잠금 묶음. 쿠폰마다 잠금 객체를 만들지 않고, 같은 쿠폰은 늘 같은 잠금을 쓴다. */
     private static final int LOCK_STRIPES = 64;
 
@@ -28,6 +37,7 @@ public class CouponIssueState {
 
     private final CouponIssueGate issueGate;
     private final UserCouponRepository userCouponRepository;
+    private final Clock clock;
 
     /**
      * 발급 판단 정보가 없으면 DB에서 채운다. 쿠폰은 있고 삭제되지 않은 것이어야 한다(호출자가 DB에서 읽은 쿠폰).
@@ -36,16 +46,30 @@ public class CouponIssueState {
      * 채우기는 "없을 때만"(load.lua)이라 결과는 같다.
      *
      * @param totalQuantity DB의 총 수량. 관리자 수정 중이면 바꾸기 전 값을 넘긴다
+     * @param issueEndAt 발급 종료 시각. 키를 지울 시각을 정한다
      */
-    public void ensureLoaded(Long couponId, int totalQuantity) {
+    public void ensureLoaded(Long couponId, int totalQuantity, LocalDateTime issueEndAt) {
         synchronized (loadLocks[Math.floorMod(couponId.hashCode(), LOCK_STRIPES)]) {
             // 앞서 기다리던 요청이 이미 채웠으면 DB를 읽지 않는다
             if (issueGate.isLoaded(couponId)) {
                 return;
             }
             List<Long> issuedUserIds = userCouponRepository.findUserIdsByCouponId(couponId);
-            issueGate.loadIfAbsent(couponId, totalQuantity, false, issuedUserIds);
+            issueGate.loadIfAbsent(couponId, totalQuantity, false, issuedUserIds, ttl(issueEndAt));
         }
+    }
+
+    /**
+     * 발급 판단 정보(Redis 키)를 남겨 둘 시간. 지금부터 발급 종료 시각 + 1일(RETENTION)까지다.
+     * Note: 지울 시각(EXPIREAT)이 아니라 남은 시간(EXPIRE)으로 건다. 시각은 서버 Clock과 Redis 서버 시계가 다르면 어긋난다
+     * (테스트는 Clock을 과거로 정해 두어 시각으로 걸면 키가 바로 지워진다).
+     * Note: 이미 끝난 쿠폰에 늦게 온 요청이 키를 다시 채울 때는 1일로 둔다. 0 이하를 걸면 채우자마자 지워져
+     * 다시 판단할 때 정보가 없어 503이 된다.
+     */
+    public Duration ttl(LocalDateTime issueEndAt) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime base = issueEndAt.isAfter(now) ? issueEndAt : now;
+        return Duration.between(now, base.plus(RETENTION));
     }
 
     /** 쿠폰 하나의 남은 수량. */
