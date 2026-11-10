@@ -6,10 +6,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.SQLRestriction;
 
 /**
@@ -24,7 +26,9 @@ import org.hibernate.annotations.SQLRestriction;
 public class VenueSeat extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "venueSeatSequence")
+    @SequenceGenerator(name = "venueSeatSequence", sequenceName = "p_venue_seats_seq", allocationSize = 50)
+    @ColumnDefault("nextval('p_venue_seats_seq')")
     private Long id;
 
     @Column(nullable = false)
