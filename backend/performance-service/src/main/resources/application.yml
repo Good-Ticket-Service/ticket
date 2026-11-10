@@ -1,4 +1,14 @@
 spring:
+  datasource:
+    hikari:
+      # Note: URL을 환경 변수나 Testcontainers로 교체해도 드라이버 배치 재작성을 유지한다.
+      data-source-properties:
+        reWriteBatchedInserts: true
+  jpa:
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        id.optimizer.pooled.preferred: pooled
   application:
     name: performance-service
   profiles:
