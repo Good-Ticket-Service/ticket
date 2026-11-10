@@ -42,7 +42,9 @@ public interface AdminVenueApiSpec {
 
     @Operation(
             summary = "공연장 물리 좌석 일괄 등록",
-            description = "If-Match는 등급 등록과 같다. 다른 공연장 등급이나 없는 등급은 400 VENUE_GRADE_MISMATCH, "
+            description = "요청당 좌석은 1~5,000개이며, 빈 목록이나 최대 5,000개 초과는 400 VALIDATION_ERROR다. "
+                    + "개수는 공연장 잠금·DB 조회 전에 검증한다. "
+                    + "If-Match는 등급 등록과 같다. 다른 공연장 등급이나 없는 등급은 400 VENUE_GRADE_MISMATCH, "
                     + "같은 구역·열·번호(요청 안 중복 포함)는 409 DUPLICATE_VENUE_SEAT이며 전체를 롤백한다.")
     ApiResponse<VenueSeatsResponse> registerSeats(
             @Parameter(description = "공연장 ID") @PathVariable @Positive Long venueId,
