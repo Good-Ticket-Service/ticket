@@ -8,9 +8,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.UserHeaders;
+import jakarta.persistence.EntityManagerFactory;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,6 +58,59 @@ class VenueSeatBatchIntegrationTest {
 
     @Autowired
     private ObjectMapper mapper;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Test
+    void acceptsFiveThousandSeatsAndReturnsEveryCreatedIdInRequestOrder() throws Exception {
+        long venue = 200000003;
+        createVenue(venue);
+        JsonNode ids = mapper.readTree(register(venue, "LIMIT", 5000)
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.data.createdCount").value(5000))
+                        .andExpect(jsonPath("$.data.venueVersion").value(1))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .at("/data/createdSeatIds");
+        List<Long> returnedIds = IntStream.range(0, ids.size())
+                .mapToObj(i -> ids.get(i).asLong())
+                .toList();
+        assertThat(returnedIds).hasSize(5000).doesNotHaveDuplicates();
+        assertThat(jdbc.queryForList(
+                        "SELECT id FROM p_venue_seats WHERE venue_id=? ORDER BY seat_number", Long.class, venue))
+                .containsExactlyElementsOf(returnedIds);
+        assertThat(jdbc.queryForObject("SELECT version FROM p_venues WHERE id=?", Long.class, venue))
+                .isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 5001})
+    void rejectsInvalidSeatCountBeforeJpaQueriesAndTransactions(int count) throws Exception {
+        long venue = 200000010L + count;
+        createVenue(venue);
+        Statistics statistics =
+                entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean wasEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            register(venue, "LIMIT", count)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                    .andExpect(jsonPath("$.errors[0].field").value("request"));
+            // Note: 모든 저장소 조회·공연장 잠금은 JPA를 사용한다. 거절 요청은 트랜잭션에도 진입하지 않는다.
+            assertThat(statistics.getPrepareStatementCount()).isZero();
+            assertThat(statistics.getTransactionCount()).isZero();
+        } finally {
+            statistics.setStatisticsEnabled(wasEnabled);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM p_venue_seats WHERE venue_id=?", Integer.class, venue))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT version FROM p_venues WHERE id=?", Long.class, venue))
+                .isZero();
+    }
 
     @Test
     void rewritesBatchesAndPreservesOrderedIdsAndAuditingAfterAllSeeds() throws Exception {
