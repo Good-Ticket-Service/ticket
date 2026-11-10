@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|
 | POST /api/admin/venues | MASTER | 201, Location | B: name:string[1~100자],address:string[1~255자],region:string[1~20자] | P1 | — |
 | POST /api/admin/venues/{venueId}/seat-grades | MASTER | 201 | 헤더 If-Match; B: grades:GradeInput[][1개 이상] | P3 | 404 VENUE_NOT_FOUND;409 DUPLICATE_VENUE_GRADE;409 VENUE_LAYOUT_IN_USE;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
-| POST /api/admin/venues/{venueId}/seats | MASTER | 201 | 헤더 If-Match; B: seats:SeatInput[][1개 이상] | P5 | 400 VENUE_GRADE_MISMATCH;404 VENUE_NOT_FOUND;409 DUPLICATE_VENUE_SEAT;409 VENUE_LAYOUT_IN_USE;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
+| POST /api/admin/venues/{venueId}/seats | MASTER | 201 | 헤더 If-Match; B: seats:SeatInput[][1~5,000개] | P5 | 400 VENUE_GRADE_MISMATCH;404 VENUE_NOT_FOUND;409 DUPLICATE_VENUE_SEAT;409 VENUE_LAYOUT_IN_USE;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
 | POST /api/seller/performances | SELLER | 201, Location | B: PerformanceInput | P8 | 404 VENUE_NOT_FOUND |
 | PUT /api/seller/performances/{performanceId}/grade-prices | 소유 SELLER | 200 | 헤더 If-Match; B: gradePrices:PriceInput[] | P11 | 400 VENUE_GRADE_MISMATCH;400 GRADE_PRICE_MISSING;404 PERFORMANCE_NOT_FOUND;409 PERFORMANCE_CONFIGURATION_LOCKED;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
 | POST /api/seller/performances/{performanceId}/publication | 소유 SELLER | 200 | 헤더 If-Match; 없음 | P8 | 404 PERFORMANCE_NOT_FOUND;409 PUBLICATION_REQUIREMENTS_NOT_MET;409 INVALID_STATUS_TRANSITION;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
@@ -89,6 +89,8 @@
 | GET /api/performances/{performanceId}/seat-layout | 누구나 | 200 | 없음 | P20 | 404 PERFORMANCE_NOT_FOUND |
 
 - GradeInput = `{name:string[1~20자, 공백 불가]}`. 요청 안에서 이름이 겹치면 400 VALIDATION_ERROR다.
+- 물리 좌석 일괄 등록의 seats는 요청당 1~5,000개다(이슈 #272).
+  빈 목록 또는 5,000개 초과는 공연장 잠금·DB 조회 전에 400 VALIDATION_ERROR로 거절한다.
 - SeatInput = `{section:string[1~20자],rowLabel:string[1~10자],seatNumber:int[1 이상],venueSeatGradeId:long[같은 공연장의 등급]}`.
 - PerformanceInput = `{venueId:long,title:string[1~200자],genre:Genre,ageRating?:AgeRating|null,ageGuidance?:string|null[1~100자],runningTime:int[1 이상],castInfo?:string|null[최대 500자],description?:string|null,posterUrl?:string|null[HTTPS URL, 최대 500자]}`.
 - PriceInput = `{venueSeatGradeId:long,price:int[0 초과]}`. 요청 안에서 등급 ID가 겹치면 400 VALIDATION_ERROR다.
