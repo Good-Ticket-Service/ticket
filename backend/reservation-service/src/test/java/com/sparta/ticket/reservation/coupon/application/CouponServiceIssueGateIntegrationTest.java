@@ -13,11 +13,15 @@ import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -88,6 +92,47 @@ class CouponServiceIssueGateIntegrationTest extends ReservationIntegrationTest {
 
         long twoDays = Duration.ofDays(2).toSeconds();
         assertThat(redis.getExpire("coupon:" + couponId + ":meta")).isBetween(twoDays - 10, twoDays);
+    }
+
+    @Test
+    @DisplayName("생성 커밋 직후의 첫 발급 기록이 지워지지 않아 총 수량을 넘겨 발급되지 않는다(#340)")
+    void firstIssueRightAfterCommitIsKept() {
+        AtomicReference<Long> couponId = new AtomicReference<>();
+        transactionTemplate.executeWithoutResult(status -> {
+            // 생성보다 먼저 걸어 두어, 커밋되자마자 다른 요청의 첫 발급이 들어온 상황을 만든다.
+            // 예전처럼 Redis 정보를 커밋 뒤에 만들면 이 발급이 먼저 끝나고 그 기록을 reset.lua가 지운다
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    // 다른 요청과 같게 이 트랜잭션에 묶이지 않은 별도 스레드에서 발급한다
+                    CompletableFuture.runAsync(() -> couponIssueService.issue(couponId.get(), 1L, "user1@ticket.com"))
+                            .join();
+                }
+            });
+            couponId.set(createIssuingCoupon(1));
+        });
+
+        assertThat(redis.opsForSet().isMember("coupon:" + couponId.get() + ":users", "1"))
+                .isTrue();
+        assertError(
+                () -> couponIssueService.issue(couponId.get(), 2L, "user2@ticket.com"),
+                CouponErrorCode.COUPON_SOLD_OUT);
+    }
+
+    @Test
+    @DisplayName("생성이 롤백되면 Redis 정보만 남지만 발급은 DB에서 쿠폰을 못 찾아 COUPON_NOT_FOUND다(#340)")
+    void createRolledBack() {
+        AtomicReference<Long> couponId = new AtomicReference<>();
+        transactionTemplate.executeWithoutResult(status -> {
+            couponId.set(createIssuingCoupon(5));
+            status.setRollbackOnly();
+        });
+
+        assertError(
+                () -> couponIssueService.issue(couponId.get(), 1L, "user1@ticket.com"),
+                CouponErrorCode.COUPON_NOT_FOUND);
+        // ID는 롤백해도 다시 쓰이지 않아, 남은 정보를 다음 쿠폰이 물려받지 않는다
+        assertThat(createIssuingCoupon(5)).isNotEqualTo(couponId.get());
     }
 
     @Test
