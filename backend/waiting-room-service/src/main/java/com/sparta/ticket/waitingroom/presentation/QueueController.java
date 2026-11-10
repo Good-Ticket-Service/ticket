@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,7 +38,9 @@ public class QueueController {
      * 이미 입장해 있으면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다.
      */
     @Operation(summary = "대기열 진입")
-    @PostMapping
+    // Note: 응답은 JSON뿐이라 형식을 미리 정한다. 정하지 않으면 요청마다 등록된 변환기를 모두 훑어 쓸 수 있는 형식을 고른다
+    // (11-10 JFR: 오픈 순간 몰림에서 응답 쓰기가 진입 CPU의 18%, 그중 형식 고르기가 큰 몫). 응답 내용·형식은 그대로다
+    @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<QueueStatusResult> enter(@PathVariable Long roomId, @CurrentUser UserContext user) {
         return ApiResponse.ok(queueService.enter(roomId, user.userId()));
     }
