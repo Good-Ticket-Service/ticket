@@ -19,6 +19,12 @@ spring:
           saleValidationClient:
             connect-timeout: 1000
             read-timeout: 3000
+  # 쿠폰 발급 판단(Redis Lua) 명령 제한 시간(#340). 연결 정보는 application.yml의 spring.data.redis를 그대로 쓴다.
+  # 없으면 Lettuce 기본 60초를 기다리며 요청 스레드(쿠폰·예매·좌석 공용)를 잡아, Redis 장애가 서비스 전체로 번진다.
+  # 평소 판단은 몇 ms라 1초면 넉넉하고, 장애면 1초 만에 503이다. 대략 "초당 쿠폰 요청 × 제한 시간"이 Tomcat 스레드(200)를 넘지 않아야 한다
+  data:
+    redis:
+      timeout: 1s
 
 reservation:
   # 등급별 잔여석 조회(#241). 화면 안내용이라 서버 메모리에 짧게 캐시한다. 캐시가 있으면 회차당 DB 집계는 TTL마다 한 번이라
