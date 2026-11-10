@@ -7,6 +7,8 @@ spring:
   jpa:
     properties:
       hibernate:
+        # Note: 서비스 전체 설정이다. 지금 INSERT가 묶이는 엔티티는 SEQUENCE를 쓰는 VenueSeat뿐이다(나머지는 IDENTITY).
+        #       다른 엔티티를 SEQUENCE로 바꾸면 그 INSERT도 함께 묶인다.
         jdbc.batch_size: 50
         id.optimizer.pooled.preferred: pooled
   application:
