@@ -5,6 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.sparta.ticket.performance.domain.venue.VenueSeat;
+import com.sparta.ticket.performance.infrastructure.persistence.VenueSeatJpaRepository;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -39,6 +42,25 @@ class HibernateSeedStartupIntegrationTest {
 
     @Autowired
     private MockMvc mvc;
+
+    @Autowired
+    private VenueSeatJpaRepository seats;
+
+    @Test
+    void savesJpaSeatsAfterHibernateDdlAndAllLocalSeeds() {
+        long max = jdbc.queryForObject("SELECT max(id) FROM p_venue_seats", Long.class);
+        var saved = seats.saveAllAndFlush(IntStream.rangeClosed(1, 123)
+                .mapToObj(i -> VenueSeat.create(900L, 900L, "JPA", "1", i))
+                .toList());
+        assertThat(saved).hasSize(123);
+        assertThat(saved).extracting(VenueSeat::getId).doesNotHaveDuplicates().allMatch(id -> id > max);
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM p_venue_seats WHERE section='JPA'"
+                                + " AND created_by='SYSTEM' AND updated_by='SYSTEM'"
+                                + " AND created_at IS NOT NULL AND updated_at IS NOT NULL",
+                        Integer.class))
+                .isEqualTo(123);
+    }
 
     @Test
     void startsWithLocalSeedsAndInitializesRecoveryCounters() {
