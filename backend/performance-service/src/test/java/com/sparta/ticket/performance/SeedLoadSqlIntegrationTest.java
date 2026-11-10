@@ -134,7 +134,7 @@ class SeedLoadSqlIntegrationTest extends PerformanceIntegrationTest {
                 """, Long.class);
 
         assertThat(nextVenueId).isEqualTo(901L);
-        assertThat(nextSeatId).isEqualTo(101001L);
+        assertThat(nextSeatId).isGreaterThan(101000L);
     }
 
     private ResultActions validate(long scheduleId, long configVersion, long... venueSeatIds) throws Exception {

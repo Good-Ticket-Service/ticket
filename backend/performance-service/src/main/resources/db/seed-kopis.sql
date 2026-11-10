@@ -4435,6 +4435,7 @@ WITH hall_source(kopis_hall, name, address, region, capacity) AS (VALUES
     SELECT grade_id, venue_id, '일반', LOCALTIMESTAMP, 'KOPIS_SEED', LOCALTIMESTAMP, 'KOPIS_SEED' FROM halls
 ), seats_insert AS (
     -- One physical layout per KOPIS hall. Capacity is real; ten seats per row is a fixture.
+    -- Note: id 기본값은 p_venue_seats_seq의 구간 끝 번호다. JPA의 다음 예약 구간과 겹치지 않는다.
     INSERT INTO p_venue_seats (venue_id, venue_seat_grade_id, section, row_label, seat_number,
                                created_at, created_by, updated_at, updated_by)
     SELECT venue_id, grade_id, 'A', ((n-1)/10+1)::text, (n-1)%10+1,

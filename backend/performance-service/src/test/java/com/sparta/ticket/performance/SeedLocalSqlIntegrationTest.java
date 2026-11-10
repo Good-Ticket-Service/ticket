@@ -59,7 +59,7 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
 
     /** 좌석 서비스의 local 시드가 이 ID를 숫자로 쓴다(#139). 좌석 번호가 바깥, 열이 안쪽인 순서다. */
     @Test
-    @DisplayName("공연장 좌석 ID는 고정값이다: 서울 1~40, 부산 41~60, 대구 61~80이고 다음 자동 ID는 81이다")
+    @DisplayName("공연장 좌석 ID는 고정값이다: 서울 1~40, 부산 41~60, 대구 61~80이고 다음 자동 ID는 기존 ID보다 크다")
     void venueSeatIdsAreFixed() {
         assertThat(venueSeatId(1, "A", "1", 1)).isEqualTo(1L);
         assertThat(venueSeatId(1, "A", "2", 1)).isEqualTo(2L);
@@ -78,7 +78,7 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
                 VALUES (1, 1, 'C', '1', 1, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM')
                 RETURNING id
                 """, Long.class);
-        assertThat(nextSeatId).isEqualTo(81L);
+        assertThat(nextSeatId).isGreaterThan(80L);
     }
 
     @Test

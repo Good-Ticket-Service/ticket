@@ -77,7 +77,9 @@ FROM generate_series(0, 3) AS section (k);
 -- 공연장 등록 API 등으로 만든 데이터가 이 시드의 ID와 겹치지 않는다(seed-local.sql 마지막 줄과 같은 형식)
 SELECT setval(pg_get_serial_sequence('p_venues', 'id'), (SELECT max(id) FROM p_venues));
 SELECT setval(pg_get_serial_sequence('p_venue_seat_grades', 'id'), (SELECT max(id) FROM p_venue_seat_grades));
-SELECT setval(pg_get_serial_sequence('p_venue_seats', 'id'), (SELECT max(id) FROM p_venue_seats));
+-- Note: 기동 시드 전용. 발급 이력을 뒤로 돌리지 않고 다음 pooled 구간을 기존 ID 위에 둔다.
+SELECT setval('p_venue_seats_seq', greatest((SELECT last_value FROM p_venue_seats_seq),
+    (SELECT coalesce(max(id), 1) FROM p_venue_seats)), true);
 SELECT setval(pg_get_serial_sequence('p_performances', 'id'), (SELECT max(id) FROM p_performances));
 SELECT setval(pg_get_serial_sequence('p_performance_grade_prices', 'id'), (SELECT max(id) FROM p_performance_grade_prices));
 SELECT setval(pg_get_serial_sequence('p_schedules', 'id'), (SELECT max(id) FROM p_schedules));
