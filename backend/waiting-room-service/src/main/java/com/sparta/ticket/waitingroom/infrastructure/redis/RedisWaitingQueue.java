@@ -8,15 +8,16 @@ import com.sparta.ticket.waitingroom.domain.QueueAdmission;
 import com.sparta.ticket.waitingroom.domain.QueuePosition;
 import com.sparta.ticket.waitingroom.domain.QueueState;
 import com.sparta.ticket.waitingroom.domain.WaitingQueue;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Component;
 
 /**
@@ -131,10 +132,17 @@ public class RedisWaitingQueue implements WaitingQueue {
         }
     }
 
+    /**
+     * 스크립트 파일을 기동 때 한 번 읽어 바뀌지 않는 스크립트로 만든다.
+     * Note: 파일 경로로 만들면(ResourceScriptSource) Spring이 실행할 때마다 파일 수정 시각을 확인하고, 실행 jar 안에서는
+     * 그때마다 jar를 연다. 운영에서 스크립트는 바뀌지 않으므로 이 확인은 비용만 든다(11-10 JFR: 진입 CPU의 약 9%).
+     * Redis로 보내는 스크립트·SHA·결과 형식은 같다.
+     */
     private static <T> RedisScript<T> loadScript(String path, Class<T> resultType) {
-        DefaultRedisScript<T> script = new DefaultRedisScript<>();
-        script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
-        script.setResultType(resultType);
-        return script;
+        try {
+            return RedisScript.of(new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8), resultType);
+        } catch (IOException e) {
+            throw new UncheckedIOException("대기열 스크립트를 읽지 못했다: " + path, e);
+        }
     }
 }
