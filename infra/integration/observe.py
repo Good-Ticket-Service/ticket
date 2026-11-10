@@ -16,6 +16,8 @@ import subprocess
 import threading
 import time
 
+import foreign
+
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = b''
 LOCK = threading.Lock()
@@ -160,6 +162,13 @@ def collect():
                 source('postgres-diagnostics',lambda:postgres(lines,pg))
         metric(lines,'integration_discovered_containers',len(ids))
     source('docker',docker)
+    def foreign_containers():
+        # 측정 도중 생긴 외부 컨테이너도 보이게 한다(#336). 통합시험 CPU를 모르므로 겹침과 관계없이 모두 센다.
+        result=foreign.scan(None,run=run)
+        metric(lines,'integration_foreign_running_containers',len(result['containers']))
+        for c in result['containers']:
+            metric(lines,'integration_foreign_container_info',1,container_name=c['name'],project=c['project'] or '',cpuset=c['cpuset'])
+    source('foreign',foreign_containers)
     for journey_file in sorted((ROOT/'script'/'integration').glob('scenario[0-9]*-metrics.prom')):
         try:
             lines.extend(journey_file.read_text(encoding='utf-8').splitlines())
