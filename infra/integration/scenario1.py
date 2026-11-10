@@ -24,6 +24,8 @@ PASSWORD = 'Integrate!2026'  # 공개 로컬 시험 계정 전용, 가입 정책
 KST = timezone(timedelta(hours=9))
 # 배치도는 회차별 1초 스냅샷이다(#270). 확정 직후 조회는 확정 전 스냅샷일 수 있어 TTL의 2배까지 다시 본다
 SEAT_SNAPSHOT_WAIT_SECONDS = 2.0
+# 물리 좌석 일괄 등록은 요청당 5,000개까지다(#272). 넘으면 나눠 보내고 다음 요청에 새 venueVersion을 쓴다
+SEAT_REGISTER_CHUNK = 5000
 
 class Failure(Exception):
     pass
@@ -192,6 +194,15 @@ class Scenario:
         require(p.returncode==0,'Read-only DB verification failed; check schema/pg permissions')
         return json.loads(p.stdout) if json_result else p.stdout
 
+    def register_seats(self, venue_id, grade, seat_count, version, token):
+        """A구역 1열에 좌석 번호 1..seat_count를 SEAT_REGISTER_CHUNK개씩 등록하고 마지막 venueVersion을 돌려준다."""
+        for start in range(0,seat_count,SEAT_REGISTER_CHUNK):
+            chunk=[{'section':'A','rowLabel':'1','seatNumber':i+1,'venueSeatGradeId':grade}
+                   for i in range(start,min(start+SEAT_REGISTER_CHUNK,seat_count))]
+            version=self.request('POST',f'/api/admin/venues/{venue_id}/seats',{'seats':chunk},token,
+                                 expected=(201,),headers={'If-Match':str(version)})['venueVersion']
+        return version
+
     def fixtures(self, seat_count=None):
         seat_count=self.users if seat_count is None else seat_count
         label='S'+str(self.report['scenario'])
@@ -205,9 +216,7 @@ class Scenario:
         grades=self.request('POST',f'/api/admin/venues/{venue["id"]}/seat-grades',{'grades':[{'name':'R'}]},master,
                             expected=(201,),headers={'If-Match':str(venue['version'])})
         grade=grades['grades'][0]['id']
-        self.request('POST',f'/api/admin/venues/{venue["id"]}/seats',{'seats':[
-            {'section':'A','rowLabel':'1','seatNumber':i+1,'venueSeatGradeId':grade} for i in range(seat_count)]},master,
-            expected=(201,),headers={'If-Match':str(grades['venueVersion'])})
+        self.register_seats(venue['id'],grade,seat_count,grades['venueVersion'],master)
         perf=self.request('POST','/api/seller/performances',{'venueId':venue['id'],'title':label+' '+self.run_id,
             'genre':'CONCERT','ageRating':'ALL','runningTime':60,
             'description':'Integration scenario 1 fixture',
