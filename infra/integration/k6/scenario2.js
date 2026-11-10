@@ -31,6 +31,14 @@ const reads = new Counter('seat_reads');
 const layoutReads = new Counter('seat_layout_reads');
 // legacy: 기존 좌석 조회(GET /api/seats/schedules/{id}). split: layout 1번 + status 조회(#271). input.json에 없으면 legacy
 const seatApi = meta.seat_api||'legacy';
+// 좌석 경계 측정 조건(#287). skip: layout 본문을 받아 두지 않는다(responseType none). 20,000석에서 여정마다 파싱한 layout을 들고 있다가 k6가 OOM으로 끝났다.
+// 검증 기준(config_version·seat_count·좌석별 seat_index)은 Python이 측정 전에 layout을 한 번 받아 input.json에 넣는다.
+const layoutBody = meta.layout_body||'parse';
+// default면 Accept-Encoding을 보내지 않는다(기존 측정과 같음). identity·gzip은 모든 요청에 명시한다
+const acceptEncoding = meta.accept_encoding||'default';
+const layoutGzip = new Counter('seat_layout_gzip');
+const layoutLengthMissing = new Counter('seat_layout_length_missing');
+const layoutContentLength = new Trend('seat_layout_content_length');
 const failures = new Counter('journey_failures');
 const probeStarted = new Counter('probe_started');
 const probeConfirmed = new Counter('probe_confirmed');
@@ -89,17 +97,26 @@ function requestedService(name) {
   return 'performance';
 }
 function faultEvidence(row) {if(meta.mode==='db_fault')console.log('S4_REQUEST '+JSON.stringify(row));}
-function request(method,path,name,data,token,t,raw=false) {
+function request(method,path,name,data,token,t,raw=false,responseType=undefined) {
   const scenarioName=t.phase==='setup'?'setup':exec.scenario.name;
   const iteration=t.phase==='setup'?0:exec.scenario.iterationInTest;
   const headers={'Content-Type':'application/json'};
   if(meta.mode==='db_fault')headers['X-Request-Id']='s4-'+meta.run_id+'-'+scenarioName+'-'+iteration+'-'+Date.now();
   if (token) headers.Authorization='Bearer '+token;
+  if (acceptEncoding!=='default') headers['Accept-Encoding']=acceptEncoding;
   const started=Date.now()/1000;
   const r=http.request(method,(raw?pg:base)+path,data===null?null:JSON.stringify(data),
-    {headers,timeout:'65s',tags:{...t,name},responseCallback:http.expectedStatuses(200,201,409)});
+    {headers,timeout:'65s',tags:{...t,name},responseCallback:http.expectedStatuses(200,201,409),
+     ...(responseType?{responseType}:{})});
   if (t.phase==='measure') measuredHttp.add(r.timings.duration,{...t,name});
   if (t.phase==='measure'&&t.cohort==='B') probeHttpDuration.add(r.timings.duration,{...t,name});
+  if (name===LAYOUT) layoutHeaders(r,t);
+  // 본문을 받아 두지 않은 응답은 상태 코드만 본다. 업무 오류 코드가 필요한 409는 layout 조회에서 나오지 않는다
+  if (responseType==='none') {
+    const ok=r.status===200;errors.add(!ok,t);
+    if (!ok) throw new Error('HTTP_'+r.status+':BODY_NOT_READ');
+    return r;
+  }
   let body;
   try {body=r.json();} catch (_) {body={};}
   faultEvidence({start_epoch:started,end_epoch:Date.now()/1000,service:requestedService(name),
@@ -130,19 +147,34 @@ function listing(token,t) {
   if (detail.id!==fixture.performance_id) throw new Error('PERFORMANCE_MISMATCH');
   get('/api/performances/'+fixture.performance_id+'/schedules','GET /api/performances/{id}/schedules',token,t);
 }
+const LAYOUT='GET /api/seats/schedules/{id}/layout';
+// 압축 조건 확인용. 크기는 Content-Length가 있을 때만 안다(chunked면 없음). 전송 바이트는 Python의 layout-cost.json이 기준이다
+function layoutHeaders(r,t) {
+  if ((r.headers['Content-Encoding']||'').toLowerCase()==='gzip') layoutGzip.add(1,t);
+  const length=r.headers['Content-Length'];
+  if (length===undefined) layoutLengthMissing.add(1,t); else layoutContentLength.add(Number(length),t);
+}
 // split 모드 좌석 API(#271). layout은 여정마다 1번 받는다. 여정마다 새 사용자라 VU 단위로 재사용하면 서로 다른 사용자가
 // layout을 함께 쓰는 셈이 되어 결과가 실제보다 좋게 나온다.
 function seatLayout(scheduleId,token,t) {
-  const layout=get('/api/seats/schedules/'+scheduleId+'/layout','GET /api/seats/schedules/{id}/layout',token,t);
+  const path='/api/seats/schedules/'+scheduleId+'/layout';
+  if (layoutBody==='skip') {
+    // ETag는 configVersion이다. 본문 없이 같은 구성인지 확인한다
+    const r=request('GET',path,LAYOUT,null,token,t,false,'none');
+    if (r.headers['Etag']!=='"'+meta.config_version+'"') throw new Error('SEAT_LAYOUT_VERSION_MISMATCH');
+    layoutReads.add(1,t);
+    return {scheduleId,configVersion:meta.config_version,seatCount:meta.seat_count,seats:null};
+  }
+  const layout=get(path,LAYOUT,token,t);
   if (layout.scheduleId!==scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
   layoutReads.add(1,t);
-  return layout;
+  return {scheduleId,configVersion:layout.configVersion,seatCount:layout.seats.length,seats:layout.seats};
 }
 // status는 layout과 같은 구성 버전·좌석 수여야 비트 위치가 맞는다. 측정 중에는 좌석 준비가 없으므로 다르면 오류로 본다
 function seatStatus(layout,token,t) {
   const status=get('/api/seats/schedules/'+layout.scheduleId+'/status','GET /api/seats/schedules/{id}/status',token,t);
   if (status.scheduleId!==layout.scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
-  if (status.configVersion!==layout.configVersion||status.seatCount!==layout.seats.length)
+  if (status.configVersion!==layout.configVersion||status.seatCount!==layout.seatCount)
     throw new Error('SEAT_LAYOUT_STATUS_MISMATCH');
   return new Uint8Array(encoding.b64decode(status.selectableBitmap,'std'));
 }
@@ -206,7 +238,7 @@ export function booking(data) {
       const layout=seatLayout(fixture.schedule_id,token,t);
       const bits=seatStatus(layout,token,t);
       reads.add(1,t);
-      const index=layout.seats.findIndex(s=>s.scheduleSeatId===account.schedule_seat_id);
+      const index=layout.seats?layout.seats.findIndex(s=>s.scheduleSeatId===account.schedule_seat_id):account.seat_index;
       if (index<0||!selectableAt(bits,index)) throw new Error('ASSIGNED_SEAT_NOT_SELECTABLE');
     } else {
       const seats=get('/api/seats/schedules/'+fixture.schedule_id,'GET /api/seats/schedules/{id}',token,t);

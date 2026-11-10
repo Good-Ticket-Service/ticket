@@ -111,6 +111,19 @@ python infra/integration/scenario2.py --rate 300 --duration 60 --seats 15000
 
 기본 VU는 `max(200, rate*6)`, 최대 VU는 `max(1000, VU, rate*7)`다. `--vus`, `--max-vus`로 조정할 수 있다. VU를 늘리면 발생기 메모리가 증가한다. dropped iterations가 발생하면 앱 지연과 발생기 자원을 같이 확인한다.
 
+**좌석 경계 측정 조건(#287).** 기본값(`--layout-body parse --accept-encoding default`)은 이전 측정과 같다.
+
+- `--layout-body skip`(`--seat-api split` 전용): k6가 layout 본문을 받아 두지 않는다(`responseType: 'none'`). 큰 회차에서 k6 메모리가 아니라 서버 지표로 한계를 보기 위한 조건이다. layout은 ETag(configVersion)로만 확인하고, status 검증 기준과 배정 좌석의 비트 위치는 측정 전에 Python이 layout을 한 번 받아 `input.json`에 넣는다.
+- `--accept-encoding identity|gzip`: 모든 요청에 이 헤더를 붙인다. `default`는 헤더를 보내지 않는다.
+- 측정 중 layout 응답이 요청한 압축 조건과 다르면 `checks.layout_encoding_as_requested`가 실패한다. layout은 강한 ETag라 Tomcat 압축이 걸리지 않는다(TS-9, Tomcat `CompressionConfig#useCompression`의 강한 ETag 조건). 지금은 `gzip`을 요청해도 압축본이 오지 않아 이 check가 실패하므로, 경계 측정은 `identity`로 한다. 압축 측정은 #287 2번(사전 압축)에서 한다.
+- 이 옵션을 쓴 회차는 `layout-cost.json`(layout 전송 바이트 identity·gzip, Content-Length 유무), `result.json`의 `layout`·`measurements.layout`을 남긴다. layout은 chunked로 와서 Content-Length가 없으므로 크기는 `layout-cost.json`을 기준으로 한다. 측정 구간의 reservation·gateway·caddy CPU는 모든 회차의 `server_cpu_cores_measure`에 남는다.
+
+사용자 1명 기준 layout 비용(전송 바이트·시간·파싱 시간)은 부하 없이 따로 잰다. 시나리오2 결과 폴더의 시험 계정으로 로그인하며 데이터를 만들지 않는다. 파싱 시간은 Python 기준이라 좌석 수 사이의 상대 비교로만 쓴다.
+
+```powershell
+python infra/integration/layout_probe.py --result script/integration/results/scenario2-<run_id> --repeat 5
+```
+
 ### 3. 인기 회차 부하가 다른 회차에 미치는 영향
 
 ```powershell

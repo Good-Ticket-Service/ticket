@@ -17,6 +17,32 @@ import urllib.request
 
 from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD
 import foreign
+import layout_probe
+
+CPU_SERVICES=('reservation-service','gateway-service','caddy')
+
+def cpu_summary(data,start,end):
+    """Prometheus range 결과에서 측정 구간의 서비스별 CPU 코어 평균·최대. 같은 서비스의 컨테이너는 시각별로 더한다."""
+    by_service={}
+    for series in data.get('data',{}).get('result',[]):
+        service=series['metric'].get('service')
+        if service not in CPU_SERVICES:continue
+        points=by_service.setdefault(service,{})
+        for ts,v in series['values']:
+            if start<=float(ts)<=end:points[ts]=points.get(ts,0)+float(v)
+    return {s:{'avg':sum(p.values())/len(p),'max':max(p.values()),'samples':len(p)} for s,p in by_service.items() if p}
+
+def layout_measurements(value,metrics):
+    """k6 요약에서 layout 응답 지표만 모은다. 본문을 받아 두지 않으므로 크기는 Content-Length가 있을 때만 있다."""
+    return {'reads':value('seat_layout_reads','count'),'gzip_responses':value('seat_layout_gzip','count'),
+            'content_length_missing':value('seat_layout_length_missing','count'),
+            'content_length_bytes':metrics.get('seat_layout_content_length',{}).get('values',{})}
+
+def encoding_as_requested(accept_encoding,layout):
+    """gzip을 요청했으면 모든 layout이 gzip, identity면 하나도 gzip이 아니어야 한다. 조건을 잘못 걸고 잰 회차를 거른다."""
+    if accept_encoding=='gzip':return layout['reads']>0 and layout['gzip_responses']==layout['reads']
+    if accept_encoding=='identity':return layout['gzip_responses']==0
+    return True
 
 class MixedScenario(Scenario):
     def preflight(self):
@@ -46,6 +72,8 @@ class MixedScenario(Scenario):
             'booking_seat_selection':'disjoint assigned seats; no intentional seat competition',
             # scenario3·4는 이 옵션이 없을 수 있어 legacy로 둔다
             'seat_api':getattr(args,'seat_api','legacy'),
+            # 좌석 경계 측정 조건(#287). scenario3·4는 이 옵션이 없어 기존 동작(parse·default)으로 둔다
+            'layout_body':getattr(args,'layout_body','parse'),'accept_encoding':getattr(args,'accept_encoding','default'),
             'authentication':('browse anonymous; authenticated accounts login in k6 setup; tokens reused during measurement'
                 if scenario in (2,3) else 'login per authenticated journey')},
             limitations=['One popular schedule; TOSS only; no coupon',
@@ -81,13 +109,38 @@ class MixedScenario(Scenario):
         available=sorted((s['scheduleSeatId'] for s in seats['seats'] if s['selectable']))
         require(len(available)==self.args.seats,'Prepared seat count mismatch')
         buyers=[{'email':email,'user_id':uid,'schedule_seat_id':available[i]} for i,(email,uid) in enumerate(buyer_accounts)]
+        layout=self.prepare_layout(sid,token,buyers)
         meta={'run_id':self.run_id,'rate':self.args.rate,'duration':self.args.duration,'warmup':self.args.warmup,
               'vus':self.args.vus,'max_vus':self.args.max_vus,'password':PASSWORD,'prelogin':self.report['scenario'] in (2,3),
               'performance_id':self.report['fixtures']['performance_id'],'schedule_id':sid,
-              'seat_api':self.report['workload']['seat_api']}
+              'seat_api':self.report['workload']['seat_api'],
+              'layout_body':self.report['workload']['layout_body'],'accept_encoding':self.report['workload']['accept_encoding'],**layout}
         # 공개 로컬 시험 비밀번호와 시험 ID만 저장. JWT/PG 인증값은 k6 메모리에만 둔다.
         (self.out/'input.json').write_text(json.dumps({'meta':meta,'buyers':buyers,'viewers':viewers}),encoding='utf-8')
         self.report['prepared_at']=datetime.now(KST).isoformat();self.save()
+
+    def boundary_conditions(self):
+        """#287 경계 측정 옵션을 쓴 회차인지. 기본값(parse·default)이면 준비·결과를 전과 같게 둔다."""
+        w=self.report['workload']
+        return w['layout_body']!='parse' or w['accept_encoding']!='default'
+
+    def prepare_layout(self,sid,token,buyers):
+        """측정 전에 layout을 identity·gzip으로 한 번씩 받아 크기·헤더를 남기고, k6가 본문을 읽지 않아도 검증할 값을 만든다(#287).
+        - config_version·seat_count: status 응답 검증 기준
+        - seat_index: 배정 좌석의 status 비트 위치(layout 순서)
+        layout은 강한 ETag라 Tomcat 압축이 걸리지 않는다(TS-9). gzip을 요청해도 압축본이 오는지는 기록만 하고,
+        측정 중 요청과 다르면 checks.layout_encoding_as_requested가 실패한다. 압축 측정은 #287 2번(사전 압축)에서 한다."""
+        if not self.boundary_conditions(): return {}
+        result,seats=layout_probe.probe(self.http,sid,token,repeat=1)
+        (self.out/'layout-cost.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        index=layout_probe.seat_indexes(seats)
+        for b in buyers: b['seat_index']=index[b['schedule_seat_id']]
+        self.report['layout']={'seat_count':result['seat_count'],'config_version':result['config_version'],
+            'encodings':result['encodings']}
+        self.save()
+        print(f"[prepare] layout {result['seat_count']} seats: "+', '.join(
+              f"{k} requested -> {'/'.join(v['content_encoding'])} {v['wire_bytes']} bytes" for k,v in result['encodings'].items()),flush=True)
+        return {'config_version':result['config_version'],'seat_count':result['seat_count']}
 
     def db_size(self):
         return self.db("SELECT coalesce(json_agg(x),'[]') FROM (SELECT schemaname,relname,n_live_tup estimated_live_rows,pg_total_relation_size(relid) total_bytes FROM pg_stat_user_tables WHERE schemaname IN ('user_schema','performance_schema','reservation_schema','payment_schema','fake_pg_schema') ORDER BY schemaname,relname) x")
@@ -176,6 +229,9 @@ class MixedScenario(Scenario):
         self.report['checks']['mix_achieved']=all(abs(started[k]-expected*w)<=2 for k,w in [('browse',.7),('seat',.2),('booking',.1)])
         self.report['checks']['k6_thresholds']=self.report['k6_exit_code']==0
         self.report['checks']['booking_evidence_complete']=len(self.report['journeys'])==started['booking'] and not self.report.get('evidence_parse_errors')
+        if self.boundary_conditions():
+            self.report['measurements']['layout']=layout_measurements(value,m)
+            self.report['checks']['layout_encoding_as_requested']=encoding_as_requested(self.report['workload']['accept_encoding'],self.report['measurements']['layout'])
         sid=int(self.report['fixtures']['schedule_id'])
         # 해당 회차에 한정한다. 반복 금융 검사 전체 이력을 스캔하지 않는다.
         sql=f"""SELECT json_build_object('rows',(SELECT coalesce(json_agg(x),'[]') FROM (
@@ -224,6 +280,7 @@ class MixedScenario(Scenario):
           'memory_events':'integration_container_memory_events_total{kind=~"oom|oom_kill"}',
           'vm_pressure':'integration_vm_pressure_ratio','kafka_lag':'kafka_consumergroup_lag',
           'redis_blocked':'redis_blocked_clients',
+          'gc_pause_seconds':'rate(jvm_gc_pause_seconds_sum[30s])','gc_allocated_bytes':'rate(jvm_gc_memory_allocated_bytes_total[30s])',
           'http_p99':'histogram_quantile(0.99,sum by(le,application,uri)(rate(http_server_requests_seconds_bucket[30s])))',
           'k6_requests':'rate(k6_http_reqs_total{phase="measure"}[30s])',
           'k6_confirmed':'rate(k6_booking_confirmed_total[30s])'}
@@ -235,6 +292,9 @@ class MixedScenario(Scenario):
                 url='http://127.0.0.1:19090/api/v1/query_range?'+urllib.parse.urlencode({'query':query,'start':start,'end':end,'step':5})
                 with self.http.open(url,timeout=5) as r: data=json.load(r)
                 (self.out/('prometheus-'+name+'.json')).write_text(json.dumps(data),encoding='utf-8')
+                if name=='cpu_cores' and self.report.get('measure_start_epoch'):
+                    # 압축은 CPU를 쓰므로 측정 구간의 서버 CPU를 결과에 바로 남긴다(#287). 원값은 prometheus-cpu_cores.json
+                    self.report['server_cpu_cores_measure']=cpu_summary(data,self.report['measure_start_epoch'],self.report['measure_end_epoch'])
                 if not data.get('data',{}).get('result'):gaps.append(name)
             except Exception:gaps.append(name)
         self.report['observation_gaps']=gaps
@@ -287,7 +347,12 @@ if __name__=='__main__':
     p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
                    help='legacy: GET seats map; split: layout once per journey + status reads (#271)')
     p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
+    p.add_argument('--layout-body',choices=['parse','skip'],default='parse',
+                   help='skip: k6 does not keep the layout body (split only, #287 boundary)')
+    p.add_argument('--accept-encoding',choices=['default','identity','gzip'],default='default',
+                   help='Accept-Encoding sent by k6; default sends none as before (#287)')
     a=p.parse_args()
+    if a.layout_body=='skip' and a.seat_api!='split':p.error('--layout-body skip needs --seat-api split')
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)
     if not (1<=a.rate<=400 and 10<=a.duration<=600 and 0<=a.warmup<=120 and 1<=a.viewers<=500 and 3<=a.vus<=a.max_vus<=3000 and 1<=a.seats<=20000):
