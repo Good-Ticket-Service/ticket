@@ -52,13 +52,17 @@ public class CouponService {
                 command.issueEndAt(),
                 command.validDays(),
                 now);
-        // 저장하면 DB가 만든 ID가 채워진다. 응답의 발급 상태는 같은 now로 계산한다
+        // 1) 저장하면 DB가 만든 ID가 채워진다(IDENTITY라 INSERT가 바로 나간다). 응답의 발급 상태는 같은 now로 계산한다
         Coupon saved = couponRepository.save(coupon);
-        // 커밋된 뒤 발급 판단용 Redis 정보를 받은 회원 0명으로 새로 만든다(같은 ID로 남은 이전 값을 지운다)
+        // 2) 커밋 전에 발급 판단용 Redis 정보를 받은 회원 0명으로 새로 만든다(같은 ID로 남은 이전 값을 지운다)
+        //    커밋 전에는 다른 요청이 이 쿠폰을 못 봐(발급은 404) 첫 발급과 겹치지 않는다. 커밋 뒤에 만들면 그사이 첫 발급이
+        //    DB에서 채운 회원 기록을 reset.lua가 지워 초과 발급이 된다(#340)
         // Note: 로컬은 ddl-auto: create라 재시작하면 쿠폰 ID가 1부터 다시 쓰이는데, Redis에는 이전 쿠폰의 회원이 남아 있다
-        // Note: Redis 장애로 못 만들어도 생성은 성공으로 둔다. 첫 발급 때 DB에서 채운다(정보 키가 없을 때만)
-        // 키는 발급 종료 + 1일에 Redis가 지운다(#323)
-        afterCommit(
+        // Note: 커밋이 실패하면 Redis에 이 ID의 정보 키만 남는다. 발급은 DB에서 쿠폰을 먼저 찾아 404라 닿지 않고,
+        //       ID(IDENTITY)는 롤백해도 다시 쓰이지 않으며, 키는 발급 종료 + 1일에 Redis가 지운다(#323)
+        // Note: Redis 장애로 못 만들어도 생성은 성공으로 둔다. 첫 발급 때 DB에서 채운다(정보 키가 없을 때만).
+        //       명령 제한 시간(1초, config-repo)이 있어 트랜잭션이 DB 연결을 잡은 채 오래 기다리지 않는다
+        runQuietly(
                 () -> issueGate.reset(saved.getId(), saved.getTotalQuantity(), issueState.ttl(saved.getIssueEndAt())));
         return CouponResult.of(saved, saved.getTotalQuantity(), now);
     }
@@ -160,16 +164,6 @@ public class CouponService {
         });
     }
 
-    /** 커밋된 뒤 실행한다. 실패해도 이미 커밋된 요청은 성공으로 두고 기록만 남긴다. */
-    private static void afterCommit(Runnable action) {
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                runQuietly(action);
-            }
-        });
-    }
-
     /** 트랜잭션이 끝난 뒤(커밋·롤백·결과 모름) 상태를 받아 실행한다. 되돌리기에 실패하면 맞추는 작업(CouponIssueReconcileService)이 바로잡는다. */
     private static void afterCompletion(IntConsumer action) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -180,6 +174,7 @@ public class CouponService {
         });
     }
 
+    /** 실패해도 요청은 성공으로 두고 기록만 남긴다. 어긋남은 다음 발급(정보가 없으면 DB에서 채움)이나 맞추는 작업이 바로잡는다. */
     private static void runQuietly(Runnable action) {
         try {
             action.run();
