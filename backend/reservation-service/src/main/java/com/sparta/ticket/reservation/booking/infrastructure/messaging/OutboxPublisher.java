@@ -16,7 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Outbox에 남은 메시지를 보내고, 브로커가 받았다고 답한 행만 지운다. 보내지 못한 행은 남아 다음 차례에 다시 보낸다.
- * 보낸 뒤 지우기 전에 꺼지면 같은 메시지를 다시 보낸다. 받는 쪽은 eventId와 업무 키로 중복을 거른다.
+ * 보낸 뒤 지우기 전에 꺼지면 같은 메시지를 다시 보낸다. 받는 쪽은 업무 키(orderId)로 중복을 거른다.
  */
 @Slf4j
 @Component
