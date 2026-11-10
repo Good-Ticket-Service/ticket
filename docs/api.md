@@ -633,7 +633,7 @@
 | payment.refund.result | 결제 → 예매 | 예매가 정함 | orderId:string,reservationId:long,refundStatus:WAITING/REQUESTED/DONE/FAILED/SKIPPED/NOT_REQUIRED,refundAmount:int,reason:string |
 
 - payment.confirm.requested: 예매가 PAYMENT_IN_PROGRESS로 바꾸는 트랜잭션에 Outbox로 저장한다. amount는 예매에 저장한 payment_amount다. pgAuthToken은 토스 paymentKey 또는 카카오 pg_token이다.
-- payment.confirm.requested: 결제는 eventId와 orderId로 중복을 막아 같은 orderId의 PG 승인을 한 번만 부른다. confirmBefore 처리 순서는 architecture 6절 「승인 요청의 불변 조건」을 따른다.
+- payment.confirm.requested: 결제는 orderId로 중복을 막아(같은 orderId는 READY일 때만 IN_PROGRESS로 바뀌는 결제 상태 전이) 같은 orderId의 PG 승인을 한 번만 부른다. eventId는 저장하지 않고 추적용으로만 쓴다. confirmBefore 처리 순서는 architecture 6절 「승인 요청의 불변 조건」을 따른다.
 - payment.confirm.requested: 토픽 보관은 1일, DLT는 7일이다. DLT로 간 승인은 confirmBefore가 지나 예매의 결과 확인이 실패로 끝낸다.
 - payment.result: 필드 이름은 결제 조회 API(GET /internal/payments/{orderId})와 같다. failureType·failureCode는 FAILED일 때, approvedAt은 DONE일 때만 있다.
 - payment.result: 예매는 지금 eventId, schemaVersion, occurredAt, orderId, reservationId, status만 읽는다.
