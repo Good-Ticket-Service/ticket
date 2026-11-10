@@ -14,6 +14,7 @@ import uuid
 
 from scenario1 import Failure, require, KST, ROOT
 from scenario2 import MixedScenario
+import foreign
 
 class Phase(MixedScenario):
     def __init__(self,args,kind,comparison_id):
@@ -108,8 +109,16 @@ class Phase(MixedScenario):
         else:
             checks['no_a_traffic']=sum(a_started.values())==0
             checks['financial_B']=self.audit('B',self.report['fixtures'],self.args.seats)
+        self.finish_foreign()
         self.report['verdict']='PASS' if all(checks.values()) else 'FAIL'
         self.save()
+
+def baseline_usable(report,allow_foreign):
+    """B 기준선이 혼합 구간을 시작할 만한지. --allow-foreign 회차만 no_foreign_containers를 빼고 나머지 checks로 본다(#336)."""
+    if not allow_foreign:
+        return report['verdict']=='PASS'
+    checks={k:v for k,v in report['checks'].items() if k!='no_foreign_containers'}
+    return bool(checks) and all(checks.values())
 
 class Comparison:
     def __init__(self,args):
@@ -162,7 +171,9 @@ class Comparison:
                 self.report['phases'][p.kind].update(verdict=p.report['verdict'],measurements=p.report['measurements'])
                 self.save()
                 if p is baseline:
-                    require(p.report['verdict']=='PASS','B baseline invalid; mixed load not started')
+                    # --allow-foreign 회차도 혼합 구간까지 측정하도록 진행 판단에서만 외부 컨테이너 검사를 뺀다(#336).
+                    # 최종 checks와 verdict에는 no_foreign_containers 실패가 그대로 남는다.
+                    require(baseline_usable(p.report,self.args.allow_foreign),'B baseline invalid; mixed load not started')
                     print(f'[cooldown] {self.args.cooldown}s',flush=True)
                     time.sleep(self.args.cooldown)
             self.report['database_after']=baseline.db_size()
@@ -176,7 +187,8 @@ class Comparison:
             comparison['probe_completion_tps']={'baseline':before['probe_completion_tps_during_measure'],'mixed':after['probe_completion_tps_during_measure']}
             self.report['comparison']=comparison
             self.report['checks']={'same_resource_config':baseline.report['resources']==mixed.report['resources'],
-                'baseline_valid':baseline.report['verdict']=='PASS','mixed_valid':mixed.report['verdict']=='PASS'}
+                'baseline_valid':baseline.report['verdict']=='PASS','mixed_valid':mixed.report['verdict']=='PASS',
+                'no_foreign_containers':all(p.report['checks'].get('no_foreign_containers',False) for p in (baseline,mixed))}
             self.report['verdict']='PASS' if all(self.report['checks'].values()) else 'FAIL'
         except KeyboardInterrupt:self.report.update(verdict='INTERRUPTED',error='Operator interrupted; data retained')
         except Exception as e:self.report.update(verdict='FAIL',error=str(e) if isinstance(e,Failure) else type(e).__name__)
@@ -218,6 +230,7 @@ if __name__=='__main__':
     p.add_argument('--probe-max-vus',type=int,default=100)
     p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
                    help='same as scenario2: legacy GET seats map or split layout + status (#271)')
+    p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     a=p.parse_args()
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)

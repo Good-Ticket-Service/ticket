@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 
 from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD
+import foreign
 
 class MixedScenario(Scenario):
     def preflight(self):
@@ -37,7 +38,7 @@ class MixedScenario(Scenario):
         # arrival executor의 경계 시각 차이를 위한 두 계정 여유. 좌석은 매번 같은 인자로 고정한다.
         buyers=math.ceil(args.rate*args.duration/10)+2 if buyer_count is None else buyer_count
         require(args.seats>=buyers,f'Need at least {buyers} seats. Keep --seats identical when comparing rates.')
-        super().__init__(buyers,180,scenario=scenario)
+        super().__init__(buyers,180,scenario=scenario,allow_foreign=getattr(args,'allow_foreign',False))
         self.report.update(workload={'rate_journeys_per_second':args.rate,'duration_seconds':args.duration,
             'warmup_seconds':args.warmup,'mix_percent':{'browse':70,'seat':20,'booking':10},
             'seat_count':args.seats,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
@@ -207,6 +208,7 @@ class MixedScenario(Scenario):
         self.report['checks']['financial_consistency']=not bad and not remaining and evidence['orphan_payments']==0 and evidence['orphan_pg']==0 and \
             len(confirmed)==len(evidence['rows'])==evidence['seats']['sold'] and len(confirmed)==value('booking_confirmed','count') and \
             evidence['seats']['total']==self.args.seats and evidence['seats']['held']==0
+        self.finish_foreign()
         self.report['verdict']='PASS' if all(self.report['checks'].values()) else 'FAIL'
 
     def prometheus(self):
@@ -284,6 +286,7 @@ if __name__=='__main__':
     p.add_argument('--max-vus',type=int,help='default max(1000, vus, rate*7)')
     p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
                    help='legacy: GET seats map; split: layout once per journey + status reads (#271)')
+    p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     a=p.parse_args()
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)

@@ -82,6 +82,8 @@ python infra/integration/compose.py up -d
 
 한 번에 한 시험만 실행한다. 모든 시험은 신규 계정·공연·좌석을 준비하며 기존 시험 데이터를 삭제하지 않는다. 반복 실행으로 데이터와 디스크 사용량이 증가한다. 준비·사전 로그인·예열·종료 후 대기·DB 검증은 60초 측정 구간에 포함되지 않는다.
 
+**외부 컨테이너 검사(#336).** 모든 시나리오는 데이터를 준비하기 전과 측정을 마친 뒤 `ticket-integration` 밖에서 실행 중인 컨테이너를 찾는다. 통합시험 CPU(`compose config`의 cpuset 합집합)와 cpuset이 겹치거나 cpuset이 비어 있는(모든 CPU를 쓰는) 컨테이너가 있으면, 이름·프로젝트·cpuset·재시작 정책·재시작 횟수를 출력하고 측정을 시작하지 않는다. compose 라벨이 없는 `docker run` 탐침도 외부로 본다. 외부 컨테이너는 자동으로 멈추지 않으므로 무엇을 멈출지 직접 정한다. CPU가 겹치지 않는 외부 컨테이너는 경고 한 줄만 남긴다. 결과는 `result.json`의 `foreign_containers`(측정 전후 목록)와 `checks.no_foreign_containers`에 남는다. `--allow-foreign`을 주면 경고를 크게 출력하고 측정을 진행하지만, 그 회차는 `checks.no_foreign_containers=false`라 verdict가 FAIL이다. S3는 이 옵션을 쓴 회차에서만 기준선 진행 판단에서 이 항목을 뺀다. 측정 도중 생긴 외부 컨테이너는 수집기의 `integration_foreign_running_containers`로 확인한다.
+
 ### 1. 정상 예매 연결·최종 상태 검증
 
 ```powershell
