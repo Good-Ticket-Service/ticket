@@ -16,6 +16,7 @@ import urllib.request
 import uuid
 
 from compose import command, ROOT
+import foreign
 
 BASE = 'http://127.0.0.1:18080'
 PG = 'http://127.0.0.1:18090'
@@ -32,9 +33,10 @@ def require(condition, message):
         raise Failure(message)
 
 class Scenario:
-    def __init__(self, users, poll_timeout, scenario=1):
+    def __init__(self, users, poll_timeout, scenario=1, allow_foreign=False):
         self.users = users
         self.poll_timeout = poll_timeout
+        self.allow_foreign = allow_foreign
         self.run_id = datetime.now(KST).strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6]
         self.out = ROOT/'script'/'integration'/'results'/(f'scenario{scenario}-'+self.run_id)
         self.out.mkdir(parents=True, exist_ok=False)
@@ -113,6 +115,44 @@ class Scenario:
         require(d.get('role')==('SELLER' if seller else 'USER'),'signup role mismatch')
         return d['userId']
 
+    def check_foreign(self, when):
+        """외부 컨테이너 검사(#336). before에서 통합시험 CPU와 겹치면 --allow-foreign 없이는 fixture를 만들기 전에 멈춘다.
+        CPU가 겹치지 않는 외부 컨테이너는 막지 않고 목록과 경고 한 줄만 남긴다."""
+        if when=='before':
+            self.foreign_cpus=foreign.integration_cpus(self.report['resources'])
+            self.report['foreign_containers']={'allowed':self.allow_foreign,
+                'integration_cpus':None if self.foreign_cpus is None else sorted(self.foreign_cpus)}
+        result=foreign.scan(self.foreign_cpus)
+        self.report['foreign_containers'][when]=result
+        hits=foreign.overlapping(result)
+        others=[c['name'] for c in result['containers'] if not c['overlaps_integration_cpus']]
+        if others:
+            print(f'[foreign] {when}: running outside {foreign.PROJECT} on other CPUs (not blocked): '+', '.join(others),flush=True)
+        if hits:
+            print(f'[foreign] {when}: running outside {foreign.PROJECT} on integration CPUs\n'+foreign.table(result['containers']),flush=True)
+            if when=='before':
+                self.report['checks']['no_foreign_containers']=False
+                if not self.allow_foreign:
+                    self.save()
+                    raise Failure('Foreign containers share integration CPUs: '+', '.join(c['name'] for c in hits)+
+                                  '. Stop them before measuring, or rerun with --allow-foreign (the run is recorded as FAIL)')
+                print(foreign.banner(*foreign.ALLOWED_WARNING),flush=True)
+        self.save()
+
+    def finish_foreign(self):
+        """측정 뒤 검사를 하고 checks.no_foreign_containers를 남긴다. 측정 전후 모두 겹치는 외부 컨테이너가 없어야 통과다."""
+        record=self.report['foreign_containers']
+        try:
+            self.check_foreign('after')
+        except Exception as e:
+            record['after_error']=type(e).__name__
+        ok=all(when in record and not foreign.overlapping(record[when]) for when in ('before','after'))
+        self.report['checks']['no_foreign_containers']=ok
+        if not ok:
+            print(foreign.banner(*foreign.FAILED_WARNING),flush=True)
+        self.save()
+        return ok
+
     def preflight(self):
         # 변경 작업 전에 Compose 대상과 DB 접근을 확인한다. 대기열은 room이 보호하는 회차만 입장 토큰을 검사하고,
         # 시험이 만드는 회차에는 room이 없으므로 끄는 설정을 확인하지 않는다.
@@ -128,6 +168,7 @@ class Scenario:
         running=set(p.stdout.split())
         require({'caddy','gateway-service','user-service','performance-service','reservation-service','payment-service','fake-pg','postgres'}<=running,
                 'Required integration services are not running')
+        self.check_foreign('before')
         self.db('SELECT 1',json_result=False)
         # health는 업무 ApiResponse 래퍼가 아니다.
         with self.http.open(BASE+'/actuator/health',timeout=10) as r:
@@ -297,7 +338,8 @@ class Scenario:
                     # 정상 경로에서 실패하면 재시도로 숨기지 않고 신규 쓰기를 중단한다.
                     break
                 time.sleep(.5)
-            self.report['verdict']='PASS' if self.verify() else 'FAIL'
+            ok=self.verify()
+            self.report['verdict']='PASS' if self.finish_foreign() and ok else 'FAIL'
         except KeyboardInterrupt:
             self.report.update(verdict='INTERRUPTED',error='Operator interrupted; created data retained')
         except Exception as e:
@@ -318,5 +360,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--users',type=int,default=10,choices=range(1,21),metavar='1..20')
     parser.add_argument('--poll-timeout',type=int,default=90)
+    parser.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     args=parser.parse_args()
-    raise SystemExit(Scenario(args.users,args.poll_timeout).execute())
+    raise SystemExit(Scenario(args.users,args.poll_timeout,allow_foreign=args.allow_foreign).execute())

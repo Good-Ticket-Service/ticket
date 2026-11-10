@@ -14,6 +14,7 @@ import time
 
 from scenario1 import Failure, require, ROOT, KST
 from scenario2 import MixedScenario
+import foreign
 
 SERVICES=('user','performance','seat','booking','payment','fakepg')
 APPS=('gateway-service','user-service','performance-service','reservation-service','payment-service','fake-pg')
@@ -268,6 +269,7 @@ class DatabaseFault(MixedScenario):
         self.report['checks']['no_application_restart']=after==self.report['app_states_before']
         current=json.loads(self.docker('inspect','--format','{{json .Mounts}}',self.db_id))
         self.report['checks']['database_mounts_unchanged']=current==self.report['database_target']['mounts']
+        self.finish_foreign()
         self.report['verdict']='PASS' if all(self.report['checks'].values()) else 'FAIL'
 
     def execute(self):
@@ -325,6 +327,7 @@ if __name__=='__main__':
     p.add_argument('--vus',type=int,default=200)
     p.add_argument('--max-vus',type=int,default=600)
     p.add_argument('--dry-run',action='store_true')
+    p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     a=p.parse_args();a.duration=a.baseline+5+a.outage+a.recovery
     if not(1<=a.rate<=25 and 5<=a.baseline<=120 and 1<=a.outage<=60 and 15<=a.recovery<=300 and
         3<=a.recovery_window<=a.recovery and .5<=a.recovery_success_rate<=1 and a.recovery_p95_ms>0 and
