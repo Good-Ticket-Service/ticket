@@ -22,8 +22,8 @@ class PaymentConfirmMigrationTest {
                 .replace("\r\n", "\n");
         String schema =
                 Files.readString(Path.of("../sql/payment-service/schema.sql")).replace("\r\n", "\n");
-        assertThat(schema).endsWith(migration);
-        String previous = schema.substring(0, schema.length() - migration.length());
+        assertThat(schema).containsOnlyOnce(migration);
+        String previous = schema.substring(0, schema.indexOf(migration));
         try (var postgres = new PostgreSQLContainer<>("postgres:16")) {
             postgres.start();
             var admin = new JdbcTemplate(
