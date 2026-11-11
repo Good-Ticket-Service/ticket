@@ -1,0 +1,40 @@
+# 예상 정산 조회 파이프라인의 초기 운영 임계값이다. 판매자·build ID를 라벨로 쓰지 않는다.
+groups:
+  - name: settlement-projection-alerts
+    interval: 15s
+    rules:
+      - alert: SettlementProjectionUnpublished
+        expr: max by (application) (payment_settlement_projection_oldest_unpublished_seconds) > 30
+        for: 1m
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "예상 정산 원천 발행 지연"
+          action: "MASTER build 진행과 broker 연결·임대를 확인한다. 금융 원장은 수정하지 않는다."
+      - alert: SettlementProjectionQuarantined
+        expr: max by (application) (payment_settlement_projection_errors) > 0
+        for: 1m
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "예상 정산 미해결 격리 사건"
+          action: "충돌 원천을 확인하고 새 build를 검증한다. 오류를 숨긴 채 활성화하지 않는다."
+      - alert: SettlementProjectionStageFailures
+        expr: sum by (application, phase) (increase(payment_settlement_projection_failures_total[5m])) > 0
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "예상 정산 처리 단계 실패"
+          action: "phase와 MASTER 진행 정보를 확인한다. 금융 승인 실패와 별도로 조사한다."
+      - alert: SettlementProjectionObservationStale
+        expr: time() - payment_settlement_projection_sample_timestamp > 60
+        for: 1m
+        labels:
+          severity: warning
+          application: payment-service
+        annotations:
+          summary: "예상 정산 관측 갱신 중단"
+          action: "기존 지표를 정상 0건으로 해석하지 말고 서비스·DB·실행기 상태를 확인한다."

@@ -12,6 +12,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.apache.kafka:kafka-streams'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     // PG별 서킷 브레이커. 예매 payment-guard와 같은 라이브러리이고 버전은 Spring Cloud BOM이 정한다
@@ -21,7 +22,109 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation(testFixtures(project(':common')))
+    testImplementation 'org.apache.kafka:kafka-streams-test-utils'
     testImplementation 'org.testcontainers:kafka'
+}
+
+// Note: 기본 build와 분리한 TS6 실제 PostgreSQL 기준선이다.
+tasks.register('projectionPerformance', Test) {
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*SettlementProjectionPerformanceTest' }
+    maxHeapSize = '1g'
+    systemProperty 'projection.measure', 'true'
+    systemProperty 'projection.rows', providers.gradleProperty('projectionRows').getOrElse('100000')
+    systemProperty 'projection.output', providers.gradleProperty('projectionOutput').getOrElse('build/projection-performance')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('projectionRecovery', Test) {
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching '*ProjectionProcessRecoveryTest'
+        includeTestsMatching '*ProjectionCommitBoundaryTest'
+    }
+    maxHeapSize = '768m'
+    systemProperty 'projection.recovery', 'true'
+    doFirst {
+        def recoveryClasspath = layout.buildDirectory.file('projection-recovery-classpath.txt').get().asFile
+        recoveryClasspath.text = sourceSets.test.runtimeClasspath.asPath
+        systemProperty 'projection.test.classpath.file', recoveryClasspath.absolutePath
+    }
+    systemProperty 'projection.output', providers.gradleProperty('projectionOutput').getOrElse('build/projection-recovery')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('projectionComparison', Test) {
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*ProjectionComparisonTest' }
+    maxHeapSize = '1g'
+    systemProperty 'projection.compare', 'true'
+    systemProperty 'projection.repeat', providers.gradleProperty('projectionRepeat').getOrElse('0')
+    ['warmSeconds': '120', 'measureSeconds': '300', 'sourceRate': '100', 'queryRate': '50',
+     'load': 'false', 'modes': 'A0,B,C', 'distribution': 'UNIFORM',
+     'explore': 'false', 'exploreSeconds': '180', 'scenario': 'STEADY', 'rounds': '1'].each { key, fallback ->
+        systemProperty "projection.${key}", providers.gradleProperty("projection${key.capitalize()}").getOrElse(fallback)
+    }
+    systemProperty 'projection.monitor.script', providers.gradleProperty('projectionMonitor').getOrElse('')
+    systemProperty 'projection.rows', providers.gradleProperty('projectionRows').getOrElse('100000')
+    systemProperty 'projection.output', providers.gradleProperty('projectionOutput').getOrElse('build/projection-comparison')
+    doFirst {
+        def measurementClasspath = layout.buildDirectory.file('projection-comparison-classpath.txt').get().asFile
+        measurementClasspath.text = sourceSets.test.runtimeClasspath.asPath
+        systemProperty 'projection.test.classpath.file', measurementClasspath.absolutePath
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('projectionSourceCost', Test) {
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*ProjectionSourceCostTest' }
+    maxHeapSize = '768m'
+    systemProperty 'projection.source.cost', 'true'
+    systemProperty 'projection.repeats', providers.gradleProperty('projectionRepeats').getOrElse('3')
+    systemProperty 'projection.monitor.script', providers.gradleProperty('projectionMonitor').getOrElse('')
+    systemProperty 'projection.output', providers.gradleProperty('projectionOutput').getOrElse('build/projection-source-cost')
+    doFirst {
+        def sourceCostClasspath = layout.buildDirectory.file('projection-source-cost-classpath.txt').get().asFile
+        sourceCostClasspath.text = sourceSets.test.runtimeClasspath.asPath
+        systemProperty 'projection.test.classpath.file', sourceCostClasspath.absolutePath
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('projectionFinancial', Test) {
+    dependsOn testClasses, ':fake-pg:bootJar'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*ProjectionFinancialCoexistenceTest' }
+    maxHeapSize = '1g'
+    systemProperty 'projection.financial', 'true'
+    systemProperty 'projection.monitor.script', providers.gradleProperty('projectionMonitor').getOrElse('')
+    ['financialSeconds': '300', 'financialRate': '100', 'financialWarmSeconds': '120',
+     'modes': 'OFF,B,C'].each { key, fallback ->
+        systemProperty "projection.${key}", providers.gradleProperty("projection${key.capitalize()}").getOrElse(fallback)
+    }
+    systemProperty 'projection.output', providers.gradleProperty('projectionOutput').getOrElse('build/projection-financial')
+    doFirst {
+        def financialClasspath = layout.buildDirectory.file('projection-financial-classpath.txt').get().asFile
+        financialClasspath.text = sourceSets.test.runtimeClasspath.asPath
+        systemProperty 'projection.test.classpath.file', financialClasspath.absolutePath
+        systemProperty 'fakePg.jar', project(':fake-pg').tasks.bootJar.archiveFile.get().asFile.absolutePath
+    }
+    outputs.upToDateWhen { false }
 }
 
 // Note: PG 어댑터 계약 테스트는 실제 fake PG를 컨테이너로 띄워 HTTP로 부른다. Dockerfile 전체를 빌드하면 수 분이 걸리므로
