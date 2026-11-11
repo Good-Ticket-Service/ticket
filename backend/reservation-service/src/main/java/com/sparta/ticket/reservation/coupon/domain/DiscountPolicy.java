@@ -99,6 +99,13 @@ public class DiscountPolicy {
         return of(DiscountType.FIXED, discountAmount, null, null, null);
     }
 
+    /**
+     * 같은 값의 새 인스턴스. 회원 쿠폰에 복사할 때 쓴다. 임베디드 값은 Entity마다 따로 두어야 한쪽 변경이 다른 쪽에 섞이지 않는다.
+     */
+    public DiscountPolicy copy() {
+        return new DiscountPolicy(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount);
+    }
+
     /** 정가가 최소 적용 금액 이상인지. 최소 적용 금액이 없으면 항상 쓸 수 있다. */
     public boolean isApplicableTo(long baseAmount) {
         return minBaseAmount == null || baseAmount >= minBaseAmount;

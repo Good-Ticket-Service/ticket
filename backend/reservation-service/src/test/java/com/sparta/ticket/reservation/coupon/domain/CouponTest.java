@@ -123,10 +123,10 @@ class CouponTest {
         void beforeStart() {
             Coupon coupon = upcoming();
 
-            coupon.update("새 이름", 3_000, 500, START.plusDays(1), END.plusDays(1), 14, NOW);
+            coupon.update("새 이름", DiscountPolicy.fixed(3_000), 500, START.plusDays(1), END.plusDays(1), 14, NOW);
 
             assertThat(coupon.getName()).isEqualTo("새 이름");
-            assertThat(coupon.getDiscountAmount()).isEqualTo(3_000);
+            assertThat(coupon.getDiscountPolicy().getDiscountAmount()).isEqualTo(3_000);
             assertThat(coupon.getTotalQuantity()).isEqualTo(500);
             assertThat(coupon.getIssueStartAt()).isEqualTo(START.plusDays(1));
             assertThat(coupon.getIssueEndAt()).isEqualTo(END.plusDays(1));
@@ -141,7 +141,7 @@ class CouponTest {
             coupon.update("새 이름", null, null, null, null, null, NOW);
 
             assertThat(coupon.getName()).isEqualTo("새 이름");
-            assertThat(coupon.getDiscountAmount()).isEqualTo(5_000);
+            assertThat(coupon.getDiscountPolicy().getDiscountAmount()).isEqualTo(5_000);
             assertThat(coupon.getIssueStartAt()).isEqualTo(START);
             assertThat(coupon.getIssueEndAt()).isEqualTo(END);
         }
@@ -189,7 +189,7 @@ class CouponTest {
             Coupon coupon = issuing();
 
             assertError(
-                    () -> coupon.update(null, 3_000, null, null, null, null, NOW),
+                    () -> coupon.update(null, DiscountPolicy.fixed(3_000), null, null, null, null, NOW),
                     CouponErrorCode.COUPON_NOT_MODIFIABLE);
             assertError(
                     () -> coupon.update(null, null, null, NOW.minusHours(1), null, null, NOW),
@@ -205,7 +205,7 @@ class CouponTest {
 
             LocalDateTime start = coupon.getIssueStartAt();
 
-            coupon.update("연장", 5_000, null, start, null, 7, NOW);
+            coupon.update("연장", DiscountPolicy.fixed(5_000), null, start, null, 7, NOW);
 
             assertThat(coupon.getName()).isEqualTo("연장");
             // 지금과 같은 과거 시작 시각은 현재로 맞추지 않는다

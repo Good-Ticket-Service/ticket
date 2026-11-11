@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.coupon.domain;
 import com.sparta.ticket.common.entity.BaseEntity;
 import com.sparta.ticket.common.exception.BusinessException;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -18,7 +19,7 @@ import org.hibernate.annotations.SQLRestriction;
 
 /**
  * 회원이 받은 쿠폰 한 장. 쿠폰 정의(Coupon)는 관리자가 만들고, 회원이 발급받을 때마다 이 행이 하나 생긴다.
- * 할인액은 발급 시점의 값을 복사해 둔다. 받은 뒤에 쿠폰 정의가 바뀌어도 이미 받은 쿠폰의 조건은 바뀌지 않는다.
+ * 할인 정책은 발급 시점의 값을 복사해 둔다(#348). 받은 뒤에 쿠폰 정의가 바뀌어도 이미 받은 쿠폰의 조건은 바뀌지 않는다.
  * 명세는 docs/tables.md p_user_coupons다.
  */
 @Getter
@@ -38,14 +39,15 @@ public class UserCoupon extends BaseEntity {
 
     /**
      * 받은 쿠폰의 종류(Coupon). 회원 쿠폰 여러 장이 쿠폰 하나를 가리키는 N:1이지만 @ManyToOne 없이 ID만 둔다.
-     * Note: 받을 때 할인액·만료 시각을 복사해 쿠폰 정의 없이 동작하고, 발급 락이 몰리는 쿠폰 행을 무심코 불러오지 않게 한다.
+     * Note: 받을 때 할인 정책·만료 시각을 복사해 쿠폰 정의 없이 동작하고, 발급 락이 몰리는 쿠폰 행을 무심코 불러오지 않게 한다.
      * 쿠폰 정의가 필요하면 한 페이지 단위로 따로 조회한다(N+1 방지). 존재 여부는 DB 외래 키가 지킨다.
      */
     @Column(nullable = false)
     private Long couponId;
 
-    @Column(nullable = false)
-    private int discountAmount;
+    /** 발급 시점 할인 정책 복사본. 결제 준비에서 정가에 적용해 할인액을 계산한다(CouponUsage.reserve). */
+    @Embedded
+    private DiscountPolicy discountPolicy;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -68,23 +70,27 @@ public class UserCoupon extends BaseEntity {
     private LocalDateTime usedAt;
 
     private UserCoupon(
-            Long userId, Long couponId, int discountAmount, LocalDateTime issuedAt, LocalDateTime expiresAt) {
+            Long userId,
+            Long couponId,
+            DiscountPolicy discountPolicy,
+            LocalDateTime issuedAt,
+            LocalDateTime expiresAt) {
         this.userId = userId;
         this.couponId = couponId;
-        this.discountAmount = discountAmount;
+        this.discountPolicy = discountPolicy;
         this.status = UserCouponStatus.AVAILABLE;
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
     }
 
     /**
-     * 발급. 쿠폰의 할인액을 복사하고, 만료 시각은 발급 시각에 유효 일수를 더한 값이다.
+     * 발급. 쿠폰의 할인 정책을 복사하고, 만료 시각은 발급 시각에 유효 일수를 더한 값이다.
      * 발급 기간·수량 확인은 이 메서드가 아니라 발급 수량의 조건부 UPDATE가 한다. 동시 요청 사이에서 한 번에 판단해야 하기 때문이다.
      */
     public static UserCoupon issue(Long userId, Coupon coupon, LocalDateTime now) {
-        // 할인액은 지금 쿠폰 값으로 복사하고, 발급 시각과 만료 시각은 같은 now로 계산한다
+        // 할인 정책은 지금 쿠폰 값을 새 인스턴스로 복사하고, 발급 시각과 만료 시각은 같은 now로 계산한다
         return new UserCoupon(
-                userId, coupon.getId(), coupon.getDiscountAmount(), now, now.plusDays(coupon.getValidDays()));
+                userId, coupon.getId(), coupon.getDiscountPolicy().copy(), now, now.plusDays(coupon.getValidDays()));
     }
 
     /**
