@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.coupon.application.dto;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import java.time.LocalDateTime;
@@ -9,6 +10,7 @@ import java.time.LocalDateTime;
 public record CouponDetailResult(
         Long couponId,
         String name,
+        CouponCategory category,
         DiscountType discountType,
         Integer discountAmount,
         Integer discountRate,
@@ -32,6 +34,7 @@ public record CouponDetailResult(
         return new CouponDetailResult(
                 coupon.getId(),
                 coupon.getName(),
+                coupon.getCategory(),
                 coupon.getDiscountPolicy().getDiscountType(),
                 coupon.getDiscountPolicy().getDiscountAmount(),
                 coupon.getDiscountPolicy().getDiscountRate(),

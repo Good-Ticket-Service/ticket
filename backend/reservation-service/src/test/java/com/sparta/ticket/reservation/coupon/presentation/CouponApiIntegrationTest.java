@@ -80,6 +80,15 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                 """.formatted(discount, format(start), format(start.plusDays(6)));
     }
 
+    /** 구분을 정한 쿠폰 생성 본문. validDays가 null이면 보내지 않는다. */
+    private static String categoryBody(String category, Integer validDays, LocalDateTime start) {
+        String days = validDays == null ? "" : ", \"validDays\": " + validDays;
+        return """
+                {"name": "웰컴 쿠폰", "category": "%s", "discountAmount": 3000, "totalQuantity": 100,
+                 "issueStartAt": "%s", "issueEndAt": "%s"%s}
+                """.formatted(category, format(start), format(start.plusDays(6)), days);
+    }
+
     @Nested
     @DisplayName("POST /api/coupons 쿠폰 생성")
     class Create {
@@ -192,6 +201,46 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                 createBody(start, start.plusDays(6))
                         .replace("\"discountAmount\": 5000", "\"discountAmount\": 5000, \"minBaseAmount\": 0")
             }) {
+                mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
+        }
+
+        @Test
+        @DisplayName("구분을 보내지 않으면 일반 쿠폰이다(#357)")
+        void createDefaultsToGeneral() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1);
+
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(createBody(start, start.plusDays(6))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.category").value("GENERAL"));
+        }
+
+        @Test
+        @DisplayName("웰컴 쿠폰은 유효 일수를 보내지 않으면 7일로 만들어진다(#357)")
+        void createWelcome() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(categoryBody("WELCOME", null, start)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.category").value("WELCOME"))
+                    .andExpect(jsonPath("$.data.validDays").value(7));
+        }
+
+        @Test
+        @DisplayName("웰컴 쿠폰을 7일이 아닌 유효 일수로 만들거나, 일반 쿠폰을 유효 일수 없이 만들면 400 VALIDATION_ERROR(#357)")
+        void createInvalidCategory() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+
+            for (String body :
+                    new String[] {categoryBody("WELCOME", 30, start), categoryBody("GENERAL", null, start)}) {
                 mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(body))
@@ -326,6 +375,36 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
             Integer discountAmount = jdbcTemplate.queryForObject(
                     "SELECT discount_amount FROM p_coupons WHERE coupon_id = ?", Integer.class, coupon.getId());
             assertThat(discountAmount).isEqualTo(5000);
+        }
+
+        @Test
+        @DisplayName("시작 전 일반 쿠폰을 웰컴으로 바꾸려면 validDays 7을 함께 보내야 한다(#357)")
+        void changeToWelcome() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            patch(coupon.getId(), """
+                            {"category": "WELCOME", "validDays": 30}
+                            """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            patch(coupon.getId(), """
+                            {"category": "WELCOME", "validDays": 7}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.category").value("WELCOME"))
+                    .andExpect(jsonPath("$.data.validDays").value(7));
+        }
+
+        @Test
+        @DisplayName("발급 시작 후 구분을 바꾸면 409 COUPON_NOT_MODIFIABLE(#357)")
+        void categoryNotModifiable() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
+
+            patch(coupon.getId(), """
+                            {"category": "WELCOME", "validDays": 7}
+                            """)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_MODIFIABLE"));
         }
 
         @Test
