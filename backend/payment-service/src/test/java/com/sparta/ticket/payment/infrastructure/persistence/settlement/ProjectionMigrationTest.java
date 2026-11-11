@@ -33,8 +33,9 @@ class ProjectionMigrationTest {
                 Files.readString(Path.of("../sql/payment-service/schema.sql")).replace("\r\n", "\n");
         String dbUpgrade = Files.readString(Path.of("../sql/payment-service/migrations/024-projection-db-worker.sql"))
                 .replace("\r\n", "\n");
-        assertThat(canonical).endsWith(dbUpgrade);
-        canonical = canonical.substring(0, canonical.length() - dbUpgrade.length());
+        // Note: 후속 이행이 추가돼도 022~024의 순서와 기존 DB 업그레이드를 독립 검증한다.
+        assertThat(canonical).containsOnlyOnce(dbUpgrade);
+        canonical = canonical.substring(0, canonical.indexOf(dbUpgrade));
         assertThat(canonical).endsWith(healthUpgrade);
         String projectionSchema = canonical.substring(0, canonical.length() - healthUpgrade.length());
         assertThat(projectionSchema).endsWith(upgrade);
