@@ -1,6 +1,7 @@
 package com.sparta.ticket.payment.application.service.settlement;
 
 import com.sparta.ticket.payment.application.port.settlement.LedgerJournalWriter;
+import com.sparta.ticket.payment.application.port.settlement.SettlementFactJournal;
 import com.sparta.ticket.payment.application.service.observation.CommittedObservation;
 import com.sparta.ticket.payment.domain.model.settlement.LedgerConflictException;
 import com.sparta.ticket.payment.domain.model.settlement.LedgerKey;
@@ -19,6 +20,7 @@ public class LedgerTransactions {
     private final LedgerTransactionRepository ledger;
     private final LedgerJournalWriter writer;
     private final CommittedObservation observation;
+    private final SettlementFactJournal projection;
 
     /**
      * 분개를 업무 키당 한 번만 기록한다. 같은 키에 같은 내용이면 ALREADY_POSTED, 다른 내용이면 LedgerConflictException이다.
@@ -35,6 +37,7 @@ public class LedgerTransactions {
             return LedgerPosting.ALREADY_POSTED;
         }
         writer.append(draft);
+        projection.append(key);
         observation.counter(
                 "settlement.ledger.posted",
                 "source_type",
