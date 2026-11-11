@@ -4,6 +4,7 @@ import com.sparta.ticket.common.entity.BaseEntity;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -35,8 +36,9 @@ public class Coupon extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false)
-    private int discountAmount;
+    /** 할인 정책(정액·정률, 최대 할인액, 최소 적용 금액). 회원이 받을 때 회원 쿠폰에 그대로 복사한다(#348). */
+    @Embedded
+    private DiscountPolicy discountPolicy;
 
     @Column(nullable = false)
     private int totalQuantity;
@@ -62,13 +64,13 @@ public class Coupon extends BaseEntity {
     /** 검증을 마친 값으로만 부른다. 외부에서는 create로 만든다. */
     private Coupon(
             String name,
-            int discountAmount,
+            DiscountPolicy discountPolicy,
             int totalQuantity,
             LocalDateTime issueStartAt,
             LocalDateTime issueEndAt,
             int validDays) {
         this.name = name;
-        this.discountAmount = discountAmount;
+        this.discountPolicy = discountPolicy;
         this.totalQuantity = totalQuantity;
         this.issuedQuantity = 0;
         this.issueStartAt = issueStartAt;
@@ -79,7 +81,29 @@ public class Coupon extends BaseEntity {
     /**
      * 생성. 발급 종료 시각은 발급 시작 시각과 현재 시각보다 뒤여야 한다.
      * 발급 시작 시각이 과거면 현재 시각으로 저장한다(startNotBefore).
+     * 할인 정책은 DiscountPolicy.of가 만들 때 검증을 마친 값이다.
      */
+    public static Coupon create(
+            String name,
+            DiscountPolicy discountPolicy,
+            int totalQuantity,
+            LocalDateTime issueStartAt,
+            LocalDateTime issueEndAt,
+            int validDays,
+            LocalDateTime now) {
+        if (discountPolicy == null) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "할인 정책을 정해야 합니다.");
+        }
+        // 숫자 항목은 모두 1 이상이어야 한다(DB CHECK 제약과 같은 규칙)
+        requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
+        requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
+        // 과거 시작 시각은 현재로 맞춘 뒤, 발급 기간 순서와 종료 시각이 미래인지 확인한다
+        LocalDateTime startAt = startNotBefore(issueStartAt, now);
+        requireValidEnd(startAt, issueEndAt, now);
+        return new Coupon(name, discountPolicy, totalQuantity, startAt, issueEndAt, validDays);
+    }
+
+    /** 최소 적용 금액 없는 정액 쿠폰 생성. 정액만 쓰던 기존 호출(테스트 등)을 위해 둔다. */
     public static Coupon create(
             String name,
             int discountAmount,
@@ -88,18 +112,12 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             int validDays,
             LocalDateTime now) {
-        // 숫자 항목은 모두 1 이상이어야 한다(DB CHECK 제약과 같은 규칙)
-        requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
-        requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
-        requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
-        // 과거 시작 시각은 현재로 맞춘 뒤, 발급 기간 순서와 종료 시각이 미래인지 확인한다
-        LocalDateTime startAt = startNotBefore(issueStartAt, now);
-        requireValidEnd(startAt, issueEndAt, now);
-        return new Coupon(name, discountAmount, totalQuantity, startAt, issueEndAt, validDays);
+        return create(
+                name, DiscountPolicy.fixed(discountAmount), totalQuantity, issueStartAt, issueEndAt, validDays, now);
     }
 
     /**
-     * 부분 수정. null인 값은 바꾸지 않는다.
+     * 부분 수정. null인 값은 바꾸지 않는다. 할인 정책은 묶음 전체를 바꾼다(일부 값만 바꾸면 정액에 할인율이 붙는 식으로 어긋나기 때문이다).
      * 발급이 시작된 뒤에는 이름, 발급 종료 시각, 총 수량만 바꿀 수 있다. 먼저 받은 사람과 나중에 받은 사람의 조건이 달라지지 않게 하기 위해서다.
      * 바꿀 수 없는 항목도 지금과 같은 값이면 바꾸지 않은 것으로 본다.
      * 발급이 끝난(ENDED) 쿠폰은 이름만 바꿀 수 있다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고,
@@ -110,7 +128,7 @@ public class Coupon extends BaseEntity {
      */
     public void update(
             String name,
-            Integer discountAmount,
+            DiscountPolicy discountPolicy,
             Integer totalQuantity,
             LocalDateTime issueStartAt,
             LocalDateTime issueEndAt,
@@ -122,11 +140,11 @@ public class Coupon extends BaseEntity {
                 && (changes(issueEndAt, this.issueEndAt) || changes(totalQuantity, this.totalQuantity))) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
-        // 2) 발급이 시작됐으면 할인액·시작 시각·유효 일수는 바꿀 수 없다
+        // 2) 발급이 시작됐으면 할인 정책·시작 시각·유효 일수는 바꿀 수 없다
         // 발급이 시작됐고(&&) 세 항목 중 하나라도 changes가 true(지금 값과 다른 값으로 바꾸려 함)면 예외다.
         // 보내지 않았거나 같은 값이면 changes가 false라 통과하고, 이름·총 수량·종료 시각은 시작 뒤에도 바꿀 수 있다
         if (isIssueStarted(now)
-                && (changes(discountAmount, this.discountAmount)
+                && (changes(discountPolicy, this.discountPolicy)
                         || changes(issueStartAt, this.issueStartAt)
                         || changes(validDays, this.validDays))) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_MODIFIABLE);
@@ -134,9 +152,7 @@ public class Coupon extends BaseEntity {
         // 3) 보낸 숫자 값 검증
         //    Note: 총 수량이 받은 회원 수보다 적은지는 여기서 보지 않는다. 발급과 같은 곳(Redis)에서 판단해야
         //    비교한 뒤 발급이 끼어들지 않아 CouponService가 Redis로 확인한다(#300)
-        if (discountAmount != null) {
-            requirePositive(discountAmount, "할인액은 1 이상이어야 합니다.");
-        }
+        //    할인 정책은 DiscountPolicy.of가 만들 때 검증을 마쳤다
         if (validDays != null) {
             requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
         }
@@ -158,8 +174,8 @@ public class Coupon extends BaseEntity {
         if (name != null) {
             this.name = name;
         }
-        if (discountAmount != null) {
-            this.discountAmount = discountAmount;
+        if (discountPolicy != null) {
+            this.discountPolicy = discountPolicy;
         }
         if (totalQuantity != null) {
             this.totalQuantity = totalQuantity;
@@ -222,7 +238,7 @@ public class Coupon extends BaseEntity {
         return CouponIssueStatus.ENDED;
     }
 
-    /** 발급 시작 시각이 지났는지. 지난 뒤에는 할인액·시작 시각·유효 일수를 바꿀 수 없다. */
+    /** 발급 시작 시각이 지났는지. 지난 뒤에는 할인 정책·시작 시각·유효 일수를 바꿀 수 없다. */
     public boolean isIssueStarted(LocalDateTime now) {
         return !now.isBefore(issueStartAt);
     }

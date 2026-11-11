@@ -51,7 +51,10 @@ public class CouponUsageService implements CouponUsage {
 
         // 4) 예매 화면에 보여 줄 쿠폰 이름을 붙여 돌려준다
         return new CouponDiscount(
-                userCoupon.getId(), userCoupon.getCouponId(), couponName(userCoupon), userCoupon.getDiscountAmount());
+                userCoupon.getId(),
+                userCoupon.getCouponId(),
+                couponName(userCoupon),
+                userCoupon.getDiscountPolicy().getDiscountAmount());
     }
 
     @Override

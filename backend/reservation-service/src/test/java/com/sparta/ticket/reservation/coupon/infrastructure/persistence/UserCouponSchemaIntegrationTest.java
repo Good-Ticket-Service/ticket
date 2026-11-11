@@ -72,7 +72,7 @@ class UserCouponSchemaIntegrationTest extends ReservationIntegrationTest {
 
         assertThat(found.getUserId()).isEqualTo(1L);
         assertThat(found.getCouponId()).isEqualTo(coupon.getId());
-        assertThat(found.getDiscountAmount()).isEqualTo(5_000);
+        assertThat(found.getDiscountPolicy().getDiscountAmount()).isEqualTo(5_000);
         assertThat(found.getStatus()).isEqualTo(UserCouponStatus.AVAILABLE);
         assertThat(found.getIssuedAt()).isEqualTo(NOW);
         assertThat(found.getExpiresAt()).isEqualTo(NOW.plusDays(7));

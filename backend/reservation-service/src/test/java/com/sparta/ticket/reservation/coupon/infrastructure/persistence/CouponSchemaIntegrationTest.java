@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
+import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -37,7 +39,7 @@ class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
         Coupon found = couponRepository.findById(saved.getId()).orElseThrow();
 
         assertThat(found.getName()).isEqualTo("오픈 기념 5,000원 할인");
-        assertThat(found.getDiscountAmount()).isEqualTo(5_000);
+        assertThat(found.getDiscountPolicy().getDiscountAmount()).isEqualTo(5_000);
         assertThat(found.getTotalQuantity()).isEqualTo(1_000);
         assertThat(found.getIssuedQuantity()).isZero();
         assertThat(found.getIssueStartAt()).isEqualTo(NOW.plusDays(1));
@@ -45,6 +47,41 @@ class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
         assertThat(found.getValidDays()).isEqualTo(7);
         assertThat(found.getCreatedAt()).isNotNull();
         assertThat(found.getCreatedBy()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("정률 쿠폰의 할인 정책(할인율, 최대 할인액, 최소 적용 금액)을 저장하고 다시 읽는다(#348)")
+    void rateDiscountPolicy() {
+        DiscountPolicy policy = DiscountPolicy.of(DiscountType.RATE, null, 10, 5_000, 30_000);
+        Coupon saved = couponRepository.save(
+                Coupon.create("정률 10% 할인", policy, 1_000, NOW.plusDays(1), NOW.plusDays(7), 7, NOW));
+
+        Coupon found = couponRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getDiscountPolicy()).isEqualTo(policy);
+        assertThat(found.getDiscountPolicy().getDiscountAmount()).isNull();
+    }
+
+    @Test
+    @DisplayName("종류에 맞지 않는 할인 값은 ck_p_coupons_discount가, 0 이하 최소 적용 금액은 ck_p_coupons_min_base가 막는다(#348)")
+    void discountPolicyChecks() {
+        Coupon saved = saveCoupon();
+
+        // 정액 쿠폰에 할인율을 넣거나, 정률로 바꾸면서 할인율 100%를 넣으면 막는다
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        "UPDATE p_coupons SET discount_rate = 10 WHERE coupon_id = ?", saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_discount");
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        "UPDATE p_coupons SET discount_type = 'RATE', discount_amount = NULL, discount_rate = 100"
+                                + " WHERE coupon_id = ?",
+                        saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_discount");
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        "UPDATE p_coupons SET min_base_amount = 0 WHERE coupon_id = ?", saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_min_base");
     }
 
     @Test

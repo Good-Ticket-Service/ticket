@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 public record CouponDetailResult(
         Long couponId,
         String name,
-        int discountAmount,
+        Integer discountAmount,
         int totalQuantity,
         int remainingQuantity,
         LocalDateTime issueStartAt,
@@ -27,7 +27,7 @@ public record CouponDetailResult(
         return new CouponDetailResult(
                 coupon.getId(),
                 coupon.getName(),
-                coupon.getDiscountAmount(),
+                coupon.getDiscountPolicy().getDiscountAmount(),
                 coupon.getTotalQuantity(),
                 remainingQuantity,
                 coupon.getIssueStartAt(),

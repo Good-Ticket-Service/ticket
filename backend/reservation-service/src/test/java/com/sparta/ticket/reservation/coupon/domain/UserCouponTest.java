@@ -40,9 +40,20 @@ class UserCouponTest {
 
         assertThat(userCoupon.getUserId()).isEqualTo(1L);
         assertThat(userCoupon.getStatus()).isEqualTo(UserCouponStatus.AVAILABLE);
-        assertThat(userCoupon.getDiscountAmount()).isEqualTo(5_000);
+        assertThat(userCoupon.getDiscountPolicy().getDiscountAmount()).isEqualTo(5_000);
         assertThat(userCoupon.getReservationId()).isNull();
         assertThat(userCoupon.getUsedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("발급하면 쿠폰의 할인 정책을 같은 값의 새 인스턴스로 복사한다(#348)")
+    void issueCopiesDiscountPolicy() {
+        DiscountPolicy policy = DiscountPolicy.of(DiscountType.RATE, null, 10, 5_000, 30_000);
+        Coupon coupon = Coupon.create("정률 10% 할인", policy, 100, NOW.minusDays(1), NOW.plusDays(7), 7, NOW.minusDays(2));
+
+        UserCoupon userCoupon = UserCoupon.issue(1L, coupon, NOW);
+
+        assertThat(userCoupon.getDiscountPolicy()).isEqualTo(policy).isNotSameAs(coupon.getDiscountPolicy());
     }
 
     @Test

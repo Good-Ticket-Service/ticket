@@ -10,7 +10,7 @@ public record IssuedCouponResult(
         Long userCouponId,
         Long couponId,
         String name,
-        int discountAmount,
+        Integer discountAmount,
         UserCouponStatus status,
         LocalDateTime issuedAt,
         LocalDateTime expiresAt) {
@@ -21,7 +21,7 @@ public record IssuedCouponResult(
                 userCoupon.getId(),
                 userCoupon.getCouponId(),
                 coupon.getName(),
-                userCoupon.getDiscountAmount(),
+                userCoupon.getDiscountPolicy().getDiscountAmount(),
                 userCoupon.getStatus(),
                 userCoupon.getIssuedAt(),
                 userCoupon.getExpiresAt());
