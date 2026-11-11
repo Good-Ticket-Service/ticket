@@ -196,3 +196,35 @@ tasks.register('paymentResultIntegration', Test) {
         systemProperty 'reservation.jar', project(':reservation-service').tasks.bootJar.archiveFile.get().asFile.absolutePath
     }
 }
+
+// Note: 예매 승인 Outbox부터 실제 FakePG·결과 소비까지 연결하는 작은 명시적 시험이다.
+tasks.register('paymentConfirmIntegration', Test) {
+    dependsOn testClasses, ':reservation-service:bootJar', ':fake-pg:bootJar'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*PaymentResultReservationIntegrationTest.approvalOutboxThroughRealPgAndResultConsumerPreservesTicketCouponAndMoney' }
+    systemProperty 'payment.result.integration', 'true'
+    systemProperty 'payment.confirm.integration', 'true'
+    doFirst {
+        systemProperty 'reservation.jar', project(':reservation-service').tasks.bootJar.archiveFile.get().asFile.absolutePath
+        systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('paymentConfirmRecovery', Test) {
+    dependsOn testClasses, ':fake-pg:bootJar'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*PaymentConfirmProcessRecoveryTest' }
+    systemProperty 'payment.confirm.recovery', 'true'
+    doFirst {
+        def probeClasspath = layout.buildDirectory.file('confirm-recovery-classpath.txt').get().asFile
+        probeClasspath.text = sourceSets.test.runtimeClasspath.asPath
+        systemProperty 'confirm.test.classpath.file', probeClasspath.absolutePath
+        systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath
+    }
+    outputs.upToDateWhen { false }
+}

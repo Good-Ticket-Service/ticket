@@ -56,6 +56,199 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @Autowired
+    private com.sparta.ticket.payment.application.service.payment.MessageApprovalTransactions messageTransactions;
+
+    @Autowired
+    private com.sparta.ticket.payment.application.service.payment.PaymentTransactions paymentTransactions;
+
+    @Test
+    @EnabledIfSystemProperty(named = "payment.confirm.integration", matches = "true")
+    void approvalOutboxThroughRealPgAndResultConsumerPreservesTicketCouponAndMoney() throws Exception {
+        Path output = Path.of("build/payment-confirm-integration").toAbsolutePath();
+        Files.createDirectories(output);
+        try (var database = new PostgreSQLContainer<>("postgres:16");
+                var redis = new GenericContainer<>(DockerImageName.parse("redis:7.4")).withExposedPorts(6379);
+                var broker = new KafkaContainer("apache/kafka:4.3.1")) {
+            database.start();
+            redis.start();
+            broker.start();
+            var reservation = new JdbcTemplate(
+                    new DriverManagerDataSource(database.getJdbcUrl(), database.getUsername(), database.getPassword()));
+            var schema = new ResourceDatabasePopulator();
+            for (String sql : new String[] {"schema.sql", "booking.sql", "seat.sql", "coupon.sql"})
+                schema.addScript(new FileSystemResource("../sql/reservation-service/" + sql));
+            schema.execute(reservation.getDataSource());
+            try (var admin = Admin.create(Map.of("bootstrap.servers", broker.getBootstrapServers()))) {
+                admin.createTopics(java.util.List.of(
+                                new org.apache.kafka.clients.admin.NewTopic(
+                                        PaymentConfirmConsumer.TOPIC, 12, (short) 1),
+                                new org.apache.kafka.clients.admin.NewTopic(
+                                        PaymentConfirmConsumer.TOPIC + ".DLT", 12, (short) 1),
+                                new PaymentResultTopics().paymentResultTopic(),
+                                new PaymentResultTopics().paymentResultDeadLetterTopic()))
+                        .all()
+                        .get(10, TimeUnit.SECONDS);
+            }
+            int port;
+            try (var socket = new ServerSocket(0)) {
+                port = socket.getLocalPort();
+            }
+            Process application =
+                    startReservation(database, redis, broker, output.resolve("reservation.log"), port, true);
+            var producer = new DefaultKafkaProducerFactory<String, String>(
+                    Map.of(
+                            "bootstrap.servers",
+                            broker.getBootstrapServers(),
+                            "acks",
+                            "all",
+                            "max.block.ms",
+                            1000,
+                            "request.timeout.ms",
+                            2000,
+                            "delivery.timeout.ms",
+                            5000),
+                    new StringSerializer(),
+                    new StringSerializer());
+            var fakeAdmin = new com.sparta.ticket.payment.support.pg.FakePgAdmin(
+                    com.sparta.ticket.payment.support.pg.FakePgContainer.baseUrl());
+            fakeAdmin.clearFaults();
+            String pgUrl = com.sparta.ticket.payment.support.pg.FakePgContainer.baseUrl();
+            var pgProperties = new com.sparta.ticket.payment.infrastructure.pg.PgProperties(
+                    Duration.ofSeconds(2),
+                    Duration.ofSeconds(10),
+                    new com.sparta.ticket.payment.infrastructure.pg.PgProperties.Toss(pgUrl, "test_sk_fake_toss"),
+                    new com.sparta.ticket.payment.infrastructure.pg.PgProperties.Kakao(
+                            pgUrl,
+                            "DEV_fake_kakao",
+                            "TC0ONETIME",
+                            "http://localhost/approve",
+                            "http://localhost/cancel",
+                            "http://localhost/fail"));
+            var actualClient = new com.sparta.ticket.payment.infrastructure.pg.toss.TossPgClient(
+                    org.springframework.web.client.RestClient.builder(),
+                    pgProperties,
+                    mapper,
+                    null,
+                    new com.sparta.ticket.payment.infrastructure.pg.PgCallGuard(null, null));
+            var clients = new org.springframework.beans.factory.support.StaticListableBeanFactory(
+                    Map.of("toss", actualClient));
+            var actualService = new com.sparta.ticket.payment.application.service.payment.MessageApprovalService(
+                    messageTransactions,
+                    paymentTransactions,
+                    new com.sparta.ticket.payment.application.service.pg.PgClientRegistry(
+                            clients.getBeanProvider(com.sparta.ticket.payment.application.port.pg.PgClient.class)),
+                    paymentClock,
+                    new com.sparta.ticket.payment.application.service.payment.MessageApprovalProperties());
+            var kafka = new KafkaTemplate<>(producer);
+            try (var consumer = PaymentConfirmConsumerIntegrationTest.start(
+                    broker.getBootstrapServers(),
+                    kafka,
+                    actualService,
+                    mapper,
+                    new SimpleMeterRegistry(),
+                    paymentClock)) {
+                var http = org.springframework.web.client.RestClient.builder()
+                        .baseUrl("http://localhost:" + port)
+                        .build();
+                await().atMost(WAIT)
+                        .ignoreExceptions()
+                        .until(() -> http.get()
+                                .uri("/actuator/health")
+                                .retrieve()
+                                .toBodilessEntity()
+                                .getStatusCode()
+                                .is2xxSuccessful());
+                var relay = new PaymentResultRelay(
+                        outbox,
+                        kafka,
+                        new PaymentResultRelayProperties(
+                                10,
+                                Duration.ofSeconds(30),
+                                Duration.ofSeconds(2),
+                                Duration.ofSeconds(1),
+                                Duration.ofMillis(10)),
+                        new SimpleMeterRegistry());
+                var evidence = new LinkedHashMap<String, Object>();
+                for (int index = 0; index < 2; index++) {
+                    long id = 820001 + index;
+                    String order = "confirm-integration-" + id;
+                    seed(reservation, id, order, false);
+                    reservation.update("UPDATE p_reservations SET status='HOLD' WHERE reservation_id=?", id);
+                    var expires = reservation.queryForObject(
+                            "SELECT hold_expires_at FROM p_reservations WHERE reservation_id=?",
+                            LocalDateTime.class,
+                            id);
+                    service.checkout(
+                            new CheckoutCommand(order, id, id, 2L, 10L, id, PgProvider.TOSS, 11000, 1000, expires));
+                    String token = fakeAdmin.tossCheckout(order, 10000);
+                    if (index == 1) fakeAdmin.fault("TOSS", "CONFIRM", "{\"failRate\":1}");
+                    long started = System.nanoTime();
+                    String response = http.post()
+                            .uri("/api/reservations/{id}/payments/confirm", id)
+                            .header("X-User-Id", Long.toString(id))
+                            .header("X-Username", "TEST")
+                            .header("X-User-Role", "USER")
+                            .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                            .body(Map.of("orderId", order, "pgAuthToken", token))
+                            .retrieve()
+                            .body(String.class);
+                    assertThat(response).contains("PAYMENT_IN_PROGRESS");
+                    await().atMost(WAIT)
+                            .until(() -> paymentJdbc.queryForObject(
+                                            "SELECT count(*) FROM p_payment_result_outbox WHERE order_id=?",
+                                            Long.class,
+                                            order)
+                                    == 1);
+                    await().atMost(WAIT).untilAsserted(() -> {
+                        relay.publishOnce();
+                        assertThat(outbox.pending()).isZero();
+                    });
+                    if (index == 0) awaitState(reservation, id, "CONFIRMED", "SOLD", "USED");
+                    else awaitState(reservation, id, "HOLD", "HOLD", "RESERVED");
+                    assertThat(receipts(reservation, order)).isEqualTo(1);
+                    assertThat(paymentJdbc.queryForObject(
+                                    "SELECT message_confirm_before IS NOT NULL FROM p_payments WHERE order_id=?",
+                                    Boolean.class,
+                                    order))
+                            .isTrue();
+                    assertThat(com.sparta.ticket.payment.support.pg.FakePgContainer.jdbc()
+                                    .queryForObject(
+                                            "SELECT count(*) FROM pg_transaction WHERE order_id=?", Long.class, order))
+                            .isEqualTo(1);
+                    var item = new LinkedHashMap<String, Object>();
+                    item.put("finalState", snapshot(reservation, id));
+                    item.put("pgState", fakeAdmin.transactionStatus(order));
+                    item.put("observedCompletionMillis", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                    item.put("resultReceiptCount", receipts(reservation, order));
+                    evidence.put(index == 0 ? "approved" : "rejected", item);
+                }
+                settlementJobs.drain();
+                assertThat(paymentJdbc.queryForObject(
+                                "SELECT sum(debit)-sum(credit) FROM p_ledger_entries", Long.class))
+                        .isZero();
+                assertThat(paymentJdbc.queryForObject(
+                                "SELECT count(*) FROM p_ledger_transactions WHERE source_type='SALE'", Long.class))
+                        .isEqualTo(1);
+                evidence.put("ledgerDifference", 0);
+                evidence.put(
+                        "source",
+                        "reservation HTTP + actual Outbox, actual payment Consumer and Toss HTTP adapter, real FakePG");
+                Files.writeString(
+                        output.resolve("results.json"),
+                        mapper.writerWithDefaultPrettyPrinter().writeValueAsString(evidence));
+            } finally {
+                fakeAdmin.clearFaults();
+                application.destroy();
+                if (!application.waitFor(10, TimeUnit.SECONDS)) {
+                    application.destroyForcibly();
+                    application.waitFor(10, TimeUnit.SECONDS);
+                }
+                producer.destroy();
+            }
+        }
+    }
+
     @Test
     void deliversRealResultsDeduplicatesAndRecoversAfterBrokerRestart() throws Exception {
         Path output = Path.of("build/payment-result-integration").toAbsolutePath();
@@ -200,6 +393,17 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
     private Process startReservation(
             PostgreSQLContainer<?> database, GenericContainer<?> redis, KafkaContainer broker, Path log)
             throws Exception {
+        return startReservation(database, redis, broker, log, 0, false);
+    }
+
+    private Process startReservation(
+            PostgreSQLContainer<?> database,
+            GenericContainer<?> redis,
+            KafkaContainer broker,
+            Path log,
+            int port,
+            boolean messageMode)
+            throws Exception {
         var args = new ArrayList<String>();
         args.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         args.add("-Xmx384m");
@@ -211,7 +415,7 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
         args.add("--spring.profiles.active=integration");
         args.add("--spring.cloud.config.enabled=false");
         args.add("--eureka.client.enabled=false");
-        args.add("--server.port=0");
+        args.add("--server.port=" + port);
         args.add("--spring.datasource.url=" + database.getJdbcUrl());
         args.add("--spring.datasource.username=" + database.getUsername());
         args.add("--spring.datasource.password=" + database.getPassword());
@@ -220,7 +424,8 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
         args.add("--spring.kafka.consumer.auto-offset-reset=earliest");
         args.add("--spring.data.redis.host=" + redis.getHost());
         args.add("--spring.data.redis.port=" + redis.getMappedPort(6379));
-        args.add("--reservation.booking.scheduler.enabled=false");
+        args.add("--reservation.booking.scheduler.enabled=" + messageMode);
+        args.add("--reservation.booking.payment-confirm.via-message=" + messageMode);
         args.add("--reservation.coupon.scheduler.enabled=false");
         return new ProcessBuilder(args)
                 .redirectErrorStream(true)
