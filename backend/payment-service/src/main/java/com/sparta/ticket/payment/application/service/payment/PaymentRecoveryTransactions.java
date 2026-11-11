@@ -30,6 +30,7 @@ public class PaymentRecoveryTransactions {
     private final PaymentRecoveryProperties properties;
     private final Clock clock;
     private final MeterRegistry meters;
+    private final MessageApprovalProperties messageApproval;
     private final com.sparta.ticket.payment.application.service.observation.CommittedObservation observation;
 
     /** Note: ID는 먼저 기록해 저장 실패 때도 같은 실행에서 동일 후보만 반복하지 않는다. */
@@ -37,11 +38,13 @@ public class PaymentRecoveryTransactions {
     public boolean expireOne(Collection<Long> attemptedIds) {
         LocalDateTime now = LocalDateTime.now(clock);
         Optional<Payment> candidate =
-                payments.lockNextExpiredReady(now, attemptedIds).stream().findFirst();
+                payments.lockNextExpiredReady(now, now.minus(messageApproval.readyGrace()), attemptedIds).stream()
+                        .findFirst();
         if (candidate.isEmpty()) return false;
         Payment payment = candidate.get();
         attemptedIds.add(payment.getId());
-        if (payment.getStatus() == PaymentStatus.READY && payment.isExpired(LocalDateTime.now(clock))) {
+        if (payment.getStatus() == PaymentStatus.READY
+                && payment.isReadyExpiryDue(LocalDateTime.now(clock), messageApproval.readyGrace())) {
             observation.duration("payment.execution.claim.delay", payment.getExpiresAt(), "task", "ready_expiry");
             transactions.failForRecovery(payment, PaymentFailureCode.EXPIRED);
         }
@@ -118,7 +121,10 @@ public class PaymentRecoveryTransactions {
     @Transactional(readOnly = true)
     public double oldestDueAgeSeconds() {
         LocalDateTime now = LocalDateTime.now(clock);
-        LocalDateTime oldest = payments.oldestDueRecovery(now);
+        LocalDateTime oldest = payments.oldestDueRecovery(
+                now,
+                now.minus(messageApproval.readyGrace()),
+                messageApproval.readyGrace().toSeconds());
         return oldest == null
                 ? 0
                 : Math.max(0, java.time.Duration.between(oldest, now).toMillis() / 1000.0);

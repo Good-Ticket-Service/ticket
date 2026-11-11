@@ -663,7 +663,7 @@
 
 | 토픽 | 발행 → 소비 | 소비자 그룹 | 필드 |
 |---|---|---|---|
-| payment.confirm.requested | 예매 → 결제 | 결제가 정함 | orderId:string(1~64),reservationId:long,amount:int,confirmBefore:datetime(+09:00),pgAuthToken:string(1~255) |
+| payment.confirm.requested | 예매 → 결제 | payment-confirm-requested | orderId:string(1~64),reservationId:long,amount:int,confirmBefore:datetime(+09:00),pgAuthToken:string(1~255) |
 | payment.result | 결제 → 예매 | reservation-booking-payment-result | orderId:string,reservationId:long,paymentId:long,status:DONE/FAILED,amount:int,failureType:string?,failureCode:string?,approvedAt:datetime? |
 | payment.refund.requested | 예매 → 결제 | 결제가 정함 | orderId:string,reservationId:long,reason:USER_CANCEL/SCHEDULE_CANCELED/CONFIRM_FAILED |
 | payment.refund.result | 결제 → 예매 | 예매가 정함 | orderId:string,reservationId:long,refundStatus:WAITING/REQUESTED/DONE/FAILED/SKIPPED/NOT_REQUIRED,refundAmount:int,reason:string |
@@ -671,6 +671,8 @@
 - payment.confirm.requested: 예매가 PAYMENT_IN_PROGRESS로 바꾸는 트랜잭션에 Outbox로 저장한다. amount는 예매에 저장한 payment_amount다. pgAuthToken은 토스 paymentKey 또는 카카오 pg_token이다.
 - payment.confirm.requested: 결제는 orderId로 중복을 막아(같은 orderId는 READY일 때만 IN_PROGRESS로 바뀌는 결제 상태 전이) 같은 orderId의 PG 승인을 한 번만 부른다. eventId는 저장하지 않고 추적용으로만 쓴다. confirmBefore 처리 순서는 architecture 6절 「승인 요청의 불변 조건」을 따른다.
 - payment.confirm.requested: 토픽 보관은 1일, DLT는 7일이다. DLT로 간 승인은 confirmBefore가 지나 예매의 결과 확인이 실패로 끝낸다.
+- #346 작업 브랜치: 결제는 최초 시한·요청 의미를 고정하고 로컬 PG 허가 대기는 READY로 유지한다. 메시지 접수된 결제의 HTTP 승인 재요청은 새 실행 없이 IN_PROGRESS로 응답하며, 조회 API는 실제 READY와 confirmRequestedAt을 반환한다.
+- #346 작업 브랜치의 DLT는 원문·인증값·원본 헤더를 복사하지 않고 sourceTopic/sourcePartition/sourceOffset, 고정 reason, firstFailedAt, payloadHash, schemaVersion을 담는다. 유효한 reservationId key는 유지하고 해석 불가 key는 null로 둔다. 원본 좌표로 DLT 중복을 식별한다. DLT ACK를 확인한 뒤 원본 offset을 진행하며, 의미 충돌·주문 없음·DB 장애는 자동 DLT로 확대하지 않는다.
 - payment.result: 필드 이름은 결제 조회 API(GET /internal/payments/{orderId})와 같다. failureType·failureCode는 FAILED일 때, approvedAt은 DONE일 때만 있다.
 - payment.result: 예매는 지금 eventId, schemaVersion, occurredAt, orderId, reservationId, status만 읽는다.
 - payment.refund.requested: 예매가 환불을 정한 트랜잭션(사용자 취소의 CANCELING, 확정 실패 표시, 회차 취소의 CANCELING)에서 Outbox에 저장한다. 결제 처리는 POST /internal/payments/{orderId}/refund와 같다. orderId 멱등이고, 이미 환불 행이 있으면 최초 사유와 상태를 유지한다.

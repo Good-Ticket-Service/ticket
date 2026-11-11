@@ -58,6 +58,7 @@ public class PaymentTransactions {
         Payment payment = paymentRepository
                 .lockByOrderId(orderId)
                 .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
+        if (payment.getMessageConfirmBefore() != null) return Optional.empty();
         if (payment.getStatus() != PaymentStatus.READY) {
             return Optional.empty();
         }
