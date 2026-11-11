@@ -496,7 +496,7 @@
 
 ## 쿠폰 — reservation-service / coupon
 
-상태: 생성·수정·발급 중단·삭제·발급, 목록·상세 조회, 내 쿠폰 조회는 구현됨. 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다. 할인 정책(정률 할인, 최대 할인액, 최소 적용 금액)은 구현됨(#348).
+상태: 생성·수정·발급 중단·삭제·발급, 목록·상세 조회, 내 쿠폰 조회는 구현됨. 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다. 할인 정책(정률 할인, 최대 할인액, 최소 적용 금액)은 구현됨(#348). 쿠폰 구분(일반·웰컴)과 구분별 목록은 구현됨(#357).
 
 로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`. page=0,size=10(10/30/50). sort는 실제 적용한 정렬을 요청과 같은 `필드,방향` 형식으로 돌려주고, 정렬을 보내지 않으면 기본값 `createdAt,DESC`, 여러 개면 `;`로 잇는다(예: `issueEndAt,ASC;createdAt,DESC`).
 
@@ -506,21 +506,23 @@
 | PATCH /api/coupons/{couponId} | MASTER | 200 | CouponInput의 변경 필드만[1개 이상] | Coupon | 400 VALIDATION_ERROR;404 COUPON_NOT_FOUND;409 COUPON_NOT_MODIFIABLE/COUPON_QUANTITY_BELOW_ISSUED/COUPON_ALREADY_CLOSED;503 SERVICE_UNAVAILABLE |
 | POST /api/coupons/{couponId}/close | MASTER | 200 | 없음 | Coupon(issueStatus=ENDED) | 404 COUPON_NOT_FOUND;409 COUPON_ALREADY_CLOSED |
 | DELETE /api/coupons/{couponId} | MASTER | 204 | 없음 | 없음 | 404 COUPON_NOT_FOUND;409 COUPON_NOT_DELETABLE;503 SERVICE_UNAVAILABLE |
-| GET /api/coupons | 로그인 | 200 | Q issueStatus?:string=ISSUING,page?,size?,sort?:string=createdAt,DESC(createdAt/issueStartAt/issueEndAt,ASC/DESC) | PageC<CouponDetail> | 400 VALIDATION_ERROR |
+| GET /api/coupons | 로그인 | 200 | Q issueStatus?:string=ISSUING,category?:CouponCategory=GENERAL,page?,size?,sort?:string=createdAt,DESC(createdAt/issueStartAt/issueEndAt,ASC/DESC) | PageC<CouponDetail> | 400 VALIDATION_ERROR |
 | GET /api/coupons/{couponId} | 로그인 | 200 | 없음 | CouponDetail | 404 COUPON_NOT_FOUND |
 | POST /api/coupons/{couponId}/issue | USER | 201 | 없음 | UserCoupon(usedAt 제외,status=AVAILABLE) | 400 COUPON_ISSUE_PERIOD_CLOSED;404 COUPON_NOT_FOUND;409 COUPON_SOLD_OUT/COUPON_ALREADY_ISSUED;503 SERVICE_UNAVAILABLE |
 | GET /api/coupons/me | 로그인 | 200 | Q status?:string,page?,size?,sort?:string=createdAt,DESC(createdAt/expiresAt,ASC/DESC) | PageC<UserCoupon> | 400 VALIDATION_ERROR |
 
-- CouponInput = `{name:string(1~100),discountType?:DiscountType=FIXED,discountAmount?:int>=1,discountRate?:int(1~99),maxDiscountAmount?:int>=1,minBaseAmount?:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`. DiscountType은 FIXED(정액) 또는 RATE(정률)다. (#348)
+- CouponInput = `{name:string(1~100),category?:CouponCategory=GENERAL,discountType?:DiscountType=FIXED,discountAmount?:int>=1,discountRate?:int(1~99),maxDiscountAmount?:int>=1,minBaseAmount?:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays?:int>=1}`. DiscountType은 FIXED(정액) 또는 RATE(정률)다. (#348)
+- 쿠폰 구분: CouponCategory는 GENERAL(일반) 또는 WELCOME(웰컴)이다. 보내지 않으면 GENERAL이다. 일반 쿠폰은 validDays가 필수이고, 웰컴 쿠폰은 validDays를 생략하면 7이며 7만 허용한다(받은 날부터 7일 사용, 다른 값은 400 VALIDATION_ERROR). 시작 전 일반 쿠폰을 웰컴으로 바꿀 때 validDays를 자동으로 바꾸지 않으므로 7을 함께 보내야 한다. (#357)
+- 목록의 category를 보내지 않으면 GENERAL만 나온다. 웰컴 쿠폰 페이지는 category=WELCOME으로 조회하고 지금 발급 API로 받는다. 발급 규칙(1인 1장, 기간, 수량, USER만)은 구분과 상관없이 같다. (#357)
 - 할인 정책: FIXED는 discountAmount가 필수이고 discountRate·maxDiscountAmount를 받지 않는다. RATE는 discountRate(1~99%)가 필수이고 maxDiscountAmount는 선택이며 discountAmount를 받지 않는다. minBaseAmount(최소 적용 금액, 정가 기준)는 두 종류 모두 선택이다. 맞지 않는 조합은 400 VALIDATION_ERROR다. 할인율이 99%까지인 것은 결제 최소 금액(100원) 때문에 100%는 표시대로 무료가 되지 않기 때문이다. (#348)
 - 생성과 수정 모두 discountType을 보내지 않으면 FIXED로 본다. 수정은 할인 정책을 묶음 전체로 바꾼다. 할인 값(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount)을 하나라도 보내면 그 값들로 새 정책을 만들고, 함께 보내지 않은 할인 값은 없음(null)이 된다. 종류 없이 정률 값만 보내면 FIXED에 맞지 않아 400 VALIDATION_ERROR다. (#348)
 - issueStartAt이 현재보다 앞이면 현재 시각으로 저장하고 응답에도 그 값을 돌려준다(생성, 시작 전 쿠폰 수정). 과거 시작은 "지금 시작"과 같게 동작하므로 저장값을 실제로 발급이 열린 시각에 맞춘다. 거절하지 않는 것은 "지금"을 보내도 서버에 닿으면 이미 과거이기 때문이다.
 - 수정은 바꿀 항목을 1개 이상 보내야 한다. 빈 본문 `{}`, 모두 null, 모르는 필드만 보낸 요청은 400 VALIDATION_ERROR다. 지금 값과 같은 값을 보낸 것은 바꿀 항목으로 센다.
-- Coupon = `{couponId:long,name:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
+- Coupon = `{couponId:long,name:string,category:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
 - CouponDetail = Coupon + `{issuedByMe:boolean}`. issuedByMe는 요청한 사용자가 이 쿠폰을 이미 받았는지이며, 사용·만료와 관계없이 받은 적이 있으면 true다. 받을 수 없는 SELLER·MASTER는 false다.
 - UserCoupon = `{userCouponId:long,couponId:long,name:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
 - 할인 정책은 쿠폰과 회원 쿠폰에 같은 필드로 담긴다. 정률 쿠폰은 discountAmount가 null이다. 회원 쿠폰의 할인 정책은 발급 시점 복사본이라 쿠폰 정의를 바꿔도 이미 받은 쿠폰은 그대로다. (#348)
-- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=받은 회원 수). 할인 정책은 발급 시작 후 바꿀 수 없다(409 COUPON_NOT_MODIFIABLE). 삭제는 받은 회원이 없을 때만. 발급은 1인 1장.
+- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=받은 회원 수). 구분·할인 정책은 발급 시작 후 바꿀 수 없다(409 COUPON_NOT_MODIFIABLE). 삭제는 받은 회원이 없을 때만. 발급은 1인 1장.
 - 발급이 끝난(ENDED) 쿠폰은 name만 바꿀 수 있다. issueEndAt·totalQuantity를 다른 값으로 바꾸면 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고, 총 수량은 더 발급하지 않아 남은 수량 숫자만 달라지기 때문이다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있다. 다시 발급하려면 새 쿠폰을 만든다.
 - 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
 - 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
