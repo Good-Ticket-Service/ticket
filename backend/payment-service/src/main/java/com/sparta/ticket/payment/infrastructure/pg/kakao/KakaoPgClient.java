@@ -121,6 +121,26 @@ public class KakaoPgClient implements PgClient {
 
     @Override
     public PgResult approve(PgApproveRequest request) {
+        return approve(request, null);
+    }
+
+    @Override
+    public Optional<Approval> reserveApproval() {
+        if (guard == null) return PgClient.super.reserveApproval();
+        return guard.reserve("KAKAO").map(permit -> new Approval() {
+            @Override
+            public PgResult approve(PgApproveRequest request) {
+                return KakaoPgClient.this.approve(request, permit);
+            }
+
+            @Override
+            public void close() {
+                permit.close();
+            }
+        });
+    }
+
+    private PgResult approve(PgApproveRequest request, PgCallGuard.Permit permit) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("cid", kakao.cid());
         body.put("tid", request.transactionId());
@@ -128,7 +148,7 @@ public class KakaoPgClient implements PgClient {
         body.put("partner_user_id", String.valueOf(request.userId()));
         body.put("pg_token", request.authToken());
         return result(
-                post("/online/v1/payment/approve", body),
+                post("/online/v1/payment/approve", body, permit),
                 APPROVE_REJECTED_CODES,
                 json -> new PgResult.Approved(
                         json.path("tid").asText(),
@@ -209,6 +229,10 @@ public class KakaoPgClient implements PgClient {
     }
 
     private PgCall post(String path, Map<String, Object> body) {
+        return post(path, body, null);
+    }
+
+    private PgCall post(String path, Map<String, Object> body, PgCallGuard.Permit permit) {
         return PgHttp.call(
                 client -> client.post()
                         .uri(path)
@@ -219,7 +243,8 @@ public class KakaoPgClient implements PgClient {
                 meters,
                 guard,
                 "KAKAO",
-                path.substring(path.lastIndexOf('/') + 1).replace("order", "inquire"));
+                path.substring(path.lastIndexOf('/') + 1).replace("order", "inquire"),
+                permit);
     }
 
     /** 승인·취소 응답 분류. 공통 규칙 → 2xx 성공 → 처리하지 않았음이 확실한 코드만 업무 거절 → 그 밖은 Unknown. */

@@ -11,6 +11,26 @@ import com.sparta.ticket.payment.domain.model.pg.PgResult;
  */
 public interface PgClient {
 
+    /** 실제 송신 전에 PG 전체 예산을 확보한다. 메시지 승인은 실행권 TX보다 먼저 호출한다. */
+    default java.util.Optional<Approval> reserveApproval() {
+        return java.util.Optional.of(new Approval() {
+            @Override
+            public PgResult approve(PgApproveRequest request) {
+                return PgClient.this.approve(request);
+            }
+
+            @Override
+            public void close() {}
+        });
+    }
+
+    interface Approval extends AutoCloseable {
+        PgResult approve(PgApproveRequest request);
+
+        @Override
+        void close();
+    }
+
     PgProvider provider();
 
     PgReadyResult ready(PgReadyRequest request);

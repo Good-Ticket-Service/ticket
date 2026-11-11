@@ -100,6 +100,34 @@ class PgBulkheadAdapterTest {
     }
 
     @Test
+    void reservedPermitReachesActualHttpWithoutSecondAcquisitionAndReturnsUnusedSlot() throws Exception {
+        var bulkhead = new PgBulkhead(new PgBulkheadProperties(true, 1, 1, Duration.ZERO), (MeterRegistry) null);
+        var guard = new PgCallGuard(null, bulkhead);
+        var client = new TossPgClient(
+                RestClient.builder(),
+                PgClientContractTest.properties("http://localhost:" + server.getLocalPort()),
+                new ObjectMapper(),
+                null,
+                guard);
+        var unused = client.reserveApproval().orElseThrow();
+        assertThat(client.reserveApproval()).isEmpty();
+        unused.close();
+        unused.close();
+        try (var permit = client.reserveApproval().orElseThrow()) {
+            var call = CompletableFuture.supplyAsync(
+                    () -> permit.approve(new PgApproveRequest("reserved", "key", "key", 10000, 1L)));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(client.reserveApproval()).isEmpty();
+            assertThat(requests).hasValue(1);
+            release.countDown();
+            assertThat(call.get(5, TimeUnit.SECONDS)).isInstanceOf(PgResult.Unknown.class);
+        }
+        try (var available = client.reserveApproval().orElseThrow()) {
+            assertThat(available).isNotNull();
+        }
+    }
+
+    @Test
     @DisplayName("상한이 차면 다음 승인은 PG로 보내지 않고 PG_BUSY로 거절되며, 앞선 승인은 그대로 처리된다")
     void overflowApprovalIsNotSent() throws Exception {
         PgBulkhead bulkhead =

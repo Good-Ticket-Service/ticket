@@ -114,6 +114,11 @@ public class PgClientFixture {
     private final PgClient client = new PgClient() {
 
         @Override
+        public java.util.Optional<Approval> reserveApproval() {
+            return approvalAllowed ? PgClient.super.reserveApproval() : java.util.Optional.empty();
+        }
+
+        @Override
         public PgProvider provider() {
             return PgProvider.KAKAO;
         }
