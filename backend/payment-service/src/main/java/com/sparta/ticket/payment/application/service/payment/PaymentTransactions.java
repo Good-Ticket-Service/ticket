@@ -268,6 +268,7 @@ public class PaymentTransactions {
             live.supersede();
             live.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
             paymentRepository.saveAndFlush(live);
+            resultPublisher.paymentFinalized(live);
         });
         boolean pgReadyClaimed = false;
         if (payment.needsPgReady()) {
@@ -301,6 +302,7 @@ public class PaymentTransactions {
         payment.applyPgReady(result);
         if (payment.getStatus() == PaymentStatus.FAILED) {
             payment.recordFailure(LocalDateTime.now(clock), reconcileProperties.schedule());
+            resultPublisher.paymentFinalized(payment);
         }
         return payment;
     }

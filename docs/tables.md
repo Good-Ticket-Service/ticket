@@ -400,6 +400,24 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CREATE INDEX ix_p_payments_reconcile ON p_payments (next_reconcile_at,id) WHERE status = 'FAILED' AND approve_requested_at IS NOT NULL AND next_reconcile_at IS NOT NULL;`
 
+### p_payment_result_outbox — payment-service/schema.sql, 이행021 (#346 구현 중)
+
+| 컬럼 | 타입·제약 |
+|---|---|
+| event_id | UUID PK. 재전달해도 같은 값 |
+| payment_id / order_id | BIGINT UNIQUE / VARCHAR(64) UNIQUE. 결제당 최초 결과 하나 |
+| reservation_id / result_status | BIGINT / DONE 또는 FAILED |
+| occurred_at / meaning_hash / payload | TIMESTAMPTZ / VARCHAR(64) / TEXT. 최초 결과와 의미를 고정 |
+| published_at / next_attempt_at | TIMESTAMPTZ nullable / TIMESTAMPTZ NOT NULL |
+| lease_token / lease_until | UUID / TIMESTAMPTZ. 함께 NULL이거나 함께 존재 |
+| attempts / last_error | INT >=0 / VARCHAR(80). claim 횟수와 고정 오류 분류 |
+| created_at/by, updated_at/by | TIMESTAMPTZ / VARCHAR(100). 발행 bulk UPDATE도 직접 갱신 |
+
+- 금융 결과 전이와 같은 트랜잭션으로 저장한다. 네트워크 발행은 claim·완료 기록 트랜잭션 밖에서 한다.
+- `published_at IS NULL`의 `(next_attempt_at,event_id)` 부분 인덱스로 재시도 후보를 찾는다. 임대 소유 token이 같은 경우만 완료/실패를 기록한다.
+- DONE 후 CANCELED는 최초 승인 결과를 바꾸지 않는다. 발행 완료 행도 최초 결과의 유일성·재전달 의미를 위해 보존하며 자동 삭제는 도입하지 않는다.
+- 현재 이행은 기존 결제의 결과를 일괄 소급 발행하지 않는다. 전환 전 미반영 결과는 기존 조회 복구가 처리한다.
+
 ### p_refunds — payment-service/schema.sql + A
 
 | 필드 | 타입·제약·기본값 |
