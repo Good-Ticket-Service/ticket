@@ -50,7 +50,8 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
 
     /**
      * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
-     * Note: 한 번에 묶으면 OFFSET으로 버릴 공연까지 모든 공연의 기간을 계산한다(이슈 #343).
+     * Note: 한 번에 묶으면 OFFSET으로 버릴 공연까지 모든 공연의 기간을 계산한다(이슈 #343). 여러 쿼리가 같은 시점을 보도록
+     * 서비스가 REPEATABLE READ로 부른다.
      */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {

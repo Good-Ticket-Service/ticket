@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
+import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import javax.sql.DataSource;
@@ -12,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -43,6 +45,13 @@ public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest
 
     @Autowired
     protected FakeSeatSetupClient seatSetupClient;
+
+    /**
+     * 공개 목록이 한 스냅숏을 읽는지 보는 시험이 조회 도중에 다른 연결의 커밋을 끼워 넣을 때 쓴다.
+     * 스텁하지 않으면 실제 구현을 그대로 부르고, 스텁은 테스트마다 초기화된다. 컨텍스트를 하나로 두려고 여기에 선언한다.
+     */
+    @MockitoSpyBean
+    protected PublicPerformanceReader publicPerformanceReader;
 
     @BeforeEach
     void resetClock() {
