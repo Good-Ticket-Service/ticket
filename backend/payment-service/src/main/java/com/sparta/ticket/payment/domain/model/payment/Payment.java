@@ -306,7 +306,7 @@ public class Payment extends BaseEntity {
             this.pgTransactionId = transactionId;
         }
         this.status = PaymentStatus.DONE;
-        this.approvedAt = approvedAt;
+        this.approvedAt = toDbPrecision(approvedAt);
         this.recovery.finish();
     }
 
