@@ -11,7 +11,6 @@ import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.DeleteMark;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueGate.TotalChange;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
-import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -47,7 +46,7 @@ public class CouponService {
         // 검증과 생성은 Coupon이 한다. 규칙에 어긋나면 여기서 예외가 난다
         Coupon coupon = Coupon.create(
                 command.name(),
-                command.discountAmount(),
+                command.discountPolicy(),
                 command.totalQuantity(),
                 command.issueStartAt(),
                 command.issueEndAt(),
@@ -81,7 +80,7 @@ public class CouponService {
         // 2) 바꿀 수 있는지 판단과 값 변경은 Coupon이 한다. 저장은 커밋 때 변경 감지로 된다
         coupon.update(
                 command.name(),
-                command.discountAmount() == null ? null : DiscountPolicy.fixed(command.discountAmount()),
+                command.discountPolicy(),
                 command.totalQuantity(),
                 command.issueStartAt(),
                 command.issueEndAt(),
