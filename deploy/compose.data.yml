@@ -122,6 +122,39 @@ services:
       retries: 18
       start_period: 30s
 
+  # 서버 전체 CPU·메모리·디스크·네트워크. 세 서버에 같은 설정으로 띄우고 vm-data의 Prometheus가 <서버 IP>:9100으로 수집한다.
+  # 호스트의 /proc·/sys를 읽어야 해서 host 네트워크·PID로 띄운다. 9100은 보안 그룹으로 VPC 안에만 열린다.
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    restart: unless-stopped
+    logging: *log
+    network_mode: host
+    pid: host
+    command: ["--path.rootfs=/host", "--web.listen-address=:9100"]
+    volumes:
+      - /:/host:ro,rslave
+
+  # 컨테이너별 CPU·메모리. Postgres·Redis·Kafka·fake-pg는 자체 CPU 지표가 없어서, 시험 중 vm-data CPU를 누가 썼는지 여기서 나눠 본다.
+  # 서버 Docker의 containerd 저장소(containerd-snapshotter)를 꺼야 컨테이너를 찾는다. 켜져 있으면 컨테이너별 지표가 비어 있다.
+  # Prometheus가 같은 compose 네트워크에서 cadvisor:8080으로 수집하므로 포트를 공개하지 않는다.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    restart: unless-stopped
+    logging: *log
+    privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      # 컨테이너 라벨은 compose 서비스 이름(container_label_com_docker_compose_service)만 붙인다
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service
+      - --enable_metrics=cpu,memory,network,diskIO
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
   # 수집 대상은 vm-edge의 Eureka 등록 목록에서 찾는다. 서비스가 등록한 VPC IP로 긁는다.
   prometheus:
     image: prom/prometheus:v3.15.1
@@ -133,9 +166,12 @@ services:
       - --storage.tsdb.retention.time=7d
     ports:
       - "127.0.0.1:9090:9090"
-    # 수집 설정의 eureka-server 이름을 vm-edge로 보낸다
+    # 수집 설정의 이름을 각 서버 VPC IP로 보낸다. eureka-server는 서비스 목록, vm-*는 서버별 node-exporter다.
     extra_hosts:
       - "eureka-server:${EDGE_IP:?EDGE_IP가 필요하다}"
+      - "vm-edge:${EDGE_IP}"
+      - "vm-core:${CORE_IP:?CORE_IP가 필요하다}"
+      - "vm-data:${DATA_IP:?DATA_IP가 필요하다}"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../infra/prometheus/rules:/etc/prometheus/rules:ro

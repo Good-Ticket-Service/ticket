@@ -5,14 +5,34 @@
 
 | 파일 | 서버 | 띄우는 것 |
 |---|---|---|
-| `compose.data.yml` | vm-data | Postgres, Redis, Kafka, fake-pg, Prometheus, Alertmanager, Grafana, Kafka UI |
-| `compose.edge.yml` | vm-edge | Caddy, config-server, eureka, gateway, user, performance, waiting-room |
-| `compose.core.yml` | vm-core | reservation, payment |
+| `compose.data.yml` | vm-data | Postgres, Redis, Kafka, fake-pg, Prometheus, Alertmanager, Grafana, Kafka UI, node-exporter, cAdvisor |
+| `compose.edge.yml` | vm-edge | Caddy, config-server, eureka, gateway, user, performance, waiting-room, node-exporter |
+| `compose.core.yml` | vm-core | reservation, payment, node-exporter |
 | `Caddyfile` | vm-edge | `/api/*` → gateway, 나머지는 프론트 정적 파일 |
 | `postgres/schemas.sh` | vm-data | 빈 DB에 서비스 테이블 생성 |
-| `prometheus/prometheus.yml` | vm-data | 서버용 수집 설정(`environment: dev`) |
+| `prometheus/prometheus.yml` | vm-data | 서버용 수집 설정(`environment: dev`, 서버·컨테이너 자원 포함) |
 | `env/<서버>.env.example` | 각 서버 | 그 서버의 `/opt/ticket/.env` 틀. 그 서버에 필요한 값만 있다 |
 | `build-push.sh` | 노트북 | 이미지 9개를 amd64로 빌드해 ECR에 올림 |
+
+## 0. 서버 준비 (서버마다 처음 한 번)
+
+SSM으로 접속해 Docker와 AWS CLI를 설치한다. Docker를 설치한 직후, 이미지를 받기 전에 containerd 저장소를 끈다.
+Docker 29부터는 새로 설치하면 켜져 있고, 켜져 있으면 cAdvisor가 컨테이너를 찾지 못해 컨테이너별 CPU가 비어 있다.
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+echo '{"features":{"containerd-snapshotter":false}}' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+sudo docker info --format '{{.Driver}}'
+sudo snap install aws-cli --classic
+sudo mkdir -p /opt/ticket
+```
+
+`docker info`가 `overlay2`를 출력해야 한다. vm-data에서는 Redis가 AOF를 다시 쓸 때 fork가 메모리 부족으로 실패하지 않게 한 번 더 실행한다.
+
+```bash
+echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-redis.conf && sudo sysctl --system
+```
 
 ## 1. 이미지 올리기 (노트북)
 
@@ -75,6 +95,10 @@ sudo docker compose -f deploy/compose.<data|edge|core>.yml --env-file .env ps
 - 노트북: `curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/api/users/me` → `401`
 - 노트북: `https://<DOMAIN>/actuator/prometheus`가 지표가 아니라 프론트 HTML을 돌려줘야 한다.
 - Grafana·Kafka UI는 vm-data로 SSM 포트 포워딩해서 본다(3000, 8989).
+- Prometheus(9090)도 같은 방법으로 열어 Status → Targets에서 `node` 3개와 `cadvisor`가 UP인지 본다.
+- Grafana Explore에서 시험 시간대의 CPU를 본다.
+  - 서버별 CPU 사용률: `1 - avg by (server) (rate(node_cpu_seconds_total{mode="idle"}[1m]))`
+  - vm-data 컨테이너별 CPU(코어 수): `sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service!=""}[1m]))`
 
 ## 주의
 
@@ -84,4 +108,5 @@ sudo docker compose -f deploy/compose.<data|edge|core>.yml --env-file .env ps
 - `docker compose down -v`를 쓰지 않는다. DB·Kafka·Redis 볼륨이 지워진다.
 - 테이블 생성(`postgres/schemas.sh`)은 빈 볼륨에서 한 번만 돈다. 그 뒤 스키마가 바뀌면 `backend/sql/<서비스>/migrations/`의 SQL을 해당 서비스 계정으로 직접 적용하고 앱을 다시 띄운다.
 - `backend/config-repo` 설정은 config-server 이미지 안에 있다. 설정만 바꿔도 이미지를 다시 올리고 vm-edge·vm-core 앱을 다시 띄운다.
+- node-exporter·cAdvisor도 서버 CPU를 조금 쓴다. 시험 결과는 수집기를 켠 같은 조건끼리 비교한다.
 - 앱은 `restart: unless-stopped`다. 서버를 끄고 켜면 Docker가 다시 띄우고, 다른 서버가 늦게 떠도 config-server에 닿을 때까지 재시작하며 맞춰진다.

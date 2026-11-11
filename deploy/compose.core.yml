@@ -2,7 +2,7 @@
 # 실행: docker compose -f /opt/ticket/deploy/compose.core.yml --env-file /opt/ticket/.env up -d
 #
 # vm-data·vm-edge가 먼저 떠 있어야 한다. config-server에 닿지 못하면 앱이 바로 종료되고(fail-fast), restart 정책이 다시 띄운다.
-# 앱은 network_mode: host로 띄운다. 이유는 compose.edge.yml 머리말과 같다. 8083·8084는 보안 그룹으로 VPC 안에만 연다.
+# 앱은 network_mode: host로 띄운다. 이유는 compose.edge.yml 머리말과 같다. 8083·8084·9100은 보안 그룹으로 VPC 안에만 연다.
 name: ticket-core
 
 x-log: &log
@@ -56,3 +56,12 @@ services:
       # 토스·카카오 대신 vm-data의 fake PG를 부른다
       PG_BASE_URL: http://${DATA_IP}:8090
     healthcheck: *health
+
+  # 서버 전체 CPU·메모리·디스크·네트워크. vm-data의 Prometheus가 <vm-core IP>:9100으로 수집한다. 설정은 compose.data.yml과 같다.
+  node-exporter:
+    <<: *app
+    image: prom/node-exporter:v1.10.2
+    pid: host
+    command: ["--path.rootfs=/host", "--web.listen-address=:9100"]
+    volumes:
+      - /:/host:ro,rslave
