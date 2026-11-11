@@ -1,0 +1,77 @@
+rule_files:
+  - ../rules/payment-confirm-alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: poison-message-quarantine-notification
+    interval: 15s
+    input_series:
+      - series: 'payment_confirm_records_total{application="payment-service",instance="a",outcome="dlt_sent"}'
+        values: '0+0x3 1+0x40'
+      - series: 'payment_confirm_records_total{application="payment-service",instance="b",outcome="dlt_sent"}'
+        values: '0+0x44'
+      - series: 'payment_confirm_records_total{application="payment-service",instance="a",outcome="completed"}'
+        values: '0+1x44'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: PaymentConfirmPoisonMessageQuarantined
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: PaymentConfirmPoisonMessageQuarantined
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "승인 요청 poison message DLT 격리"
+              category: "결제 · Kafka"
+              detail: "최근 5분 DLT 격리 발생. 중복 송신이 포함될 수 있으며 해제는 개별 건 조치 완료를 뜻하지 않는다."
+              action: "마스킹 DLT의 원본 좌표로 생산자 형식·버전을 점검하고 현재 결제·예매 상태와 최초 승인 시한을 확인한다. 시한 연장·원문 인증값 공유·무조건 재발행을 하지 않는다."
+      - eval_time: 7m
+        alertname: PaymentConfirmPoisonMessageQuarantined
+        exp_alerts: []
+  - interval: 15s
+    input_series:
+      - series: 'payment_confirm_paused{application="payment-service"}'
+        values: '1+0x2 0+0x3'
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: PaymentConfirmOperationPaused
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: PaymentConfirmOperationPaused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "승인 Consumer 운영 인수 필요"
+              action: "고정 오류 분류와 원본 좌표·현재 금융 상태를 확인한다. 원인 제거 후 재기동하며 시한을 연장하거나 원본 offset을 임의로 넘기지 않는다."
+      - eval_time: 45s
+        alertname: PaymentConfirmOperationPaused
+        exp_alerts: []
+  - interval: 15s
+    input_series:
+      - series: 'payment_confirm_oldest_seconds{application="payment-service"}'
+        values: '61+0x8'
+      - series: 'payment_confirm_records_total{application="payment-service",outcome="dlt_failed"}'
+        values: '0+1x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PaymentConfirmWaitingTooLong
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "승인 메시지 처리 대기 장기화"
+              action: "PG별 한도·서킷·worker·DB와 남은 승인 시한을 확인한다. 미전송 대기를 결과 불명 60초로 해석하지 않는다."
+      - eval_time: 1m
+        alertname: PaymentConfirmDeadLetterDeliveryFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+              outcome: dlt_failed
+            exp_annotations:
+              summary: "승인 DLT 전달 실패"
+              action: "브로커·권한·토픽 상태를 확인한다. DLT 송신 확인 전 원본 offset을 넘기지 않는다."
