@@ -1,19 +1,28 @@
 package com.sparta.ticket.performance.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.LocalDateTime;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.context.jdbc.SqlConfig;
 import org.springframework.test.web.servlet.ResultActions;
@@ -26,6 +35,12 @@ import org.springframework.test.web.servlet.ResultActions;
         value = {"/sql/truncate.sql", "/sql/public-performance-fixture.sql"},
         config = @SqlConfig(encoding = "UTF-8"))
 class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private DataSource dataSource;
 
     private ResultActions list(String query) throws Exception {
         return mockMvc.perform(get("/api/performances" + query));
@@ -300,6 +315,33 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.items[*].id").value(contains(10)))
                     .andExpect(jsonPath("$.data.items[0].period.from").value("2026-12-01"))
                     .andExpect(jsonPath("$.data.items[0].period.to").value("2026-12-02"));
+        }
+
+        @Test
+        @DisplayName("목록의 쿼리들은 한 스냅숏을 읽어, 조회 도중 다른 연결이 커밋한 삭제가 그 응답에 섞이지 않는다")
+        void searchReadsOneSnapshot() throws Exception {
+            doAnswer(invocation -> {
+                        // 서비스 트랜잭션의 첫 문장이다. REPEATABLE READ라면 여기서 스냅숏이 잡힌다.
+                        assertThat(jdbc.queryForObject("select current_setting('transaction_isolation')", String.class))
+                                .isEqualTo("repeatable read");
+                        try (Connection other = dataSource.getConnection();
+                                Statement statement = other.createStatement()) {
+                            other.setAutoCommit(true);
+                            statement.executeUpdate("UPDATE p_performances SET deleted_at = now() WHERE id = 10");
+                        }
+                        return invocation.callRealMethod();
+                    })
+                    .when(publicPerformanceReader)
+                    .search(any(), any());
+
+            // 삭제는 스냅숏 뒤에 커밋됐으므로 이 응답의 ID·기간·건수는 모두 삭제 전 시점이다
+            list("").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11, 10)))
+                    .andExpect(jsonPath("$.data.items[4].period.from").value("2026-12-01"))
+                    .andExpect(jsonPath("$.data.totalElements").value(5));
+
+            reset(publicPerformanceReader);
+            list("").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11)))
+                    .andExpect(jsonPath("$.data.totalElements").value(4));
         }
 
         @Test
