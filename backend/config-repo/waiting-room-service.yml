@@ -27,3 +27,8 @@ waiting-room:
   scheduler:
     enabled: true
     interval: ${QUEUE_ADMIT_INTERVAL:1s}
+  # 오픈 전 GC. room 오픈 lead 전에 GC를 한 번 불러, 오픈 직후 동시 진입 중에 GC 멈춤이 끼지 않게 한다.
+  # GC 자체가 서버를 잠깐 멈춘다(힙 2GB에서 약 0.2초). 진입이 없는 오픈 전에 미리 멈추는 것이다
+  pre-open-gc:
+    enabled: true
+    lead: 5s
