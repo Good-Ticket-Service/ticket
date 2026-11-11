@@ -3,7 +3,7 @@
 #
 # 앱은 network_mode: host로 띄운다. 컨테이너가 EC2의 VPC IP를 그대로 써서, 다른 서버(vm-core·vm-data)가 Eureka에 등록된 주소로
 # 바로 찾아온다. 그래서 컨테이너마다 포트가 겹치지 않아야 하고, 포트 공개(ports)는 쓰지 않는다.
-# 인터넷에서는 Caddy의 80·443만 닿아야 한다. 8080·8081·8082·8085·8761·8888은 보안 그룹으로 VPC 안에만 연다.
+# 인터넷에서는 Caddy의 80·443만 닿아야 한다. 8080·8081·8082·8085·8761·8888·9100은 보안 그룹으로 VPC 안에만 연다.
 # 서비스는 Gateway가 넣은 X-User-* 헤더를 그대로 믿으므로, 서비스 포트가 인터넷에 열리면 누구나 다른 회원 행세를 할 수 있다.
 name: ticket-edge
 
@@ -124,6 +124,15 @@ services:
       QUEUE_TOKEN_SECRET: ${QUEUE_TOKEN_SECRET}
     healthcheck: *health
     depends_on: *after-platform
+
+  # 서버 전체 CPU·메모리·디스크·네트워크. vm-data의 Prometheus가 <vm-edge IP>:9100으로 수집한다. 설정은 compose.data.yml과 같다.
+  node-exporter:
+    <<: *app
+    image: prom/node-exporter:v1.10.2
+    pid: host
+    command: ["--path.rootfs=/host", "--web.listen-address=:9100"]
+    volumes:
+      - /:/host:ro,rslave
 
 volumes:
   caddy-data:
