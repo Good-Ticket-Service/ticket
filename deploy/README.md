@@ -5,12 +5,15 @@
 
 | 파일 | 서버 | 띄우는 것 |
 |---|---|---|
-| `compose.data.yml` | vm-data | Postgres, Redis, Kafka, fake-pg, Prometheus, Alertmanager, Grafana, Kafka UI, node-exporter, cAdvisor |
+| `compose.data.yml` | vm-data | Postgres, Redis, Kafka, fake-pg, Prometheus, Alertmanager, Grafana, Kafka UI, node-exporter, cAdvisor, postgres·redis·kafka exporter |
 | `compose.edge.yml` | vm-edge | Caddy, config-server, eureka, gateway, user, performance, waiting-room, node-exporter |
 | `compose.core.yml` | vm-core | reservation, payment, node-exporter |
 | `Caddyfile` | vm-edge | `/api/*` → gateway, 나머지는 프론트 정적 파일 |
 | `postgres/schemas.sh` | vm-data | 빈 DB에 서비스 테이블 생성 |
+| `postgres/metrics.sh` | vm-data | 지표 수집 계정(`metrics_app`)과 SQL 통계 확장(`pg_stat_statements`) 생성 |
+| `postgres/exporter-queries.yaml` | vm-data | postgres-exporter의 진단 쿼리(계정별 세션·대기, 오래 열린 트랜잭션, 잠금 대기, WAL, 계정별 SQL 통계) |
 | `prometheus/prometheus.yml` | vm-data | 서버용 수집 설정(`environment: dev`, 서버·컨테이너 자원 포함) |
+| `grafana/` | vm-data | 대시보드 목록과 서버용 대시보드 3개(서버 자원, 서비스, 데이터). 결제 대시보드는 `infra/grafana`를 함께 쓴다 |
 | `env/<서버>.env.example` | 각 서버 | 그 서버의 `/opt/ticket/.env` 틀. 그 서버에 필요한 값만 있다 |
 | `build-push.sh` | 노트북 | 이미지 9개를 amd64로 빌드해 ECR에 올림 |
 
@@ -100,8 +103,9 @@ sudo docker compose -f deploy/compose.<data|edge|core>.yml --env-file .env ps
 - 노트북: `curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/api/users/me` → `401`
 - 노트북: `https://<DOMAIN>/actuator/prometheus`가 지표가 아니라 프론트 HTML을 돌려줘야 한다.
 - Grafana·Kafka UI는 vm-data로 SSM 포트 포워딩해서 본다(3000, 8989).
-- Prometheus(9090)도 같은 방법으로 열어 Status → Targets에서 `node` 3개와 `cadvisor`가 UP인지 본다.
-- Grafana Explore에서 시험 시간대의 CPU를 본다.
+- Prometheus(9090)도 같은 방법으로 열어 Status → Targets에서 `node` 3개, `cadvisor`, `postgres`, `redis`, `kafka`, `fake-pg`가 UP인지 본다.
+- Grafana의 Server 폴더에서 「서버 01 · 서버 자원」, 「서버 02 · 서비스」, 「서버 03 · 데이터」를 연다. 서비스 대시보드의 응답 시간 p95·p99는 compose가 켠 히스토그램으로 계산한다.
+- Grafana Explore에서 시험 시간대의 CPU를 직접 볼 때는 아래 쿼리를 쓴다.
   - 서버별 CPU 사용률: `1 - avg by (server) (rate(node_cpu_seconds_total{mode="idle"}[1m]))`
   - vm-data 컨테이너별 CPU(코어 수): `sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service!=""}[1m]))`
 
@@ -111,6 +115,13 @@ sudo docker compose -f deploy/compose.<data|edge|core>.yml --env-file .env ps
 - `.env`를 권한 600으로 막아도 서버에서 docker를 쓸 수 있는 사람은 `docker inspect`로 컨테이너에 넘긴 값을 볼 수 있다. 서버 접속(SSM) 권한은 필요한 사람에게만 준다.
 - 비밀값을 채팅·슬랙·이슈에 붙여 넣지 않는다.
 - `docker compose down -v`를 쓰지 않는다. DB·Kafka·Redis 볼륨이 지워진다.
+- 지표 계정과 SQL 통계 확장(`postgres/metrics.sh`)도 빈 볼륨에서만 자동으로 돈다. 이미 데이터가 있는 DB에는 vm-data에서 한 번 실행한다. 여러 번 실행해도 결과가 같다.
+
+  ```bash
+  cd /opt/ticket && sudo docker compose -f deploy/compose.data.yml --env-file .env exec -T postgres bash -s < deploy/postgres/metrics.sh
+  ```
+
+- Postgres 기동 옵션(`command`)이나 볼륨을 바꾸면 `up -d` 때 Postgres 컨테이너가 다시 만들어진다. 데이터 볼륨은 그대로지만 몇 초 동안 접속이 끊긴다.
 - 테이블 생성(`postgres/schemas.sh`)은 빈 볼륨에서 한 번만 돈다. 그 뒤 스키마가 바뀌면 `backend/sql/<서비스>/migrations/`의 SQL을 해당 서비스 계정으로 직접 적용하고 앱을 다시 띄운다.
 - `backend/config-repo` 설정은 config-server 이미지 안에 있다. 설정만 바꿔도 이미지를 다시 올리고 vm-edge·vm-core 앱을 다시 띄운다.
 - node-exporter·cAdvisor도 서버 CPU를 조금 쓴다. 시험 결과는 수집기를 켠 같은 조건끼리 비교한다.

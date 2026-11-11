@@ -28,6 +28,12 @@ x-client-env: &client-env
   DB_HOST: ${DATA_IP:?DATA_IP가 필요하다}
   REDIS_HOST: ${DATA_IP}
   KAFKA_BOOTSTRAP_SERVERS: ${DATA_IP}:29092
+  # 서비스·URI별 응답 시간 p95·p99, 커넥션 획득 시간, Tomcat 스레드를 대시보드에서 보려고 히스토그램과 Tomcat 지표를 켠다.
+  # 로컬 통합시험(compose.integration.yml)과 같은 값이라 두 환경의 측정을 같은 지표로 비교할 수 있다.
+  SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_ACQUIRE: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HIKARICP_CONNECTIONS_USAGE: "true"
 
 x-health: &health
   test: ["CMD-SHELL", "curl -fs http://localhost:$${SERVER_PORT}/actuator/health > /dev/null"]
