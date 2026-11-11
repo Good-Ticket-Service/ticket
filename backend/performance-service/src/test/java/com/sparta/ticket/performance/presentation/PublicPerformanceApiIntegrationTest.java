@@ -56,10 +56,13 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             list("").andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value(200))
                     .andExpect(jsonPath("$.message").value("SUCCESS"))
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11, 10)))
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10)))
                     .andExpect(jsonPath("$.data.page").value(0))
                     .andExpect(jsonPath("$.data.size").value(20))
-                    .andExpect(jsonPath("$.data.totalElements").value(5));
+                    .andExpect(jsonPath("$.data.totalElements").value(5))
+                    .andExpect(jsonPath("$.data.totalPages").value(1))
+                    .andExpect(jsonPath("$.data.sort").value("LATEST"))
+                    .andExpect(jsonPath("$.data", not(hasKey("items"))));
         }
 
         @Test
@@ -67,21 +70,21 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         void itemShape() throws Exception {
             list("?keyword=Alpha")
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.items.length()").value(1))
-                    .andExpect(jsonPath("$.data.items[0].id").value(10))
-                    .andExpect(jsonPath("$.data.items[0].venue.id").value(1))
-                    .andExpect(jsonPath("$.data.items[0].venue.name").value("서울 공연장"))
-                    .andExpect(jsonPath("$.data.items[0].venue.address").value("서울특별시 중구 예시로 10"))
-                    .andExpect(jsonPath("$.data.items[0].venue.region").value("서울"))
-                    .andExpect(jsonPath("$.data.items[0].title").value("뮤지컬 Alpha"))
-                    .andExpect(jsonPath("$.data.items[0].genre").value("MUSICAL"))
-                    .andExpect(jsonPath("$.data.items[0].posterUrl").value("https://example.com/10.jpg"))
-                    .andExpect(jsonPath("$.data.items[0].operationStatus").value("ACTIVE"))
-                    .andExpect(jsonPath("$.data.items[0].period.from").value("2026-12-01"))
-                    .andExpect(jsonPath("$.data.items[0].period.to").value("2026-12-02"))
-                    .andExpect(jsonPath("$.data.items[0]", not(hasKey("sellerId"))))
-                    .andExpect(jsonPath("$.data.items[0]", not(hasKey("version"))))
-                    .andExpect(jsonPath("$.data.items[0]", not(hasKey("publicationStatus"))));
+                    .andExpect(jsonPath("$.data.content.length()").value(1))
+                    .andExpect(jsonPath("$.data.content[0].id").value(10))
+                    .andExpect(jsonPath("$.data.content[0].venue.id").value(1))
+                    .andExpect(jsonPath("$.data.content[0].venue.name").value("서울 공연장"))
+                    .andExpect(jsonPath("$.data.content[0].venue.address").value("서울특별시 중구 예시로 10"))
+                    .andExpect(jsonPath("$.data.content[0].venue.region").value("서울"))
+                    .andExpect(jsonPath("$.data.content[0].title").value("뮤지컬 Alpha"))
+                    .andExpect(jsonPath("$.data.content[0].genre").value("MUSICAL"))
+                    .andExpect(jsonPath("$.data.content[0].posterUrl").value("https://example.com/10.jpg"))
+                    .andExpect(jsonPath("$.data.content[0].operationStatus").value("ACTIVE"))
+                    .andExpect(jsonPath("$.data.content[0].period.from").value("2026-12-01"))
+                    .andExpect(jsonPath("$.data.content[0].period.to").value("2026-12-02"))
+                    .andExpect(jsonPath("$.data.content[0]", not(hasKey("sellerId"))))
+                    .andExpect(jsonPath("$.data.content[0]", not(hasKey("version"))))
+                    .andExpect(jsonPath("$.data.content[0]", not(hasKey("publicationStatus"))));
         }
 
         @Test
@@ -89,18 +92,18 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         void nullPeriodAndPoster() throws Exception {
             list("?genre=SPORTS")
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(13)))
-                    .andExpect(jsonPath("$.data.items[0]", hasKey("period")))
-                    .andExpect(jsonPath("$.data.items[0].period").value(nullValue()))
-                    .andExpect(jsonPath("$.data.items[0]", hasKey("posterUrl")))
-                    .andExpect(jsonPath("$.data.items[0].posterUrl").value(nullValue()));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(13)))
+                    .andExpect(jsonPath("$.data.content[0]", hasKey("period")))
+                    .andExpect(jsonPath("$.data.content[0].period").value(nullValue()))
+                    .andExpect(jsonPath("$.data.content[0]", hasKey("posterUrl")))
+                    .andExpect(jsonPath("$.data.content[0].posterUrl").value(nullValue()));
         }
 
         @Test
         @DisplayName("장르로 거른다")
         void filtersByGenre() throws Exception {
             list("?genre=MUSICAL")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(14, 10)))
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 10)))
                     .andExpect(jsonPath("$.data.totalElements").value(2));
         }
 
@@ -108,15 +111,15 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("공연장 지역으로 거른다")
         void filtersByRegion() throws Exception {
             list("?region=부산")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(14, 11)))
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 11)))
                     .andExpect(jsonPath("$.data.totalElements").value(2));
         }
 
         @Test
         @DisplayName("검색어는 공연명 부분 일치이며 대소문자와 앞뒤 공백을 무시한다")
         void filtersByKeyword() throws Exception {
-            list("?keyword= gAmMa ").andExpect(jsonPath("$.data.items[*].id").value(contains(12)));
-            list("?keyword=뮤지컬").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 10)));
+            list("?keyword= gAmMa ").andExpect(jsonPath("$.data.content[*].id").value(contains(12)));
+            list("?keyword=뮤지컬").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 10)));
         }
 
         @Test
@@ -124,9 +127,9 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         void keywordWildcardsAreLiteral() throws Exception {
             // Note: URL 템플릿에 %를 직접 쓰면 MockMvc가 한 번 더 인코딩하므로 param으로 넘긴다.
             mockMvc.perform(get("/api/performances").param("keyword", "%"))
-                    .andExpect(jsonPath("$.data.items", empty()));
+                    .andExpect(jsonPath("$.data.content", empty()));
             mockMvc.perform(get("/api/performances").param("keyword", "_"))
-                    .andExpect(jsonPath("$.data.items", empty()));
+                    .andExpect(jsonPath("$.data.content", empty()));
         }
 
         @Test
@@ -140,27 +143,28 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("기간 필터는 시작일(KST)이 [from, to]에 드는 활성 회차가 있는 공연이다")
         void filtersByScheduleDate() throws Exception {
             list("?from=2026-12-01&to=2026-12-01")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
             list("?from=2026-12-02&to=2026-12-02")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10)));
-            list("?from=2026-12-15").andExpect(jsonPath("$.data.items[*].id").value(contains(12, 11)));
-            list("?to=2026-10-31").andExpect(jsonPath("$.data.items[*].id").value(contains(14)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
+            list("?from=2026-12-15").andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11)));
+            list("?to=2026-10-31").andExpect(jsonPath("$.data.content[*].id").value(contains(14)));
         }
 
         @Test
         @DisplayName("취소·삭제된 회차의 날짜로는 걸리지 않는다")
         void dateFilterIgnoresInactiveSchedules() throws Exception {
             list("?from=2026-11-25&to=2026-11-25")
-                    .andExpect(jsonPath("$.data.items", empty()))
-                    .andExpect(jsonPath("$.data.totalElements").value(0));
-            list("?from=2026-12-31&to=2026-12-31").andExpect(jsonPath("$.data.items", empty()));
+                    .andExpect(jsonPath("$.data.content", empty()))
+                    .andExpect(jsonPath("$.data.totalElements").value(0))
+                    .andExpect(jsonPath("$.data.totalPages").value(0));
+            list("?from=2026-12-31&to=2026-12-31").andExpect(jsonPath("$.data.content", empty()));
         }
 
         @Test
         @DisplayName("필터를 함께 쓰면 모두 만족하는 공연만 나온다")
         void combinesFilters() throws Exception {
             list("?genre=MUSICAL&region=서울&from=2026-12-01&to=2026-12-31")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
         }
 
         @Test
@@ -169,7 +173,8 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             // 10은 취소·삭제 회차의 오픈(10-02)이 가장 이르지만 활성 회차 기준(11-10)으로 정렬된다. 14(마감 지남)와 13(회차 없음)은 마지막이다.
             list("?sort=BOOKING_OPEN_ASC")
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 11, 10, 14, 13)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 10, 14, 13)))
+                    .andExpect(jsonPath("$.data.sort").value("BOOKING_OPEN_ASC"));
         }
 
         @Test
@@ -179,7 +184,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             // 11(12-20 마감)과 12(2027-01-10 마감)는 아직 판매 중이다.
             clock.set(LocalDateTime.of(2026, 12, 2, 18, 30));
             list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 11, 14, 13, 10)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 14, 13, 10)));
         }
 
         @Test
@@ -188,7 +193,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             // 11의 유일한 회차가 12-20 18:00에 마감된다. 10도 이미 마감이라 마지막 묶음(14, 13, 11, 10)에 들어간다.
             clock.set(LocalDateTime.of(2026, 12, 20, 18, 0));
             list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 14, 13, 11, 10)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 14, 13, 11, 10)));
         }
 
         @Test
@@ -201,15 +206,15 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("삭제 회차만·취소 회차만 있는 공연도 목록과 건수에 들어가고 period는 null이며, 날짜 필터에는 걸리지 않는다")
         void performancesWithOnlyInactiveSchedules() throws Exception {
-            list("").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11, 10, 16, 15, 17)))
+            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10, 16, 15, 17)))
                     .andExpect(jsonPath("$.data.totalElements").value(8));
             list("?genre=PLAY&region=서울")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 16, 15)))
-                    .andExpect(jsonPath("$.data.items[1].period").value(nullValue()))
-                    .andExpect(jsonPath("$.data.items[2].period").value(nullValue()))
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 16, 15)))
+                    .andExpect(jsonPath("$.data.content[1].period").value(nullValue()))
+                    .andExpect(jsonPath("$.data.content[2].period").value(nullValue()))
                     .andExpect(jsonPath("$.data.totalElements").value(3));
             list("?from=2026-12-10&to=2026-12-11")
-                    .andExpect(jsonPath("$.data.items", empty()))
+                    .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(0));
             mockMvc.perform(get("/api/performances/15"))
                     .andExpect(status().isOk())
@@ -227,20 +232,22 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("BOOKING_OPEN_ASC에서 오픈 시각이 같으면 ID 역순이다")
         void bookingOpenTieBreaksByIdDesc() throws Exception {
             list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 17, 11, 10, 16, 15, 14, 13)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 17, 11, 10, 16, 15, 14, 13)));
         }
 
         @Test
         @DisplayName("page와 size로 나눠 주고 totalElements는 전체 건수다")
         void paginates() throws Exception {
             list("?page=1&size=2")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(12, 11)))
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11)))
                     .andExpect(jsonPath("$.data.page").value(1))
                     .andExpect(jsonPath("$.data.size").value(2))
-                    .andExpect(jsonPath("$.data.totalElements").value(5));
+                    .andExpect(jsonPath("$.data.totalElements").value(5))
+                    .andExpect(jsonPath("$.data.totalPages").value(3));
             list("?page=5&size=2")
-                    .andExpect(jsonPath("$.data.items", empty()))
-                    .andExpect(jsonPath("$.data.totalElements").value(5));
+                    .andExpect(jsonPath("$.data.content", empty()))
+                    .andExpect(jsonPath("$.data.totalElements").value(5))
+                    .andExpect(jsonPath("$.data.totalPages").value(3));
             list("?size=100").andExpect(status().isOk());
         }
 
@@ -254,19 +261,19 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("한 페이지를 넘는 최근 공개 순 목록은 기본 20개씩 나뉘고, 뒤 페이지의 기간도 활성 회차 전체 기준이다")
         void paginatesLatestOverOnePage() throws Exception {
-            list("").andExpect(jsonPath("$.data.items[*].id")
+            list("").andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(
                                     14, 13, 12, 11, 10, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113,
                                     112, 111)))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
             list("?page=1")
-                    .andExpect(jsonPath("$.data.items[*].id")
+                    .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(110, 109, 108, 107, 106, 105, 104, 103, 102, 101)))
-                    .andExpect(jsonPath("$.data.items[0].title").value("대량 공연 110"))
-                    .andExpect(jsonPath("$.data.items[0].venue.name").value("서울 공연장"))
+                    .andExpect(jsonPath("$.data.content[0].title").value("대량 공연 110"))
+                    .andExpect(jsonPath("$.data.content[0].venue.name").value("서울 공연장"))
                     // 110은 지난 회차(10-15)와 판매 예정 회차(2027-01-05)가 함께 있다
-                    .andExpect(jsonPath("$.data.items[0].period.from").value("2026-10-15"))
-                    .andExpect(jsonPath("$.data.items[0].period.to").value("2027-01-05"))
+                    .andExpect(jsonPath("$.data.content[0].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.content[0].period.to").value("2027-01-05"))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
         }
 
@@ -281,29 +288,29 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("BOOKING_OPEN_ASC는 페이지를 넘겨도 순서가 이어지고, 오픈할 회차가 없는 묶음과의 경계에서도 빠지거나 겹치지 않는다")
         void paginatesBookingOpenOverOnePage() throws Exception {
             list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.items[*].id")
+                    .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(
                                     12, 107, 101, 108, 102, 109, 103, 110, 104, 111, 105, 11, 112, 106, 10, 125, 124,
                                     123, 122, 121)))
                     // 정렬은 판매 예정 회차(오픈 11-01)로 하지만 기간은 지난 회차까지 포함한다
-                    .andExpect(jsonPath("$.data.items[2].id").value(101))
-                    .andExpect(jsonPath("$.data.items[2].period.from").value("2026-10-15"))
-                    .andExpect(jsonPath("$.data.items[2].period.to").value("2027-01-05"))
+                    .andExpect(jsonPath("$.data.content[2].id").value(101))
+                    .andExpect(jsonPath("$.data.content[2].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.content[2].period.to").value("2027-01-05"))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
             list("?sort=BOOKING_OPEN_ASC&page=1")
-                    .andExpect(jsonPath("$.data.items[*].id")
+                    .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(120, 119, 118, 117, 116, 115, 114, 113, 14, 13)))
-                    .andExpect(jsonPath("$.data.items[7].period.from").value("2026-10-15"))
-                    .andExpect(jsonPath("$.data.items[7].period.to").value("2026-10-15"))
-                    .andExpect(jsonPath("$.data.items[9].period").value(nullValue()));
+                    .andExpect(jsonPath("$.data.content[7].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.content[7].period.to").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.content[9].period").value(nullValue()));
             list("?sort=BOOKING_OPEN_ASC&page=2")
-                    .andExpect(jsonPath("$.data.items", empty()))
+                    .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
             // 7개씩이면 두 번째 페이지는 판매 예정 묶음 안, 세 번째 페이지는 두 묶음에 걸친다
             list("?sort=BOOKING_OPEN_ASC&page=1&size=7")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(110, 104, 111, 105, 11, 112, 106)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(110, 104, 111, 105, 11, 112, 106)));
             list("?sort=BOOKING_OPEN_ASC&page=2&size=7")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10, 125, 124, 123, 122, 121, 120)));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(10, 125, 124, 123, 122, 121, 120)));
         }
 
         @Test
@@ -312,9 +319,9 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             // 12-01 18:30이면 10의 12-01 회차는 마감됐고 12-02 회차만 판매 중이다. 기간은 두 회차를 모두 본다.
             clock.set(LocalDateTime.of(2026, 12, 1, 18, 30));
             list("?sort=BOOKING_OPEN_ASC&keyword=Alpha")
-                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10)))
-                    .andExpect(jsonPath("$.data.items[0].period.from").value("2026-12-01"))
-                    .andExpect(jsonPath("$.data.items[0].period.to").value("2026-12-02"));
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(10)))
+                    .andExpect(jsonPath("$.data.content[0].period.from").value("2026-12-01"))
+                    .andExpect(jsonPath("$.data.content[0].period.to").value("2026-12-02"));
         }
 
         @Test
@@ -335,12 +342,12 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .search(any(), any());
 
             // 삭제는 스냅숏 뒤에 커밋됐으므로 이 응답의 ID·기간·건수는 모두 삭제 전 시점이다
-            list("").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11, 10)))
-                    .andExpect(jsonPath("$.data.items[4].period.from").value("2026-12-01"))
+            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10)))
+                    .andExpect(jsonPath("$.data.content[4].period.from").value("2026-12-01"))
                     .andExpect(jsonPath("$.data.totalElements").value(5));
 
             reset(publicPerformanceReader);
-            list("").andExpect(jsonPath("$.data.items[*].id").value(contains(14, 13, 12, 11)))
+            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11)))
                     .andExpect(jsonPath("$.data.totalElements").value(4));
         }
 

@@ -1,10 +1,3 @@
-export interface PageP<T> {
-  items: T[];
-  page: number;
-  size: number;
-  totalElements: number;
-}
-
 export interface PageC<T> {
   content: T[];
   page: number;

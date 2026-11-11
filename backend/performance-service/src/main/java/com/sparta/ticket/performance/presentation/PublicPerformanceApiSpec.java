@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.presentation;
 
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.common.response.PageResponse;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
@@ -30,7 +31,7 @@ public interface PublicPerformanceApiSpec {
             description = "로그인 없이 호출한다. 공개됐고 삭제·취소되지 않은 공연만 준다. "
                     + "from이 to보다 늦으면 400 INVALID_TIME_RANGE, 값 형식·범위 오류는 400 VALIDATION_ERROR다. "
                     + "알 수 없는 쿼리 파라미터는 무시한다.")
-    ApiResponse<PublicPerformanceListResponse> search(
+    ApiResponse<PageResponse<PublicPerformanceListResponse.Item>> search(
             @Parameter(description = "장르") @RequestParam(required = false) Genre genre,
             @Parameter(description = "공연장 지역. 일치 검색", example = "서울") @RequestParam(required = false) String region,
             @Parameter(description = "이 날짜(KST)부터 시작하는 활성 회차가 있는 공연", example = "2026-12-01")

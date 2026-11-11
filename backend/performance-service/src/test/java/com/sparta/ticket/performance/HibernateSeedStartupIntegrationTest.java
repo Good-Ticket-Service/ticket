@@ -126,7 +126,7 @@ class HibernateSeedStartupIntegrationTest {
         mvc.perform(get("/api/performances").param("genre", "CLASSICAL").param("keyword", "김채윤"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
-                .andExpect(jsonPath("$.data.items[0].title").value(title));
+                .andExpect(jsonPath("$.data.content[0].title").value(title));
         mvc.perform(get("/api/performances").param("genre", "CONCERT").param("keyword", "김채윤"))
                 .andExpect(jsonPath("$.data.totalElements").value(0));
         mvc.perform(get("/api/performances/{id}", id))

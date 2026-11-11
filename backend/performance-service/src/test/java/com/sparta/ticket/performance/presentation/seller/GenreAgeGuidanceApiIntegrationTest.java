@@ -106,7 +106,7 @@ class GenreAgeGuidanceApiIntegrationTest extends PerformanceIntegrationTest {
                             .param("genre", entry.getKey())
                             .param("keyword", "장르 안내 검증"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.items[*].id")
+                    .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(entry.getValue().intValue())));
         }
         mockMvc.perform(get("/api/performances/{id}", classical))
