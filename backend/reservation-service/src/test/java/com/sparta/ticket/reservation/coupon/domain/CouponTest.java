@@ -99,6 +99,81 @@ class CouponTest {
     }
 
     @Nested
+    @DisplayName("쿠폰 구분(#357)")
+    class Category {
+
+        private Coupon create(CouponCategory category, Integer validDays) {
+            return Coupon.create("쿠폰", category, DiscountPolicy.fixed(3_000), 1_000, START, END, validDays, NOW);
+        }
+
+        @Test
+        @DisplayName("구분을 정하지 않으면 일반 쿠폰이다")
+        void defaultsToGeneral() {
+            assertThat(create(null, 7).getCategory()).isEqualTo(CouponCategory.GENERAL);
+        }
+
+        @Test
+        @DisplayName("웰컴 쿠폰은 유효 일수를 정하지 않으면 7일이고, 7일이 아니면 VALIDATION_ERROR")
+        void welcomeValidDays() {
+            Coupon welcome = create(CouponCategory.WELCOME, null);
+
+            assertThat(welcome.getCategory()).isEqualTo(CouponCategory.WELCOME);
+            assertThat(welcome.getValidDays()).isEqualTo(Coupon.WELCOME_VALID_DAYS);
+            assertThat(create(CouponCategory.WELCOME, 7).getValidDays()).isEqualTo(7);
+            assertError(() -> create(CouponCategory.WELCOME, 30), CommonErrorCode.VALIDATION_ERROR);
+        }
+
+        @Test
+        @DisplayName("일반 쿠폰은 유효 일수를 정해야 한다")
+        void generalNeedsValidDays() {
+            assertError(() -> create(CouponCategory.GENERAL, null), CommonErrorCode.VALIDATION_ERROR);
+        }
+
+        @Test
+        @DisplayName("시작 전 일반 쿠폰을 웰컴으로 바꾸려면 유효 일수 7을 함께 보내야 한다. 자동으로 바꾸지 않는다")
+        void changeToWelcome() {
+            Coupon coupon = create(CouponCategory.GENERAL, 30);
+
+            assertError(
+                    () -> coupon.update(null, CouponCategory.WELCOME, null, null, null, null, null, NOW),
+                    CommonErrorCode.VALIDATION_ERROR);
+            assertThat(coupon.getCategory()).isEqualTo(CouponCategory.GENERAL);
+
+            coupon.update(null, CouponCategory.WELCOME, null, null, null, null, 7, NOW);
+            assertThat(coupon.getCategory()).isEqualTo(CouponCategory.WELCOME);
+            assertThat(coupon.getValidDays()).isEqualTo(7);
+        }
+
+        @Test
+        @DisplayName("웰컴 쿠폰의 유효 일수를 7이 아닌 값으로 바꾸면 VALIDATION_ERROR")
+        void welcomeKeepsSevenDays() {
+            Coupon welcome = create(CouponCategory.WELCOME, null);
+
+            assertError(() -> welcome.update(null, null, null, null, null, 14, NOW), CommonErrorCode.VALIDATION_ERROR);
+        }
+
+        @Test
+        @DisplayName("발급이 시작된 뒤 구분을 바꾸면 COUPON_NOT_MODIFIABLE이고, 같은 값이면 바꾸지 않은 것으로 본다")
+        void notModifiableAfterStart() {
+            Coupon issuing = Coupon.create(
+                    "쿠폰",
+                    CouponCategory.GENERAL,
+                    DiscountPolicy.fixed(3_000),
+                    1_000,
+                    NOW.minusDays(1),
+                    END,
+                    7,
+                    NOW.minusDays(2));
+
+            assertError(
+                    () -> issuing.update(null, CouponCategory.WELCOME, null, null, null, null, null, NOW),
+                    CouponErrorCode.COUPON_NOT_MODIFIABLE);
+            issuing.update("새 이름", CouponCategory.GENERAL, null, null, null, null, null, NOW);
+            assertThat(issuing.getName()).isEqualTo("새 이름");
+        }
+    }
+
+    @Nested
     @DisplayName("발급 상태")
     class IssueStatus {
 

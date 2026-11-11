@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
 import com.sparta.ticket.reservation.coupon.domain.DiscountType;
@@ -82,6 +83,42 @@ class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
                         "UPDATE p_coupons SET min_base_amount = 0 WHERE coupon_id = ?", saved.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_p_coupons_min_base");
+    }
+
+    @Test
+    @DisplayName("쿠폰 구분을 저장하고 다시 읽는다. 기존 방식으로 만든 쿠폰은 일반이다(#357)")
+    void category() {
+        Coupon welcome = couponRepository.save(Coupon.create(
+                "웰컴 쿠폰",
+                CouponCategory.WELCOME,
+                DiscountPolicy.fixed(3_000),
+                1_000,
+                NOW.plusDays(1),
+                NOW.plusDays(7),
+                null,
+                NOW));
+
+        assertThat(couponRepository.findById(welcome.getId()).orElseThrow().getCategory())
+                .isEqualTo(CouponCategory.WELCOME);
+        assertThat(couponRepository.findById(saveCoupon().getId()).orElseThrow().getCategory())
+                .isEqualTo(CouponCategory.GENERAL);
+    }
+
+    @Test
+    @DisplayName("없는 구분은 ck_p_coupons_category가, 7일이 아닌 웰컴 쿠폰은 ck_p_coupons_welcome_valid_days가 막는다(#357)")
+    void categoryChecks() {
+        Coupon saved = saveCoupon();
+
+        assertThatThrownBy(() ->
+                        jdbcTemplate.update("UPDATE p_coupons SET category = 'VIP' WHERE coupon_id = ?", saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_category");
+        // saveCoupon은 유효 일수 7일이라, 웰컴으로 바꾸면서 30일로 바꾸면 막는다
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        "UPDATE p_coupons SET category = 'WELCOME', valid_days = 30 WHERE coupon_id = ?",
+                        saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_welcome_valid_days");
     }
 
     @Test
