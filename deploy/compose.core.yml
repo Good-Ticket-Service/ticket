@@ -1,0 +1,58 @@
+# vm-core: 예매(reservation)와 결제(payment). 성능 실험 대상이라 다른 서비스와 CPU를 나눠 쓰지 않게 따로 둔다.
+# 실행: docker compose -f /opt/ticket/deploy/compose.core.yml --env-file /opt/ticket/.env up -d
+#
+# vm-data·vm-edge가 먼저 떠 있어야 한다. config-server에 닿지 못하면 앱이 바로 종료되고(fail-fast), restart 정책이 다시 띄운다.
+# 앱은 network_mode: host로 띄운다. 이유는 compose.edge.yml 머리말과 같다. 8083·8084는 보안 그룹으로 VPC 안에만 연다.
+name: ticket-core
+
+x-log: &log
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+x-app: &app
+  network_mode: host
+  restart: unless-stopped
+  logging: *log
+
+x-client-env: &client-env
+  # 서비스 jar의 기본 프로필은 local이고 local은 ddl-auto: create라 기동할 때마다 테이블을 지운다. 서버는 반드시 dev로 띄운다.
+  SPRING_PROFILES_ACTIVE: dev
+  CONFIG_SERVER_URL: http://${EDGE_IP:?EDGE_IP가 필요하다}:8888
+  EUREKA_URL: http://${EDGE_IP}:8761/eureka
+  EUREKA_PREFER_IP: "true"
+  # host 네트워크에는 docker0(172.17.x) 같은 다른 인터페이스도 보인다. 그 IP가 등록되면 다른 서버에서 닿지 않으므로 VPC IP를 직접 적는다.
+  EUREKA_INSTANCE_IPADDRESS: ${CORE_IP:?CORE_IP가 필요하다}
+  DB_HOST: ${DATA_IP:?DATA_IP가 필요하다}
+  REDIS_HOST: ${DATA_IP}
+  KAFKA_BOOTSTRAP_SERVERS: ${DATA_IP}:29092
+
+x-health: &health
+  test: ["CMD-SHELL", "curl -fs http://localhost:$${SERVER_PORT}/actuator/health > /dev/null"]
+  interval: 10s
+  timeout: 5s
+  retries: 18
+  start_period: 60s
+
+services:
+  # 쿠폰 모듈이 같은 프로세스에 있다. 실험 조건을 맞추려고 힙을 1GB로 고정한다.
+  reservation-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?ECR_REGISTRY가 필요하다}/ticket/reservation-service:${IMAGE_TAG:?IMAGE_TAG가 필요하다}
+    environment:
+      <<: *client-env
+      SERVER_PORT: "8083"
+      JAVA_OPTS: "-Xms1g -Xmx1g"
+      RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}
+    healthcheck: *health
+
+  payment-service:
+    <<: *app
+    image: ${ECR_REGISTRY}/ticket/payment-service:${IMAGE_TAG}
+    environment:
+      <<: *client-env
+      SERVER_PORT: "8084"
+      JAVA_OPTS: "-Xms1g -Xmx1g"
+      PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}
+      # 토스·카카오 대신 vm-data의 fake PG를 부른다
+      PG_BASE_URL: http://${DATA_IP}:8090
+    healthcheck: *health

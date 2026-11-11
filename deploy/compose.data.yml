@@ -1,0 +1,187 @@
+# vm-data: Postgres·Redis·Kafka·fake-pg와 관측 도구.
+# 실행: docker compose -f /opt/ticket/deploy/compose.data.yml --env-file /opt/ticket/.env up -d
+#
+# 다른 서버(vm-edge·vm-core)의 앱이 붙는 포트(5432·6379·29092·8090)는 모든 인터페이스에 연다. 인터넷 차단은 보안 그룹이 맡는다.
+# 관측 도구(Grafana·Prometheus·Kafka UI·Alertmanager)는 127.0.0.1에만 열고 SSM 포트 포워딩으로 본다.
+# 볼륨에 DB·Kafka·Redis 데이터가 있으므로 down -v를 쓰지 않는다.
+name: ticket-data
+
+x-log: &log
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    logging: *log
+    environment:
+      POSTGRES_DB: ticket
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER가 필요하다}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 필요하다}
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD가 필요하다}
+      PERFORMANCE_DB_PASSWORD: ${PERFORMANCE_DB_PASSWORD:?PERFORMANCE_DB_PASSWORD가 필요하다}
+      RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD:?RESERVATION_DB_PASSWORD가 필요하다}
+      PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD가 필요하다}
+      FAKE_PG_DB_PASSWORD: ${FAKE_PG_DB_PASSWORD:?FAKE_PG_DB_PASSWORD가 필요하다}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 빈 볼륨을 처음 기동할 때만 이름순으로 실행된다. 10은 서비스 계정·스키마와 결제 스키마, 20은 나머지 서비스 테이블을 만든다.
+      - ../infra/postgres/init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+      - ./postgres/schemas.sh:/docker-entrypoint-initdb.d/20-schemas.sh:ro
+      - ../backend/sql:/ticket-sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d ticket"]
+      interval: 5s
+      retries: 10
+
+  # 좌석 선점·쿠폰 발급 판단·대기열 상태를 둔다. 서버를 끄고 켜도 DB와 어긋나지 않게 AOF로 디스크에 남긴다.
+  # 메모리가 차면 키를 지우지 않고 쓰기를 거절한다. 선점 키가 조용히 사라지면 같은 좌석이 두 번 팔릴 수 있기 때문이다.
+  redis:
+    image: redis:7.4
+    restart: unless-stopped
+    logging: *log
+    command: [redis-server, --appendonly, "yes", --maxmemory, 1gb, --maxmemory-policy, noeviction]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  # KRaft 단일 브로커. 리스너를 둘로 나눈다.
+  # - INTERNAL(kafka:19092): 이 서버 안의 컨테이너(Kafka UI)와 브로커 자신이 쓴다.
+  # - VPC(<vm-data IP>:29092): 다른 서버의 앱이 쓴다. 광고 주소를 컨테이너 이름으로 두면 다른 서버에서 첫 연결 뒤 이름을 풀지 못한다.
+  kafka:
+    image: apache/kafka:4.3.1
+    restart: unless-stopped
+    logging: *log
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "INTERNAL://:19092,VPC://:29092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:19092,VPC://${DATA_IP:?DATA_IP가 필요하다}:29092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,VPC:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      # 브로커가 1대라서 내부 토픽 복제 수를 1로 맞춘다(기본값 3)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1"]
+      interval: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    restart: unless-stopped
+    logging: *log
+    ports:
+      - "127.0.0.1:8989:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: dev
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # 토스 형식을 흉내 내는 테스트용 PG. payment-service(vm-core)와 k6가 <vm-data IP>:8090으로 부른다.
+  # 관리 API(/fake/admin/**)로 장애를 걸 수 있으므로 8090도 VPC 안에서만 닿아야 한다.
+  fake-pg:
+    image: ${ECR_REGISTRY:?ECR_REGISTRY가 필요하다}/ticket/fake-pg:${IMAGE_TAG:?IMAGE_TAG가 필요하다}
+    restart: unless-stopped
+    logging: *log
+    ports:
+      - "8090:8090"
+    environment:
+      DB_HOST: postgres
+      FAKE_PG_DB_PASSWORD: ${FAKE_PG_DB_PASSWORD}
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:8090/actuator/health || exit 1"]
+      interval: 10s
+      retries: 18
+      start_period: 30s
+
+  # 수집 대상은 vm-edge의 Eureka 등록 목록에서 찾는다. 서비스가 등록한 VPC IP로 긁는다.
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    logging: *log
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "127.0.0.1:9090:9090"
+    # 수집 설정의 eureka-server 이름을 vm-edge로 보낸다
+    extra_hosts:
+      - "eureka-server:${EDGE_IP:?EDGE_IP가 필요하다}"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../infra/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+
+  # webhook URL 파일은 SLACK_WEBHOOK_URL_FILE로 바꾼다. 지정하지 않으면 모의 수신기(alert-mock)로 보낸다.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    logging: *log
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ../infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../infra/alertmanager/templates:/etc/alertmanager/templates:ro
+      - ${SLACK_WEBHOOK_URL_FILE:-../infra/alertmanager/mock-slack-url}:/etc/alertmanager/secrets/slack_webhook_url:ro
+
+  alert-mock:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    logging: *log
+    command: ["python", "-u", "/app/alert_mock.py"]
+    environment:
+      MOCK_MODE: ok
+    ports:
+      - "127.0.0.1:9094:8080"
+    volumes:
+      - ../script/alert-mock:/app:ro
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    restart: unless-stopped
+    logging: *log
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD가 필요하다}
+    volumes:
+      - ../infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  redis-data:
+  kafka-data:
+  prometheus-data:
+  grafana-data:
