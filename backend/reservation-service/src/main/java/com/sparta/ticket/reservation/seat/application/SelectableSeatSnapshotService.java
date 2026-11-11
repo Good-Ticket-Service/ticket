@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.application;
 
+import com.sparta.ticket.reservation.seat.application.dto.SeatLayoutBody;
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
 import com.sparta.ticket.reservation.seat.application.port.SeatLayoutBodyCache;
@@ -44,10 +45,11 @@ public class SelectableSeatSnapshotService {
     }
 
     /**
-     * layout 응답 본문. (회차, configVersion)마다 한 번 만든 바이트를 다시 쓴다(#287). 본문 형식은 부르는 쪽이 render로 정한다.
+     * layout 응답 본문 한 벌. (회차, configVersion)마다 원본과 gzip을 한 번 만들어 다시 쓴다(#287). 본문 형식(JSON)은 부르는 쪽이
+     * render로 정하고, 압축본은 캐시가 뒤에서 만든다. 압축 전에는 gzip이 null이라 원본을 보낸다.
      * 스냅샷은 getSnapshot으로 받은 것을 넘긴다. 304 판단과 본문이 같은 configVersion을 보게 하기 위해서다.
      */
-    public byte[] getLayoutBody(SeatMapSnapshot snapshot, Function<SeatMapSnapshot, byte[]> render) {
+    public SeatLayoutBody getLayoutBody(SeatMapSnapshot snapshot, Function<SeatMapSnapshot, byte[]> render) {
         return layoutBodyCache.get(snapshot, render);
     }
 }

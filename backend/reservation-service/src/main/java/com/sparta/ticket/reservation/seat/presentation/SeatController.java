@@ -6,6 +6,7 @@ import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
+import com.sparta.ticket.reservation.seat.application.dto.SeatLayoutBody;
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
@@ -17,6 +18,7 @@ import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatStatusResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -24,6 +26,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +52,7 @@ public class SeatController {
     private final SeatReleaseService seatReleaseService;
     private final RemainingSeatService remainingSeatService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meters;
 
     /**
      * layout은 브라우저에만 저장하고(private) 쓸 때마다 ETag로 다시 확인한다(no-cache). Cache-Control이 없으면 Gateway 보안 체인이
@@ -79,15 +83,21 @@ public class SeatController {
     }
 
     /**
-     * 회차 좌석 배치(선택 가능 여부 제외). ETag는 configVersion이고, If-None-Match가 같으면 본문 없이 304다.
+     * 회차 좌석 배치(선택 가능 여부 제외). ETag는 약한 W/"configVersion"이고, If-None-Match가 같은 버전이면 본문 없이 304다.
      * 304 판단은 캐시한 스냅샷의 configVersion만 보고 하며 응답 본문은 만들지 않는다. 좌석 위치·등급·가격은 좌석 준비로만 바뀌고,
      * 좌석 준비는 바꾼 좌석에 새 configVersion을 쓴다. 그래서 configVersion이 같으면 layout도 같다.
      * 200 본문은 (회차, configVersion)마다 한 번 만든 JSON 바이트를 다시 쓴다(#287). 형식은 다른 API와 같은 ApiResponse이고,
      * 메시지 컨버터와 같은 ObjectMapper 빈으로 만들어 바이트도 같다.
+     *
+     * <p>사전 압축(#287): Accept-Encoding에 gzip이 있으면 같은 단위로 미리 압축해 둔 본문을 Content-Encoding: gzip으로 준다.
+     * 원본과 압축본은 바이트가 달라 강한 ETag를 함께 쓸 수 없어(Tomcat도 강한 ETag 응답은 압축하지 않는다, TS-9) 약한 ETag 하나를 쓴다.
+     * If-None-Match는 약한 비교라 예전에 받은 강한 "configVersion"으로 와도 304다. 응답이 Accept-Encoding에 따라 달라지므로 200·304 모두
+     * Vary: Accept-Encoding을 붙인다. 앱이 Content-Encoding을 붙인 응답은 Tomcat이 다시 압축하지 않는다.
      */
     @Operation(
             summary = "좌석 배치 조회",
-            description = "회차 좌석 배치를 준다. 선택 가능 여부는 status로 따로 받는다. ETag(configVersion)가 같으면 304다.")
+            description = "회차 좌석 배치를 준다. 선택 가능 여부는 status로 따로 받는다. 약한 ETag(W/\"configVersion\")가 같으면 304다."
+                    + " Accept-Encoding에 gzip이 있으면 미리 압축한 본문을 준다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             content =
@@ -98,15 +108,29 @@ public class SeatController {
     public ResponseEntity<byte[]> getLayout(@PathVariable Long scheduleId, WebRequest request) {
         SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId);
         // ETag 헤더는 checkNotModified가 200·304 모두 응답에 쓴다. ResponseEntity에 또 넣으면 304에서 두 줄이 된다
-        if (request.checkNotModified("\"" + snapshot.configVersion() + "\"")) {
+        if (request.checkNotModified("W/\"" + snapshot.configVersion() + "\"")) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
                     .cacheControl(LAYOUT_CACHE)
+                    .varyBy(HttpHeaders.ACCEPT_ENCODING)
                     .build();
         }
-        return ResponseEntity.ok()
+        SeatLayoutBody body = selectableSeatSnapshotService.getLayoutBody(snapshot, this::layoutBody);
+        ResponseEntity.BodyBuilder ok = ResponseEntity.ok()
                 .cacheControl(LAYOUT_CACHE)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(selectableSeatSnapshotService.getLayoutBody(snapshot, this::layoutBody));
+                .varyBy(HttpHeaders.ACCEPT_ENCODING)
+                .contentType(MediaType.APPLICATION_JSON);
+        if (body.gzip() != null && AcceptEncoding.acceptsGzip(request.getHeader(HttpHeaders.ACCEPT_ENCODING))) {
+            countLayoutResponse("gzip");
+            return ok.header(HttpHeaders.CONTENT_ENCODING, "gzip").body(body.gzip());
+        }
+        countLayoutResponse("identity");
+        return ok.body(body.identity());
+    }
+
+    /** layout 200 응답을 인코딩별로 센다. 측정에서 압축본이 실제로 나갔는지 서버 쪽에서 확인한다. */
+    private void countLayoutResponse(String encoding) {
+        meters.counter("reservation.seat.layout.responses", "encoding", encoding)
+                .increment();
     }
 
     private byte[] layoutBody(SeatMapSnapshot snapshot) {

@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.support;
 
+import com.sparta.ticket.reservation.seat.infrastructure.cache.SeatLayoutCompressExecutor;
 import com.sparta.ticket.reservation.seat.infrastructure.cache.SeatSnapshotRefreshExecutor;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -40,5 +41,18 @@ public class SeatTestConfig {
     @Primary
     public SeatSnapshotRefreshExecutor deferredSeatSnapshotRefreshExecutor(DeferredTasks seatSnapshotRefreshTasks) {
         return SeatSnapshotRefreshExecutor.using(seatSnapshotRefreshTasks::execute);
+    }
+
+    /** layout 본문 압축 작업(#287). 테스트가 runPending()을 부를 때 실행된다. 이름으로 주입받는다(DeferredTasks 빈이 둘이다). */
+    @Bean
+    public DeferredTasks seatLayoutCompressTasks() {
+        return new DeferredTasks();
+    }
+
+    /** layout 압축을 전용 스레드 대신 쌓아 둔다. 압축 전 요청은 원본을, 작업을 실행한 뒤의 요청은 압축본을 받는 것을 기다리지 않고 확인한다. */
+    @Bean
+    @Primary
+    public SeatLayoutCompressExecutor deferredSeatLayoutCompressExecutor(DeferredTasks seatLayoutCompressTasks) {
+        return SeatLayoutCompressExecutor.using(seatLayoutCompressTasks::execute);
     }
 }
