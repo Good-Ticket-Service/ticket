@@ -11,6 +11,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-batch'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     // PG별 서킷 브레이커. 예매 payment-guard와 같은 라이브러리이고 버전은 Spring Cloud BOM이 정한다
@@ -20,6 +21,7 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation(testFixtures(project(':common')))
+    testImplementation 'org.testcontainers:kafka'
 }
 
 // Note: PG 어댑터 계약 테스트는 실제 fake PG를 컨테이너로 띄워 HTTP로 부른다. Dockerfile 전체를 빌드하면 수 분이 걸리므로
@@ -77,4 +79,17 @@ tasks.register('reconcileRecovery', Test) {
     systemProperty 'reconcile.output', providers.gradleProperty('reconcileOutput').getOrElse('build/reconcile-recovery')
     doFirst { systemProperty 'payment.jar', tasks.bootJar.archiveFile.get().asFile.absolutePath }
     outputs.upToDateWhen { false }
+}
+
+// Note: 결과 전달의 짧은 실제 예매 연동만 별도로 실행한다. 기본 build에서 다른 서비스 JVM을 띄우지 않는다.
+tasks.register('paymentResultIntegration', Test) {
+    dependsOn testClasses, ':reservation-service:bootJar'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching '*PaymentResultReservationIntegrationTest' }
+    systemProperty 'payment.result.integration', 'true'
+    doFirst {
+        systemProperty 'reservation.jar', project(':reservation-service').tasks.bootJar.archiveFile.get().asFile.absolutePath
+    }
 }
