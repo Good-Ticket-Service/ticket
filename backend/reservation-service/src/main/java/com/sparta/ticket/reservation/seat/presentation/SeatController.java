@@ -1,5 +1,7 @@
 package com.sparta.ticket.reservation.seat.presentation;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
@@ -16,11 +18,14 @@ import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatStatusResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +48,7 @@ public class SeatController {
     private final SeatHoldService seatHoldService;
     private final SeatReleaseService seatReleaseService;
     private final RemainingSeatService remainingSeatService;
+    private final ObjectMapper objectMapper;
 
     /**
      * layout은 브라우저에만 저장하고(private) 쓸 때마다 ETag로 다시 확인한다(no-cache). Cache-Control이 없으면 Gateway 보안 체인이
@@ -76,13 +82,20 @@ public class SeatController {
      * 회차 좌석 배치(선택 가능 여부 제외). ETag는 configVersion이고, If-None-Match가 같으면 본문 없이 304다.
      * 304 판단은 캐시한 스냅샷의 configVersion만 보고 하며 응답 본문은 만들지 않는다. 좌석 위치·등급·가격은 좌석 준비로만 바뀌고,
      * 좌석 준비는 바꾼 좌석에 새 configVersion을 쓴다. 그래서 configVersion이 같으면 layout도 같다.
+     * 200 본문은 (회차, configVersion)마다 한 번 만든 JSON 바이트를 다시 쓴다(#287). 형식은 다른 API와 같은 ApiResponse이고,
+     * 메시지 컨버터와 같은 ObjectMapper 빈으로 만들어 바이트도 같다.
      */
     @Operation(
             summary = "좌석 배치 조회",
             description = "회차 좌석 배치를 준다. 선택 가능 여부는 status로 따로 받는다. ETag(configVersion)가 같으면 304다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = SeatLayoutResponse.Document.class)))
     @GetMapping("/layout")
-    public ResponseEntity<ApiResponse<SeatLayoutResponse>> getLayout(
-            @PathVariable Long scheduleId, WebRequest request) {
+    public ResponseEntity<byte[]> getLayout(@PathVariable Long scheduleId, WebRequest request) {
         SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId);
         // ETag 헤더는 checkNotModified가 200·304 모두 응답에 쓴다. ResponseEntity에 또 넣으면 304에서 두 줄이 된다
         if (request.checkNotModified("\"" + snapshot.configVersion() + "\"")) {
@@ -90,7 +103,19 @@ public class SeatController {
                     .cacheControl(LAYOUT_CACHE)
                     .build();
         }
-        return ResponseEntity.ok().cacheControl(LAYOUT_CACHE).body(ApiResponse.ok(SeatLayoutResponse.from(snapshot)));
+        return ResponseEntity.ok()
+                .cacheControl(LAYOUT_CACHE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(selectableSeatSnapshotService.getLayoutBody(snapshot, this::layoutBody));
+    }
+
+    private byte[] layoutBody(SeatMapSnapshot snapshot) {
+        try {
+            return objectMapper.writeValueAsBytes(ApiResponse.ok(SeatLayoutResponse.from(snapshot)));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "layout 응답을 직렬화하지 못했습니다. scheduleId=" + snapshot.result().scheduleId(), e);
+        }
     }
 
     /**

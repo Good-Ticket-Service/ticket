@@ -17,6 +17,9 @@ public record SeatLayoutResponse(Long scheduleId, long configVersion, List<SeatL
                 snapshot.result().seats().stream().map(SeatLayoutSeat::from).toList());
     }
 
+    /** OpenAPI 문서용 응답 형식. 실제 본문은 ApiResponse.ok(이 응답)를 직렬화한 바이트다(SeatController#getLayout). */
+    public record Document(int status, String message, SeatLayoutResponse data) {}
+
     /** venueSeatId는 공연장 좌석 배치(P20)와 짝짓는 키다. */
     public record SeatLayoutSeat(
             Long scheduleSeatId,

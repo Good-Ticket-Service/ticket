@@ -10,13 +10,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
+import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.infrastructure.cache.CaffeineSeatLayoutBodyCache;
+import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
 import com.sparta.ticket.reservation.seat.support.DeferredTasks;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -76,6 +81,12 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private DeferredTasks seatSnapshotRefreshTasks;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private SelectableSeatSnapshotService selectableSeatSnapshotService;
+
     private long nextVenueSeatId = 1000;
 
     @BeforeEach
@@ -84,8 +95,9 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         jdbcTemplate.update("DELETE FROM p_tickets");
         jdbcTemplate.update("DELETE FROM p_reservations");
         clock.set(NOW);
-        // 배치도 캐시는 컨텍스트 하나를 모든 테스트가 같이 쓴다. 앞 테스트가 같은 회차를 캐시해 두었을 수 있어 최대 보관 시간(cache-max-age)을 넘긴다
-        ticker.advance(Duration.ofMinutes(1));
+        // 배치도 캐시는 컨텍스트 하나를 모든 테스트가 같이 쓴다. 앞 테스트가 같은 회차를 캐시해 두었을 수 있어 최대 보관 시간(cache-max-age)을 넘긴다.
+        // layout 본문 캐시도 같은 회차·configVersion(501, 2)을 테스트마다 다른 좌석으로 쓰므로, 읽히지 않은 본문이 빠지는 시간까지 넘긴다
+        ticker.advance(CaffeineSeatLayoutBodyCache.EXPIRE_AFTER_ACCESS.plusMinutes(1));
         // 앞 테스트가 남긴 refresh·정리 작업을 비운다. 좌석을 지운 뒤라 남은 refresh는 404로 끝나 캐시에 남지 않는다
         seatSnapshotRefreshTasks.runPending();
     }
@@ -319,6 +331,41 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
                 .isEmpty();
         assertThat((Integer) JsonPath.read(layout, "$.data.seats[0].venueSeatId"))
                 .isNotNull();
+    }
+
+    @Test
+    @DisplayName("layout 본문은 다른 API와 같은 ApiResponse JSON이고, 같은 configVersion의 다음 요청도 같은 본문이다")
+    void layoutBodyFormat() throws Exception {
+        Long seatId = seat(SCHEDULE, true);
+
+        String first = mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "application/json"))
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.scheduleId").value(SCHEDULE))
+                .andExpect(jsonPath("$.data.configVersion").value(2))
+                .andExpect(jsonPath("$.data.seats.length()").value(1))
+                .andExpect(jsonPath("$.data.seats[0].scheduleSeatId").value(seatId))
+                .andExpect(jsonPath("$.data.seats[0].section").value("A"))
+                .andExpect(jsonPath("$.data.seats[0].rowLabel").value("1"))
+                .andExpect(jsonPath("$.data.seats[0].seatNumber").value(1))
+                .andExpect(jsonPath("$.data.seats[0].venueSeatGradeId").value(7))
+                .andExpect(jsonPath("$.data.seats[0].gradeName").value("VIP"))
+                .andExpect(jsonPath("$.data.seats[0].basePrice").value(150000))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        // 캐시한 본문은 메시지 컨버터가 쓰는 ObjectMapper로 ApiResponse를 직렬화한 것과 같다(바꾸기 전 응답)
+        String legacyRendered = objectMapper.writeValueAsString(
+                ApiResponse.ok(SeatLayoutResponse.from(selectableSeatSnapshotService.getSnapshot(SCHEDULE))));
+        assertThat(first).isEqualTo(legacyRendered);
+
+        // 1초 스냅샷이 새로 만들어져도 configVersion이 같으면 같은 본문이다
+        ticker.advance(PAST_REFRESH);
+        seatSnapshotRefreshTasks.runPending();
+        assertThat(body("/api/seats/schedules/{scheduleId}/layout")).isEqualTo(first);
     }
 
     @Test
