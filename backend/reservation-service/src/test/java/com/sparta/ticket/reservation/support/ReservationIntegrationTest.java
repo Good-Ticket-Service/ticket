@@ -53,6 +53,7 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.seat.remaining.cache-ttl=3s",
             "reservation.seat.selectable.cache-refresh=1s",
             "reservation.seat.selectable.cache-max-age=5s",
+            "reservation.seat.hold.lock-mode=wait",
             "spring.jpa.open-in-view=false"
         })
 public abstract class ReservationIntegrationTest extends PostgresIntegrationTest {

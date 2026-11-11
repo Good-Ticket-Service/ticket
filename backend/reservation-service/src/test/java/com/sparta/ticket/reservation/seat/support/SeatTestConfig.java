@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.support;
 
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties;
 import com.sparta.ticket.reservation.seat.infrastructure.cache.SeatLayoutCompressExecutor;
 import com.sparta.ticket.reservation.seat.infrastructure.cache.SeatSnapshotRefreshExecutor;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -25,6 +26,13 @@ public class SeatTestConfig {
     @Primary
     public MutableTicker mutableTicker() {
         return new MutableTicker();
+    }
+
+    /** 선점 잠금 방식. 기본은 설정값(wait)이고, NOWAIT 테스트가 바꾼 뒤 되돌린다(#313). */
+    @Bean
+    @Primary
+    public MutableSeatHoldLockMode mutableSeatHoldLockMode(SeatHoldProperties properties) {
+        return new MutableSeatHoldLockMode(properties);
     }
 
     /** 좌석 배치도 캐시의 refresh·정리 작업. 테스트가 runPending()을 부를 때 실행된다(#311). */

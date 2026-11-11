@@ -6,12 +6,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
+import java.sql.SQLException;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -108,5 +116,62 @@ class ScheduleSeatPersistenceIntegrationTest extends ReservationIntegrationTest 
 
         assertThatThrownBy(() -> scheduleSeatRepository.findAllByIdsForUpdate(List.of(id)))
                 .hasMessageContaining("transaction");
+    }
+
+    @Test
+    @DisplayName("NOWAIT 잠금 조회는 다른 트랜잭션이 좌석 하나라도 잠그고 있으면 기다리지 않고 SQLSTATE 55P03으로 실패한다(#313)")
+    void findAllByIdsForUpdateNoWaitFailsFast() throws Exception {
+        Long free = save(100L);
+        Long busy = save(101L);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> holder = pool.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                jdbcTemplate.queryForObject(
+                        "SELECT id FROM p_schedule_seats WHERE id = ? FOR UPDATE", Long.class, busy);
+                locked.countDown();
+                awaitQuietly(release);
+            }));
+            assertThat(locked.await(30, TimeUnit.SECONDS)).isTrue();
+
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> transactionTemplate.execute(
+                            status -> scheduleSeatRepository.findAllByIdsForUpdateNoWait(List.of(free, busy))))
+                    .isInstanceOf(PessimisticLockingFailureException.class)
+                    .satisfies(e -> assertThat(sqlState(e)).isEqualTo("55P03"));
+            // 기다렸다면 잠금을 쥔 쪽이 풀어 줄 때까지(최대 30초) 멈췄을 것이다
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+
+            release.countDown();
+            holder.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+
+        // 잠금이 풀린 뒤에는 기다리는 쪽과 같이 id 오름차순으로 잠근다
+        List<Long> relocked = transactionTemplate.execute(
+                status -> scheduleSeatRepository.findAllByIdsForUpdateNoWait(List.of(busy, free)).stream()
+                        .map(ScheduleSeat::getId)
+                        .toList());
+        assertThat(relocked).containsExactly(free, busy);
+    }
+
+    private static String sqlState(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql) {
+                return sql.getSQLState();
+            }
+        }
+        return null;
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
