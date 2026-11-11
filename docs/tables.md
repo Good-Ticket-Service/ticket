@@ -268,6 +268,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 |---|---|---|
 | coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
 | name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
+| category | VARCHAR(20) | NOT NULL; DEFAULT 'GENERAL'; 쿠폰 구분. GENERAL(일반) 또는 WELCOME(웰컴). 목록을 나눠 보여 주는 데 쓴다. 발급 시작 후 변경 불가(#357) |
 | discount_type | VARCHAR(10) | NOT NULL; DEFAULT 'FIXED'; 할인 종류. FIXED(정액) 또는 RATE(정률)(#348). 할인 정책 다섯 컬럼은 발급 시작 후 변경 불가 |
 | discount_amount | INT | 정액 할인액(원). FIXED일 때만 있다 |
 | discount_rate | INT | 할인율(%, 1~99). RATE일 때만 있다 |
@@ -277,7 +278,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | issued_quantity | INT | NOT NULL; DEFAULT 0; 발급 수량 참고값. 발급 때 올리지 않고 맞추는 작업이 1분마다 p_user_coupons 수로 갱신해 늦을 수 있다. p_user_coupons 수가 총 수량을 넘으면(초과 발급) 갱신하지 않고 오류 로그를 남긴다. 판단·응답에 쓰지 않으며 정확한 발급 수는 p_user_coupons 수다(#300, #323) |
 | issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
 | issue_end_at | TIMESTAMP | NOT NULL; 발급 종료 시각. 발급 중단 시 현재 시각으로 당김 |
-| valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가 |
+| valid_days | INT | NOT NULL; 발급 후 사용 가능 일수. 발급 시작 후 변경 불가. 웰컴 쿠폰은 7만 허용(#357) |
 
 제약·인덱스:
 
@@ -286,6 +287,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `ck_p_coupons_quantity ; CHECK ; total_quantity > 0 AND issued_quantity BETWEEN 0 AND total_quantity`
 - `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
 - `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
+- `ck_p_coupons_category ; CHECK ; category IN ('GENERAL', 'WELCOME')` (#357)
+- `ck_p_coupons_welcome_valid_days ; CHECK ; category <> 'WELCOME' OR valid_days = 7` (#357)
+- 이슈 #357 이행 SQL: `backend/sql/reservation-service/migrations/357-coupon-category.sql`. p_coupons에 category 컬럼과 제약을 더하고, 기존 쿠폰은 GENERAL로 동작을 그대로 둔다. 새 버전 서버로 바꾸기 전에 적용한다.
 
 ### p_user_coupons — reservation-service/coupon.sql + A
 
