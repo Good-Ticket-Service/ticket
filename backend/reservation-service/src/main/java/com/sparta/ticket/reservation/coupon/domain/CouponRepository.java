@@ -22,10 +22,11 @@ public interface CouponRepository {
     Optional<Coupon> lockById(Long id);
 
     /**
-     * 발급 상태별 쿠폰 목록. 발급 상태는 컬럼이 아니라 now와 발급 기간으로 계산한다. 삭제된 쿠폰은 빠진다.
+     * 구분·발급 상태별 쿠폰 목록. 발급 상태는 컬럼이 아니라 now와 발급 기간으로 계산한다. 삭제된 쿠폰은 빠진다.
      * 경계는 Coupon.issueStatus와 같다(UPCOMING: 시작 전, ISSUING: 시작 이상·종료 미만, ENDED: 종료 이상).
      */
-    Page<Coupon> searchByIssueStatus(CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable);
+    Page<Coupon> searchByIssueStatus(
+            CouponCategory category, CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable);
 
     /** 여러 쿠폰을 한 번에 읽는다. 내 쿠폰 목록에 쿠폰 이름을 붙일 때 쓴다. 삭제된 쿠폰은 빠진다. */
     List<Coupon> findAllById(Iterable<Long> ids);

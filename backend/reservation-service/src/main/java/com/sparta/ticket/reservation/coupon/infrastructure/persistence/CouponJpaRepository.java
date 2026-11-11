@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.coupon.infrastructure.persistence;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import jakarta.persistence.LockModeType;
@@ -34,12 +35,13 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
      * 충분하다. 많아지면 EXPLAIN ANALYZE로 실행 계획을 보고 인덱스를 정한다(#197).
      */
     @Override
-    default Page<Coupon> searchByIssueStatus(CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable) {
+    default Page<Coupon> searchByIssueStatus(
+            CouponCategory category, CouponIssueStatus issueStatus, LocalDateTime now, Pageable pageable) {
         // 같은 발급 시작·종료 시각이 많아도 페이지마다 순서가 같도록 ID까지 정렬한다
         return StableSort.query(pageable, stable -> switch (issueStatus) {
-            case UPCOMING -> findUpcoming(now, stable);
-            case ISSUING -> findIssuing(now, stable);
-            case ENDED -> findEnded(now, stable);
+            case UPCOMING -> findUpcoming(category, now, stable);
+            case ISSUING -> findIssuing(category, now, stable);
+            case ENDED -> findEnded(category, now, stable);
         });
     }
 
@@ -64,14 +66,17 @@ public interface CouponJpaRepository extends JpaRepository<Coupon, Long>, Coupon
     int syncIssuedQuantity(@Param("id") Long id, @Param("issuedCount") int issuedCount);
 
     /** 발급 시작 전 쿠폰. */
-    @Query("SELECT c FROM Coupon c WHERE c.issueStartAt > :now")
-    Page<Coupon> findUpcoming(@Param("now") LocalDateTime now, Pageable pageable);
+    @Query("SELECT c FROM Coupon c WHERE c.category = :category AND c.issueStartAt > :now")
+    Page<Coupon> findUpcoming(
+            @Param("category") CouponCategory category, @Param("now") LocalDateTime now, Pageable pageable);
 
     /** 발급 중인 쿠폰. 시작 시각 이상, 종료 시각 미만이다. 수량이 다 떨어져도 기간 안이면 발급 중이다. */
-    @Query("SELECT c FROM Coupon c WHERE c.issueStartAt <= :now AND c.issueEndAt > :now")
-    Page<Coupon> findIssuing(@Param("now") LocalDateTime now, Pageable pageable);
+    @Query("SELECT c FROM Coupon c WHERE c.category = :category AND c.issueStartAt <= :now AND c.issueEndAt > :now")
+    Page<Coupon> findIssuing(
+            @Param("category") CouponCategory category, @Param("now") LocalDateTime now, Pageable pageable);
 
     /** 발급이 끝난 쿠폰. 종료 시각 정각부터 끝난 것으로 본다. 발급 중단한 쿠폰도 여기에 든다. */
-    @Query("SELECT c FROM Coupon c WHERE c.issueEndAt <= :now")
-    Page<Coupon> findEnded(@Param("now") LocalDateTime now, Pageable pageable);
+    @Query("SELECT c FROM Coupon c WHERE c.category = :category AND c.issueEndAt <= :now")
+    Page<Coupon> findEnded(
+            @Param("category") CouponCategory category, @Param("now") LocalDateTime now, Pageable pageable);
 }

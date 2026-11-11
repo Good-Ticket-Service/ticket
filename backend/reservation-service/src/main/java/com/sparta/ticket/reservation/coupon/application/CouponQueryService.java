@@ -5,6 +5,7 @@ import com.sparta.ticket.common.page.SortAllowList;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponDetailResult;
 import com.sparta.ticket.reservation.coupon.application.dto.UserCouponResult;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
@@ -48,13 +49,14 @@ public class CouponQueryService {
      * 발급 상태별 쿠폰 목록. 각 쿠폰에 이 회원이 받았는지(issuedByMe)를 붙인다.
      * Note: issuedByMe를 쿠폰마다 조회하면 페이지 크기만큼 쿼리가 나간다(N+1). 한 페이지의 쿠폰 ID로 한 번에 조회한다.
      */
-    public Page<CouponDetailResult> searchCoupons(CouponIssueStatus issueStatus, Long userId, Pageable pageable) {
+    public Page<CouponDetailResult> searchCoupons(
+            CouponCategory category, CouponIssueStatus issueStatus, Long userId, Pageable pageable) {
         // 허용하지 않은 정렬 필드면 400 VALIDATION_ERROR(InvalidSortException)
         SortAllowList.check(pageable, COUPON_SORTS);
         LocalDateTime now = now();
 
-        // 1) 현재 시각으로 발급 상태를 계산해 이 페이지의 쿠폰을 읽는다
-        Page<Coupon> coupons = couponRepository.searchByIssueStatus(issueStatus, now, pageable);
+        // 1) 구분과 현재 시각으로 계산한 발급 상태로 이 페이지의 쿠폰을 읽는다
+        Page<Coupon> coupons = couponRepository.searchByIssueStatus(category, issueStatus, now, pageable);
 
         // 2) 이 페이지 쿠폰 가운데 회원이 받은 것을 한 번에 찾는다
         List<Long> couponIds = coupons.map(Coupon::getId).getContent();

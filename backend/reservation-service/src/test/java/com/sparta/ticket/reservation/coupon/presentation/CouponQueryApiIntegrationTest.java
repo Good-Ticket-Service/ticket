@@ -1,7 +1,9 @@
 package com.sparta.ticket.reservation.coupon.presentation;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,7 +15,9 @@ import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.coupon.application.CouponIssueService;
 import com.sparta.ticket.reservation.coupon.application.CouponService;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
 import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -104,6 +108,37 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
             perform(get("/api/coupons"), 960_003L, Role.SELLER)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath(issuedByMe, contains(false)));
+        }
+
+        @Test
+        @DisplayName("category를 보내지 않으면 일반 쿠폰만, WELCOME을 보내면 웰컴 쿠폰만 나오고 받았는지도 보인다(#357)")
+        void filtersByCategory() throws Exception {
+            // 목록이 비면 JSON 경로가 없어 비교가 실패하므로 일반 쿠폰도 하나 만든다
+            Coupon general = issuingCoupon("일반 쿠폰");
+            Coupon welcome = couponRepository.save(Coupon.create(
+                    "웰컴 쿠폰",
+                    CouponCategory.WELCOME,
+                    DiscountPolicy.fixed(3_000),
+                    10,
+                    now().minusHours(1),
+                    now().plusDays(7),
+                    null,
+                    now().minusDays(1)));
+            couponIssueService.issue(welcome.getId(), 960_101L, "user@ticket.com");
+            String ids = "$.data.content[*].couponId";
+            String issuedByMe = "$.data.content[?(@.couponId == " + welcome.getId() + ")].issuedByMe";
+
+            perform(get("/api/coupons"), 960_101L, Role.USER)
+                    .andExpect(jsonPath(ids, hasItem(general.getId().intValue())))
+                    .andExpect(jsonPath(ids, not(hasItem(welcome.getId().intValue()))));
+            perform(get("/api/coupons").param("category", "WELCOME"), 960_101L, Role.USER)
+                    .andExpect(jsonPath(ids, hasItem(welcome.getId().intValue())))
+                    .andExpect(jsonPath(ids, not(hasItem(general.getId().intValue()))))
+                    .andExpect(jsonPath("$.data.content[*].category", everyItem(is("WELCOME"))))
+                    .andExpect(jsonPath(issuedByMe, contains(true)));
+            perform(get("/api/coupons").param("category", "VIP"), 960_101L, Role.USER)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         }
 
         @Test

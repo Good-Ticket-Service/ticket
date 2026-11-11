@@ -10,6 +10,7 @@ import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponDetailResult;
 import com.sparta.ticket.reservation.coupon.application.dto.UserCouponResult;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
@@ -84,10 +85,12 @@ class CouponQueryServiceIntegrationTest extends ReservationIntegrationTest {
             Coupon coupon = issuingCoupon("목록 쿠폰");
             couponIssueService.issue(coupon.getId(), 950_001L, "user@ticket.com");
 
-            CouponDetailResult mine =
-                    find(couponQueryService.searchCoupons(CouponIssueStatus.ISSUING, 950_001L, ALL), coupon.getId());
-            CouponDetailResult others =
-                    find(couponQueryService.searchCoupons(CouponIssueStatus.ISSUING, 950_002L, ALL), coupon.getId());
+            CouponDetailResult mine = find(
+                    couponQueryService.searchCoupons(CouponCategory.GENERAL, CouponIssueStatus.ISSUING, 950_001L, ALL),
+                    coupon.getId());
+            CouponDetailResult others = find(
+                    couponQueryService.searchCoupons(CouponCategory.GENERAL, CouponIssueStatus.ISSUING, 950_002L, ALL),
+                    coupon.getId());
 
             assertThat(mine.issuedByMe()).isTrue();
             assertThat(others.issuedByMe()).isFalse();
@@ -102,9 +105,12 @@ class CouponQueryServiceIntegrationTest extends ReservationIntegrationTest {
             Coupon upcoming = couponRepository.save(
                     Coupon.create("시작 전", 5_000, 10, now().plusDays(1), now().plusDays(7), 7, now()));
 
-            List<Long> ids = couponQueryService.searchCoupons(CouponIssueStatus.UPCOMING, 950_001L, ALL).stream()
-                    .map(CouponDetailResult::couponId)
-                    .toList();
+            List<Long> ids =
+                    couponQueryService
+                            .searchCoupons(CouponCategory.GENERAL, CouponIssueStatus.UPCOMING, 950_001L, ALL)
+                            .stream()
+                            .map(CouponDetailResult::couponId)
+                            .toList();
 
             assertThat(ids).contains(upcoming.getId()).doesNotContain(issuing.getId());
         }
@@ -114,7 +120,8 @@ class CouponQueryServiceIntegrationTest extends ReservationIntegrationTest {
         void disallowedSort() {
             Pageable byName = PageRequest.of(0, 10, Sort.by("name"));
 
-            assertThatThrownBy(() -> couponQueryService.searchCoupons(CouponIssueStatus.ISSUING, 1L, byName))
+            assertThatThrownBy(() -> couponQueryService.searchCoupons(
+                            CouponCategory.GENERAL, CouponIssueStatus.ISSUING, 1L, byName))
                     .isInstanceOf(InvalidSortException.class);
         }
     }

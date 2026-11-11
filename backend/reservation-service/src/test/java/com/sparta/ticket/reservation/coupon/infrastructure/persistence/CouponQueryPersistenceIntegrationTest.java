@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.coupon.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
@@ -64,7 +65,7 @@ class CouponQueryPersistenceIntegrationTest extends ReservationIntegrationTest {
     class SearchByIssueStatus {
 
         private List<Long> search(CouponIssueStatus status, Pageable pageable) {
-            return ids(couponRepository.searchByIssueStatus(status, NOW, pageable));
+            return ids(couponRepository.searchByIssueStatus(CouponCategory.GENERAL, status, NOW, pageable));
         }
 
         @Test
@@ -123,7 +124,7 @@ class CouponQueryPersistenceIntegrationTest extends ReservationIntegrationTest {
             for (Sort.Direction direction : Sort.Direction.values()) {
                 Sort byEnd = Sort.by(direction, "issueEndAt");
                 Page<Coupon> page = couponRepository.searchByIssueStatus(
-                        CouponIssueStatus.ISSUING, NOW, PageRequest.of(0, 10_000, byEnd));
+                        CouponCategory.GENERAL, CouponIssueStatus.ISSUING, NOW, PageRequest.of(0, 10_000, byEnd));
                 List<Long> ours = ids(page).stream().filter(created::contains).toList();
 
                 // 같은 종료 시각끼리는 정렬 방향과 같은 방향의 ID 순서다

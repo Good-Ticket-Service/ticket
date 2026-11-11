@@ -13,6 +13,7 @@ import com.sparta.ticket.reservation.coupon.application.dto.CouponDetailResult;
 import com.sparta.ticket.reservation.coupon.application.dto.CouponResult;
 import com.sparta.ticket.reservation.coupon.application.dto.IssuedCouponResult;
 import com.sparta.ticket.reservation.coupon.application.dto.UserCouponResult;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponStatus;
 import com.sparta.ticket.reservation.coupon.presentation.dto.CreateCouponRequest;
@@ -105,6 +106,7 @@ public class CouponController {
      * 발급 상태별 쿠폰 목록. 200과 페이지(PageResponse)를 돌려준다.
      * 관리자가 만든 쿠폰 종류(p_coupons)를 보여 주는 "쿠폰 받기" 화면용이다. 내가 받은 쿠폰 한 장 한 장은 /me가 보여 준다.
      * issueStatus는 쿠폰의 발급 기간이 지금 어디인지(시작 전·발급 중·종료)로 거르는 필터라 누가 보든 같다(화면 탭 구분용).
+     * category는 쿠폰 구분으로 거른다. 보내지 않으면 일반(GENERAL)만 나와, 웰컴 쿠폰은 웰컴 페이지(category=WELCOME)에서만 보인다(#357).
      * 회원마다 다른 값은 issuedByMe(이미 받았는지)이고, "받기"·"받음" 버튼 표시에 쓴다.
      * 역할 제한이 없어 로그인한 모든 사용자가 볼 수 있고, 사용자 헤더가 없으면 @CurrentUser가 401을 낸다.
      * page·size·sort 보정은 공통 SearchPageableArgumentResolver가 하고, 정렬 허용 필드는 서비스가 검사한다.
@@ -112,16 +114,19 @@ public class CouponController {
      * 객체 안의 sort 배열을 풀지 못해 sort=["..."]처럼 JSON 글자로 보내 400이 된다. 붙이면 page·size·sort가 각각의 파라미터가 되고
      * sort는 sort=a&sort=b로 나간다. @PageableDefault는 문서에 실제 기본값을 보이려고 공통 기본값(10, createdAt DESC)과 같게 둔다(#225).
      */
-    @Operation(summary = "쿠폰 목록", description = "issueStatus를 보내지 않으면 지금 받을 수 있는(ISSUING) 쿠폰만 보여 준다.")
+    @Operation(
+            summary = "쿠폰 목록",
+            description = "issueStatus를 보내지 않으면 지금 받을 수 있는(ISSUING) 쿠폰만, category를 보내지 않으면 일반(GENERAL) 쿠폰만 보여 준다.")
     @GetMapping
     public ApiResponse<PageResponse<CouponDetailResult>> search(
             @RequestParam(defaultValue = "ISSUING") CouponIssueStatus issueStatus,
+            @RequestParam(defaultValue = "GENERAL") CouponCategory category,
             @ParameterObject @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
                     Pageable pageable,
             @CurrentUser UserContext user) {
-        // issueStatus가 정의에 없는 값이면 Spring이 타입 변환에 실패해 400 VALIDATION_ERROR가 된다
+        // issueStatus·category가 정의에 없는 값이면 Spring이 타입 변환에 실패해 400 VALIDATION_ERROR가 된다
         return ApiResponse.ok(
-                PageResponse.from(couponQueryService.searchCoupons(issueStatus, user.userId(), pageable)));
+                PageResponse.from(couponQueryService.searchCoupons(category, issueStatus, user.userId(), pageable)));
     }
 
     /**
