@@ -40,7 +40,11 @@ public class SeatHoldService {
     /** booking.sql의 활성 예매 부분 UNIQUE. 이 제약 위반만 매수 제한으로 바꾸고 다른 무결성 오류는 그대로 둔다. */
     static final String ACTIVE_RESERVATION_CONSTRAINT = "uk_p_reservations_active_user_schedule";
 
-    /** PostgreSQL lock_not_available. NOWAIT 잠금이 이미 잠긴 행을 만나면 이 SQLSTATE로 끝난다. */
+    /**
+     * PostgreSQL lock_not_available. NOWAIT 잠금이 이미 잠긴 행을 만나면 이 SQLSTATE로 끝난다.
+     * Note: lock_timeout을 넘긴 대기도 같은 SQLSTATE다. 지금 선점 경로에는 lock_timeout이 없지만, 나중에 DB·역할에 걸면 wait
+     * 모드의 시간 초과도 같은 409("잠시 후 다시 시도")가 된다. 그때도 맞는 응답이라 잠금 방식으로 나누지 않는다.
+     */
     static final String LOCK_NOT_AVAILABLE = "55P03";
 
     /** 잠금 실패 409의 메시지. 좌석이 이미 선점된 것과 달리 잠시 뒤 다시 시도하면 될 수 있다. */

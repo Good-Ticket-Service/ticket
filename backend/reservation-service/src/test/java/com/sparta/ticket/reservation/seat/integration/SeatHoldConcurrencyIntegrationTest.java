@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.application.port.SeatPort;
 import com.sparta.ticket.reservation.booking.infrastructure.seat.SeatFacadeAdapter;
 import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
@@ -88,6 +89,9 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private SeatFacadeAdapter seatFacadeAdapter;
 
+    /** runAll이 잠금 실패 409를 이미 선점된 좌석의 409와 구분해 돌려주는 값이다. */
+    private static final String LOCK_BUSY = "SEAT_ALREADY_TAKEN(잠금 실패)";
+
     private final ExecutorService pool = Executors.newFixedThreadPool(8);
     private long nextVenueSeatId = 1;
 
@@ -130,7 +134,8 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
     }
 
     /**
-     * 작업을 동시에 출발시키고 결과를 돌려준다. 선점 결과는 "CREATED"·"EXISTING", 업무 오류는 code, 그 밖의 결과는 "DONE"이다.
+     * 작업을 동시에 출발시키고 결과를 돌려준다. 선점 결과는 "CREATED"·"EXISTING", 업무 오류는 code(잠금 실패 409는 LOCK_BUSY),
+     * 그 밖의 결과는 "DONE"이다.
      * 업무 오류가 아닌 예외는 그대로 테스트 실패가 된다. 풀 크기(8)보다 많이 넘기면 동시에 출발하지 못한다.
      */
     private List<String> runAll(List<Callable<?>> tasks) throws Exception {
@@ -146,7 +151,7 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
                     }
                     return hold.created() ? "CREATED" : "EXISTING";
                 } catch (BusinessException e) {
-                    return e.getErrorCode().code();
+                    return lockBusy(e) ? LOCK_BUSY : e.getErrorCode().code();
                 }
             }));
         }
@@ -156,6 +161,12 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
             results.add(future.get(30, TimeUnit.SECONDS));
         }
         return results;
+    }
+
+    /** 잠금 실패로 난 409인지 본다. 코드는 SEAT_ALREADY_TAKEN과 같고 메시지만 다르다. */
+    private static boolean lockBusy(BusinessException e) {
+        return e.getErrorCode() == ReservationErrorCode.SEAT_ALREADY_TAKEN
+                && !ReservationErrorCode.SEAT_ALREADY_TAKEN.message().equals(e.getMessage());
     }
 
     private int count(String sql, Object... args) {
@@ -314,8 +325,8 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
 
         List<String> results = runAll(holds);
 
-        // 잠금을 못 얻은 요청(잠금 실패)과, 앞 요청이 커밋한 뒤 잠근 요청(이미 선점) 모두 같은 409다
-        assertThat(results).containsOnly("CREATED", "SEAT_ALREADY_TAKEN");
+        // 잠금을 못 얻은 요청(잠금 실패)과, 앞 요청이 커밋한 뒤 잠근 요청(이미 선점) 모두 409 SEAT_ALREADY_TAKEN이다
+        assertThat(results).isSubsetOf("CREATED", "SEAT_ALREADY_TAKEN", LOCK_BUSY);
         assertThat(results).filteredOn("CREATED"::equals).hasSize(1);
         assertThat(count("SELECT COUNT(*) FROM p_reservations WHERE status = 'HOLD'"))
                 .isEqualTo(1);
@@ -399,6 +410,60 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("nowait: 만료 처리가 좌석을 잠그고 있는 동안의 선점은 기다리지 않고 409(잠금 실패)이고, 만료가 끝난 뒤에는 선점된다")
+    void nowaitWhileExpiryHoldsSeat() throws Exception {
+        lockMode.set(LockMode.NOWAIT);
+        Long seatId = seat();
+        LocalDateTime expiresAt = NOW.minusMinutes(1);
+        Long expired = transactionTemplate.execute(
+                status -> bookingFacade.hold(9L, TestHoldTargets.of(SCHEDULE), TestSeats.priced(seatId), expiresAt));
+        jdbcTemplate.update(
+                "UPDATE p_schedule_seats SET status = 'HOLD', reservation_id = ?, hold_expires_at = ? WHERE id = ?",
+                expired,
+                expiresAt,
+                seatId);
+        // 만료 처리가 실제 어댑터로 좌석을 잠근 직후 멈추게 한다. 예약 UPDATE·좌석 반환은 풀어 준 뒤에 이어진다
+        CountDownLatch expiryLocked = new CountDownLatch(1);
+        CountDownLatch releaseExpiry = new CountDownLatch(1);
+        bookingSeatPort.useReal(new SeatPort() {
+            @Override
+            public boolean lockSeats(List<Long> seatIds, Long reservationId) {
+                boolean held = seatFacadeAdapter.lockSeats(seatIds, reservationId);
+                expiryLocked.countDown();
+                await(releaseExpiry);
+                return held;
+            }
+
+            @Override
+            public void sell(List<Long> seatIds, Long reservationId) {
+                seatFacadeAdapter.sell(seatIds, reservationId);
+            }
+
+            @Override
+            public void release(List<Long> seatIds, Long reservationId) {
+                seatFacadeAdapter.release(seatIds, reservationId);
+            }
+        });
+        Future<Integer> expiry = pool.submit(() -> holdExpiryService.expireDue(100, Duration.ofSeconds(30)));
+        await(expiryLocked);
+
+        long started = System.nanoTime();
+        BusinessException error =
+                catchThrowableOfType(BusinessException.class, () -> seatHoldService.hold(1L, SCHEDULE, seatId));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+        releaseExpiry.countDown();
+
+        assertThat(lockBusy(error)).isTrue();
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(5));
+        assertThat(expiry.get(30, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(status("p_reservations", "reservation_id", expired)).isEqualTo("EXPIRED");
+        assertThat(status("p_schedule_seats", "id", seatId)).isEqualTo("AVAILABLE");
+
+        // 만료가 끝나 잠금이 풀리면 같은 요청을 다시 보내 선점한다
+        assertThat(seatHoldService.hold(1L, SCHEDULE, seatId).created()).isTrue();
+    }
+
+    @Test
     @DisplayName("nowait: 만료된 선점 좌석을 만료 처리와 동시에 선점해도 교착 없이 끝나고, 좌석과 예약 상태가 어긋나지 않는다")
     void nowaitWithHoldExpiry() throws Exception {
         lockMode.set(LockMode.NOWAIT);
@@ -422,7 +487,8 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
                     () -> seatHoldService.hold(userId, SCHEDULE, seatId),
                     () -> holdExpiryService.expireDue(100, Duration.ofSeconds(10))));
 
-            assertThat(results.get(0)).isIn("CREATED", "SEAT_ALREADY_TAKEN");
+            // 409라면 만료 처리가 좌석을 잡고 있던 순간의 잠금 실패뿐이다. 만료가 끝난 뒤 잠갔다면 좌석이 비어 성공한다
+            assertThat(results.get(0)).isIn("CREATED", LOCK_BUSY);
             assertThat(status("p_reservations", "reservation_id", expired)).isEqualTo("EXPIRED");
             if (results.get(0).equals("CREATED")) {
                 assertThat(count(
