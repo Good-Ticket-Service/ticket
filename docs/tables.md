@@ -725,6 +725,40 @@ DB 검사 결과와 db_valid 완료 마커는 같은 REPEATABLE READ 트랜잭�
 - DB 복원·클러스터 이전 시 head.valid=false로 무효화하고 FULL을 수행한다. 저장 snapshot은 다른 클러스터의 기준으로 재사용하지 않는다.
 - 이행 019는 DDL 전환을 한 트랜잭션으로 적용한다. 테이블 소유자의 TRUNCATE·트리거 해제까지 방어하는 제약은 아니다.
 
+### 판매자 예상 정산 파생 저장소 — payment-service 이행 022·023·024 (#334·#344)
+
+상태: #334 구현 중. 금융 원장·정산서·지급의 원본을 대체하지 않는 조회용 파생 데이터다. 시간은 TIMESTAMPTZ, 업무일은 KST DATE, 금액·건수·revision은 BIGINT다.
+
+| 테이블 | 식별 키 | 역할 |
+|---|---|---|
+| p_settlement_projection_facts | fact_key VARCHAR(100) PK | 불변 판매·완료 환불 사건 |
+| p_settlement_projection_builds | id UUID PK | 처리 방식과 재구축 세대 |
+| p_settlement_projection_head | id INT PK=1 | 검증된 조회 세대와 generation |
+| p_settlement_projection_deliveries | (build_id,fact_key) PK | 세대별 발행 임대·완료와 미반영 조회 상태 |
+| p_settlement_projection_payment_states | (build_id,payment_id) PK | 판매 연결·환불 보류 상태 |
+| p_settlement_projection_event_ids | (build_id,event_id) PK | 일반 Consumer 전송 중복 확인 |
+| p_settlement_projection_applied | (build_id,fact_key) PK | 적용한 업무 사건과 의미 해시 |
+| p_settlement_projection_totals | (build_id,aggregate_key) PK | 판매자·회차·업무일별 절대 집계 |
+| p_settlement_projection_errors | (build_id,fact_key,reason) PK | 미해결 충돌·격리 근거 |
+| p_settlement_projection_commands | command_id UUID PK | 운영 명령 입력과 최초 결과 |
+
+- facts의 event_id UUID와 journal_id BIGINT는 각각 UNIQUE다. journal_id는 p_ledger_transactions를 참조한다. payload TEXT와 의미 해시 VARCHAR(64), payment/seller/schedule ID, kind:SALE/REFUND, business_date, amount≥0, writer_xid:xid8를 보존한다. UPDATE/DELETE는 불변 트리거로 거부한다.
+- builds의 mode는 D/B/C다. status는 BUILDING/VERIFYING/READY/ACTIVE/RETIRED/FAILED다. BUILDING·VERIFYING·READY 중인 후보는 부분 UNIQUE로 동시에 하나만 허용한다.
+- builds는 source_snapshot·fanout_snapshot, input_count, actor·reason, created_at·verified_at·last_fanout_at·error를 보존한다. head의 build_id는 builds FK이며 generation과 함께 전환한다.
+- deliveries는 builds/facts FK와 lease_token UUID·leased_until·published_at·attempts·last_error를 가진다. ACK는 임대 토큰이 일치할 때만 반영한다. 불변 facts와 발행 상태를 분리한다.
+- mode는 D(DB 워커), B(Kafka Consumer), C(Streams)다. 024는 기존 B/C 데이터 변경 없이 D를 허용한다. D는 세대 행을 잠근 유한 묶음에서 집계·중복 기록·delivery 완료를 한 TX로 커밋한다. D의 published_at은 DB 전달 완료이며 broker ACK가 아니다. Kafka 발행 claim은 B/C만 선택한다.
+- deliveries의 미발행 부분 인덱스는 `(build_id,fact_key) WHERE published_at IS NULL`이다. claim의 정렬 순서로 읽고 임대 만료 조건은 행에서 검사한다.
+- deliveries는 facts에서 seller_id·schedule_id·business_date를 복사한다. applied BOOLEAN은 기본 false이며 적용 receipt·금액과 같은 TX에서만 true로 바꾼다. 원본 applied receipt를 대체하지 않는 조회용 표시다.
+- 판매자 미처리 조회 인덱스는 `(build_id,seller_id,business_date,schedule_id)`다. 미발행은 `published_at IS NULL`, 미반영은 `NOT applied` 부분 인덱스로 완료 이력을 제외한다.
+- fanout 전 사실은 마지막 fanout snapshot의 xmin 이상인 XID 중 당시 보이지 않았고 delivery가 없는 사실을 더해 센다. 작은 XID의 늦은 커밋도 포함하며 같은 RR에서 세대·금액·미처리를 읽는다. 오래 유지된 쓰기 TX는 최근 후보 범위를 넓힐 수 있다.
+- 기존 022 데이터는 집계 실행부와 해당 조회 트래픽을 중지하고 023을 단일 TX로 적용한 뒤 새 버전만 기동한다. 귀속 정보는 불변 facts에서 복원하고 applied 표시는 해당 build/fact의 receipt 의미 해시까지 일치할 때만 복원한다. 금융 원본·receipt는 수정하지 않는다.
+- payment_states는 payload TEXT·pending BOOLEAN·revision·meaning_hash를 보존한다. event_ids/applied도 meaning_hash를 가지며 build_id는 builds FK다.
+- C의 applied는 source 식별·의미 해시를 포함한 TOTAL과 같은 DB 트랜잭션에서 기록한다. 별도 수신 확인만으로 금액 반영 완료를 표시하지 않는다. C의 payment_states에는 보류 시작·해제 전환만 저장하고 업무 중복 상태는 Streams changelog에 보존한다.
+- totals의 aggregate_key는 sellerId:scheduleId:businessDate다. seller_id·schedule_id·business_date, sale_count·sale_amount·refund_count·refund_amount≥0, revision>0, meaning_hash·updated_at을 가진다. 순액은 sale_amount−refund_amount로 음수일 수 있다.
+- errors는 amount·resolved·created_at을 가진다. commands는 builds FK, action·input_hash·actor·reason·result TEXT·created_at을 보존한다.
+- writer_xid 인덱스로 늦은 커밋을 추적한다. seller/date/schedule 인덱스로 원천·집계를 조회하며 원장의 seller/occurred_at/payment 부분 인덱스는 SALE/REFUND만 포함한다.
+- 이 저장소의 snapshot·head·generation은 기존 금융 대조의 p_reconcile_checkpoint와 공유하지 않는다.
+
 ### p_settlement_jobs — payment-service/schema.sql + A (정산 반영 작업)
 
 | 필드 | 타입·제약 |

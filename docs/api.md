@@ -597,6 +597,34 @@
 - StatementDetail=StatementSummary + `lines:[{itemId:long,kind:SALE/DEDUCTION,paymentId:long,grossAmount:int|null,commission:int|null,commissionVat:int|null,sellerAmount:int|null,amount:long}]`. SALE의 amount는 판매자 몫 전액, DEDUCTION의 amount는 이 정산서에서 실제 상계한 몫이며 금액 내역은 null이다.
 - receivable은 아직 상계하지 못한 차감 잔액 합(미지급액과 별개), oldestAt은 가장 오래된 미회수 차감의 생성 시각이다.
 
+## 판매자 예상 정산 — payment-service (#334)
+
+상태: #334 사용자 요청 범위의 구현 계약. 결제 내부 집계용이며 예매 결과/환불 메시지 계약과 별개다. 권한은 SELLER 본인이다.
+
+| Method URI | 입력 | 응답 data | 오류 |
+|---|---|---|---|
+| GET /api/seller/settlements/preview | from/to:date 필수, 최대 31일·from≤to; scheduleId?:long>0; page=0,size=20(최대100) | status:INITIALIZING/READY/STALE,buildId,generation,from,to,totals,days,health | 범위 오류 400 VALIDATION_ERROR |
+
+- totals는 saleCount/saleSellerAmount/refundCount/refundSellerAmount/netSellerAmount:long이다. 순액은 판매자 몫의 판매/완료 환불 기간 순변동이며 지급 가능액·현금·미지급 잔액과 다르다.
+- days는 업무일·회차별 같은 금액을 담은 PageResponse다. 업무일 내림차순·회차 ID 오름차순이다. 사용자 ID는 Gateway 헤더에서 가져오고 요청 값으로 받지 않는다.
+- 판매/환불의 원래 KST 금융 발생일로 귀속한다. 진행 환불은 차감하지 않으며 발행 후 환불은 미회수 채권이지만 이 조회에서는 원 판매자 몫 감소로 반영한다. 지급·PG 입금·상계를 다시 합산하지 않는다.
+- INITIALIZING은 totals=null·비어 있는 days로 응답하며 정상 0원과 구분한다. 갱신 중단·미반영/격리는 STALE이며 마지막 검증된 build를 반환한다. 응답은 한 build를 일관되게 읽고 Cache-Control:no-store를 사용한다.
+- health는 미발행·미적용·미해결 오류·정산 대기/계산 실패/진행 환불과 마지막 정상 fanout/검증 정보를 구분한다. 마지막 업무 발생 시각이 오래됐다고 처리 장애로 보지 않는다.
+
+운영 API는 MASTER의 `/api/admin/settlements/projections` 아래에 둔다.
+
+| Method URI(위 prefix 기준) | 입력 | 응답 data |
+|---|---|---|
+| POST /builds | commandId:UUID,mode:D/B/C,reason:string[1,500] | buildId:UUID |
+| GET /builds/{buildId} | buildId:UUID | build 상태·manifest 수·미발행·적용·오류 진행 정보 |
+| POST /builds/{buildId}/{action} | commandId:UUID,expectedGeneration:long≥0,reason:string[1,500] | commandId,buildId,status,generation,verified |
+
+- action은 freeze/verify/activate/resume/rollback/discard다. build 접수의 commandId는 buildId다. 같은 ID·같은 입력은 최초 결과를 재현하며 다른 입력은 409 INVALID_STATUS_TRANSITION이다.
+- mode는 D=DB 워커(새 설치 기본), B=일반 Kafka Consumer, C=Kafka Streams다. 모드는 세대 생성 때 고정되며 기존 세대는 설정만으로 변환하지 않는다. 다른 엔진은 새 세대를 구축·검증한 뒤 activate한다. D 세대만 실행하면 집계용 Kafka client를 만들지 않는다.
+- control은 행위자·사유·입력 해시·최초 응답을 감사 기록에 보존한다. 기대 generation 또는 현재 상태가 맞지 않으면 409다. 검증이 아직 완료되지 않은 verify는 VERIFYING/verified=false로 반환한다.
+- rollback은 RETIRED 세대를 BUILDING으로 재개한다. 신규 유입을 따라잡아 다시 검증한 뒤 별도 activate해야 한다. 오래된 값을 즉시 노출하지 않는다. discard는 후보만 FAILED로 종료하며 활성 세대는 유지한다.
+- health의 originPending·unposted·pendingRefunds는 해당 판매자 전체의 위험/진행 건수다. 미발행·미적용·원천 식별 가능한 오류는 요청 기간·회차 범위다. 다른 판매자의 오류 상세/건수는 노출하지 않으며 귀속 불명 파이프라인 오류가 있으면 상태는 STALE일 수 있다.
+
 ## 정산 관리자 — payment-service (#208)
 
 권한: MASTER. 외부 ApiResponse/ErrorResponse 적용. Gateway는 `/api/admin/settlements/**`를 결제 관리자 체인(MASTER·사용자 재확인)에 연결한다(#174).
