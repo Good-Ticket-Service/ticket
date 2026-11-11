@@ -272,6 +272,16 @@ flowchart LR
 
 ## 11. 관측·측정 환경
 
+- #346 작업 브랜치의 승인 Consumer는 `payment.messaging.confirm.enabled=false`가 전환 전 기본값이다. 이행025와 결제 모든 인스턴스의 시한/READY 정리 버전, 결과 relay·Consumer 준비, 예매 모든 인스턴스의 메시지 승인 버전을 확인한 뒤 켠다. 구버전 결제 노드가 READY를 선점 만료 즉시 정리하는 혼합 배포에서는 메시지 모드를 켜지 않는다. 실제 운영 배포 완료를 의미하지 않는다.
+- 기본 concurrency3·max.poll.records16·worker16·PG별 승인8·미완료48건이다. PG별 승인 상한은 기존 PG 전체 상한보다 작아야 하며, 지연 재시도도 같은 미완료 집합 안에서만 유지한다. 한 PG의 느린 호출이 모든 승인 worker를 차지하지 않게 한다.
+- MANUAL+asyncAcks로 성공한 DB 책임 인수·마스킹 DLT 송신에만 ACK한다. PG 대기는 poll 스레드에서 하지 않는다. 재배정 후 옛 소유권의 ACK와 새 승인을 막으며, 이미 진행한 PG의 결과 저장·조회 복구는 보존한다.
+- 결제 JDBC는 `logServerErrorDetail=false`로 제약 실패 행의 거래 키가 애플리케이션 오류 로그에 복사되지 않게 한다. 기본 오류·제약 이름은 유지한다. DB 서버 로그·토픽 ACL은 별도 운영 통제 대상이다.
+- 로컬 허가 대기는 최초 confirmBefore 안에서 재시도한다. 메시지 인수된 READY는 저장된 시한으로 정리하고, Consumer 활성 시 미수신 READY는 expiresAt+6분 뒤 정리한다. Consumer를 끄더라도 이미 저장한 메시지 시한은 유지한다.
+- DB/DLT 일시 실패는 제한 재시도 뒤 ACK 없이 관련 partition을 운영 중지한다. 원인 제거 뒤 Consumer를 재기동해 미커밋 원본을 다시 읽는다. 정상 메시지를 재시도 소진만으로 DLT/FAILED 처리하지 않는다. asyncAcks의 선행 gap은 같은 poll의 다른 partition 진행도 기다리게 할 수 있다.
+- 승인 poison message의 DLT 격리 발생도 기존 Prometheus → Alertmanager → 결제 Slack 경로로 알린다. 최근 5분의 격리 증가를 서비스 단위로 묶고 인증값·본문·거래 ID는 알림에 넣지 않는다. DLT 좌표로 원인과 현재 금융 상태·최초 시한을 확인한다. 경보 해제는 발생 창 종료이며 개별 건 조치 완료가 아니다. 메모리 counter 수집 전 프로세스 종료 등으로 경보를 놓칠 수 있어 DLT 확인을 대체하지 않는다.
+- 이행025를 앱 기동 전에 적용한다. 원 토픽1일·마스킹 DLT7일은 시한 연장이 아니며, 보존 기간이 지난 원본 복원을 보장하지 않는다. DLT 재처리는 원본 좌표·현재 금융 상태·최초 시한·PG 전송 가능성을 확인하고 작업자·사유·결과를 운영 기록에 남긴다. 시한을 새로 만들어 재승인하지 않는다.
+- 전환 rollback은 신규 접수 모드부터 바꾸고 기존 메시지를 drain한다. 미완료 요청이 남은 동안 Consumer를 끄거나 READY 정리 여유를 줄이지 않는다. 결과 relay·조회 Recovery·AUTO_VOID는 유지한다. 단일 broker/RF1은 HA가 아니다.
+
 - Prometheus → Grafana로 `/actuator/prometheus`를 수집한다. 서비스·거래 ID는 로그로 추적하고, ID별 고카디널리티 메트릭 label을 쓰지 않는다.
 - 결제 운영 대시보드는 `infra/grafana/provisioning/dashboards/`에서 자동 등록한다. 히스토그램·DB 수집 주기는 `backend/config-repo/payment-service.yml`에 있으며 Config Server 재빌드·재배포 후 적용한다.
 - 결제 DB 상태는 별도 관측 스레드에서 15초마다 읽고 scrape는 메모리만 읽는다. 대시보드는 마지막 성공이 45초 이상 지난 값을 제외하며, 같은 DB를 보는 인스턴스의 상태 게이지는 합산하지 않는다.
