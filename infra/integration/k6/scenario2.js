@@ -159,9 +159,10 @@ function layoutHeaders(r,t) {
 function seatLayout(scheduleId,token,t) {
   const path='/api/seats/schedules/'+scheduleId+'/layout';
   if (layoutBody==='skip') {
-    // ETag는 configVersion이다. 본문 없이 같은 구성인지 확인한다
+    // ETag는 configVersion이다. 본문 없이 같은 구성인지 확인한다.
+    // 사전 압축(#287 2번)을 하면 원본·압축본이 같은 약한 ETag(W/"configVersion")를 쓰므로 W/를 떼고 비교한다(강한 ETag도 그대로 받는다)
     const r=request('GET',path,LAYOUT,null,token,t,false,'none');
-    if (r.headers['Etag']!=='"'+meta.config_version+'"') throw new Error('SEAT_LAYOUT_VERSION_MISMATCH');
+    if ((r.headers['Etag']||'').replace(/^W\//,'')!=='"'+meta.config_version+'"') throw new Error('SEAT_LAYOUT_VERSION_MISMATCH');
     layoutReads.add(1,t);
     return {scheduleId,configVersion:meta.config_version,seatCount:meta.seat_count,seats:null};
   }
