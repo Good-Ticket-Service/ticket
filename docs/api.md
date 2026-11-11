@@ -307,6 +307,7 @@
 - is_sellable=false 좌석은 판매 검증 결과와 상관없이 409 SEAT_NOT_SELLABLE이다. (구현 #148)
 - 선점 처리: [트랜잭션 밖] 회차 소속 확인 → 판매 검증 → [트랜잭션] 요청 좌석·이 회원의 HOLD 좌석·요청 좌석을 잡은 예약의 좌석 전체를 id 오름차순으로 한 번에 잠금 → 잠근 뒤의 시각으로 판정 → 만료된 선점은 예약 ID 오름차순으로 expireIfDue하고 그 예약의 좌석을 모두 반환 → countActiveSeats → BookingFacade.hold → 좌석 HOLD. 잠금 순서는 좌석 → 예약이다. (구현 #148)
 - 선점 재요청: 잠근 좌석이 이 회원 예약의 만료 전 HOLD면 기존 예약을 200으로 준다. 잠금을 기다리는 사이 같은 회원의 다른 요청이 만든 예약도 잠근 뒤 다시 읽어 200으로 준다. (구현 #148)
+- 선점 잠금 방식(#313): 기본 `reservation.seat.hold.lock-mode=wait`. nowait면 좌석 잠금을 기다리지 않고, 다른 요청이 잠근 좌석은 바로 409 SEAT_ALREADY_TAKEN(메시지만 잠금 실패용)이다. 이때 같은 회원의 앞선 요청이 커밋 전이면 재요청도 409다. booking 경로는 방식과 관계없이 기다린다.
 - 선점 시간은 10분이고 hold_expires_at은 좌석과 예약에 같은 값이다. HoldTarget의 공연·판매자·회차 시작 시각·공연명은 판매 검증 응답 값이다. (구현 #148)
 - 선점 해제 처리: [트랜잭션] BookingFacade.getReservation으로 예약을 잠금 없이 읽음(MANDATORY라 트랜잭션 안) → 예약의 좌석을 id 오름차순으로 한 번에 잠금 → BookingFacade.release(쿠폰 반환 포함) → 결과별 좌석 처리. 잠금 순서는 좌석 → 예약이다. (구현 #166)
 - 예약이 없거나 예약의 scheduleId가 경로와 다르면 404 RESERVATION_NOT_FOUND, 본인 예약이 아니면 403 FORBIDDEN이다. 회차 확인은 좌석이 아니라 예약으로 한다. 이미 끝난 예약에는 좌석이 남아 있지 않을 수 있다. (구현 #166)

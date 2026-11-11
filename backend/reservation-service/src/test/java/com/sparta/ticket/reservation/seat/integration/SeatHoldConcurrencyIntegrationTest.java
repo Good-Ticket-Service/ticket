@@ -1,17 +1,24 @@
 package com.sparta.ticket.reservation.seat.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.booking.infrastructure.seat.SeatFacadeAdapter;
+import com.sparta.ticket.reservation.booking.support.FakeSeatPort;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
+import com.sparta.ticket.reservation.domain.ReservationErrorCode;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties.LockMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.support.FakeSaleValidationPort;
+import com.sparta.ticket.reservation.seat.support.MutableSeatHoldLockMode;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -39,6 +46,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   부분 UNIQUE이고, 뒤에 INSERT한 쪽이 위반 → 트랜잭션 밖에서 409 PURCHASE_LIMIT_EXCEEDED로 바뀐다.
  *
  * 두 요청을 래치로 동시에 출발시키되, 어느 쪽이 먼저 잠금을 잡든 결과(성공 1건, 409 1건)는 같아야 한다.
+ *
+ * 잠금 방식 nowait(#313): 선점만 좌석 잠금을 기다리지 않고, 잠긴 좌석을 만나면 바로 409 SEAT_ALREADY_TAKEN(잠금 실패 메시지)이다.
+ * booking 경로(만료 등)는 그대로 기다린다. nowait 테스트는 잠금 방식을 바꾼 뒤 끝날 때 설정값(wait)으로 되돌린다.
  */
 class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
 
@@ -66,7 +76,19 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    private final ExecutorService pool = Executors.newFixedThreadPool(2);
+    @Autowired
+    private MutableSeatHoldLockMode lockMode;
+
+    @Autowired
+    private HoldExpiryService holdExpiryService;
+
+    @Autowired
+    private FakeSeatPort bookingSeatPort;
+
+    @Autowired
+    private SeatFacadeAdapter seatFacadeAdapter;
+
+    private final ExecutorService pool = Executors.newFixedThreadPool(8);
     private long nextVenueSeatId = 1;
 
     @BeforeEach
@@ -81,6 +103,8 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
     @AfterEach
     void tearDown() {
         pool.shutdownNow();
+        lockMode.reset();
+        bookingSeatPort.reset();
     }
 
     private Long seat() {
@@ -102,14 +126,25 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
 
     /** 두 선점을 동시에 출발시키고 각 결과를 "CREATED"(201)·"EXISTING"(200) 또는 오류 code로 돌려준다. */
     private List<String> runTogether(Callable<?> first, Callable<?> second) throws Exception {
+        return runAll(List.of(first, second));
+    }
+
+    /**
+     * 작업을 동시에 출발시키고 결과를 돌려준다. 선점 결과는 "CREATED"·"EXISTING", 업무 오류는 code, 그 밖의 결과는 "DONE"이다.
+     * 업무 오류가 아닌 예외는 그대로 테스트 실패가 된다. 풀 크기(8)보다 많이 넘기면 동시에 출발하지 못한다.
+     */
+    private List<String> runAll(List<Callable<?>> tasks) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         List<Future<String>> futures = new ArrayList<>();
-        for (Callable<?> task : List.of(first, second)) {
+        for (Callable<?> task : tasks) {
             futures.add(pool.submit(() -> {
                 start.await();
                 try {
-                    SeatHoldResult result = (SeatHoldResult) task.call();
-                    return result.created() ? "CREATED" : "EXISTING";
+                    Object result = task.call();
+                    if (!(result instanceof SeatHoldResult hold)) {
+                        return "DONE";
+                    }
+                    return hold.created() ? "CREATED" : "EXISTING";
                 } catch (BusinessException e) {
                     return e.getErrorCode().code();
                 }
@@ -264,6 +299,147 @@ class SeatHoldConcurrencyIntegrationTest extends ReservationIntegrationTest {
         assertThat(status("p_reservations", "reservation_id", old)).isEqualTo("EXPIRED");
         assertThat(status("p_schedule_seats", "id", oldSeat)).isEqualTo("AVAILABLE");
         assertThat(status("p_schedule_seats", "id", newSeat)).isEqualTo("HOLD");
+    }
+
+    @Test
+    @DisplayName("nowait: 여러 회원이 같은 좌석을 동시에 선점하면 한 건만 성공하고 나머지는 모두 409 SEAT_ALREADY_TAKEN이다")
+    void nowaitSameSeatMany() throws Exception {
+        lockMode.set(LockMode.NOWAIT);
+        Long seatId = seat();
+        List<Callable<?>> holds = new ArrayList<>();
+        for (long userId = 1; userId <= 8; userId++) {
+            long user = userId;
+            holds.add(() -> seatHoldService.hold(user, SCHEDULE, seatId));
+        }
+
+        List<String> results = runAll(holds);
+
+        // 잠금을 못 얻은 요청(잠금 실패)과, 앞 요청이 커밋한 뒤 잠근 요청(이미 선점) 모두 같은 409다
+        assertThat(results).containsOnly("CREATED", "SEAT_ALREADY_TAKEN");
+        assertThat(results).filteredOn("CREATED"::equals).hasSize(1);
+        assertThat(count("SELECT COUNT(*) FROM p_reservations WHERE status = 'HOLD'"))
+                .isEqualTo(1);
+        assertThat(count(
+                        "SELECT COUNT(*) FROM p_schedule_seats s JOIN p_reservations r ON r.reservation_id = s.reservation_id"
+                                + " WHERE s.id = ? AND s.status = 'HOLD' AND r.status = 'HOLD'",
+                        seatId))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("nowait: 다른 트랜잭션이 좌석을 잠그고 있으면 기다리지 않고 바로 409 SEAT_ALREADY_TAKEN(잠금 실패 메시지)이다")
+    void nowaitFailsFastWhileLocked() throws Exception {
+        lockMode.set(LockMode.NOWAIT);
+        Long seatId = seat();
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<?> holder = pool.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+            jdbcTemplate.queryForObject("SELECT id FROM p_schedule_seats WHERE id = ? FOR UPDATE", Long.class, seatId);
+            locked.countDown();
+            await(release);
+        }));
+        await(locked);
+
+        long started = System.nanoTime();
+        BusinessException error =
+                catchThrowableOfType(BusinessException.class, () -> seatHoldService.hold(2L, SCHEDULE, seatId));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+        release.countDown();
+        holder.get(30, TimeUnit.SECONDS);
+
+        assertThat(error.getErrorCode()).isEqualTo(ReservationErrorCode.SEAT_ALREADY_TAKEN);
+        // 코드는 이미 선점된 좌석과 같고 메시지만 잠금 실패용이다
+        assertThat(error.getMessage())
+                .isNotEqualTo(ReservationErrorCode.SEAT_ALREADY_TAKEN.message())
+                .contains("다시 시도");
+        // 기다렸다면 잠금을 쥔 쪽이 풀어 줄 때까지 멈췄을 것이다
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(5));
+        // 실패한 선점은 롤백돼 예약이 남지 않는다
+        assertThat(count("SELECT COUNT(*) FROM p_reservations")).isZero();
+        assertThat(status("p_schedule_seats", "id", seatId)).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    @DisplayName("nowait: 같은 회원의 앞선 요청이 같은 좌석을 잠그고 커밋 전이면, 뒤의 요청은 기다리지 않아 기존 예약을 못 보고 409다")
+    void nowaitSameUserSameSeatBeforeCommit() throws Exception {
+        lockMode.set(LockMode.NOWAIT);
+        Long seatId = seat();
+        CountDownLatch firstHoldsLock = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+
+        // 같은 회원의 앞선 요청 역할: sameUserSameSeatCommittedWhileWaiting과 같다
+        Future<Long> first = pool.submit(() -> transactionTemplate.execute(status -> {
+            jdbcTemplate.queryForObject("SELECT id FROM p_schedule_seats WHERE id = ? FOR UPDATE", Long.class, seatId);
+            LocalDateTime expiresAt = NOW.plusMinutes(10);
+            Long reservationId =
+                    bookingFacade.hold(1L, TestHoldTargets.of(SCHEDULE), TestSeats.priced(seatId), expiresAt);
+            jdbcTemplate.update(
+                    "UPDATE p_schedule_seats SET status = 'HOLD', reservation_id = ?, hold_expires_at = ? WHERE id = ?",
+                    reservationId,
+                    expiresAt,
+                    seatId);
+            firstHoldsLock.countDown();
+            await(releaseFirst);
+            return reservationId;
+        }));
+        await(firstHoldsLock);
+
+        BusinessException error =
+                catchThrowableOfType(BusinessException.class, () -> seatHoldService.hold(1L, SCHEDULE, seatId));
+        releaseFirst.countDown();
+        Long firstReservation = first.get(30, TimeUnit.SECONDS);
+
+        // wait 모드라면 앞 요청의 커밋을 기다려 그 예약을 200으로 돌려줬을 경우다(#313 확인할 것)
+        assertThat(error.getErrorCode()).isEqualTo(ReservationErrorCode.SEAT_ALREADY_TAKEN);
+        assertThat(count("SELECT COUNT(*) FROM p_reservations WHERE user_id = 1"))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT reservation_id FROM p_schedule_seats WHERE id = ?", Long.class, seatId))
+                .isEqualTo(firstReservation);
+    }
+
+    @Test
+    @DisplayName("nowait: 만료된 선점 좌석을 만료 처리와 동시에 선점해도 교착 없이 끝나고, 좌석과 예약 상태가 어긋나지 않는다")
+    void nowaitWithHoldExpiry() throws Exception {
+        lockMode.set(LockMode.NOWAIT);
+        // 공용 테스트 설정에서 booking의 좌석 포트는 호출만 기록하는 가짜다. 그대로 두면 만료 처리가 좌석을 잠그지 않고 예약만 끝내므로,
+        // 실제 좌석 잠금 순서(좌석 → 예약)로 겨루게 실제 어댑터에 넘긴다
+        bookingSeatPort.useReal(seatFacadeAdapter);
+        // 만료 처리는 실패를 잡아 로그만 남기므로, 교착으로 실패했는지는 끝난 뒤 예약 상태로 확인한다. 순서가 바뀌는 경우를 보려고 여러 번 돈다
+        for (int round = 0; round < 10; round++) {
+            Long seatId = seat();
+            LocalDateTime expiresAt = NOW.minusMinutes(1);
+            Long expired = transactionTemplate.execute(status ->
+                    bookingFacade.hold(9L, TestHoldTargets.of(SCHEDULE), TestSeats.priced(seatId), expiresAt));
+            jdbcTemplate.update(
+                    "UPDATE p_schedule_seats SET status = 'HOLD', reservation_id = ?, hold_expires_at = ? WHERE id = ?",
+                    expired,
+                    expiresAt,
+                    seatId);
+            long userId = 100 + round;
+
+            List<String> results = runAll(List.of(
+                    () -> seatHoldService.hold(userId, SCHEDULE, seatId),
+                    () -> holdExpiryService.expireDue(100, Duration.ofSeconds(10))));
+
+            assertThat(results.get(0)).isIn("CREATED", "SEAT_ALREADY_TAKEN");
+            assertThat(status("p_reservations", "reservation_id", expired)).isEqualTo("EXPIRED");
+            if (results.get(0).equals("CREATED")) {
+                assertThat(count(
+                                "SELECT COUNT(*) FROM p_schedule_seats s JOIN p_reservations r"
+                                        + " ON r.reservation_id = s.reservation_id"
+                                        + " WHERE s.id = ? AND s.status = 'HOLD' AND r.status = 'HOLD' AND r.user_id = ?",
+                                seatId,
+                                userId))
+                        .isEqualTo(1);
+            } else {
+                assertThat(status("p_schedule_seats", "id", seatId)).isEqualTo("AVAILABLE");
+            }
+        }
+        // 끝난 예약을 가리키는 좌석이 없다
+        assertThat(count("SELECT COUNT(*) FROM p_schedule_seats s JOIN p_reservations r"
+                        + " ON r.reservation_id = s.reservation_id WHERE r.status <> 'HOLD'"))
+                .isZero();
     }
 
     private String status(String table, String idColumn, Long id) {

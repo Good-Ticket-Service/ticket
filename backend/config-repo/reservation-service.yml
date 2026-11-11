@@ -39,6 +39,11 @@ reservation:
     selectable:
       cache-refresh: 1s
       cache-max-age: 5s
+    # 좌석 선점의 잠금 방식(#313). wait는 같은 좌석을 잡은 앞선 트랜잭션이 끝날 때까지 DB 연결을 쥔 채 기다리고, nowait는 바로
+    # 409 SEAT_ALREADY_TAKEN으로 끝낸다. booking 경로(결제 확정·만료·선점 해제)는 이 값과 관계없이 기다린다.
+    # 같은 빌드에서 두 방식을 번갈아 측정하려고 환경 변수로 바꿀 수 있게 둔다. 측정으로 방식을 정하면 값을 고정한다. 바꾸면 다시 띄운다
+    hold:
+      lock-mode: ${SEAT_HOLD_LOCK_MODE:wait}
 
   # booking의 만료·결과 확인·취소 확인 스케줄러. 측정하면서 바꿀 값이라 코드에 기본값을 두지 않는다(docs/architecture.md의 복구 설계)
   booking:
