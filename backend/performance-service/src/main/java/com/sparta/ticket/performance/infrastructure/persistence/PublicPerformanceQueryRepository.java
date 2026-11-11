@@ -2,10 +2,10 @@ package com.sparta.ticket.performance.infrastructure.persistence;
 
 import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.dsl.BooleanExpression;
-import com.querydsl.core.types.dsl.DateTimeExpression;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -100,10 +100,16 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .fetch();
     }
 
-    /** 고른 공연의 표시 정보와 기간(전체 활성 회차 기준). IN 결과는 순서가 없으므로 ids 순서로 다시 맞춘다. */
+    /**
+     * 고른 공연의 표시 정보와 기간(전체 활성 회차 기준). IN 결과는 순서가 없으므로 ids 순서로 다시 맞춘다.
+     * Note: 기간은 공연마다 첫·마지막 시작 시각만 하위 쿼리로 읽는다. (performance_id, start_at) 인덱스를 양 끝에서부터 읽다가
+     * 첫 활성 회차에서 멈추므로, 회차를 모두 붙여 묶을 때처럼 판매 중 공연의 회차 수백 개를 읽지 않는다(이슈 #343 변경 후 측정).
+     * 인덱스 조건에 운영 상태가 없어, 끝쪽에 취소 회차가 몰려 있으면 그만큼 더 읽는다. 활성 회차가 없으면 null이다.
+     * 대상이 이미 정한 ID들이라 하위 쿼리도 그 수만큼만 실행된다.
+     */
     private List<PublicPerformanceSummary> findSummaries(List<Long> ids) {
-        DateTimeExpression<LocalDateTime> firstStartAt = SCHEDULE.startAt.min();
-        DateTimeExpression<LocalDateTime> lastStartAt = SCHEDULE.startAt.max();
+        Expression<LocalDateTime> firstStartAt = startAtOfActiveSchedules(new QSchedule("firstSchedule"), true);
+        Expression<LocalDateTime> lastStartAt = startAtOfActiveSchedules(new QSchedule("lastSchedule"), false);
 
         Map<Long, PublicPerformanceSummary> byId = queryFactory
                 .select(
@@ -121,20 +127,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .from(PERFORMANCE)
                 .join(VENUE)
                 .on(VENUE.id.eq(PERFORMANCE.venueId))
-                // Note: 활성 회차가 없는 공연도 목록에 나와야 하므로(period=null) LEFT JOIN 하고 조건을 ON에 둔다.
-                .leftJoin(SCHEDULE)
-                .on(SCHEDULE.performanceId.eq(PERFORMANCE.id), activeSchedule(SCHEDULE))
                 .where(PERFORMANCE.id.in(ids))
-                .groupBy(
-                        PERFORMANCE.id,
-                        VENUE.id,
-                        VENUE.name,
-                        VENUE.address,
-                        VENUE.region,
-                        PERFORMANCE.title,
-                        PERFORMANCE.genre,
-                        PERFORMANCE.posterUrl,
-                        PERFORMANCE.operationStatus)
                 .fetch()
                 .stream()
                 .map(row -> new PublicPerformanceSummary(
@@ -265,6 +258,13 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .from(schedule)
                 .where(schedule.performanceId.eq(PERFORMANCE.id), activeSchedule(schedule), range)
                 .exists();
+    }
+
+    /** 공연의 활성 회차 중 첫(first=true) 또는 마지막 시작 시각. 활성 회차가 없으면 null이다. */
+    private static Expression<LocalDateTime> startAtOfActiveSchedules(QSchedule schedule, boolean first) {
+        return JPAExpressions.select(first ? schedule.startAt.min() : schedule.startAt.max())
+                .from(schedule)
+                .where(schedule.performanceId.eq(PERFORMANCE.id), activeSchedule(schedule));
     }
 
     /** 삭제·취소되지 않은 회차. 공연 기간과 날짜 필터의 기준이다. */
