@@ -10,6 +10,8 @@ import com.sparta.ticket.reservation.coupon.application.facade.CouponUsage;
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponErrorCode;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
+import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
+import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import com.sparta.ticket.reservation.coupon.domain.UserCoupon;
 import com.sparta.ticket.reservation.coupon.domain.UserCouponRepository;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
@@ -29,6 +31,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * Note: 다른 테스트의 회원 쿠폰도 같은 테이블에 있어, 회원 ID와 예매 ID를 이 테스트만 쓰는 값(98xxxx)으로 둔다.
  */
 class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
+
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 할인액에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
 
     @Autowired
     private CouponUsage couponUsage;
@@ -75,6 +80,60 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
                 .isEqualTo(CouponErrorCode.COUPON_NOT_AVAILABLE);
     }
 
+    /** 정률 10%, 최대 5,000원, 30,000원 이상에서 쓰는 쿠폰을 지금 발급한다(#348). */
+    private UserCoupon issueRate(long userId) {
+        DiscountPolicy policy = DiscountPolicy.of(DiscountType.RATE, null, 10, 5_000, 30_000);
+        Coupon coupon = couponRepository.save(
+                Coupon.create("정률 10% 할인", policy, 100, now().minusDays(30), now().plusDays(30), 7, now()));
+        return userCouponRepository.saveIssued(UserCoupon.issue(userId, coupon, now()));
+    }
+
+    @Nested
+    @DisplayName("reserve 정가 적용(#347, #348)")
+    class ReserveWithBaseAmount {
+
+        @Test
+        @DisplayName("정률 쿠폰은 정가 × 할인율이고, 최대 할인액을 넘으면 그 값이다")
+        void rateDiscount() {
+            UserCoupon small = issueRate(980_101L);
+            UserCoupon large = issueRate(980_102L);
+
+            assertThat(couponUsage
+                            .reserve(small.getId(), 980_101L, 981_101L, 40_000)
+                            .discountAmount())
+                    .isEqualTo(4_000);
+            assertThat(couponUsage
+                            .reserve(large.getId(), 980_102L, 981_102L, 80_000)
+                            .discountAmount())
+                    .isEqualTo(5_000);
+        }
+
+        @Test
+        @DisplayName("같은 예매로 다시 부르면 같은 정가라 같은 할인액이고 상태도 그대로다")
+        void idempotent() {
+            UserCoupon issued = issueRate(980_103L);
+
+            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000);
+            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000);
+
+            assertThat(second).isEqualTo(first);
+            assertThat(row(issued.getId())).containsEntry("status", "RESERVED");
+        }
+
+        @Test
+        @DisplayName("정가가 최소 적용 금액보다 작으면 금액을 담은 COUPON_NOT_AVAILABLE이고 쿠폰은 AVAILABLE 그대로다")
+        void belowMinBase() {
+            UserCoupon issued = issueRate(980_104L);
+
+            assertThatThrownBy(() -> couponUsage.reserve(issued.getId(), 980_104L, 981_104L, 29_999))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("30,000원 이상 결제 시 사용할 수 있는 쿠폰입니다.")
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(CouponErrorCode.COUPON_NOT_AVAILABLE);
+            assertThat(row(issued.getId())).containsEntry("status", "AVAILABLE");
+        }
+    }
+
     @Nested
     @DisplayName("reserve")
     class Reserve {
@@ -84,7 +143,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void reserves() {
             UserCoupon issued = issue(980_001L);
 
-            CouponDiscount discount = couponUsage.reserve(issued.getId(), 980_001L, 981_001L);
+            CouponDiscount discount = couponUsage.reserve(issued.getId(), 980_001L, 981_001L, BASE_AMOUNT);
 
             assertThat(discount.userCouponId()).isEqualTo(issued.getId());
             assertThat(discount.couponId()).isEqualTo(issued.getCouponId());
@@ -99,9 +158,9 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("같은 예매에 같은 쿠폰을 다시 잡으면 같은 값을 돌려주고 상태는 그대로다(멱등)")
         void idempotent() {
             UserCoupon issued = issue(980_011L);
-            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_011L, 981_011L);
+            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT);
 
-            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_011L, 981_011L);
+            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT);
 
             assertThat(second).isEqualTo(first);
             assertThat(row(issued.getId())).containsEntry("reservation_id", 981_011L);
@@ -112,14 +171,14 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void notAvailable() {
             UserCoupon othersCoupon = issue(980_022L);
             UserCoupon takenByOther = issue(980_021L);
-            couponUsage.reserve(takenByOther.getId(), 980_021L, 981_021L);
+            couponUsage.reserve(takenByOther.getId(), 980_021L, 981_021L, BASE_AMOUNT);
             // 8일 전에 받아 유효 일수(7일)가 지났다. 만료 배치 전이라 저장된 상태는 아직 AVAILABLE이다
             UserCoupon expired = issueAt(980_021L, now().minusDays(8));
 
-            assertNotAvailable(() -> couponUsage.reserve(-1L, 980_021L, 981_022L));
-            assertNotAvailable(() -> couponUsage.reserve(othersCoupon.getId(), 980_021L, 981_022L));
-            assertNotAvailable(() -> couponUsage.reserve(takenByOther.getId(), 980_021L, 981_022L));
-            assertNotAvailable(() -> couponUsage.reserve(expired.getId(), 980_021L, 981_022L));
+            assertNotAvailable(() -> couponUsage.reserve(-1L, 980_021L, 981_022L, BASE_AMOUNT));
+            assertNotAvailable(() -> couponUsage.reserve(othersCoupon.getId(), 980_021L, 981_022L, BASE_AMOUNT));
+            assertNotAvailable(() -> couponUsage.reserve(takenByOther.getId(), 980_021L, 981_022L, BASE_AMOUNT));
+            assertNotAvailable(() -> couponUsage.reserve(expired.getId(), 980_021L, 981_022L, BASE_AMOUNT));
 
             // 실패한 요청은 아무것도 바꾸지 않는다
             assertThat(row(othersCoupon.getId())).containsEntry("status", "AVAILABLE");
@@ -132,15 +191,15 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void changeCoupon() {
             UserCoupon first = issue(980_031L);
             UserCoupon second = issue(980_031L);
-            couponUsage.reserve(first.getId(), 980_031L, 981_031L);
+            couponUsage.reserve(first.getId(), 980_031L, 981_031L, BASE_AMOUNT);
 
-            assertThatThrownBy(() -> couponUsage.reserve(second.getId(), 980_031L, 981_031L))
+            assertThatThrownBy(() -> couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(row(second.getId())).containsEntry("status", "AVAILABLE");
 
             // 예매가 쿠폰을 바꿀 때 하는 순서: 기존 쿠폰을 돌려주고 새 쿠폰을 잡는다
             couponUsage.release(981_031L);
-            couponUsage.reserve(second.getId(), 980_031L, 981_031L);
+            couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT);
 
             assertThat(row(first.getId())).containsEntry("status", "AVAILABLE").containsEntry("reservation_id", null);
             assertThat(row(second.getId())).containsEntry("reservation_id", 981_031L);
@@ -155,7 +214,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("예매에 잡힌 쿠폰을 USED로 바꾸고 사용 시각을 남기며, 다시 불러도 그대로다(멱등)")
         void uses() {
             UserCoupon issued = issue(980_041L);
-            couponUsage.reserve(issued.getId(), 980_041L, 981_041L);
+            couponUsage.reserve(issued.getId(), 980_041L, 981_041L, BASE_AMOUNT);
 
             couponUsage.use(981_041L);
             Object usedAt = row(issued.getId()).get("used_at");
@@ -184,7 +243,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("RESERVED 쿠폰을 돌려주면 AVAILABLE이고, 다시 불러도 아무것도 하지 않는다(멱등)")
         void releasesReserved() {
             UserCoupon issued = issue(980_051L);
-            couponUsage.reserve(issued.getId(), 980_051L, 981_051L);
+            couponUsage.reserve(issued.getId(), 980_051L, 981_051L, BASE_AMOUNT);
 
             couponUsage.release(981_051L);
             couponUsage.release(981_051L);
@@ -196,7 +255,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("USED 쿠폰을 돌려주면(예매 취소) AVAILABLE로 복원되고 사용 시각이 지워진다")
         void releasesUsed() {
             UserCoupon issued = issue(980_061L);
-            couponUsage.reserve(issued.getId(), 980_061L, 981_061L);
+            couponUsage.reserve(issued.getId(), 980_061L, 981_061L, BASE_AMOUNT);
             couponUsage.use(981_061L);
 
             couponUsage.release(981_061L);
@@ -212,7 +271,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void releasesAsExpired() {
             // 6일 23시간 전에 받아 1시간 뒤 만료되는 쿠폰을 잡고, 만료 뒤에 돌려준다
             UserCoupon issued = issueAt(980_071L, now().minusDays(7).plusHours(1));
-            couponUsage.reserve(issued.getId(), 980_071L, 981_071L);
+            couponUsage.reserve(issued.getId(), 980_071L, 981_071L, BASE_AMOUNT);
             clock.advance(Duration.ofHours(2));
 
             couponUsage.release(981_071L);

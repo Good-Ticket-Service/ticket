@@ -26,6 +26,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTest {
 
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 할인액에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
+
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 12, 0);
 
     @Autowired
@@ -87,7 +90,7 @@ class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTe
         @DisplayName("예매 ID로 잠그고 읽으면 RESERVED·USED 쿠폰이 나오고, 돌려준 뒤나 잡힌 쿠폰이 없으면 비어 있다")
         void lockByReservationId() {
             UserCoupon issued = issue(970_011L);
-            changeById(issued.getId(), uc -> uc.reserve(970_011L, 971_011L, NOW));
+            changeById(issued.getId(), uc -> uc.reserve(970_011L, 971_011L, BASE_AMOUNT, NOW));
 
             // RESERVED
             transactionTemplate.executeWithoutResult(
@@ -120,7 +123,7 @@ class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTe
         void reserveUseRelease() {
             UserCoupon issued = issue(970_021L);
 
-            changeById(issued.getId(), uc -> uc.reserve(970_021L, 971_021L, NOW));
+            changeById(issued.getId(), uc -> uc.reserve(970_021L, 971_021L, BASE_AMOUNT, NOW));
             assertThat(row(issued.getId()))
                     .containsEntry("status", "RESERVED")
                     .containsEntry("reservation_id", 971_021L)
@@ -141,7 +144,7 @@ class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTe
         @DisplayName("만료 시각이 지난 뒤 돌려주면 EXPIRED로 저장된다")
         void releaseAsExpired() {
             UserCoupon issued = issue(970_031L);
-            changeById(issued.getId(), uc -> uc.reserve(970_031L, 971_031L, NOW));
+            changeById(issued.getId(), uc -> uc.reserve(970_031L, 971_031L, BASE_AMOUNT, NOW));
 
             changeByReservation(971_031L, uc -> uc.release(NOW.plusDays(8)));
 
@@ -153,10 +156,10 @@ class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTe
         void oneCouponPerReservation() {
             UserCoupon first = issue(970_041L);
             UserCoupon second = issue(970_041L);
-            changeById(first.getId(), uc -> uc.reserve(970_041L, 971_041L, NOW));
+            changeById(first.getId(), uc -> uc.reserve(970_041L, 971_041L, BASE_AMOUNT, NOW));
 
             // 서비스의 사전 확인(existsOtherOnReservation)을 건너뛰어도 DB가 마지막으로 막는다
-            assertThatThrownBy(() -> changeById(second.getId(), uc -> uc.reserve(970_041L, 971_041L, NOW)))
+            assertThatThrownBy(() -> changeById(second.getId(), uc -> uc.reserve(970_041L, 971_041L, BASE_AMOUNT, NOW)))
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .hasMessageContaining("uk_p_user_coupons_reservation");
             assertThat(row(second.getId())).containsEntry("status", "AVAILABLE");
@@ -172,7 +175,7 @@ class UserCouponUsagePersistenceIntegrationTest extends ReservationIntegrationTe
         void existsOther() {
             UserCoupon reserved = issue(970_051L);
             UserCoupon another = issue(970_051L);
-            changeById(reserved.getId(), uc -> uc.reserve(970_051L, 971_051L, NOW));
+            changeById(reserved.getId(), uc -> uc.reserve(970_051L, 971_051L, BASE_AMOUNT, NOW));
 
             assertThat(userCouponRepository.existsOtherOnReservation(971_051L, another.getId()))
                     .isTrue();

@@ -13,8 +13,10 @@ public class CouponUsageAdapter implements CouponPort {
     private final CouponUsage couponUsage;
 
     @Override
-    public long reserve(Long userCouponId, Long userId, Long reservationId) {
-        return couponUsage.reserve(userCouponId, userId, reservationId).discountAmount();
+    public long reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount) {
+        return couponUsage
+                .reserve(userCouponId, userId, reservationId, baseAmount)
+                .discountAmount();
     }
 
     @Override
