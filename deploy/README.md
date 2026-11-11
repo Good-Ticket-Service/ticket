@@ -18,15 +18,20 @@
 
 SSM으로 접속해 Docker와 AWS CLI를 설치한다. Docker를 설치한 직후, 이미지를 받기 전에 containerd 저장소를 끈다.
 Docker 29부터는 새로 설치하면 켜져 있고, 켜져 있으면 cAdvisor가 컨테이너를 찾지 못해 컨테이너별 CPU가 비어 있다.
+AWS CLI는 snap 대신 AWS 공식 설치 파일을 쓴다. EC2에서 snap 스토어 접속이 시간 초과로 실패한 적이 있다.
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 echo '{"features":{"containerd-snapshotter":false}}' | sudo tee /etc/docker/daemon.json
 sudo systemctl restart docker
 sudo docker info --format '{{.Driver}}'
-sudo snap install aws-cli --classic
+sudo apt-get install -y unzip
+curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install
 sudo mkdir -p /opt/ticket
 ```
+
+처음 켠 직후에는 자동 업데이트가 apt를 잡고 있어 설치가 잠금 대기로 멈출 수 있다. 몇 분 기다렸다 다시 실행한다.
 
 `docker info`가 `overlay2`를 출력해야 한다. vm-data에서는 Redis가 AOF를 다시 쓸 때 fork가 메모리 부족으로 실패하지 않게 한 번 더 실행한다.
 
