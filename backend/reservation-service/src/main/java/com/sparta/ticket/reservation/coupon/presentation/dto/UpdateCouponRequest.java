@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.coupon.presentation.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.sparta.ticket.reservation.coupon.application.dto.UpdateCouponCommand;
+import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
 import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
 import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import jakarta.validation.constraints.AssertTrue;
@@ -18,11 +19,13 @@ import java.util.stream.Stream;
  * (예: minBaseAmount)은 "없음"으로 바뀐다. 일부만 바꾸면 정액에 할인율이 붙는 식으로 어긋나기 때문이다.
  * discountType을 보내지 않으면 생성과 같이 정액(FIXED)으로 본다. 할인액만 보내던 기존 화면 요청이 그대로 동작한다.
  * 종류 없이 정률 값(discountRate 등)만 보내면 정액에 맞지 않아 DiscountPolicy.of가 400으로 거절한다.
+ * 쿠폰 구분(#357)은 발급 시작 전에만 바꿀 수 있다. 웰컴으로 바꾸면 validDays 7도 함께 보내야 한다(Coupon.update가 검사한다).
  */
 public record UpdateCouponRequest(
         @Size(min = 1, max = 100) @Pattern(regexp = ".*\\S.*", message = "공백만으로 이름을 정할 수 없습니다.")
         String name,
 
+        CouponCategory category,
         DiscountType discountType,
         @Min(1) Integer discountAmount,
         @Min(1) @Max(DiscountPolicy.MAX_RATE) Integer discountRate,
@@ -41,7 +44,7 @@ public record UpdateCouponRequest(
     @AssertTrue(message = "바꿀 항목을 하나 이상 보내야 합니다.")
     public boolean isAnyFieldPresent() {
         return isDiscountPresent()
-                || Stream.of(name, totalQuantity, issueStartAt, issueEndAt, validDays)
+                || Stream.of(name, category, totalQuantity, issueStartAt, issueEndAt, validDays)
                         .anyMatch(value -> value != null);
     }
 
@@ -56,7 +59,7 @@ public record UpdateCouponRequest(
                         maxDiscountAmount,
                         minBaseAmount)
                 : null;
-        return new UpdateCouponCommand(name, policy, totalQuantity, issueStartAt, issueEndAt, validDays);
+        return new UpdateCouponCommand(name, category, policy, totalQuantity, issueStartAt, issueEndAt, validDays);
     }
 
     private boolean isDiscountPresent() {
