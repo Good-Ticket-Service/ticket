@@ -61,6 +61,21 @@ payment:
         vat-rate-bp: 1000
         business-days: 3
   settlement:
+    # 예상 정산 집계는 항상 사용한다. 긴급 중지 시에도 금융 원장과 이미 보존한 사건은 유지한다.
+    projection:
+      enabled: true
+      auto-start: true
+      # D=DB 워커, B=일반 Kafka Consumer, C=Kafka Streams. 기존 세대의 엔진은 설정만으로 바꾸지 않는다.
+      mode: D
+      partitions: 6
+      batch-size: 500
+      max-publish-batches: 8
+      max-publish-run-millis: 1000
+      threads: 1
+      fixed-delay-ms: 1000
+      lease: 30s
+      send-timeout: 5s
+      stale-after: 10s
     # 정산 반영 워커(#304). 결제 승인 확정·환불 완료가 함께 저장한 작업(p_settlement_jobs)을 별도 트랜잭션에서 처리해
     # SALE·원장을 그 결제의 현재 상태에 맞춘다. 정산 오류가 결제 확정을 롤백하지 않게 하려는 분리다.
     # 끄면(긴급 우회) 작업은 계속 쌓이고, 다시 켜면 이어서 처리한다. 결제·환불 확정에는 영향이 없다.

@@ -1,0 +1,77 @@
+rule_files:
+  - ../rules/settlement-projection-alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: unpublished-boundary-dedup-and-recovery
+    interval: 15s
+    input_series:
+      - series: 'payment_settlement_projection_oldest_unpublished_seconds{application="payment-service",instance="a"}'
+        values: '31+0x4 0+0x4'
+      - series: 'payment_settlement_projection_oldest_unpublished_seconds{application="payment-service",instance="b"}'
+        values: '31+0x4 0+0x4'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: SettlementProjectionUnpublished
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: SettlementProjectionUnpublished
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "예상 정산 원천 발행 지연"
+              action: "MASTER build 진행과 broker 연결·임대를 확인한다. 금융 원장은 수정하지 않는다."
+      - eval_time: 1m15s
+        alertname: SettlementProjectionUnpublished
+        exp_alerts: []
+  - name: quarantine-visible-after-one-minute
+    interval: 15s
+    input_series:
+      - series: 'payment_settlement_projection_errors{application="payment-service",instance="a"}'
+        values: '1+0x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementProjectionQuarantined
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+            exp_annotations:
+              summary: "예상 정산 미해결 격리 사건"
+              action: "충돌 원천을 확인하고 새 build를 검증한다. 오류를 숨긴 채 활성화하지 않는다."
+  - name: sink-failure-is-separate-from-approval
+    interval: 15s
+    input_series:
+      - series: 'payment_settlement_projection_failures_total{application="payment-service",instance="a",phase="SINK"}'
+        values: '0+1x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SettlementProjectionStageFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+              phase: SINK
+            exp_annotations:
+              summary: "예상 정산 처리 단계 실패"
+              action: "phase와 MASTER 진행 정보를 확인한다. 금융 승인 실패와 별도로 조사한다."
+  - name: stale-sample-is-not-normal-zero
+    interval: 15s
+    input_series:
+      - series: 'payment_settlement_projection_sample_timestamp{application="payment-service",instance="a"}'
+        values: '0+0x12'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: SettlementProjectionObservationStale
+        exp_alerts: []
+      - eval_time: 2m15s
+        alertname: SettlementProjectionObservationStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              application: payment-service
+              instance: a
+            exp_annotations:
+              summary: "예상 정산 관측 갱신 중단"
+              action: "기존 지표를 정상 0건으로 해석하지 말고 서비스·DB·실행기 상태를 확인한다."
