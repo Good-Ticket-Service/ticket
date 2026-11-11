@@ -18,4 +18,10 @@ public class SelectableSeatCacheConfig {
     public SeatSnapshotRefreshExecutor seatSnapshotRefreshExecutor(MeterRegistry meters) {
         return SeatSnapshotRefreshExecutor.dedicatedThreads(meters);
     }
+
+    /** layout 본문 압축 전용 스레드(#287). 테스트는 쌓아 두었다가 실행하는 것으로 바꾼다. */
+    @Bean(destroyMethod = "shutdown")
+    public SeatLayoutCompressExecutor seatLayoutCompressExecutor(MeterRegistry meters) {
+        return SeatLayoutCompressExecutor.dedicatedThread(meters);
+    }
 }

@@ -18,6 +18,7 @@ import com.sparta.ticket.reservation.booking.support.MutableClock;
 import com.sparta.ticket.reservation.booking.support.TestHoldTargets;
 import com.sparta.ticket.reservation.booking.support.TestSeats;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
+import com.sparta.ticket.reservation.seat.application.dto.SeatLayoutBody;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.infrastructure.cache.CaffeineSeatLayoutBodyCache;
@@ -27,6 +28,7 @@ import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
@@ -34,12 +36,14 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.zip.GZIPInputStream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -82,6 +86,9 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     private DeferredTasks seatSnapshotRefreshTasks;
 
     @Autowired
+    private DeferredTasks seatLayoutCompressTasks;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     @Autowired
@@ -100,6 +107,8 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         ticker.advance(CaffeineSeatLayoutBodyCache.EXPIRE_AFTER_ACCESS.plusMinutes(1));
         // 앞 테스트가 남긴 refresh·정리 작업을 비운다. 좌석을 지운 뒤라 남은 refresh는 404로 끝나 캐시에 남지 않는다
         seatSnapshotRefreshTasks.runPending();
+        // 앞 테스트가 남긴 layout 압축 작업도 비운다. 만료로 빠진 본문이라 바꿔 넣지 않는다
+        seatLayoutCompressTasks.runPending();
     }
 
     private Long seat(Long scheduleId, boolean sellable) {
@@ -369,21 +378,24 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("layout은 ETag(configVersion)와 private·no-cache를 주고, 같은 ETag로 다시 오면 본문 없이 304다")
+    @DisplayName("layout은 약한 ETag(configVersion)·private·no-cache·Vary를 주고, 같은 버전으로 다시 오면(강한·약한 모두) 본문 없이 304다")
     void layoutEtag() throws Exception {
         seat(SCHEDULE, true);
 
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", "\"2\""))
+                .andExpect(header().string("ETag", "W/\"2\""))
+                .andExpect(header().string("Vary", containsString("Accept-Encoding")))
                 .andExpect(header().string("Cache-Control", containsString("private")))
                 .andExpect(header().string("Cache-Control", containsString("no-cache")));
 
+        // 배포 전에 받은 강한 ETag("2")로 와도 304다(If-None-Match는 약한 비교)
         for (String same : List.of("\"2\"", "W/\"2\"", "\"1\", \"2\"")) {
             mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
                             .header("If-None-Match", same))
                     .andExpect(status().isNotModified())
-                    .andExpect(header().string("ETag", "\"2\""))
+                    .andExpect(header().string("ETag", "W/\"2\""))
+                    .andExpect(header().string("Vary", containsString("Accept-Encoding")))
                     .andExpect(header().string("Cache-Control", containsString("no-cache")))
                     .andExpect(content().string(""));
         }
@@ -402,13 +414,13 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
                 .andExpect(status().isOk())
                 .andExpect(result ->
-                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("\"2\""));
+                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("W/\"2\""));
 
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
                         .header("If-None-Match", "\"2\""))
                 .andExpect(status().isNotModified())
                 .andExpect(result ->
-                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("\"2\""));
+                        assertThat(result.getResponse().getHeaders("ETag")).containsExactly("W/\"2\""));
     }
 
     @Test
@@ -416,7 +428,7 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
     void layoutEtagChangesWithConfigVersion() throws Exception {
         seat(SCHEDULE, true);
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
-                .andExpect(header().string("ETag", "\"2\""));
+                .andExpect(header().string("ETag", "W/\"2\""));
 
         jdbcTemplate.update(
                 "UPDATE p_schedule_seats SET config_version = 3, base_price = 160000 WHERE schedule_id = ?", SCHEDULE);
@@ -430,9 +442,80 @@ class SelectableSeatApiIntegrationTest extends ReservationIntegrationTest {
         mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
                         .header("If-None-Match", "\"2\""))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", "\"3\""))
+                .andExpect(header().string("ETag", "W/\"3\""))
                 .andExpect(jsonPath("$.data.configVersion").value(3))
                 .andExpect(jsonPath("$.data.seats[0].basePrice").value(160000));
+    }
+
+    @Test
+    @DisplayName("압축 전 첫 요청은 원본을 받고, 압축이 끝나면 gzip을 받는다. 풀면 원본과 같고 헤더는 Content-Encoding만 다르다")
+    void layoutGzip() throws Exception {
+        // 2KB 이상이어야 압축한다. 좌석 1개 약 150B라 30개면 넘는다
+        for (int i = 0; i < 30; i++) {
+            seat(SCHEDULE, true);
+        }
+        MockHttpServletResponse identity = mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Content-Encoding"))
+                .andReturn()
+                .getResponse();
+        assertThat(identity.getContentAsByteArray().length).isGreaterThanOrEqualTo(SeatLayoutBody.MIN_GZIP_BYTES);
+
+        // 압축은 뒤에서 한다. 끝나기 전에는 gzip을 받는 요청도 기다리지 않고 원본을 받는다
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("Accept-Encoding", "gzip"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Content-Encoding"))
+                .andExpect(header().string("ETag", "W/\"2\""))
+                .andExpect(content().bytes(identity.getContentAsByteArray()));
+        seatLayoutCompressTasks.runPending();
+
+        MockHttpServletResponse gzip = mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("Accept-Encoding", "gzip, deflate, br"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Encoding", "gzip"))
+                .andExpect(header().string("Content-Type", "application/json"))
+                .andExpect(header().string("ETag", "W/\"2\""))
+                .andExpect(header().string("Vary", containsString("Accept-Encoding")))
+                .andExpect(header().string("Cache-Control", containsString("no-cache")))
+                .andReturn()
+                .getResponse();
+
+        byte[] compressed = gzip.getContentAsByteArray();
+        assertThat(compressed.length).isLessThan(identity.getContentAsByteArray().length);
+        assertThat(gzip.getHeader("Content-Length")).isEqualTo(String.valueOf(compressed.length));
+        try (GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
+            assertThat(in.readAllBytes()).isEqualTo(identity.getContentAsByteArray());
+        }
+
+        // gzip을 거절하면 원본이다
+        for (String refuse : List.of("identity", "gzip;q=0", "br")) {
+            mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                            .header("Accept-Encoding", refuse))
+                    .andExpect(status().isOk())
+                    .andExpect(header().doesNotExist("Content-Encoding"))
+                    .andExpect(content().bytes(identity.getContentAsByteArray()));
+        }
+        // 304는 압축 여부와 관계없이 같다
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("Accept-Encoding", "gzip")
+                        .header("If-None-Match", "W/\"2\""))
+                .andExpect(status().isNotModified())
+                .andExpect(header().doesNotExist("Content-Encoding"))
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    @DisplayName("2KB보다 작은 layout은 gzip을 받아도 압축하지 않는다")
+    void smallLayoutNotCompressed() throws Exception {
+        seat(SCHEDULE, true);
+
+        mockMvc.perform(get("/api/seats/schedules/{scheduleId}/layout", SCHEDULE)
+                        .header("Accept-Encoding", "gzip"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Content-Encoding"))
+                .andExpect(header().string("Vary", containsString("Accept-Encoding")))
+                .andExpect(jsonPath("$.data.seats.length()").value(1));
     }
 
     @Test
