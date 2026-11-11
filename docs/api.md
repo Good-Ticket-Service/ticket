@@ -493,7 +493,7 @@
 
 ## 쿠폰 — reservation-service / coupon
 
-상태: 생성·수정·발급 중단·삭제·발급, 목록·상세 조회, 내 쿠폰 조회는 구현됨. 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다.
+상태: 생성·수정·발급 중단·삭제·발급, 목록·상세 조회, 내 쿠폰 조회는 구현됨. 동기201이 현재 API 계약이며202 전환은 architecture 14절의 미합의다. 할인 정책(정률 할인, 최대 할인액, 최소 적용 금액)은 구현됨(#348).
 
 로그인은 USER/SELLER/MASTER 모두. `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`. page=0,size=10(10/30/50). sort는 실제 적용한 정렬을 요청과 같은 `필드,방향` 형식으로 돌려주고, 정렬을 보내지 않으면 기본값 `createdAt,DESC`, 여러 개면 `;`로 잇는다(예: `issueEndAt,ASC;createdAt,DESC`).
 
@@ -508,13 +508,16 @@
 | POST /api/coupons/{couponId}/issue | USER | 201 | 없음 | UserCoupon(usedAt 제외,status=AVAILABLE) | 400 COUPON_ISSUE_PERIOD_CLOSED;404 COUPON_NOT_FOUND;409 COUPON_SOLD_OUT/COUPON_ALREADY_ISSUED;503 SERVICE_UNAVAILABLE |
 | GET /api/coupons/me | 로그인 | 200 | Q status?:string,page?,size?,sort?:string=createdAt,DESC(createdAt/expiresAt,ASC/DESC) | PageC<UserCoupon> | 400 VALIDATION_ERROR |
 
-- CouponInput = `{name:string(1~100),discountAmount:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`.
+- CouponInput = `{name:string(1~100),discountType?:DiscountType=FIXED,discountAmount?:int>=1,discountRate?:int(1~99),maxDiscountAmount?:int>=1,minBaseAmount?:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`. DiscountType은 FIXED(정액) 또는 RATE(정률)다. (#348)
+- 할인 정책: FIXED는 discountAmount가 필수이고 discountRate·maxDiscountAmount를 받지 않는다. RATE는 discountRate(1~99%)가 필수이고 maxDiscountAmount는 선택이며 discountAmount를 받지 않는다. minBaseAmount(최소 적용 금액, 정가 기준)는 두 종류 모두 선택이다. 맞지 않는 조합은 400 VALIDATION_ERROR다. 할인율이 99%까지인 것은 결제 최소 금액(100원) 때문에 100%는 표시대로 무료가 되지 않기 때문이다. (#348)
+- 생성에서 discountType을 보내지 않으면 FIXED다. 수정은 할인 정책을 묶음 전체로 바꾼다. 할인 값(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount)을 하나라도 보내면 discountType이 필수이고(없으면 400 VALIDATION_ERROR), 함께 보내지 않은 할인 값은 없음(null)이 된다. (#348)
 - issueStartAt이 현재보다 앞이면 현재 시각으로 저장하고 응답에도 그 값을 돌려준다(생성, 시작 전 쿠폰 수정). 과거 시작은 "지금 시작"과 같게 동작하므로 저장값을 실제로 발급이 열린 시각에 맞춘다. 거절하지 않는 것은 "지금"을 보내도 서버에 닿으면 이미 과거이기 때문이다.
 - 수정은 바꿀 항목을 1개 이상 보내야 한다. 빈 본문 `{}`, 모두 null, 모르는 필드만 보낸 요청은 400 VALIDATION_ERROR다. 지금 값과 같은 값을 보낸 것은 바꿀 항목으로 센다.
-- Coupon = `{couponId:long,name:string,discountAmount:int,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
+- Coupon = `{couponId:long,name:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
 - CouponDetail = Coupon + `{issuedByMe:boolean}`. issuedByMe는 요청한 사용자가 이 쿠폰을 이미 받았는지이며, 사용·만료와 관계없이 받은 적이 있으면 true다. 받을 수 없는 SELLER·MASTER는 false다.
-- UserCoupon = `{userCouponId:long,couponId:long,name:string,discountAmount:int,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
-- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=받은 회원 수). 삭제는 받은 회원이 없을 때만. 발급은 1인 1장.
+- UserCoupon = `{userCouponId:long,couponId:long,name:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,status:string,issuedAt:datetime,expiresAt:datetime,usedAt:datetime|null}`.
+- 할인 정책은 쿠폰과 회원 쿠폰에 같은 필드로 담긴다. 정률 쿠폰은 discountAmount가 null이다. 회원 쿠폰의 할인 정책은 발급 시점 복사본이라 쿠폰 정의를 바꿔도 이미 받은 쿠폰은 그대로다. (#348)
+- 발급 시작 후 수정 가능: name,issueEndAt,totalQuantity(>=받은 회원 수). 할인 정책은 발급 시작 후 바꿀 수 없다(409 COUPON_NOT_MODIFIABLE). 삭제는 받은 회원이 없을 때만. 발급은 1인 1장.
 - 발급이 끝난(ENDED) 쿠폰은 name만 바꿀 수 있다. issueEndAt·totalQuantity를 다른 값으로 바꾸면 409 COUPON_ALREADY_CLOSED다. 종료 시각을 미래로 바꾸면 중단한 쿠폰이 다시 열리고, 총 수량은 더 발급하지 않아 남은 수량 숫자만 달라지기 때문이다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있다. 다시 발급하려면 새 쿠폰을 만든다.
 - 발급의 issuedAt·expiresAt은 공용 Clock(Asia/Seoul) 기준이며 expiresAt = issuedAt + validDays다.
 - 이미 받은 회원이 다시 요청하면 쿠폰의 기간·수량과 상관없이 409 COUPON_ALREADY_ISSUED다.
@@ -704,27 +707,25 @@
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨. HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이고, 예매는 CouponPort 어댑터로 연결했다. CouponUsage.reserve의 정가 인자 추가는 합의(#347)·구현 전이다.
+상태: BookingFacade는 합의·구현됨. HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이고, 예매는 CouponPort 어댑터로 연결했다. CouponUsage.reserve의 정가 인자 추가는 합의(#347)·구현됨(#348)이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
 | booking → seat | 합의 #34, #126 | hold(Long userId,HoldTarget target,List<SeatLine>,LocalDateTime holdExpiresAt):Long; getReservation(Long):Optional<ReservationView>; release(Long userId,Long reservationId):ReleaseResult |
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
 | seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
-| coupon → booking | 합의 #125; 구현됨(#159) | reserve(Long userCouponId,Long userId,Long reservationId):CouponDiscount; use(Long reservationId); release(Long reservationId) |
-| coupon → booking | 합의 #347; 구현 전 | reserve(Long userCouponId,Long userId,Long reservationId,long baseAmount):CouponDiscount. use·release는 그대로 |
+| coupon → booking | 합의 #125, #347; 구현됨(#159, #348) | reserve(Long userCouponId,Long userId,Long reservationId,long baseAmount):CouponDiscount; use(Long reservationId); release(Long reservationId) |
 
 - HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long,scheduleStartAt:LocalDateTime,performanceTitle:String}` (#86, #126); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
 - ReleaseResult=RELEASED/EXPIRED/ALREADY_CLOSED/NOT_RELEASABLE; facade 전용 enum은 domain enum을 노출하지 않는다. 트랜잭션 규칙은 architecture 참조.
 - CouponDiscount=`{userCouponId:Long,couponId:Long,name:String,discountAmount:int}`. CouponUsage는 `coupon.application.facade`에 두고, 예매는 이 패키지만 쓴다. (#125)
 - CouponUsage 전파는 REQUIRED다. 예매 트랜잭션에 합류해 함께 커밋·롤백된다. (#125)
 - reserve: 없는 쿠폰이거나, 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE 예외다. 예매는 이 오류를 checkout 400으로 그대로 낸다. (#125)
-- reserve: discountAmount는 발급 시점 할인액 그대로다. 최소 결제 금액에 맞춰 자르는 일은 예매가 한다. 쿠폰은 정가를 모르기 때문이다. (#125)
-- reserve(합의 #347, 구현 전): 예매는 결제 준비의 정가(예약 totalPrice, CheckoutTarget.baseAmount)를 baseAmount로 넘긴다. 쿠폰이 정률 할인액 계산과 최소 적용 금액 판단에 쓴다.
-- reserve(합의 #347, 구현 전): discountAmount는 이 정가에 적용한 쿠폰 할인액이다. 정액 쿠폰은 발급 시점 할인액 그대로이고, 정률 쿠폰은 baseAmount × 할인율 ÷ 100을 원 미만 버림한 뒤 최대 할인액이 있으면 그 값으로 자른 금액이다. 최소 결제 금액에 맞춰 자르는 일은 지금처럼 예매가 한다.
-- reserve(합의 #347, 구현 전): baseAmount가 쿠폰의 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE 예외다. 새 오류 코드는 없고, 예매는 지금처럼 checkout 400으로 그대로 낸다. 메시지에는 최소 적용 금액을 넣어(예: "30,000원 이상 결제 시 사용할 수 있는 쿠폰입니다.") 화면이 이유를 보여 줄 수 있게 한다.
-- reserve(합의 #347, 구현 전): 정률 할인액은 long으로 계산하고 정가를 넘지 않게 자른 뒤 CouponDiscount.discountAmount(int)로 돌려준다. 예매는 받은 값을 long으로 쓴다.
-- reserve(합의 #347, 구현 전): 같은 예매는 정가가 바뀌지 않으므로 같은 쿠폰이 다시 와도 같은 할인액이다. 멱등 규칙은 #125와 같다.
+- reserve: 예매는 결제 준비의 정가(예약 totalPrice, CheckoutTarget.baseAmount)를 baseAmount로 넘긴다. 쿠폰이 정률 할인액 계산과 최소 적용 금액 판단에 쓴다.
+- reserve: discountAmount는 이 정가에 적용한 쿠폰 할인액이다. 정액 쿠폰은 발급 시점 할인액 그대로이고, 정률 쿠폰은 baseAmount × 할인율 ÷ 100을 원 미만 버림한 뒤 최대 할인액이 있으면 그 값으로 자른 금액이다. 최소 결제 금액에 맞춰 자르는 일은 지금처럼 예매가 한다.
+- reserve: baseAmount가 쿠폰의 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE 예외다. 새 오류 코드는 없고, 예매는 지금처럼 checkout 400으로 그대로 낸다. 메시지에는 최소 적용 금액을 넣어(예: "30,000원 이상 결제 시 사용할 수 있는 쿠폰입니다.") 화면이 이유를 보여 줄 수 있게 한다.
+- reserve: 정률 할인액은 long으로 계산하고 정가를 넘지 않게 자른 뒤 CouponDiscount.discountAmount(int)로 돌려준다. 예매는 받은 값을 long으로 쓴다.
+- reserve: 같은 예매는 정가가 바뀌지 않으므로 같은 쿠폰이 다시 와도 같은 할인액이다. 멱등 규칙은 #125와 같다.
 - reserve: 같은 예매에 같은 쿠폰이 다시 오면 이미 잡힌 값을 돌려준다. 예매에 다른 쿠폰이 잡혀 있으면 IllegalStateException이다(호출 순서 오류). (#125)
 - 쿠폰 교체: 예매는 기존 쿠폰의 release를 먼저 부르고 새 reserve를 같은 트랜잭션에서 부른다. 예매 하나에 쿠폰은 하나만 잡힌다(uk_p_user_coupons_reservation). (#125)
 - use: RESERVED를 USED로 바꾼다. 유효 기간이 지났어도 USED다. 이미 USED면 아무것도 하지 않는다. (#125)

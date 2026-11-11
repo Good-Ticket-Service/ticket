@@ -264,7 +264,11 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 |---|---|---|
 | coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
 | name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
-| discount_amount | INT | NOT NULL; 정액 할인액(원). 발급 시작 후 변경 불가 |
+| discount_type | VARCHAR(10) | NOT NULL; DEFAULT 'FIXED'; 할인 종류. FIXED(정액) 또는 RATE(정률)(#348). 할인 정책 다섯 컬럼은 발급 시작 후 변경 불가 |
+| discount_amount | INT | 정액 할인액(원). FIXED일 때만 있다 |
+| discount_rate | INT | 할인율(%, 1~99). RATE일 때만 있다 |
+| max_discount_amount | INT | 정률 최대 할인액(원). RATE일 때만 둘 수 있고 없으면 제한 없다 |
+| min_base_amount | INT | 최소 적용 금액(원, 정가 기준). 정가가 이보다 작으면 쓸 수 없다. 없으면 제한 없다 |
 | total_quantity | INT | NOT NULL; 총 발급 수량. 발급 시작 후에도 받은 회원 수 이상으로 변경 가능 |
 | issued_quantity | INT | NOT NULL; DEFAULT 0; 발급 수량 참고값. 발급 때 올리지 않고 맞추는 작업이 1분마다 p_user_coupons 수로 갱신해 늦을 수 있다. p_user_coupons 수가 총 수량을 넘으면(초과 발급) 갱신하지 않고 오류 로그를 남긴다. 판단·응답에 쓰지 않으며 정확한 발급 수는 p_user_coupons 수다(#300, #323) |
 | issue_start_at | TIMESTAMP | NOT NULL; 발급 시작 시각. 발급 시작 후 변경 불가 |
@@ -273,7 +277,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 제약·인덱스:
 
-- `ck_p_coupons_discount ; CHECK ; discount_amount > 0`
+- `ck_p_coupons_discount ; CHECK ; (discount_type = 'FIXED' AND discount_amount > 0 AND discount_rate IS NULL AND max_discount_amount IS NULL) OR (discount_type = 'RATE' AND discount_amount IS NULL AND discount_rate BETWEEN 1 AND 99 AND (max_discount_amount IS NULL OR max_discount_amount > 0))` (#348)
+- `ck_p_coupons_min_base ; CHECK ; min_base_amount IS NULL OR min_base_amount > 0` (#348)
 - `ck_p_coupons_quantity ; CHECK ; total_quantity > 0 AND issued_quantity BETWEEN 0 AND total_quantity`
 - `ck_p_coupons_period ; CHECK ; issue_start_at <= issue_end_at`
 - `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
@@ -285,7 +290,11 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | user_coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 회원 쿠폰 ID. 예매 checkout에 넣는 값 |
 | user_id | BIGINT | UK①; NOT NULL; 발급받은 회원. user_schema에 있어 FK 없음 |
 | coupon_id | BIGINT | FK, UK①; NOT NULL; 쿠폰 정의 (p_coupons.coupon_id) |
-| discount_amount | INT | NOT NULL; 발급 시점 할인액 복사본 |
+| discount_type | VARCHAR(10) | NOT NULL; DEFAULT 'FIXED'; 할인 종류. FIXED(정액) 또는 RATE(정률)(#348). 할인 정책 다섯 컬럼은 발급 시점 p_coupons 값의 복사본이다 |
+| discount_amount | INT | 정액 할인액(원). FIXED일 때만 있다 |
+| discount_rate | INT | 할인율(%, 1~99). RATE일 때만 있다 |
+| max_discount_amount | INT | 정률 최대 할인액(원). RATE일 때만 둘 수 있고 없으면 제한 없다 |
+| min_base_amount | INT | 최소 적용 금액(원, 정가 기준). 정가가 이보다 작으면 쓸 수 없다. 없으면 제한 없다 |
 | status | VARCHAR(20) | NOT NULL; AVAILABLE / RESERVED / USED / EXPIRED |
 | issued_at | TIMESTAMP | NOT NULL; 발급 시각. 공용 Clock(Asia/Seoul) 기준이며 응답의 issuedAt이다. created_at은 시스템 시계라 쓰지 않는다 |
 | expires_at | TIMESTAMP | NOT NULL; 만료 시각 = issued_at + valid_days |
@@ -296,12 +305,14 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `uk_p_user_coupons_user_coupon ; UNIQUE ① ; (user_id, coupon_id)`
 - `uk_p_user_coupons_reservation ; 부분 UNIQUE ② ; (reservation_id) WHERE reservation_id IS NOT NULL`
-- `ck_p_user_coupons_discount ; CHECK ; discount_amount > 0`
+- `ck_p_user_coupons_discount ; CHECK ; (discount_type = 'FIXED' AND discount_amount > 0 AND discount_rate IS NULL AND max_discount_amount IS NULL) OR (discount_type = 'RATE' AND discount_amount IS NULL AND discount_rate BETWEEN 1 AND 99 AND (max_discount_amount IS NULL OR max_discount_amount > 0))` (#348)
+- `ck_p_user_coupons_min_base ; CHECK ; min_base_amount IS NULL OR min_base_amount > 0` (#348)
 - `ck_p_user_coupons_status ; CHECK ; status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED')`
 - `ck_p_user_coupons_reservation ; CHECK ; (status IN ('RESERVED', 'USED')) = (reservation_id IS NOT NULL)`
 - `ck_p_user_coupons_used ; CHECK ; (status = 'USED') = (used_at IS NOT NULL)`
 - `ix_p_user_coupons_expire ; 부분 INDEX ; (expires_at) WHERE status = 'AVAILABLE'`
 - `ix_p_user_coupons_coupon_user ; INDEX ; (coupon_id, user_id)` — 쿠폰별 받은 회원 조회·개수(#323)
+- 이슈 #348 이행 SQL: `backend/sql/reservation-service/migrations/348-coupon-discount-policy.sql`. p_coupons·p_user_coupons에 할인 정책 컬럼과 제약을 더하고, 기존 행은 FIXED로 할인액·동작을 그대로 둔다. 새 버전 서버로 바꾸기 전에 적용한다.
 
 ### p_schedule_seats — reservation-service/seat.sql + A
 
