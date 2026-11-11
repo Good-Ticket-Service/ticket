@@ -297,12 +297,25 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("할인 값을 보내면서 discountType을 빼거나 종류에 맞지 않는 값을 보내면 400 VALIDATION_ERROR이고 그대로다(#348)")
-        void discountPolicyNeedsType() throws Exception {
+        @DisplayName("discountType 없이 할인액만 보내면 정액으로 바꾼다(기존 화면 요청과 같다)(#348)")
+        void discountTypeDefaultsToFixed() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            patch(coupon.getId(), """
+                            {"discountAmount": 3000}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.discountType").value("FIXED"))
+                    .andExpect(jsonPath("$.data.discountAmount").value(3000));
+        }
+
+        @Test
+        @DisplayName("종류에 맞지 않는 할인 값을 보내면 400 VALIDATION_ERROR이고 그대로다. 종류 없이 정률 값만 보내도 정액에 맞지 않아 400이다(#348)")
+        void discountPolicyMismatch() throws Exception {
             Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             for (String body : new String[] {
-                "{\"discountAmount\": 3000}",
+                "{\"discountRate\": 10}",
                 "{\"discountType\": \"FIXED\", \"discountRate\": 10}",
                 "{\"discountType\": \"RATE\", \"discountRate\": 100}"
             }) {
