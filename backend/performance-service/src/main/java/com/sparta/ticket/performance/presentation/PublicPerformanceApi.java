@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.presentation;
 
 import com.sparta.ticket.common.response.ApiResponse;
+import com.sparta.ticket.common.response.PageResponse;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.application.service.PublicPerformanceService;
@@ -27,7 +28,7 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
     /** 공개 공연 목록. 공개됐고 삭제·취소되지 않은 공연만 돌려준다. */
     @Override
     @GetMapping
-    public ApiResponse<PublicPerformanceListResponse> search(
+    public ApiResponse<PageResponse<PublicPerformanceListResponse.Item>> search(
             Genre genre,
             String region,
             LocalDate from,
@@ -38,7 +39,8 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
             int size) {
         PublicPerformanceSearchCondition condition = new PublicPerformanceSearchCondition(
                 genre, blankToNull(region), from, to, blankToNull(keyword), sort, page, size);
-        return ApiResponse.ok(PublicPerformanceListResponse.from(publicPerformanceService.search(condition)));
+        // sort는 생략하면 LATEST로 바인딩된다(ApiSpec 기본값). 응답의 sort에 그대로 넣는다.
+        return ApiResponse.ok(PublicPerformanceListResponse.from(publicPerformanceService.search(condition), sort));
     }
 
     /** 공개 공연 상세. 취소된 공개 공연도 취소 안내를 위해 돌려준다. 초안·삭제 공연은 404다. */

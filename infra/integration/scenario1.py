@@ -256,7 +256,7 @@ class Scenario:
             require(me['userId']==uid,'JWT user identity mismatch')
             f=self.report['fixtures'];pid=f['performance_id'];sid=f['schedule_id']
             listing=self.request('GET',f'/api/performances?keyword=S1%20{self.run_id}&size=100',token=token)
-            require(any(x['id']==pid for x in listing['items']),'Published performance missing from list')
+            require(any(x['id']==pid for x in listing['content']),'Published performance missing from list')
             detail=self.request('GET',f'/api/performances/{pid}',token=token)
             require(detail['id']==pid,'Performance detail mismatch')
             schedules=self.request('GET',f'/api/performances/{pid}/schedules',token=token)

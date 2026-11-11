@@ -34,7 +34,7 @@
 공통 규칙
 
 - Path ID는 양의 long이다.
-- 공연 목록은 `PageP<T>={items:T[],page:int,size:int,totalElements:long}`이다. page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다.
+- 공연 공개 목록은 공통 `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`이다(이슈 #364). page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다(공통 resolver의 10·30·50과 다르다). sort는 적용한 정렬 이름(LATEST/BOOKING_OPEN_ASC)이다.
 - 버전 필드(version, venueVersion, performanceVersion, policyVersion, configVersion, seatConfigVersion)는 long이다. 테이블의 BIGINT 컬럼과 같다.
 - If-Match는 대상 리소스의 version을 큰따옴표로 감싼 값이다(예: `"3"`).
 - 서버는 따옴표 없는 값(예: `3`)도 받는다. Swagger 등에서 손으로 넣기 쉽게 하려는 것이다.
@@ -117,7 +117,7 @@
 - P11 = `gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer; performanceVersion:long`.
 - P13 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null; seatConfigVersion:long; seatSetupRequestId:string; seatSetupError:string|null; suspensionReason:string|null; cancelReason:string|null; version:long`.
 - P15 = `scheduleId:long; salesSuspended:boolean; suspensionReason:string|null; version:long`.
-- P16 = `items:PerformanceSummary[]; items[].id:long; items[].venue:VenueSummary; items[].venue.id:long; items[].venue.name:string; items[].venue.address:string; items[].venue.region:string; items[].title:string; items[].genre:string; items[].posterUrl:string|null; items[].operationStatus:string; items[].period:Period|null; items[].period.from:date; items[].period.to:date; page:integer; size:integer; totalElements:long`.
+- P16 = `content:PerformanceSummary[]; content[].id:long; content[].venue:VenueSummary; content[].venue.id:long; content[].venue.name:string; content[].venue.address:string; content[].venue.region:string; content[].title:string; content[].genre:string; content[].posterUrl:string|null; content[].operationStatus:string; content[].period:Period|null; content[].period.from:date; content[].period.to:date; page:integer; size:integer; totalElements:long; totalPages:integer; sort:string`.
 - P17 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string|null; ageGuidance:string|null; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; createdAt:datetime; updatedAt:datetime; gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer`.
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.

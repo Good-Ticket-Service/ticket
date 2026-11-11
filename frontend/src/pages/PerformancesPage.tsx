@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
-import type { PageP, PerformanceSummary } from '../api/types';
+import type { PageC, PerformanceSummary } from '../api/types';
 import { artClass, ErrorNotice, Loading, Poster, Title } from '../components/Common';
 import { formatDate } from '../lib/format';
 import { GENRE_OPTIONS, genreLabel } from '../lib/genres';
@@ -21,10 +21,10 @@ export function PerformancesPage() {
   if (searched) params.set('keyword', searched);
   const query = useQuery({
     queryKey: ['performances', params.toString()],
-    queryFn: () => api<PageP<PerformanceSummary>>(`/api/performances?${params}`),
+    queryFn: () => api<PageC<PerformanceSummary>>(`/api/performances?${params}`),
     placeholderData: keepPreviousData,
   });
-  const lastPage = query.data ? Math.max(0, Math.ceil(query.data.totalElements / query.data.size) - 1) : 0;
+  const lastPage = query.data ? Math.max(0, query.data.totalPages - 1) : 0;
   return (
     <main className="content">
       <Title en="Performances" ko="공연" />
@@ -64,9 +64,9 @@ export function PerformancesPage() {
       </div>
       {query.isPending && <Loading />}
       {query.isError && <ErrorNotice error={query.error} />}
-      {query.data?.items.length === 0 && <p className="empty">조건에 맞는 공연이 없어요.</p>}
+      {query.data?.content.length === 0 && <p className="empty">조건에 맞는 공연이 없어요.</p>}
       <section className="card-grid">
-        {query.data?.items.map((item) => (
+        {query.data?.content.map((item) => (
           <Link key={item.id} to={`/performances/${item.id}`} className={`hero-card ${artClass(item.id)}`}>
             <Poster src={item.posterUrl} />
             <span className="scrim" />

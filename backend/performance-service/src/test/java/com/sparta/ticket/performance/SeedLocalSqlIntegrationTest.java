@@ -86,10 +86,10 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
     void publicListMatchesScenario() throws Exception {
         mockMvc.perform(get("/api/performances"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items[*].id").value(contains(4, 3, 2, 1, 5)))
+                .andExpect(jsonPath("$.data.content[*].id").value(contains(4, 3, 2, 1, 5)))
                 .andExpect(jsonPath("$.data.totalElements").value(5));
         mockMvc.perform(get("/api/performances").param("sort", "BOOKING_OPEN_ASC"))
-                .andExpect(jsonPath("$.data.items[*].id").value(contains(1, 2, 3, 5, 4)));
+                .andExpect(jsonPath("$.data.content[*].id").value(contains(1, 2, 3, 5, 4)));
     }
 
     @Test

@@ -74,7 +74,7 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 | 사용자 헤더 | 현행 UserHeaders: X-User-Id, X-Username, X-User-Role. Gateway가 외부 입력을 제거하고 인증 결과로 주입, 내부 Feign 전달. 사용자 컨텍스트와 서비스 인증은 별개 |
 | 감사 주체 | 현행 HeaderAuditorAware는 X-Username, 없거나 요청 밖이면 SYSTEM. 감사 주체는 API의 숫자 ID 표현과 별개다. 변경은 architecture 14절에서 조율 |
 | 시간 | 업무 기준 Asia/Seoul. API 목표 ISO 8601 +09:00. 현행 ErrorResponse·회원·예매 LocalDateTime은 오프셋 없음; 일괄 적용은 미합의(architecture 14절). Fake PG 시각은 해당 호환 계약 |
-| 페이징 | page는0부터. 공연 PageP(items), 예매·쿠폰 PageC(content)는 api의 현행 계약 유지. 공통 Page DTO·size 통일은 미합의(architecture 14절) |
+| 페이징 | page는0부터. 공연 공개 목록·예매·쿠폰의 페이지 응답은 PageC(content). 공연 공개 목록은 이슈 #364에서 맞췄다. size 규칙(공통 10·30·50, 공연 공개 목록·결제 정산 1~100) 통일은 미합의(architecture 14절) |
 | 재시도 | Feign IdempotentRetryConfig는 조회/명시된 멱등 API에만 적용. 응답 유실을 성공/실패로 단정하지 않고 같은 업무 키 조회 |
 | 내부 보호 | Gateway는 /internal 접근 차단. 서비스 포트 외부 비노출. 서비스 간 인증 방식은 미합의(architecture 14절)이며 내부망만으로 운영 권한 보장으로 간주하지 않음. 결제 관리자 경로의 인증·접근 경계는 api·infra 참조 |
 
