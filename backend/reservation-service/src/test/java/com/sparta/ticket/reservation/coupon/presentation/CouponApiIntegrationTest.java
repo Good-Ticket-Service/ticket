@@ -72,6 +72,14 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
                 """.formatted(format(start), format(end));
     }
 
+    /** 정률 쿠폰 생성 본문. discount에는 discountType을 뺀 할인 값들을 JSON 조각으로 넘긴다. */
+    private static String rateBody(String discount, LocalDateTime start) {
+        return """
+                {"name": "정률 쿠폰", "discountType": "RATE", %s, "totalQuantity": 100,
+                 "issueStartAt": "%s", "issueEndAt": "%s", "validDays": 7}
+                """.formatted(discount, format(start), format(start.plusDays(6)));
+    }
+
     @Nested
     @DisplayName("POST /api/coupons 쿠폰 생성")
     class Create {
@@ -137,6 +145,62 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
+        @DisplayName("할인 종류를 보내지 않으면 정액이고, 응답에 할인 정책 전체가 담긴다(#348)")
+        void createDefaultsToFixed() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1);
+
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(createBody(start, start.plusDays(6))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.discountType").value("FIXED"))
+                    .andExpect(jsonPath("$.data.discountAmount").value(5000))
+                    .andExpect(jsonPath("$.data.discountRate").doesNotExist())
+                    .andExpect(jsonPath("$.data.maxDiscountAmount").doesNotExist())
+                    .andExpect(jsonPath("$.data.minBaseAmount").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("정률 쿠폰은 할인율·최대 할인액·최소 적용 금액으로 만들고 할인액은 없다(#348)")
+        void createRate() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(rateBody(
+                                    "\"discountRate\": 10, \"maxDiscountAmount\": 5000, \"minBaseAmount\": 30000",
+                                    start)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.discountType").value("RATE"))
+                    .andExpect(jsonPath("$.data.discountAmount").doesNotExist())
+                    .andExpect(jsonPath("$.data.discountRate").value(10))
+                    .andExpect(jsonPath("$.data.maxDiscountAmount").value(5000))
+                    .andExpect(jsonPath("$.data.minBaseAmount").value(30000));
+        }
+
+        @Test
+        @DisplayName("종류에 맞지 않는 할인 값이나 범위를 벗어난 할인율은 400 VALIDATION_ERROR(#348)")
+        void createInvalidDiscountPolicy() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+
+            for (String body : new String[] {
+                rateBody("\"discountAmount\": 1000, \"discountRate\": 10", start),
+                rateBody("\"discountRate\": 100", start),
+                rateBody("\"maxDiscountAmount\": 5000", start),
+                createBody(start, start.plusDays(6))
+                        .replace("\"discountAmount\": 5000", "\"discountAmount\": 5000, \"maxDiscountAmount\": 500"),
+                createBody(start, start.plusDays(6))
+                        .replace("\"discountAmount\": 5000", "\"discountAmount\": 5000, \"minBaseAmount\": 0")
+            }) {
+                mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
+        }
+
+        @Test
         @DisplayName("필수 값이 없으면 400 VALIDATION_ERROR와 필드별 사유")
         void missingFields() throws Exception {
             mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
@@ -177,11 +241,12 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
             Coupon coupon = saveCoupon(clock.now().plusDays(1));
 
             patch(coupon.getId(), """
-                            {"discountAmount": 3000, "validDays": 14}
+                            {"discountType": "FIXED", "discountAmount": 3000, "validDays": 14}
                             """)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.couponId").value(coupon.getId()))
                     .andExpect(jsonPath("$.data.name").value("오픈 기념 5,000원 할인"))
+                    .andExpect(jsonPath("$.data.discountType").value("FIXED"))
                     .andExpect(jsonPath("$.data.discountAmount").value(3000))
                     .andExpect(jsonPath("$.data.validDays").value(14))
                     .andExpect(jsonPath("$.data.issueStatus").value("UPCOMING"));
@@ -208,12 +273,55 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("발급 시작 후 할인액을 바꾸면 409 COUPON_NOT_MODIFIABLE")
+        @DisplayName("할인 정책은 묶음 전체를 바꾼다. 정액을 정률로 바꾸면 할인액은 없어지고, 함께 보내지 않은 값도 없어진다(#348)")
+        void replaceDiscountPolicy() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            patch(coupon.getId(), """
+                            {"discountType": "RATE", "discountRate": 10, "maxDiscountAmount": 5000, "minBaseAmount": 30000}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.discountType").value("RATE"))
+                    .andExpect(jsonPath("$.data.discountAmount").doesNotExist())
+                    .andExpect(jsonPath("$.data.discountRate").value(10))
+                    .andExpect(jsonPath("$.data.maxDiscountAmount").value(5000))
+                    .andExpect(jsonPath("$.data.minBaseAmount").value(30000));
+
+            patch(coupon.getId(), """
+                            {"discountType": "RATE", "discountRate": 20}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.discountRate").value(20))
+                    .andExpect(jsonPath("$.data.maxDiscountAmount").doesNotExist())
+                    .andExpect(jsonPath("$.data.minBaseAmount").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("할인 값을 보내면서 discountType을 빼거나 종류에 맞지 않는 값을 보내면 400 VALIDATION_ERROR이고 그대로다(#348)")
+        void discountPolicyNeedsType() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            for (String body : new String[] {
+                "{\"discountAmount\": 3000}",
+                "{\"discountType\": \"FIXED\", \"discountRate\": 10}",
+                "{\"discountType\": \"RATE\", \"discountRate\": 100}"
+            }) {
+                patch(coupon.getId(), body)
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
+            Integer discountAmount = jdbcTemplate.queryForObject(
+                    "SELECT discount_amount FROM p_coupons WHERE coupon_id = ?", Integer.class, coupon.getId());
+            assertThat(discountAmount).isEqualTo(5000);
+        }
+
+        @Test
+        @DisplayName("발급 시작 후 할인 정책을 바꾸면 409 COUPON_NOT_MODIFIABLE")
         void notModifiable() throws Exception {
             Coupon coupon = saveCoupon(clock.now().minusHours(1));
 
             patch(coupon.getId(), """
-                            {"discountAmount": 3000}
+                            {"discountType": "RATE", "discountRate": 10}
                             """)
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("COUPON_NOT_MODIFIABLE"));

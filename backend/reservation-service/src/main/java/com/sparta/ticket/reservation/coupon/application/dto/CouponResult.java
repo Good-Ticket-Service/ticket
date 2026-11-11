@@ -2,13 +2,18 @@ package com.sparta.ticket.reservation.coupon.application.dto;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
+import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import java.time.LocalDateTime;
 
 /** 쿠폰 생성·수정·발급 중단 응답. 남은 수량과 발급 상태는 컬럼이 아니라 계산 값이다. */
 public record CouponResult(
         Long couponId,
         String name,
+        DiscountType discountType,
         Integer discountAmount,
+        Integer discountRate,
+        Integer maxDiscountAmount,
+        Integer minBaseAmount,
         int totalQuantity,
         int remainingQuantity,
         LocalDateTime issueStartAt,
@@ -24,7 +29,11 @@ public record CouponResult(
         return new CouponResult(
                 coupon.getId(),
                 coupon.getName(),
+                coupon.getDiscountPolicy().getDiscountType(),
                 coupon.getDiscountPolicy().getDiscountAmount(),
+                coupon.getDiscountPolicy().getDiscountRate(),
+                coupon.getDiscountPolicy().getMaxDiscountAmount(),
+                coupon.getDiscountPolicy().getMinBaseAmount(),
                 coupon.getTotalQuantity(),
                 remainingQuantity,
                 coupon.getIssueStartAt(),
