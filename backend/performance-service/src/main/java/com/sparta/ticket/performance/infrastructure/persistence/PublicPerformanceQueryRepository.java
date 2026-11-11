@@ -145,6 +145,9 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
 
     @Override
     public Optional<PublicPerformanceDetail> findDetail(Long performanceId) {
+        // 기간은 기본 정보와 함께 읽는다. 가격은 행 수가 달라 별도 조회를 유지한다.
+        Expression<LocalDateTime> firstStartAt = startAtOfActiveSchedules(new QSchedule("detailFirstSchedule"), true);
+        Expression<LocalDateTime> lastStartAt = startAtOfActiveSchedules(new QSchedule("detailLastSchedule"), false);
         Tuple row = queryFactory
                 .select(
                         PERFORMANCE.id,
@@ -163,7 +166,9 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                         PERFORMANCE.operationStatus,
                         PERFORMANCE.publishedAt,
                         PERFORMANCE.createdAt,
-                        PERFORMANCE.updatedAt)
+                        PERFORMANCE.updatedAt,
+                        firstStartAt,
+                        lastStartAt)
                 .from(PERFORMANCE)
                 .join(VENUE)
                 .on(VENUE.id.eq(PERFORMANCE.venueId))
@@ -186,22 +191,10 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 row.get(PERFORMANCE.posterUrl),
                 row.get(PERFORMANCE.operationStatus),
                 row.get(PERFORMANCE.publishedAt),
-                findPeriod(performanceId),
+                PerformancePeriod.of(row.get(firstStartAt), row.get(lastStartAt)),
                 row.get(PERFORMANCE.createdAt),
                 row.get(PERFORMANCE.updatedAt),
                 findGradePrices(performanceId)));
-    }
-
-    private PerformancePeriod findPeriod(Long performanceId) {
-        Tuple period = queryFactory
-                .select(SCHEDULE.startAt.min(), SCHEDULE.startAt.max())
-                .from(SCHEDULE)
-                .where(SCHEDULE.performanceId.eq(performanceId), activeSchedule(SCHEDULE))
-                .fetchOne();
-        if (period == null) {
-            return null;
-        }
-        return PerformancePeriod.of(period.get(SCHEDULE.startAt.min()), period.get(SCHEDULE.startAt.max()));
     }
 
     private List<PublicPerformanceDetail.GradePrice> findGradePrices(Long performanceId) {
