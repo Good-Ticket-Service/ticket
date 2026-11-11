@@ -109,12 +109,12 @@ public class UserCoupon extends BaseEntity {
 
     /**
      * 예매에 잡는다(AVAILABLE → RESERVED). 결제 준비에서 회원이 이 쿠폰을 골랐을 때 CouponUsage.reserve가 부른다.
-     * 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE이다.
+     * 본인 쿠폰이 아니거나, AVAILABLE이 아니거나, 유효 기간이 지났거나, 정가가 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE이다.
      * 이미 같은 예매에 잡혀 있으면 아무것도 바꾸지 않는다(멱등). 예매가 같은 요청을 다시 보낼 수 있기 때문이다.
      * Note: 동시에 같은 쿠폰을 잡는 요청은 호출자가 행을 잠그고(FOR UPDATE) 읽어 차례로 이 메서드를 부른다.
      * 뒤에 온 요청은 앞 요청이 커밋한 상태를 보고 판단한다.
      */
-    public void reserve(Long userId, Long reservationId, LocalDateTime now) {
+    public void reserve(Long userId, Long reservationId, long baseAmount, LocalDateTime now) {
         // 1) 남의 쿠폰은 쓸 수 없다. 존재를 드러내지 않으려고 없는 쿠폰과 같은 오류로 답한다
         if (!this.userId.equals(userId)) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
@@ -131,7 +131,9 @@ public class UserCoupon extends BaseEntity {
         if (!now.isBefore(expiresAt)) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE);
         }
-        // 5) 이 예매에 잡는다
+        // 5) 정가가 최소 적용 금액보다 작으면 쓸 수 없다. 메시지에 금액을 담아 화면이 이유를 보여 줄 수 있게 한다(#347)
+        discountPolicy.requireApplicableTo(baseAmount);
+        // 6) 이 예매에 잡는다
         this.status = UserCouponStatus.RESERVED;
         this.reservationId = reservationId;
     }

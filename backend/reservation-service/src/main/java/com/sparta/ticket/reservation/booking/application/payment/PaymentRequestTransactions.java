@@ -125,7 +125,7 @@ public class PaymentRequestTransactions {
         if (userCouponId == null) {
             return target.withCoupon(null, 0);
         }
-        long couponAmount = couponPort.reserve(userCouponId, target.userId(), reservationId);
+        long couponAmount = couponPort.reserve(userCouponId, target.userId(), reservationId, target.baseAmount());
         long discountAmount = DiscountCap.of(target.baseAmount(), couponAmount);
         reservationRepository.recordDiscount(reservationId, discountAmount);
         return target.withCoupon(userCouponId, discountAmount);

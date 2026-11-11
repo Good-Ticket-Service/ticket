@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 
 class UserCouponTest {
 
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 할인액에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
+
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 1, 12, 0);
     private static final Long USER_ID = 1L;
     private static final Long RESERVATION_ID = 7L;
@@ -83,7 +86,7 @@ class UserCouponTest {
         UserCoupon userCoupon = available();
         LocalDateTime afterExpiry = userCoupon.getExpiresAt().plusDays(1);
 
-        userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+        userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
         assertThat(userCoupon.displayStatus(afterExpiry)).isEqualTo(UserCouponStatus.RESERVED);
 
         userCoupon.use(NOW);
@@ -99,7 +102,7 @@ class UserCouponTest {
         void reserves() {
             UserCoupon userCoupon = available();
 
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW.plusDays(1));
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW.plusDays(1));
 
             assertThat(userCoupon.getStatus()).isEqualTo(UserCouponStatus.RESERVED);
             assertThat(userCoupon.getReservationId()).isEqualTo(RESERVATION_ID);
@@ -110,10 +113,10 @@ class UserCouponTest {
         @DisplayName("같은 예매로 다시 잡으면 예외 없이 그대로다(멱등)")
         void idempotent() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
 
             // 만료 시각이 지난 뒤의 재요청이어도 이미 잡혀 있으면 앞서 성공한 요청으로 본다
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW.plusDays(30));
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW.plusDays(30));
 
             assertThat(userCoupon.getStatus()).isEqualTo(UserCouponStatus.RESERVED);
             assertThat(userCoupon.getReservationId()).isEqualTo(RESERVATION_ID);
@@ -124,7 +127,7 @@ class UserCouponTest {
         void othersCoupon() {
             UserCoupon userCoupon = available();
 
-            assertNotAvailable(() -> userCoupon.reserve(2L, RESERVATION_ID, NOW));
+            assertNotAvailable(() -> userCoupon.reserve(2L, RESERVATION_ID, BASE_AMOUNT, NOW));
             assertThat(userCoupon.getStatus()).isEqualTo(UserCouponStatus.AVAILABLE);
             assertThat(userCoupon.getReservationId()).isNull();
         }
@@ -133,14 +136,14 @@ class UserCouponTest {
         @DisplayName("다른 예매가 잡았거나 이미 쓴 쿠폰은 COUPON_NOT_AVAILABLE이다")
         void notAvailableStatus() {
             UserCoupon reserved = available();
-            reserved.reserve(USER_ID, RESERVATION_ID, NOW);
+            reserved.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             UserCoupon used = available();
-            used.reserve(USER_ID, RESERVATION_ID, NOW);
+            used.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             used.use(NOW);
 
-            assertNotAvailable(() -> reserved.reserve(USER_ID, 8L, NOW));
+            assertNotAvailable(() -> reserved.reserve(USER_ID, 8L, BASE_AMOUNT, NOW));
             // 같은 예매라도 이미 쓴 쿠폰은 다시 잡을 수 없다
-            assertNotAvailable(() -> used.reserve(USER_ID, RESERVATION_ID, NOW));
+            assertNotAvailable(() -> used.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW));
             assertThat(reserved.getReservationId()).isEqualTo(RESERVATION_ID);
         }
 
@@ -151,10 +154,10 @@ class UserCouponTest {
             UserCoupon atExpiry = available();
             LocalDateTime expiresAt = beforeExpiry.getExpiresAt();
 
-            beforeExpiry.reserve(USER_ID, RESERVATION_ID, expiresAt.minusSeconds(1));
+            beforeExpiry.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, expiresAt.minusSeconds(1));
 
             assertThat(beforeExpiry.getStatus()).isEqualTo(UserCouponStatus.RESERVED);
-            assertNotAvailable(() -> atExpiry.reserve(USER_ID, RESERVATION_ID, expiresAt));
+            assertNotAvailable(() -> atExpiry.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, expiresAt));
         }
     }
 
@@ -166,7 +169,7 @@ class UserCouponTest {
         @DisplayName("RESERVED면 USED가 되고 사용 시각이 기록되며 예매 ID는 남는다")
         void uses() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
 
             userCoupon.use(NOW.plusHours(1));
 
@@ -179,7 +182,7 @@ class UserCouponTest {
         @DisplayName("잡은 뒤 유효 기간이 지났어도 결제가 확정되면 USED다")
         void usesAfterExpiry() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
 
             userCoupon.use(userCoupon.getExpiresAt().plusDays(1));
 
@@ -190,7 +193,7 @@ class UserCouponTest {
         @DisplayName("이미 USED면 사용 시각을 바꾸지 않는다(멱등)")
         void idempotent() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             userCoupon.use(NOW);
 
             userCoupon.use(NOW.plusHours(3));
@@ -216,7 +219,7 @@ class UserCouponTest {
         @DisplayName("RESERVED를 유효 기간 안에 돌려주면 AVAILABLE이고 예매 ID가 지워진다")
         void releasesReserved() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
 
             userCoupon.release(NOW.plusDays(1));
 
@@ -229,7 +232,7 @@ class UserCouponTest {
         @DisplayName("USED를 돌려주면(예매 취소) AVAILABLE이고 예매 ID와 사용 시각이 지워진다")
         void releasesUsed() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             userCoupon.use(NOW);
 
             userCoupon.release(NOW.plusDays(1));
@@ -243,9 +246,9 @@ class UserCouponTest {
         @DisplayName("만료 시각 정각 이후에 돌려주면 EXPIRED다")
         void releasesAsExpired() {
             UserCoupon reserved = available();
-            reserved.reserve(USER_ID, RESERVATION_ID, NOW);
+            reserved.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             UserCoupon used = available();
-            used.reserve(USER_ID, 8L, NOW);
+            used.reserve(USER_ID, 8L, BASE_AMOUNT, NOW);
             used.use(NOW);
             LocalDateTime expiresAt = reserved.getExpiresAt();
 
@@ -262,7 +265,7 @@ class UserCouponTest {
         @DisplayName("이미 돌려준 쿠폰을 다시 돌려주면 그대로다(멱등)")
         void idempotent() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             userCoupon.release(NOW);
 
             userCoupon.release(userCoupon.getExpiresAt().plusDays(1));
@@ -275,10 +278,10 @@ class UserCouponTest {
         @DisplayName("돌려준 쿠폰은 다른 예매에 다시 잡을 수 있다")
         void reservableAfterRelease() {
             UserCoupon userCoupon = available();
-            userCoupon.reserve(USER_ID, RESERVATION_ID, NOW);
+            userCoupon.reserve(USER_ID, RESERVATION_ID, BASE_AMOUNT, NOW);
             userCoupon.release(NOW);
 
-            userCoupon.reserve(USER_ID, 8L, NOW);
+            userCoupon.reserve(USER_ID, 8L, BASE_AMOUNT, NOW);
 
             assertThat(userCoupon.getReservationId()).isEqualTo(8L);
         }

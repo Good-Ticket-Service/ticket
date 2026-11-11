@@ -35,6 +35,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
 
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 할인액에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
+
     private static final int THREADS = 16;
 
     @Autowired
@@ -83,7 +86,7 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
                     // 모든 요청이 준비될 때까지 기다렸다가 같이 출발한다
                     start.await();
                     try {
-                        couponUsage.reserve(userCouponId, userId, reservationId);
+                        couponUsage.reserve(userCouponId, userId, reservationId, BASE_AMOUNT);
                         return "SUCCESS";
                     } catch (BusinessException e) {
                         return e.getErrorCode().code();
@@ -156,7 +159,7 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
         @DisplayName("사용 확정이 먼저 행을 잡으면 반환은 기다린 뒤 USED를 돌려줘 AVAILABLE이 된다")
         void useFirst() throws Exception {
             UserCoupon issued = issue(990_101L);
-            couponUsage.reserve(issued.getId(), 990_101L, 991_101L);
+            couponUsage.reserve(issued.getId(), 990_101L, 991_101L, BASE_AMOUNT);
 
             String result = runInOrder(() -> couponUsage.use(991_101L), () -> couponUsage.release(991_101L));
 
@@ -172,7 +175,7 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
         @DisplayName("반환이 먼저 행을 잡으면 사용 확정은 기다린 뒤 이 예매의 쿠폰을 찾지 못해 아무것도 하지 않는다")
         void releaseFirst() throws Exception {
             UserCoupon issued = issue(990_111L);
-            couponUsage.reserve(issued.getId(), 990_111L, 991_111L);
+            couponUsage.reserve(issued.getId(), 990_111L, 991_111L, BASE_AMOUNT);
 
             String result = runInOrder(() -> couponUsage.release(991_111L), () -> couponUsage.use(991_111L));
 
@@ -259,7 +262,7 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
 
             // 예매가 쿠폰을 잡은 뒤 다른 이유로 실패해 트랜잭션 전체가 롤백되는 상황
             transactionTemplate.executeWithoutResult(status -> {
-                couponUsage.reserve(issued.getId(), 990_021L, 991_021L);
+                couponUsage.reserve(issued.getId(), 990_021L, 991_021L, BASE_AMOUNT);
                 status.setRollbackOnly();
             });
 
@@ -270,7 +273,7 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
         @DisplayName("예매 확정 트랜잭션이 롤백되면 사용 처리도 취소되어 RESERVED로 남는다")
         void useRollsBackWithCaller() {
             UserCoupon issued = issue(990_031L);
-            couponUsage.reserve(issued.getId(), 990_031L, 991_031L);
+            couponUsage.reserve(issued.getId(), 990_031L, 991_031L, BASE_AMOUNT);
 
             transactionTemplate.executeWithoutResult(status -> {
                 couponUsage.use(991_031L);
@@ -287,12 +290,12 @@ class CouponUsageConcurrencyTest extends ReservationIntegrationTest {
         void changeCouponRollsBackTogether() {
             UserCoupon first = issue(990_041L);
             UserCoupon second = issue(990_041L);
-            couponUsage.reserve(first.getId(), 990_041L, 991_041L);
+            couponUsage.reserve(first.getId(), 990_041L, 991_041L, BASE_AMOUNT);
 
             // 쿠폰을 바꾸는 결제 준비가 중간에 실패한 상황: 반환과 새 점유가 함께 취소되어야 한다
             transactionTemplate.executeWithoutResult(status -> {
                 couponUsage.release(991_041L);
-                couponUsage.reserve(second.getId(), 990_041L, 991_041L);
+                couponUsage.reserve(second.getId(), 990_041L, 991_041L, BASE_AMOUNT);
                 status.setRollbackOnly();
             });
 

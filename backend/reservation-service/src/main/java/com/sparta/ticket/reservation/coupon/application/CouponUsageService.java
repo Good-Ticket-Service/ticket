@@ -33,7 +33,7 @@ public class CouponUsageService implements CouponUsage {
     private final Clock clock;
 
     @Override
-    public CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId) {
+    public CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount) {
         // 1) 회원이 고른 쿠폰을 잠그고 읽는다. 같은 쿠폰을 동시에 잡으려는 다른 예매는 이 트랜잭션이 끝날 때까지 기다린다.
         //    없는 쿠폰도 남의 쿠폰과 같은 오류로 답해 다른 회원 쿠폰의 존재를 드러내지 않는다
         UserCoupon userCoupon = userCouponRepository
@@ -46,15 +46,16 @@ public class CouponUsageService implements CouponUsage {
             throw new IllegalStateException("이 예매에 다른 쿠폰이 잡혀 있습니다. 쿠폰을 바꾸려면 먼저 돌려주세요. reservationId=" + reservationId);
         }
 
-        // 3) 본인 쿠폰·상태·유효 기간 확인과 RESERVED 전이는 엔티티가 한다. 이미 이 예매에 잡혀 있으면 그대로 둔다(멱등)
-        userCoupon.reserve(userId, reservationId, now());
+        // 3) 본인 쿠폰·상태·유효 기간·최소 적용 금액 확인과 RESERVED 전이는 엔티티가 한다. 이미 이 예매에 잡혀 있으면 그대로 둔다(멱등)
+        userCoupon.reserve(userId, reservationId, baseAmount, now());
 
-        // 4) 예매 화면에 보여 줄 쿠폰 이름을 붙여 돌려준다
+        // 4) 이 정가에 할인 정책을 적용한 할인액과, 예매 화면에 보여 줄 쿠폰 이름을 붙여 돌려준다.
+        //    같은 예매는 정가가 바뀌지 않아 다시 불러도 같은 할인액이다(#347)
         return new CouponDiscount(
                 userCoupon.getId(),
                 userCoupon.getCouponId(),
                 couponName(userCoupon),
-                userCoupon.getDiscountPolicy().getDiscountAmount());
+                userCoupon.getDiscountPolicy().discountFor(baseAmount));
     }
 
     @Override

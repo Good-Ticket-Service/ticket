@@ -11,12 +11,14 @@ public interface CouponUsage {
 
     /**
      * 회원 쿠폰을 이 예매에 잡고(AVAILABLE → RESERVED) 할인 정보를 돌려준다. 결제 준비에서 회원이 쿠폰을 골랐을 때 부른다.
-     * 할인액은 발급 시점 값 그대로다. 최소 결제 금액에 맞춰 자르는 일은 booking이 한다(쿠폰은 정가를 모른다).
-     * 없는 쿠폰이거나, 본인 쿠폰이 아니거나, 쓸 수 있는 상태가 아니거나, 유효 기간이 지났으면 COUPON_NOT_AVAILABLE(400)이다.
+     * 할인액은 이 정가(baseAmount)에 발급 시점 할인 정책을 적용한 값이다(#347). 정액은 할인액 그대로, 정률은 정가 × 할인율을
+     * 원 미만 버림한 뒤 최대 할인액으로 자른다. 최소 결제 금액에 맞춰 자르는 일은 booking이 한다(DiscountCap).
+     * 없는 쿠폰이거나, 본인 쿠폰이 아니거나, 쓸 수 있는 상태가 아니거나, 유효 기간이 지났거나,
+     * 정가가 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE(400)이다. 최소 적용 금액 미달은 메시지에 금액을 담는다.
      * 같은 예매에 같은 쿠폰이 이미 잡혀 있으면 그 값을 돌려준다. 이 예매에 다른 쿠폰이 잡혀 있으면 IllegalStateException이다.
      * 쿠폰을 바꾸려면 booking이 같은 트랜잭션에서 release를 먼저 부른다.
      */
-    CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId);
+    CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount);
 
     /**
      * 이 예매에 잡힌 쿠폰을 사용 확정한다(RESERVED → USED). 결제가 성공해 예매가 확정될 때 부른다.

@@ -38,6 +38,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
 
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 결과에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
+
     private static final LocalDateTime ISSUED_AT = LocalDateTime.of(2001, 9, 1, 12, 0);
 
     /** 유효 일수 7일. 이 시각 정각부터 만료다. */
@@ -122,7 +125,7 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
                 userCouponRepository
                         .lockById(coupon.getId())
                         .orElseThrow()
-                        .reserve(943_001L, 944_001L, EXPIRES_AT.minusSeconds(1));
+                        .reserve(943_001L, 944_001L, BASE_AMOUNT, EXPIRES_AT.minusSeconds(1));
                 reserved.countDown();
                 await(release);
             }));
@@ -164,8 +167,8 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
 
             // 예매는 만료 직전 시각으로 잡으려 한다. 시각만 보면 아직 쓸 수 있지만 배치의 락을 기다린다
             clock.set(EXPIRES_AT.minusSeconds(1));
-            Future<ErrorCode> booking =
-                    executor.submit(() -> run(() -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L)));
+            Future<ErrorCode> booking = executor.submit(
+                    () -> run(() -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L, BASE_AMOUNT)));
             waitForLockWaiters(1);
 
             release.countDown();

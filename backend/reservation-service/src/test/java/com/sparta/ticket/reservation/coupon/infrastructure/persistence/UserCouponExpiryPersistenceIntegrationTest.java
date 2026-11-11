@@ -27,6 +27,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class UserCouponExpiryPersistenceIntegrationTest extends ReservationIntegrationTest {
 
+    /** 쿠폰을 잡을 때 넘기는 정가(#347). 최소 적용 금액이 없는 정액 쿠폰이라 결과에 영향이 없다. */
+    private static final long BASE_AMOUNT = 50_000L;
+
     /** 발급 기준 시각. 유효 일수가 7일이라 이때 받은 쿠폰의 만료 시각은 EXPIRES_AT이다. */
     private static final LocalDateTime ISSUED_AT = LocalDateTime.of(2001, 3, 1, 12, 0);
 
@@ -84,9 +87,9 @@ class UserCouponExpiryPersistenceIntegrationTest extends ReservationIntegrationT
             UserCoupon onTime = issue(940_002L, ISSUED_AT);
             issue(940_003L, ISSUED_AT.plusMinutes(1));
             UserCoupon reserved = issue(940_004L, ISSUED_AT.minusDays(1));
-            change(reserved.getId(), uc -> uc.reserve(940_004L, 941_004L, ISSUED_AT));
+            change(reserved.getId(), uc -> uc.reserve(940_004L, 941_004L, BASE_AMOUNT, ISSUED_AT));
             UserCoupon used = issue(940_005L, ISSUED_AT.minusDays(1));
-            change(used.getId(), uc -> uc.reserve(940_005L, 941_005L, ISSUED_AT));
+            change(used.getId(), uc -> uc.reserve(940_005L, 941_005L, BASE_AMOUNT, ISSUED_AT));
             change(used.getId(), uc -> uc.use(ISSUED_AT));
 
             // 만료 시각 정각부터 만료다(displayStatus와 같은 경계). 만료 시각이 이른 순으로 나온다
@@ -134,7 +137,7 @@ class UserCouponExpiryPersistenceIntegrationTest extends ReservationIntegrationT
             assertThat(picked).containsExactly(expired.getId(), reservedAfterPick.getId());
 
             // 고른 뒤 예매가 이 쿠폰을 잡았다(만료 시각 전에 잡았다고 가정한다)
-            change(reservedAfterPick.getId(), uc -> uc.reserve(940_032L, 941_032L, ISSUED_AT));
+            change(reservedAfterPick.getId(), uc -> uc.reserve(940_032L, 941_032L, BASE_AMOUNT, ISSUED_AT));
 
             // 아직 만료 전인 쿠폰 ID가 섞여 들어와도 바꾸지 않는다
             int changed = expireIds(List.of(expired.getId(), reservedAfterPick.getId(), notYet.getId()), EXPIRES_AT);
