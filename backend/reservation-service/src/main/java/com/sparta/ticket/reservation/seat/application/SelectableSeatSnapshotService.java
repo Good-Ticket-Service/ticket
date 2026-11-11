@@ -2,7 +2,9 @@ package com.sparta.ticket.reservation.seat.application;
 
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
+import com.sparta.ticket.reservation.seat.application.port.SeatLayoutBodyCache;
 import com.sparta.ticket.reservation.seat.application.port.SelectableSeatCache;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,7 @@ public class SelectableSeatSnapshotService {
 
     private final SelectableSeatCache cache;
     private final SeatSnapshotMetrics metrics;
+    private final SeatLayoutBodyCache layoutBodyCache;
 
     /** 기존 좌석 조회 응답용 판정 결과. */
     public SelectableSeatsResult getSelectableSeats(Long scheduleId) {
@@ -38,5 +41,13 @@ public class SelectableSeatSnapshotService {
     /** layout·status 응답용 스냅샷. 좌석이 없는 회차는 404 SEAT_NOT_FOUND다(캐시하지 않음). */
     public SeatMapSnapshot getSnapshot(Long scheduleId) {
         return metrics.timeGet(() -> cache.get(scheduleId));
+    }
+
+    /**
+     * layout 응답 본문. (회차, configVersion)마다 한 번 만든 바이트를 다시 쓴다(#287). 본문 형식은 부르는 쪽이 render로 정한다.
+     * 스냅샷은 getSnapshot으로 받은 것을 넘긴다. 304 판단과 본문이 같은 configVersion을 보게 하기 위해서다.
+     */
+    public byte[] getLayoutBody(SeatMapSnapshot snapshot, Function<SeatMapSnapshot, byte[]> render) {
+        return layoutBodyCache.get(snapshot, render);
     }
 }
