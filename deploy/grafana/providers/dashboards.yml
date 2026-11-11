@@ -1,0 +1,20 @@
+# 서버(vm-data) Grafana의 대시보드 목록. deploy/compose.data.yml이 /etc/grafana/provisioning/dashboards에 마운트한다.
+# 결제 대시보드는 로컬과 같은 infra/grafana 파일을 쓰고, 서버 자원·서비스 대시보드는 deploy/grafana/dashboards에 둔다.
+apiVersion: 1
+providers:
+  - name: Payment
+    orgId: 1
+    folder: Payment
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/payment
+  - name: Server
+    orgId: 1
+    folder: Server
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/server

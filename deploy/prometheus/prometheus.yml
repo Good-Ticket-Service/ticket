@@ -1,5 +1,5 @@
 # 서버(vm-data)용 Prometheus 수집 설정. deploy/compose.data.yml이 마운트한다.
-# infra/prometheus/prometheus.yml과 규칙·앱 수집이 같고, environment 라벨과 서버 자원 수집(node·cadvisor)만 더 있다.
+# infra/prometheus/prometheus.yml과 규칙·앱 수집이 같고, environment 라벨과 서버 자원(node·cadvisor)·데이터(postgres·redis·kafka·fake-pg) 수집만 더 있다.
 # 공통 부분을 바꾸면 다른 쪽도 맞춘다.
 # eureka-server·vm-edge·vm-core·vm-data는 compose의 extra_hosts가 각 서버 VPC IP로 풀어 준다.
 global:
@@ -61,3 +61,23 @@ scrape_configs:
     static_configs:
       - targets: ["cadvisor:8080"]
         labels: {server: vm-data}
+
+  # DB·Redis·Kafka 내부 지표와 fake-pg. 로컬 통합시험(infra/integration/prometheus.yml)과 같은 job 이름이다.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels: {application: postgres}
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  - job_name: fake-pg
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["fake-pg:8090"]
+        labels: {application: fake-pg}
