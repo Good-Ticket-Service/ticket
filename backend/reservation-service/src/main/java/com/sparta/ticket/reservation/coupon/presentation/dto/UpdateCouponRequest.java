@@ -14,8 +14,10 @@ import java.util.stream.Stream;
 
 /**
  * 쿠폰 부분 수정 요청. 바꿀 항목만 보내고, 보내지 않은 항목은 null이다. 발급 시작 후 바꿀 수 있는 항목은 Coupon이 검사한다.
- * 할인 정책(#348)은 묶음 전체를 바꾼다. 할인 값을 하나라도 보내면 discountType과 그 종류에 필요한 값을 함께 보내야 한다.
- * 함께 보내지 않은 할인 값(예: minBaseAmount)은 "없음"으로 바뀐다. 일부만 바꾸면 정액에 할인율이 붙는 식으로 어긋나기 때문이다.
+ * 할인 정책(#348)은 묶음 전체를 바꾼다. 할인 값을 하나라도 보내면 그 값들로 새 정책을 만들고, 함께 보내지 않은 할인 값
+ * (예: minBaseAmount)은 "없음"으로 바뀐다. 일부만 바꾸면 정액에 할인율이 붙는 식으로 어긋나기 때문이다.
+ * discountType을 보내지 않으면 생성과 같이 정액(FIXED)으로 본다. 할인액만 보내던 기존 화면 요청이 그대로 동작한다.
+ * 종류 없이 정률 값(discountRate 등)만 보내면 정액에 맞지 않아 DiscountPolicy.of가 400으로 거절한다.
  */
 public record UpdateCouponRequest(
         @Size(min = 1, max = 100) @Pattern(regexp = ".*\\S.*", message = "공백만으로 이름을 정할 수 없습니다.")
@@ -43,18 +45,16 @@ public record UpdateCouponRequest(
                         .anyMatch(value -> value != null);
     }
 
-    /** 할인 값을 보냈으면 종류도 보내야 한다. 종류 없이 할인율만 오면 어느 정책으로 바꿀지 알 수 없다. */
-    @JsonIgnore
-    @AssertTrue(message = "할인 정책을 바꾸려면 discountType을 함께 보내야 합니다.")
-    public boolean isDiscountTypePresentWhenDiscountChanges() {
-        return !isDiscountPresent() || discountType != null;
-    }
-
     /** 검증을 통과한 요청을 Service가 받는 Command로 바꾼다. 보내지 않은 항목은 null 그대로 넘긴다. */
     public UpdateCouponCommand toCommand() {
-        // 할인 값을 보냈을 때만 새 정책을 만든다. 조합이 맞지 않으면 여기서 400 VALIDATION_ERROR다
+        // 할인 값을 보냈을 때만 새 정책을 만든다. 종류가 없으면 정액으로 보고, 조합이 맞지 않으면 여기서 400 VALIDATION_ERROR다
         DiscountPolicy policy = isDiscountPresent()
-                ? DiscountPolicy.of(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount)
+                ? DiscountPolicy.of(
+                        discountType == null ? DiscountType.FIXED : discountType,
+                        discountAmount,
+                        discountRate,
+                        maxDiscountAmount,
+                        minBaseAmount)
                 : null;
         return new UpdateCouponCommand(name, policy, totalQuantity, issueStartAt, issueEndAt, validDays);
     }

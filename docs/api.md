@@ -510,7 +510,7 @@
 
 - CouponInput = `{name:string(1~100),discountType?:DiscountType=FIXED,discountAmount?:int>=1,discountRate?:int(1~99),maxDiscountAmount?:int>=1,minBaseAmount?:int>=1,totalQuantity:int>=1,issueStartAt:datetime,issueEndAt:datetime(>start 및 >now),validDays:int>=1}`. DiscountType은 FIXED(정액) 또는 RATE(정률)다. (#348)
 - 할인 정책: FIXED는 discountAmount가 필수이고 discountRate·maxDiscountAmount를 받지 않는다. RATE는 discountRate(1~99%)가 필수이고 maxDiscountAmount는 선택이며 discountAmount를 받지 않는다. minBaseAmount(최소 적용 금액, 정가 기준)는 두 종류 모두 선택이다. 맞지 않는 조합은 400 VALIDATION_ERROR다. 할인율이 99%까지인 것은 결제 최소 금액(100원) 때문에 100%는 표시대로 무료가 되지 않기 때문이다. (#348)
-- 생성에서 discountType을 보내지 않으면 FIXED다. 수정은 할인 정책을 묶음 전체로 바꾼다. 할인 값(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount)을 하나라도 보내면 discountType이 필수이고(없으면 400 VALIDATION_ERROR), 함께 보내지 않은 할인 값은 없음(null)이 된다. (#348)
+- 생성과 수정 모두 discountType을 보내지 않으면 FIXED로 본다. 수정은 할인 정책을 묶음 전체로 바꾼다. 할인 값(discountType, discountAmount, discountRate, maxDiscountAmount, minBaseAmount)을 하나라도 보내면 그 값들로 새 정책을 만들고, 함께 보내지 않은 할인 값은 없음(null)이 된다. 종류 없이 정률 값만 보내면 FIXED에 맞지 않아 400 VALIDATION_ERROR다. (#348)
 - issueStartAt이 현재보다 앞이면 현재 시각으로 저장하고 응답에도 그 값을 돌려준다(생성, 시작 전 쿠폰 수정). 과거 시작은 "지금 시작"과 같게 동작하므로 저장값을 실제로 발급이 열린 시각에 맞춘다. 거절하지 않는 것은 "지금"을 보내도 서버에 닿으면 이미 과거이기 때문이다.
 - 수정은 바꿀 항목을 1개 이상 보내야 한다. 빈 본문 `{}`, 모두 null, 모르는 필드만 보낸 요청은 400 VALIDATION_ERROR다. 지금 값과 같은 값을 보낸 것은 바꿀 항목으로 센다.
 - Coupon = `{couponId:long,name:string,discountType:string,discountAmount:int|null,discountRate:int|null,maxDiscountAmount:int|null,minBaseAmount:int|null,totalQuantity:int,remainingQuantity:int,issueStartAt:datetime,issueEndAt:datetime,validDays:int,issueStatus:string}`. remainingQuantity = totalQuantity − 받은 회원 수(0 미만이면 0).
