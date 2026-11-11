@@ -34,11 +34,11 @@ public interface PaymentRepository {
      */
     Optional<Payment> lockLiveByReservationId(Long reservationId);
 
-    List<Payment> lockNextExpiredReady(LocalDateTime now, Collection<Long> excludedIds);
+    List<Payment> lockNextExpiredReady(LocalDateTime now, LocalDateTime unreceivedBefore, Collection<Long> excludedIds);
 
     List<Payment> lockNextRecovery(LocalDateTime now, Collection<Long> excludedIds);
 
-    LocalDateTime oldestDueRecovery(LocalDateTime now);
+    LocalDateTime oldestDueRecovery(LocalDateTime now, LocalDateTime unreceivedBefore, long graceSeconds);
 
     List<Payment> lockNextReconcile(LocalDateTime now, Collection<Long> excludedIds);
 

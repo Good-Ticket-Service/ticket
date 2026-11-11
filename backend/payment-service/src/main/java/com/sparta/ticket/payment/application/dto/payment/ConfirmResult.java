@@ -8,7 +8,9 @@ public record ConfirmResult(Long paymentId, PaymentStatus status, PaymentFailure
     public static ConfirmResult from(Payment payment) {
         return new ConfirmResult(
                 payment.getId(),
-                payment.getStatus(),
+                payment.getStatus() == PaymentStatus.READY && payment.getMessageConfirmBefore() != null
+                        ? PaymentStatus.IN_PROGRESS
+                        : payment.getStatus(),
                 PaymentFailureType.of(payment.getFailureCode()),
                 payment.getFailureCode());
     }

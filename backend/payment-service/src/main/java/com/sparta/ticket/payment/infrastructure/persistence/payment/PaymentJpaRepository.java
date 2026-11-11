@@ -50,12 +50,16 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
 
     @Override
     @Query(
-            value = "SELECT * FROM p_payments WHERE status = 'READY' AND expires_at <= :now"
+            value = "SELECT * FROM p_payments WHERE status = 'READY' AND"
+                    + " ((message_confirm_before IS NOT NULL AND message_confirm_before <= :now)"
+                    + " OR (message_confirm_before IS NULL AND expires_at <= :unreceivedBefore))"
                     + " AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
                     + " ORDER BY expires_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
             nativeQuery = true)
     List<Payment> lockNextExpiredReady(
-            @Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
+            @Param("now") LocalDateTime now,
+            @Param("unreceivedBefore") LocalDateTime unreceivedBefore,
+            @Param("excludedIds") Collection<Long> excludedIds);
 
     @Override
     @Query(
@@ -68,11 +72,17 @@ public interface PaymentJpaRepository extends JpaRepository<Payment, Long>, Paym
     @Override
     @Query(
             value = "SELECT min(due_at) FROM ("
-                    + " SELECT expires_at AS due_at FROM p_payments WHERE status = 'READY' AND expires_at <= :now AND deleted_at IS NULL"
+                    + " SELECT message_confirm_before AS due_at FROM p_payments WHERE status='READY'"
+                    + " AND message_confirm_before <= :now AND deleted_at IS NULL"
+                    + " UNION ALL SELECT expires_at + (:graceSeconds * INTERVAL '1 second') AS due_at FROM p_payments"
+                    + " WHERE status='READY' AND message_confirm_before IS NULL AND expires_at <= :unreceivedBefore AND deleted_at IS NULL"
                     + " UNION ALL SELECT next_attempt_at AS due_at FROM p_payments WHERE status = 'IN_PROGRESS'"
                     + " AND next_attempt_at <= :now AND deleted_at IS NULL) candidates",
             nativeQuery = true)
-    LocalDateTime oldestDueRecovery(@Param("now") LocalDateTime now);
+    LocalDateTime oldestDueRecovery(
+            @Param("now") LocalDateTime now,
+            @Param("unreceivedBefore") LocalDateTime unreceivedBefore,
+            @Param("graceSeconds") long graceSeconds);
 
     @Override
     @Query(

@@ -98,6 +98,30 @@ public class Payment extends BaseEntity {
 
     private LocalDateTime confirmRequestedAt;
 
+    private LocalDateTime messageConfirmBefore;
+
+    @Column(length = 64)
+    private String messageConfirmFingerprint;
+
+    public void registerMessageConfirm(LocalDateTime before, String fingerprint, LocalDateTime now) {
+        require(PaymentStatus.READY);
+        LocalDateTime normalized = toDbPrecision(before);
+        if (messageConfirmBefore != null) {
+            if (!messageConfirmBefore.equals(normalized) || !messageConfirmFingerprint.equals(fingerprint))
+                throw new BusinessException(PaymentErrorCode.PAYMENT_ORDER_CONFLICT);
+            return;
+        }
+        if (isConfirmRequested() || before.isAfter(expiresAt.plusMinutes(5)))
+            throw new BusinessException(PaymentErrorCode.PAYMENT_ORDER_CONFLICT);
+        messageConfirmBefore = normalized;
+        messageConfirmFingerprint = fingerprint;
+        requestConfirm(now);
+    }
+
+    public boolean isReadyExpiryDue(LocalDateTime now, Duration unreceivedGrace) {
+        return !now.isBefore(messageConfirmBefore == null ? expiresAt.plus(unreceivedGrace) : messageConfirmBefore);
+    }
+
     /** PG 승인을 부른 시각. 결과 확정 시한, "승인 기록 없음" 유예, 최소 대사 대상 판단의 기준이다. */
     private LocalDateTime approveRequestedAt;
 

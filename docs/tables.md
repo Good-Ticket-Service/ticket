@@ -378,6 +378,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | failure_code | VARCHAR(80) |
 | failure_message | VARCHAR(255) |
 | confirm_requested_at | TIMESTAMP |
+| message_confirm_before | TIMESTAMP; 최초 메시지 승인 시한, 이행025 |
+| message_confirm_fingerprint | VARCHAR(64); 최초 요청 의미 SHA-256, 인증값 원문 없음 |
 | approve_requested_at | TIMESTAMP |
 | approved_at | TIMESTAMP |
 | failed_at | TIMESTAMP; 최초 실패 확정 시각 |
@@ -410,6 +412,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `CREATE UNIQUE INDEX uk_p_payments_live_reservation ON p_payments (reservation_id) WHERE status IN ('READY', 'IN_PROGRESS', 'DONE');`
 
 - `CREATE INDEX ix_p_payments_ready_expires ON p_payments (expires_at) WHERE status = 'READY';`
+- 이행025는 메시지 시한·fingerprint를 함께 저장하고 confirm_requested_at 존재와 시한≤expires_at+5분을 CHECK로 보호한다. 기존 금액·결과는 변경하지 않는다.
+- `ix_payment_message_ready_due(message_confirm_before,id)`는 삭제되지 않은 READY 중 메시지 시한이 있는 행만 포함한다. 미수신 READY의 만료 인덱스와 구분한다.
 
 - `CREATE INDEX ix_p_payments_in_progress_next_attempt ON p_payments (next_attempt_at) WHERE status = 'IN_PROGRESS';`
 

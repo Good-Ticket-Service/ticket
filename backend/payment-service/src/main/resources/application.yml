@@ -1,4 +1,9 @@
 spring:
+  datasource:
+    hikari:
+      data-source-properties:
+        # DB 제약 실패의 상세 행에 거래 키가 포함될 수 있다. 기본 오류·제약 이름은 유지한다.
+        logServerErrorDetail: false
   kafka:
     admin:
       fail-fast: false
@@ -41,6 +46,18 @@ spring:
 # 판매자 정산 정책·영업일 달력(settlement-design 2절). 버전을 지우지 않고 덧붙인다. 정산 항목은 승인 시각의 버전을 고정한다.
 # 요율은 팀 합의 전 시험용 제안이다(profit-policy.md). 값이 틀리면 기동하지 않는다.
 payment:
+  messaging:
+    # 예매 전 인스턴스 전환·결과 relay 배포 확인 후 켠다. 기존 HTTP 승인은 유지한다.
+    confirm:
+      enabled: false
+      concurrency: 3
+      max-poll-records: 16
+      workers: 16
+      per-provider: 8
+      max-in-flight: 48
+      retry-delay: 200ms
+      max-infrastructure-retries: 4
+      max-message-bytes: 8192
 
   pg:
     enabled: true
