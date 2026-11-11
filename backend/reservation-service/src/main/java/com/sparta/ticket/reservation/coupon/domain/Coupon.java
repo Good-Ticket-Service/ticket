@@ -6,6 +6,8 @@ import com.sparta.ticket.common.exception.CommonErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -33,8 +35,16 @@ public class Coupon extends BaseEntity {
     @Column(name = "coupon_id")
     private Long id;
 
+    /** 웰컴 쿠폰은 받은 날부터 7일간 쓸 수 있다. 관리자가 다른 값을 넣지 못하게 코드로 고정한다(#357). */
+    public static final int WELCOME_VALID_DAYS = 7;
+
     @Column(nullable = false, length = 100)
     private String name;
+
+    /** 쿠폰 구분(일반·웰컴). 목록을 나눠 보여 주는 데 쓴다(#357). */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private CouponCategory category;
 
     /** 할인 정책(정액·정률, 최대 할인액, 최소 적용 금액). 회원이 받을 때 회원 쿠폰에 그대로 복사한다(#348). */
     @Embedded
@@ -64,12 +74,14 @@ public class Coupon extends BaseEntity {
     /** 검증을 마친 값으로만 부른다. 외부에서는 create로 만든다. */
     private Coupon(
             String name,
+            CouponCategory category,
             DiscountPolicy discountPolicy,
             int totalQuantity,
             LocalDateTime issueStartAt,
             LocalDateTime issueEndAt,
             int validDays) {
         this.name = name;
+        this.category = category;
         this.discountPolicy = discountPolicy;
         this.totalQuantity = totalQuantity;
         this.issuedQuantity = 0;
@@ -82,7 +94,40 @@ public class Coupon extends BaseEntity {
      * 생성. 발급 종료 시각은 발급 시작 시각과 현재 시각보다 뒤여야 한다.
      * 발급 시작 시각이 과거면 현재 시각으로 저장한다(startNotBefore).
      * 할인 정책은 DiscountPolicy.of가 만들 때 검증을 마친 값이다.
+     * 구분이 없으면 일반(GENERAL)이다. 유효 일수는 일반이면 필수이고, 웰컴이면 생략할 수 있으며(7) 7만 허용한다(#357).
      */
+    public static Coupon create(
+            String name,
+            CouponCategory category,
+            DiscountPolicy discountPolicy,
+            int totalQuantity,
+            LocalDateTime issueStartAt,
+            LocalDateTime issueEndAt,
+            Integer validDays,
+            LocalDateTime now) {
+        if (discountPolicy == null) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "할인 정책을 정해야 합니다.");
+        }
+        // 1) 구분과 유효 일수. 웰컴은 보내지 않으면 7로 채우고, 일반은 보내야 한다
+        //    Note: 삼항의 한쪽이 int면 결과가 int로 언박싱돼 null에서 NPE가 난다. 둘 다 Integer로 맞춘다
+        CouponCategory nextCategory = category == null ? CouponCategory.GENERAL : category;
+        Integer nextValidDays = validDays == null && nextCategory == CouponCategory.WELCOME
+                ? Integer.valueOf(WELCOME_VALID_DAYS)
+                : validDays;
+        if (nextValidDays == null) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "유효 일수를 정해야 합니다.");
+        }
+        // 2) 숫자 항목은 모두 1 이상이어야 한다(DB CHECK 제약과 같은 규칙). 웰컴은 유효 일수가 7이어야 한다
+        requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
+        requirePositive(nextValidDays, "유효 일수는 1 이상이어야 합니다.");
+        requireWelcomeValidDays(nextCategory, nextValidDays);
+        // 3) 과거 시작 시각은 현재로 맞춘 뒤, 발급 기간 순서와 종료 시각이 미래인지 확인한다
+        LocalDateTime startAt = startNotBefore(issueStartAt, now);
+        requireValidEnd(startAt, issueEndAt, now);
+        return new Coupon(name, nextCategory, discountPolicy, totalQuantity, startAt, issueEndAt, nextValidDays);
+    }
+
+    /** 일반 쿠폰 생성. 구분을 쓰지 않던 기존 호출(테스트 등)을 위해 둔다. */
     public static Coupon create(
             String name,
             DiscountPolicy discountPolicy,
@@ -91,16 +136,8 @@ public class Coupon extends BaseEntity {
             LocalDateTime issueEndAt,
             int validDays,
             LocalDateTime now) {
-        if (discountPolicy == null) {
-            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "할인 정책을 정해야 합니다.");
-        }
-        // 숫자 항목은 모두 1 이상이어야 한다(DB CHECK 제약과 같은 규칙)
-        requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
-        requirePositive(validDays, "유효 일수는 1 이상이어야 합니다.");
-        // 과거 시작 시각은 현재로 맞춘 뒤, 발급 기간 순서와 종료 시각이 미래인지 확인한다
-        LocalDateTime startAt = startNotBefore(issueStartAt, now);
-        requireValidEnd(startAt, issueEndAt, now);
-        return new Coupon(name, discountPolicy, totalQuantity, startAt, issueEndAt, validDays);
+        return create(
+                name, CouponCategory.GENERAL, discountPolicy, totalQuantity, issueStartAt, issueEndAt, validDays, now);
     }
 
     /** 최소 적용 금액 없는 정액 쿠폰 생성. 정액만 쓰던 기존 호출(테스트 등)을 위해 둔다. */
@@ -124,10 +161,13 @@ public class Coupon extends BaseEntity {
      * 총 수량은 더 발급하지 않으니 바꿔도 남은 수량 숫자만 달라진다. 이름은 회원의 내 쿠폰 목록에 계속 보여 고칠 수 있게 둔다.
      * 다시 발급하려면 새 쿠폰을 만든다.
      * 시작 전 쿠폰의 발급 시작 시각을 과거로 바꾸면 현재 시각으로 저장한다(startNotBefore).
+     * 구분도 발급 시작 뒤에는 바꿀 수 없다. 바뀐 뒤 웰컴 쿠폰이면 유효 일수가 7이어야 한다(#357).
+     * 일반 쿠폰을 웰컴으로 바꿀 때 유효 일수를 자동으로 7로 바꾸지 않는다. 관리자가 모르는 사이 유효 일수가 바뀌지 않게 함께 보내야 한다.
      * Note: 아무 항목도 보내지 않은 요청은 UpdateCouponRequest가 400으로 막는다.
      */
     public void update(
             String name,
+            CouponCategory category,
             DiscountPolicy discountPolicy,
             Integer totalQuantity,
             LocalDateTime issueStartAt,
@@ -140,11 +180,12 @@ public class Coupon extends BaseEntity {
                 && (changes(issueEndAt, this.issueEndAt) || changes(totalQuantity, this.totalQuantity))) {
             throw new BusinessException(CouponErrorCode.COUPON_ALREADY_CLOSED);
         }
-        // 2) 발급이 시작됐으면 할인 정책·시작 시각·유효 일수는 바꿀 수 없다
-        // 발급이 시작됐고(&&) 세 항목 중 하나라도 changes가 true(지금 값과 다른 값으로 바꾸려 함)면 예외다.
+        // 2) 발급이 시작됐으면 구분·할인 정책·시작 시각·유효 일수는 바꿀 수 없다
+        // 발급이 시작됐고(&&) 네 항목 중 하나라도 changes가 true(지금 값과 다른 값으로 바꾸려 함)면 예외다.
         // 보내지 않았거나 같은 값이면 changes가 false라 통과하고, 이름·총 수량·종료 시각은 시작 뒤에도 바꿀 수 있다
         if (isIssueStarted(now)
-                && (changes(discountPolicy, this.discountPolicy)
+                && (changes(category, this.category)
+                        || changes(discountPolicy, this.discountPolicy)
                         || changes(issueStartAt, this.issueStartAt)
                         || changes(validDays, this.validDays))) {
             throw new BusinessException(CouponErrorCode.COUPON_NOT_MODIFIABLE);
@@ -159,6 +200,9 @@ public class Coupon extends BaseEntity {
         if (totalQuantity != null) {
             requirePositive(totalQuantity, "총 수량은 1 이상이어야 합니다.");
         }
+        // 바뀐 뒤의 구분과 유효 일수로 웰컴 규칙을 본다. 한쪽만 보내도 다른 쪽은 지금 값과 비교한다
+        requireWelcomeValidDays(
+                category != null ? category : this.category, validDays != null ? validDays : this.validDays);
         // 4) 새 시작 시각이 과거면 현재로 맞춘다. 지금 값과 같으면 그대로 둔다(이미 시작한 쿠폰이 같은 값을 보내도 바뀌지 않게)
         LocalDateTime startAt =
                 changes(issueStartAt, this.issueStartAt) ? startNotBefore(issueStartAt, now) : issueStartAt;
@@ -173,6 +217,9 @@ public class Coupon extends BaseEntity {
         // 5) 검증을 모두 통과한 뒤에만 값을 바꾼다. 중간에 실패해도 일부만 바뀐 상태가 남지 않는다. 보낸 항목만 바꾼다
         if (name != null) {
             this.name = name;
+        }
+        if (category != null) {
+            this.category = category;
         }
         if (discountPolicy != null) {
             this.discountPolicy = discountPolicy;
@@ -189,6 +236,18 @@ public class Coupon extends BaseEntity {
         if (issueEndAt != null) {
             this.issueEndAt = issueEndAt;
         }
+    }
+
+    /** 구분은 바꾸지 않는 부분 수정. 구분을 쓰지 않던 기존 호출(테스트 등)을 위해 둔다. */
+    public void update(
+            String name,
+            DiscountPolicy discountPolicy,
+            Integer totalQuantity,
+            LocalDateTime issueStartAt,
+            LocalDateTime issueEndAt,
+            Integer validDays,
+            LocalDateTime now) {
+        update(name, null, discountPolicy, totalQuantity, issueStartAt, issueEndAt, validDays, now);
     }
 
     /**
@@ -238,7 +297,7 @@ public class Coupon extends BaseEntity {
         return CouponIssueStatus.ENDED;
     }
 
-    /** 발급 시작 시각이 지났는지. 지난 뒤에는 할인 정책·시작 시각·유효 일수를 바꿀 수 없다. */
+    /** 발급 시작 시각이 지났는지. 지난 뒤에는 구분·할인 정책·시작 시각·유효 일수를 바꿀 수 없다. */
     public boolean isIssueStarted(LocalDateTime now) {
         return !now.isBefore(issueStartAt);
     }
@@ -246,6 +305,14 @@ public class Coupon extends BaseEntity {
     /** 요청한 값이 있고, 그 값이 지금 값과 다르면 true. 보내지 않았거나(null) 같은 값이면 바꾸지 않는 것으로 본다. */
     private static boolean changes(Object requested, Object current) {
         return requested != null && !Objects.equals(requested, current);
+    }
+
+    /** 웰컴 쿠폰은 유효 일수가 7이어야 한다. 아니면 400 VALIDATION_ERROR. DB의 ck_p_coupons_welcome_valid_days와 같은 규칙이다. */
+    private static void requireWelcomeValidDays(CouponCategory category, int validDays) {
+        if (category == CouponCategory.WELCOME && validDays != WELCOME_VALID_DAYS) {
+            throw new BusinessException(
+                    CommonErrorCode.VALIDATION_ERROR, "웰컴 쿠폰의 유효 일수는 " + WELCOME_VALID_DAYS + "일이어야 합니다.");
+        }
     }
 
     /** 1 이상인지 확인한다. 아니면 400 VALIDATION_ERROR. DB의 CHECK 제약(양수)과 같은 규칙이다. */
