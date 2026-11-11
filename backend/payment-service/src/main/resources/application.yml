@@ -1,4 +1,17 @@
 spring:
+  kafka:
+    admin:
+      fail-fast: false
+      operation-timeout: 2s
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 1000
+        request.timeout.ms: 2000
+        delivery.timeout.ms: 5000
   batch:
     job:
       enabled: false
@@ -19,11 +32,11 @@ spring:
     scheduling:
       pool:
         # @Scheduled 잡은 스케줄러 하나를 함께 쓰고 Boot 기본 스레드는 1개다. 그러면 정산 대조·정산서 발행·PG 조회가 긴 잡이
-        # 도는 동안 결제 Recovery(결과 1분 확정)·환불 Recovery가 멈춘다. 잡마다 스레드를 하나씩 둔다(@Scheduled 메서드 12개).
+        # 도는 동안 결제 Recovery(결과 1분 확정)·환불 Recovery가 멈춘다. 잡마다 스레드를 하나씩 둔다(@Scheduled 메서드 13개).
         # 잡을 늘리면 함께 늘린다. 잡끼리는 SKIP LOCKED·임대로 다중 인스턴스 동시 실행을 이미 전제한다.
         # 동시에 도는 잡이 늘면 DB 연결도 그만큼 더 쓸 수 있다(잡당 최대 1개, 결제 풀 20).
         # 가상 스레드를 켜면 Boot가 실행마다 가상 스레드를 쓰는 스케줄러로 바꿔 이 값은 쓰이지 않는다.
-        size: 12
+        size: 13
 
 # 판매자 정산 정책·영업일 달력(settlement-design 2절). 버전을 지우지 않고 덧붙인다. 정산 항목은 승인 시각의 버전을 고정한다.
 # 요율은 팀 합의 전 시험용 제안이다(profit-policy.md). 값이 틀리면 기동하지 않는다.
