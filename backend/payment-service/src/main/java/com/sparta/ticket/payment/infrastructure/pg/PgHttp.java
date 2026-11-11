@@ -66,6 +66,18 @@ public final class PgHttp {
             Function<RestClient, RestClient.RequestHeadersSpec<?>> request,
             RestClient client,
             MeterRegistry meters,
+            PgCallGuard guard,
+            String provider,
+            String operation,
+            PgCallGuard.Permit permit) {
+        if (permit == null) return call(request, client, meters, guard, provider, operation);
+        return permit.call(() -> call(request, client, meters, provider, operation));
+    }
+
+    public static PgCall call(
+            Function<RestClient, RestClient.RequestHeadersSpec<?>> request,
+            RestClient client,
+            MeterRegistry meters,
             String provider,
             String operation) {
         if (meters == null) return call(request, client);

@@ -92,4 +92,17 @@ public class PgBulkhead {
             // Note: 관측 실패로 PG 호출 판단을 바꾸지 않는다.
         }
     }
+
+    /** 메시지 작업은 슬롯을 기다리며 실행권을 잡지 않고, 없으면 READY 상태로 다음 회차를 기다린다. */
+    public java.util.Optional<AutoCloseable> reserve(String provider) {
+        Semaphore slot = properties.enabled() ? slots.get(provider) : null;
+        if (slot == null) return java.util.Optional.of(() -> {});
+        boolean acquired = slot.tryAcquire();
+        observe(provider, "approve", acquired, 0);
+        if (!acquired) return java.util.Optional.empty();
+        var released = new java.util.concurrent.atomic.AtomicBoolean();
+        return java.util.Optional.of(() -> {
+            if (released.compareAndSet(false, true)) slot.release();
+        });
+    }
 }

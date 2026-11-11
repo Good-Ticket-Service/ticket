@@ -23,6 +23,60 @@ public class PgCallGuard {
         this.bulkhead = bulkhead;
     }
 
+    /** 같은 permit을 실제 HTTP까지 전달하므로 adapter에서 이중 획득하지 않는다. */
+    public java.util.Optional<Permit> reserve(String provider) {
+        CircuitBreaker breaker = breakers == null ? null : breakers.get(provider);
+        if (breaker != null && !breaker.tryAcquirePermission()) return java.util.Optional.empty();
+        var slot = bulkhead == null ? java.util.Optional.<AutoCloseable>of(() -> {}) : bulkhead.reserve(provider);
+        if (slot.isEmpty()) {
+            if (breaker != null) breaker.releasePermission();
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new Permit(breaker, slot.get()));
+    }
+
+    public static final class Permit implements AutoCloseable {
+        private final CircuitBreaker breaker;
+        private final AutoCloseable slot;
+        private boolean used;
+        private boolean closed;
+
+        private Permit(CircuitBreaker breaker, AutoCloseable slot) {
+            this.breaker = breaker;
+            this.slot = slot;
+        }
+
+        public synchronized PgCall call(Supplier<PgCall> action) {
+            if (closed || used) throw new IllegalStateException("PG 승인 허가는 한 번만 사용한다");
+            used = true;
+            long started = System.nanoTime();
+            try {
+                PgCall result = action.get();
+                if (breaker != null) {
+                    if (unavailable(result))
+                        breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, new PgUnavailable());
+                    else breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                }
+                return result;
+            } catch (RuntimeException exception) {
+                if (breaker != null) breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, exception);
+                throw exception;
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) return;
+            closed = true;
+            if (!used && breaker != null) breaker.releasePermission();
+            try {
+                slot.close();
+            } catch (Exception exception) {
+                throw new IllegalStateException("PG 승인 허가 반환 실패");
+            }
+        }
+    }
+
     public PgCall call(String provider, String operation, Supplier<PgCall> call) {
         CircuitBreaker breaker = breakers == null ? null : breakers.get(provider);
         if (breaker == null) {

@@ -91,6 +91,26 @@ public class TossPgClient implements PgClient {
 
     @Override
     public PgResult approve(PgApproveRequest request) {
+        return approve(request, null);
+    }
+
+    @Override
+    public Optional<Approval> reserveApproval() {
+        if (guard == null) return PgClient.super.reserveApproval();
+        return guard.reserve("TOSS").map(permit -> new Approval() {
+            @Override
+            public PgResult approve(PgApproveRequest request) {
+                return TossPgClient.this.approve(request, permit);
+            }
+
+            @Override
+            public void close() {
+                permit.close();
+            }
+        });
+    }
+
+    private PgResult approve(PgApproveRequest request, PgCallGuard.Permit permit) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("paymentKey", request.authToken());
         body.put("orderId", request.orderId());
@@ -106,7 +126,8 @@ public class TossPgClient implements PgClient {
                 meters,
                 guard,
                 "TOSS",
-                "approve");
+                "approve",
+                permit);
         return result(
                 call,
                 json -> new PgResult.Approved(
