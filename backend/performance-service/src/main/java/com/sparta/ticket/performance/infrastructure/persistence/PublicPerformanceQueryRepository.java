@@ -5,10 +5,9 @@ import com.querydsl.core.Tuple;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.dsl.BooleanExpression;
-import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.DateTimeExpression;
-import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
+import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
@@ -26,14 +25,18 @@ import com.sparta.ticket.performance.domain.venue.QVenue;
 import com.sparta.ticket.performance.domain.venue.QVenueSeatGrade;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 /**
  * PublicPerformanceReader의 QueryDSL 구현. 공연·공연장·회차를 조인해 공개 응답에 필요한 값만 읽는다.
  * Note: Entity는 서로 ID로만 참조하므로 연관관계 조인 대신 {@code join(...).on(...)}으로 조인한다.
- * 조회용 인덱스는 아직 없다. 성능 기준선을 이 쿼리 그대로 측정한 뒤 인덱스·캐시를 단계별로 붙인다.
+ * 조회용 인덱스는 아직 없다. 목록 쿼리를 먼저 고치고(이슈 #343 1단계) 인덱스·캐시를 단계별로 붙인다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -45,13 +48,63 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
 
     private final JPAQueryFactory queryFactory;
 
+    /**
+     * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
+     * Note: 한 번에 묶으면 OFFSET으로 버릴 공연까지 모든 공연의 기간을 계산한다(이슈 #343).
+     */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {
         BooleanBuilder where = listablePerformance().and(filters(condition));
+        List<Long> ids = findPageIds(condition, where, now);
+        List<PublicPerformanceSummary> items = ids.isEmpty() ? List.of() : findSummaries(ids);
+
+        Long total = queryFactory
+                .select(PERFORMANCE.count())
+                .from(PERFORMANCE)
+                .join(VENUE)
+                .on(VENUE.id.eq(PERFORMANCE.venueId))
+                .where(where)
+                .fetchOne();
+
+        return new PublicPerformancePage(items, condition.page(), condition.size(), total == null ? 0 : total);
+    }
+
+    /** 페이지에 들어갈 공연 ID를 정렬 순서대로 고른다. 기간은 계산하지 않는다. */
+    private List<Long> findPageIds(
+            PublicPerformanceSearchCondition condition, BooleanBuilder where, LocalDateTime now) {
+        JPAQuery<Long> query = queryFactory
+                .select(PERFORMANCE.id)
+                .from(PERFORMANCE)
+                .join(VENUE)
+                .on(VENUE.id.eq(PERFORMANCE.venueId));
+        if (condition.sort() == PublicPerformanceSort.BOOKING_OPEN_ASC) {
+            // 예매가 마감되지 않은 활성 회차만 붙여 가장 이른 오픈 시각을 구한다. 그런 회차가 없는 공연도 남도록
+            // LEFT JOIN 하고 조건을 ON에 둔다. 이때 오픈 시각은 null이라 마지막에 놓인다.
+            query.leftJoin(SCHEDULE)
+                    .on(
+                            SCHEDULE.performanceId.eq(PERFORMANCE.id),
+                            activeSchedule(SCHEDULE),
+                            SCHEDULE.bookingCloseAt.gt(now))
+                    .groupBy(PERFORMANCE.id)
+                    .orderBy(
+                            new OrderSpecifier<>(
+                                    Order.ASC, SCHEDULE.bookingOpenAt.min(), OrderSpecifier.NullHandling.NullsLast),
+                            PERFORMANCE.id.desc());
+        } else {
+            query.orderBy(PERFORMANCE.publishedAt.desc(), PERFORMANCE.id.desc());
+        }
+        return query.where(where)
+                .offset((long) condition.page() * condition.size())
+                .limit(condition.size())
+                .fetch();
+    }
+
+    /** 고른 공연의 표시 정보와 기간(전체 활성 회차 기준). IN 결과는 순서가 없으므로 ids 순서로 다시 맞춘다. */
+    private List<PublicPerformanceSummary> findSummaries(List<Long> ids) {
         DateTimeExpression<LocalDateTime> firstStartAt = SCHEDULE.startAt.min();
         DateTimeExpression<LocalDateTime> lastStartAt = SCHEDULE.startAt.max();
 
-        List<PublicPerformanceSummary> items = queryFactory
+        Map<Long, PublicPerformanceSummary> byId = queryFactory
                 .select(
                         PERFORMANCE.id,
                         VENUE.id,
@@ -70,7 +123,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 // Note: 활성 회차가 없는 공연도 목록에 나와야 하므로(period=null) LEFT JOIN 하고 조건을 ON에 둔다.
                 .leftJoin(SCHEDULE)
                 .on(SCHEDULE.performanceId.eq(PERFORMANCE.id), activeSchedule(SCHEDULE))
-                .where(where)
+                .where(PERFORMANCE.id.in(ids))
                 .groupBy(
                         PERFORMANCE.id,
                         VENUE.id,
@@ -80,11 +133,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                         PERFORMANCE.title,
                         PERFORMANCE.genre,
                         PERFORMANCE.posterUrl,
-                        PERFORMANCE.operationStatus,
-                        PERFORMANCE.publishedAt)
-                .orderBy(orderBy(condition.sort(), now))
-                .offset((long) condition.page() * condition.size())
-                .limit(condition.size())
+                        PERFORMANCE.operationStatus)
                 .fetch()
                 .stream()
                 .map(row -> new PublicPerformanceSummary(
@@ -96,17 +145,8 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                         row.get(PERFORMANCE.posterUrl),
                         row.get(PERFORMANCE.operationStatus),
                         PerformancePeriod.of(row.get(firstStartAt), row.get(lastStartAt))))
-                .toList();
-
-        Long total = queryFactory
-                .select(PERFORMANCE.count())
-                .from(PERFORMANCE)
-                .join(VENUE)
-                .on(VENUE.id.eq(PERFORMANCE.venueId))
-                .where(where)
-                .fetchOne();
-
-        return new PublicPerformancePage(items, condition.page(), condition.size(), total == null ? 0 : total);
+                .collect(Collectors.toMap(PublicPerformanceSummary::id, Function.identity()));
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     @Override
@@ -229,21 +269,5 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
     /** 삭제·취소되지 않은 회차. 공연 기간과 날짜 필터의 기준이다. */
     private static BooleanExpression activeSchedule(QSchedule schedule) {
         return schedule.deletedAt.isNull().and(schedule.operationStatus.eq(OperationStatus.ACTIVE));
-    }
-
-    private OrderSpecifier<?>[] orderBy(PublicPerformanceSort sort, LocalDateTime now) {
-        if (sort == PublicPerformanceSort.BOOKING_OPEN_ASC) {
-            // 예매가 마감되지 않은 활성 회차 중 가장 이른 오픈 시각. 그런 회차가 없으면 null이라 마지막에 둔다.
-            DateTimeExpression<LocalDateTime> nextBookingOpenAt = new CaseBuilder()
-                    .when(SCHEDULE.bookingCloseAt.gt(now))
-                    .then(SCHEDULE.bookingOpenAt)
-                    .otherwise(Expressions.nullExpression(LocalDateTime.class))
-                    .min();
-            return new OrderSpecifier<?>[] {
-                new OrderSpecifier<>(Order.ASC, nextBookingOpenAt, OrderSpecifier.NullHandling.NullsLast),
-                PERFORMANCE.id.desc()
-            };
-        }
-        return new OrderSpecifier<?>[] {PERFORMANCE.publishedAt.desc(), PERFORMANCE.id.desc()};
     }
 }

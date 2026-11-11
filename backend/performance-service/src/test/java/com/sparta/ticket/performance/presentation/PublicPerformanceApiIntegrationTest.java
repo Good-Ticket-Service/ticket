@@ -230,6 +230,79 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
+        @Sql(
+                value = {
+                    "/sql/truncate.sql",
+                    "/sql/public-performance-fixture.sql",
+                    "/sql/public-performance-many-fixture.sql"
+                },
+                config = @SqlConfig(encoding = "UTF-8"))
+        @DisplayName("한 페이지를 넘는 최근 공개 순 목록은 기본 20개씩 나뉘고, 뒤 페이지의 기간도 활성 회차 전체 기준이다")
+        void paginatesLatestOverOnePage() throws Exception {
+            list("").andExpect(jsonPath("$.data.items[*].id")
+                            .value(contains(
+                                    14, 13, 12, 11, 10, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113,
+                                    112, 111)))
+                    .andExpect(jsonPath("$.data.totalElements").value(30));
+            list("?page=1")
+                    .andExpect(jsonPath("$.data.items[*].id")
+                            .value(contains(110, 109, 108, 107, 106, 105, 104, 103, 102, 101)))
+                    .andExpect(jsonPath("$.data.items[0].title").value("대량 공연 110"))
+                    .andExpect(jsonPath("$.data.items[0].venue.name").value("서울 공연장"))
+                    // 110은 지난 회차(10-15)와 판매 예정 회차(2027-01-05)가 함께 있다
+                    .andExpect(jsonPath("$.data.items[0].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.items[0].period.to").value("2027-01-05"))
+                    .andExpect(jsonPath("$.data.totalElements").value(30));
+        }
+
+        @Test
+        @Sql(
+                value = {
+                    "/sql/truncate.sql",
+                    "/sql/public-performance-fixture.sql",
+                    "/sql/public-performance-many-fixture.sql"
+                },
+                config = @SqlConfig(encoding = "UTF-8"))
+        @DisplayName("BOOKING_OPEN_ASC는 페이지를 넘겨도 순서가 이어지고, 오픈할 회차가 없는 묶음과의 경계에서도 빠지거나 겹치지 않는다")
+        void paginatesBookingOpenOverOnePage() throws Exception {
+            list("?sort=BOOKING_OPEN_ASC")
+                    .andExpect(jsonPath("$.data.items[*].id")
+                            .value(contains(
+                                    12, 107, 101, 108, 102, 109, 103, 110, 104, 111, 105, 11, 112, 106, 10, 125, 124,
+                                    123, 122, 121)))
+                    // 정렬은 판매 예정 회차(오픈 11-01)로 하지만 기간은 지난 회차까지 포함한다
+                    .andExpect(jsonPath("$.data.items[2].id").value(101))
+                    .andExpect(jsonPath("$.data.items[2].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.items[2].period.to").value("2027-01-05"))
+                    .andExpect(jsonPath("$.data.totalElements").value(30));
+            list("?sort=BOOKING_OPEN_ASC&page=1")
+                    .andExpect(jsonPath("$.data.items[*].id")
+                            .value(contains(120, 119, 118, 117, 116, 115, 114, 113, 14, 13)))
+                    .andExpect(jsonPath("$.data.items[7].period.from").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.items[7].period.to").value("2026-10-15"))
+                    .andExpect(jsonPath("$.data.items[9].period").value(nullValue()));
+            list("?sort=BOOKING_OPEN_ASC&page=2")
+                    .andExpect(jsonPath("$.data.items", empty()))
+                    .andExpect(jsonPath("$.data.totalElements").value(30));
+            // 7개씩이면 두 번째 페이지는 판매 예정 묶음 안, 세 번째 페이지는 두 묶음에 걸친다
+            list("?sort=BOOKING_OPEN_ASC&page=1&size=7")
+                    .andExpect(jsonPath("$.data.items[*].id").value(contains(110, 104, 111, 105, 11, 112, 106)));
+            list("?sort=BOOKING_OPEN_ASC&page=2&size=7")
+                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10, 125, 124, 123, 122, 121, 120)));
+        }
+
+        @Test
+        @DisplayName("BOOKING_OPEN_ASC의 기간은 마감된 회차까지 포함한 활성 회차 전체 기준이다")
+        void bookingOpenPeriodIncludesClosedSchedules() throws Exception {
+            // 12-01 18:30이면 10의 12-01 회차는 마감됐고 12-02 회차만 판매 중이다. 기간은 두 회차를 모두 본다.
+            clock.set(LocalDateTime.of(2026, 12, 1, 18, 30));
+            list("?sort=BOOKING_OPEN_ASC&keyword=Alpha")
+                    .andExpect(jsonPath("$.data.items[*].id").value(contains(10)))
+                    .andExpect(jsonPath("$.data.items[0].period.from").value("2026-12-01"))
+                    .andExpect(jsonPath("$.data.items[0].period.to").value("2026-12-02"));
+        }
+
+        @Test
         @DisplayName("from이 to보다 늦으면 400 INVALID_TIME_RANGE")
         void rejectsReversedDateRange() throws Exception {
             list("?from=2026-12-02&to=2026-12-01")
