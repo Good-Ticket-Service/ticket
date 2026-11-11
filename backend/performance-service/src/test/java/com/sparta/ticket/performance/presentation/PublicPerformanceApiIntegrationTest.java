@@ -14,10 +14,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
+import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import javax.sql.DataSource;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -41,6 +44,9 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private ResultActions list(String query) throws Exception {
         return mockMvc.perform(get("/api/performances" + query));
@@ -376,6 +382,60 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
     @Nested
     @DisplayName("GET /api/performances/{performanceId}")
     class Detail {
+
+        @Test
+        @DisplayName("상세 성공은 기간을 포함한 기본 정보와 가격의 두 SELECT, 미존재는 한 SELECT만 실행한다")
+        void executesTwoSelectsForDetail() throws Exception {
+            Statistics statistics =
+                    entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            boolean wasEnabled = statistics.isStatisticsEnabled();
+            statistics.setStatisticsEnabled(true);
+            try {
+                for (long id : new long[] {10, 13, 14, 22}) {
+                    statistics.clear();
+                    mockMvc.perform(get("/api/performances/" + id)).andExpect(status().isOk());
+                    assertThat(statistics.getPrepareStatementCount())
+                            .as("공연 %s", id)
+                            .isEqualTo(2);
+                }
+                statistics.clear();
+                mockMvc.perform(get("/api/performances/999")).andExpect(status().isNotFound());
+                assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+            } finally {
+                statistics.setStatisticsEnabled(wasEnabled);
+                statistics.clear();
+            }
+        }
+
+        @Test
+        @DisplayName("기간은 예매가 끝난 과거 활성 회차도 포함하고 다른 공연의 회차는 포함하지 않는다")
+        void periodIncludesPastSchedules() throws Exception {
+            jdbc.update("UPDATE p_schedules SET performance_id = 10 WHERE id = 7");
+            mockMvc.perform(get("/api/performances/10"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.period.from").value("2026-10-30"))
+                    .andExpect(jsonPath("$.data.period.to").value("2026-12-02"));
+        }
+
+        @Test
+        @DisplayName("취소·삭제 회차만 남으면 가격은 유지하면서 period는 null이다")
+        void periodIsNullWhenOnlyInactiveSchedulesRemain() throws Exception {
+            jdbc.update("UPDATE p_schedules SET operation_status = 'CANCELED' WHERE id = 1");
+            jdbc.update("UPDATE p_schedules SET deleted_at = '2026-11-01 12:00:00' WHERE id = 2");
+            mockMvc.perform(get("/api/performances/10"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.period").value(nullValue()))
+                    .andExpect(jsonPath("$.data.gradePrices.length()").value(2));
+        }
+
+        @Test
+        @DisplayName("활성 회차가 하나이면 기간의 시작과 끝 날짜가 같다")
+        void singleSchedulePeriod() throws Exception {
+            mockMvc.perform(get("/api/performances/14"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.period.from").value("2026-10-30"))
+                    .andExpect(jsonPath("$.data.period.to").value("2026-10-30"));
+        }
 
         @Test
         @DisplayName("공연 정보·공연장·등급별 가격·기간을 명세 형식으로 주고, 시각에는 +09:00을 붙인다")
