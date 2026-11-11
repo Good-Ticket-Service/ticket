@@ -9,6 +9,7 @@ import com.sparta.ticket.payment.application.service.pg.PgClientRegistry;
 import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.pg.PgProvider;
 import com.sparta.ticket.payment.domain.model.refund.Refund;
+import com.sparta.ticket.payment.infrastructure.persistence.payment.PaymentResultOutboxJdbc;
 import com.sparta.ticket.payment.support.pg.PgClientFixture;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,6 +39,7 @@ import org.springframework.test.context.TestPropertySource;
             "payment.reconcile.enabled=false",
             "payment.recovery.refund.enabled=false",
             "payment.observation.enabled=false",
+            "payment.messaging.result-relay.enabled=false",
             // Note: PG 정산은 기본 활성화한다. 시험에서는 공유 DB의 자동 수집을 끄고 Job을 직접 실행한다.
             "payment.pg.enabled=false",
             // 정산 반영 워커는 스케줄러를 끄고, 시험이 결제·환불을 확정한 뒤 settlementJobs.drain()으로 직접 돌린다(#304).
@@ -69,6 +71,8 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
     @BeforeEach
     void resetPg() {
+        // Note: 일부 시험은 결제 ID 시퀀스를 초기화한다. FK 없는 최초 결과도 함께 비워 시험 간 ID 충돌을 막는다.
+        fixtureJdbc.update("DELETE FROM p_payment_result_outbox");
         // Note: 공유 시험 DB의 파생 기준이 다음 시험의 원장·실행 기록을 참조하지 않게 초기화한다.
         fixtureJdbc.update("UPDATE p_reconcile_checkpoint SET valid=false,run_id=NULL,snapshot=NULL,accepted_at=NULL");
         fixtureJdbc.update("DELETE FROM p_reconcile_account_balances");
@@ -94,8 +98,8 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
 
         @Bean
         @Primary
-        PublisherFixture fixturePublisher() {
-            return new PublisherFixture();
+        PublisherFixture fixturePublisher(PaymentResultOutboxJdbc delegate) {
+            return new PublisherFixture(delegate);
         }
 
         @Bean
@@ -125,12 +129,18 @@ public abstract class PaymentIntegrationTest extends PostgresIntegrationTest {
     /** 결과 저장 중 실패를 주입해 결제와 환불 의도의 원자적 롤백을 검증한다. */
     public static class PublisherFixture implements PaymentResultPublisher {
         public volatile boolean fail;
+        private final PaymentResultOutboxJdbc delegate;
+
+        public PublisherFixture(PaymentResultOutboxJdbc delegate) {
+            this.delegate = delegate;
+        }
 
         @Override
         public void paymentFinalized(Payment payment) {
             if (fail) {
                 throw new IllegalStateException("결과 저장 실패 주입");
             }
+            delegate.paymentFinalized(payment);
         }
 
         @Override
