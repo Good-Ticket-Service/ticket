@@ -122,7 +122,7 @@
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.
 - P20 = `performanceId:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; seats:LayoutSeat[]; seats[].id:long; seats[].section:string; seats[].rowLabel:string; seats[].seatNumber:integer; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].isSellable:boolean; seats[].basePrice:integer|null`.
-- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; performanceId:long; sellerId:long; configVersion:long; policyVersion:long; performanceTitle:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
+- P21 = `allowed:boolean; reasonCode:string|null; scheduleId:long; performanceId:long; sellerId:long; configVersion:long; policyVersion:long; performanceTitle:string; genre:string; scheduleStartAt:datetime; validatedAt:datetime; seats:ValidationSeat[]; seats[].venueSeatId:long; seats[].venueSeatGradeId:long; seats[].gradeName:string; seats[].basePrice:integer`.
 - 스키마 번호는 다른 절과 architecture가 참조하므로 바꾸지 않는다. 비어 있는 번호(P2, P4, P6, P7, P9, P10, P12, P14)는 추후 구현 예정 API의 스키마라 여기에 두지 않는다.
 
 판매 검증 P21.performanceId·sellerId (합의 #86):
@@ -134,8 +134,8 @@
 - 좌석은 두 값도 HoldTarget으로 그대로 넘긴다. 허용 응답에 두 값이 없으면 좌석이 503으로 선점을 거절한다.
 - 예매는 두 값을 예약에 선점 시점 스냅샷으로 저장하고 다시 조회하지 않는다. scheduleStartAt은 취소 기한, performanceTitle은 내 예매 목록 표시에 쓴다. 취소가 공연 서비스 가용성에 묶이지 않게 하기 위해서다.
 
-판매 검증 P21.genre (합의 #383, 구현 전):
-- P21에 `genre:string`을 더한다. 값은 공연의 Genre 이름(CONCERT, MUSICAL, PLAY, SPORTS, CLASSICAL, KOREAN_MUSIC, DANCE, CIRCUS_MAGIC, MULTIDISCIPLINARY)이고, 공연은 허용 응답에 항상 담는다.
+판매 검증 P21.genre (합의 #383, 공연 구현됨 #389):
+- P21에 `genre:string`이 있다. 값은 공연의 Genre 이름(CONCERT, MUSICAL, PLAY, SPORTS, CLASSICAL, KOREAN_MUSIC, DANCE, CIRCUS_MAGIC, MULTIDISCIPLINARY)이고, 공연은 허용 응답에 항상 담는다.
 - 좌석은 이 값을 HoldTarget.genre로 그대로 넘긴다. 클라이언트 입력에서 받지 않는다.
 - 허용 응답에 genre가 없어도 좌석은 선점을 거절하지 않고 HoldTarget.genre를 null로 넘긴다. #126의 두 값과 다른 점이다. 장르는 쿠폰 사용 판단에만 쓰므로 장르 때문에 선점이 막히지 않게 한다. 장르를 모르는 예약에는 장르 쿠폰을 쓸 수 없다.
 - 예매는 genre를 예약에 선점 시점 스냅샷으로 저장하고 다시 조회하지 않는다. 결제 준비 때 쿠폰에 넘긴다(서비스 내부 모듈 계약의 CouponUsage.reserve).
