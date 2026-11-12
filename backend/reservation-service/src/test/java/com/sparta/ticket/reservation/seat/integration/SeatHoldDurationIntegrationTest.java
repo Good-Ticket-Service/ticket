@@ -57,6 +57,8 @@ class SeatHoldDurationIntegrationTest extends BookingIntegrationTest {
     private SeatFacadeAdapter seatFacadeAdapter;
 
     private final UserContext user = new UserContext(TestIds.next(), "hong01", Role.USER);
+    private final UserContext otherUser = new UserContext(TestIds.next(), "kim02", Role.USER);
+    private long nextVenueSeatId = 1;
 
     @BeforeEach
     void setUp() {
@@ -74,9 +76,19 @@ class SeatHoldDurationIntegrationTest extends BookingIntegrationTest {
 
     /** 판매 검증 가짜의 기본 가격, 구성 버전 2로 좌석을 만든다. */
     private Long seat() {
+        long venueSeatId = nextVenueSeatId++;
         return scheduleSeatRepository
                 .save(ScheduleSeat.create(
-                        SCHEDULE, 1L, 7L, "VIP", FakeSaleValidationPort.DEFAULT_PRICE, "A", "1", 1, true, 2L))
+                        SCHEDULE,
+                        venueSeatId,
+                        7L,
+                        "VIP",
+                        FakeSaleValidationPort.DEFAULT_PRICE,
+                        "A",
+                        "1",
+                        (int) venueSeatId,
+                        true,
+                        2L))
                 .getId();
     }
 
@@ -114,11 +126,14 @@ class SeatHoldDurationIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
-    @DisplayName("유지 시간이 짧아도 결제 중 예약은 만료 시각이 지나도 만료 스케줄러가 건드리지 않는다")
+    @DisplayName("유지 시간이 짧으면 결제 전 HOLD는 그 시간 뒤 만료되고, 결제 중 예약은 만료 시각이 지나도 만료 스케줄러가 건드리지 않는다")
     void shortDurationDoesNotExpirePaymentInProgress() {
         holdDuration.set(Duration.ofMinutes(1));
         Long seatId = seat();
+        Long unpaidSeatId = seat();
         SeatHoldResult result = seatHoldService.hold(user.userId(), SCHEDULE, seatId);
+        // 대조군: 같은 유지 시간으로 잡고 결제하지 않은 예약. 만료 스케줄러가 실제로 도는지 확인한다
+        SeatHoldResult unpaid = seatHoldService.hold(otherUser.userId(), SCHEDULE, unpaidSeatId);
         String orderId = paymentService
                 .checkout(user, result.reservationId(), new CheckoutCommand(null, "TOSS"))
                 .orderId();
@@ -130,7 +145,9 @@ class SeatHoldDurationIntegrationTest extends BookingIntegrationTest {
         clock.advance(Duration.ofMinutes(2));
         int expired = holdExpiryService.expireDue(10, Duration.ofSeconds(5));
 
-        assertThat(expired).isZero();
+        assertThat(expired).as("결제하지 않은 대조군만 만료한다").isEqualTo(1);
+        assertThat(statusOf(unpaid.reservationId())).isEqualTo("EXPIRED");
+        assertThat(seatRow(unpaidSeatId).get("status")).isEqualTo("AVAILABLE");
         assertThat(statusOf(result.reservationId())).isEqualTo("PAYMENT_IN_PROGRESS");
         Map<String, Object> row = seatRow(seatId);
         assertThat(row.get("status")).isEqualTo("HOLD");
