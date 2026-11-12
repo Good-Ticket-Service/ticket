@@ -18,6 +18,7 @@ import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,6 +72,11 @@ public class PaymentRequestTransactions {
 
     /** 결제 승인 시작 결과. started가 false면 같은 승인이 이미 처리됐고 current가 지금 상태다. */
     public record PaymentStart(boolean started, long amount, ReservationResult current) {}
+
+    @Transactional(readOnly = true)
+    public Optional<LocalDateTime> holdExpiresAt(Long reservationId) {
+        return reservationRepository.findHoldExpiresAt(reservationId);
+    }
 
     @Transactional(readOnly = true)
     public CheckoutTarget loadCheckoutTarget(Long userId, Long reservationId) {

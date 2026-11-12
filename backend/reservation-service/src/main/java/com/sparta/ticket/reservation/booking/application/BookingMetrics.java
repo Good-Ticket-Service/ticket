@@ -29,6 +29,12 @@ public class BookingMetrics {
     private final AtomicLong confirmedAfterCompleted = new AtomicLong();
     private final AtomicLong paymentsInProgress = new AtomicLong();
     private final AtomicLong stuckPayments = new AtomicLong();
+    private final Counter admissionRejections;
+    private final Counter staleAdmissionSignals;
+    private final AtomicLong latePayments = new AtomicLong();
+    private final AtomicLong admissionShedding = new AtomicLong();
+    private final AtomicLong admissionReopenRate = new AtomicLong();
+    private final AtomicLong admissionRetryAfter = new AtomicLong();
 
     public BookingMetrics(MeterRegistry registry) {
         this.expiredHolds = Counter.builder("reservation.expired")
@@ -85,6 +91,25 @@ public class BookingMetrics {
         Gauge.builder("reservation.payment.in_progress", paymentsInProgress, AtomicLong::get)
                 .description("결제 중 예약 수. 결과 확인 스케줄러가 실행마다 갱신한다")
                 .register(registry);
+        this.admissionRejections = Counter.builder("reservation.admission.rejected")
+                .description("결제 결과가 계속 늦어져 거절한 결제 준비 수")
+                .register(registry);
+        this.staleAdmissionSignals = Counter.builder("reservation.admission.signal.stale")
+                .description("거절 상태였지만 늦은 결제 신호가 멈춰 막지 않고 받은 결제 준비 수. 결제 중 집계가 돌지 않는다는 뜻이다")
+                .register(registry);
+        Gauge.builder("reservation.payment.late", latePayments, AtomicLong::get)
+                .description("접수 후 정한 시간이 지나도 결과가 없는 결제 중 예약 수")
+                .register(registry);
+        Gauge.builder("reservation.admission.shedding", admissionShedding, AtomicLong::get)
+                .description("결제 준비를 거절하는 중이면 1")
+                .register(registry);
+        Gauge.builder("reservation.admission.reopen.rate", admissionReopenRate, AtomicLong::get)
+                .description("거절을 풀며 조금씩 여는 동안 초마다 통과시키는 결제 준비 수. 활짝 열었거나 거절 중이면 0")
+                .register(registry);
+        Gauge.builder("reservation.admission.retry_after", admissionRetryAfter, AtomicLong::get)
+                .baseUnit("seconds")
+                .description("결제 준비 거절 응답에 싣는 Retry-After. 기다리는 사용자가 많으면 늘어난다")
+                .register(registry);
         Gauge.builder("reservation.payment.stuck", stuckPayments, AtomicLong::get)
                 .description("상한 시간을 넘겨 결제 중인 예약 수. 0보다 크면 관리자가 확인한다")
                 .register(registry);
@@ -138,6 +163,11 @@ public class BookingMetrics {
         paymentResultsApplied.increment();
     }
 
+    /** 이 인스턴스가 지금까지 반영한 결제 결과 수. 접수 제한이 결제가 끝나는 속도를 잴 때 쓴다. */
+    public long paymentResultsAppliedTotal() {
+        return (long) paymentResultsApplied.count();
+    }
+
     public void paymentResultDeadLetter() {
         paymentResultDeadLetters.increment();
     }
@@ -166,6 +196,21 @@ public class BookingMetrics {
     /** 결제 중 예약 수만 갱신한다. 폴링 간격이 이 값을 읽으므로 결과 확인보다 자주 센다. */
     public void paymentsInProgress(long count) {
         paymentsInProgress.set(count);
+    }
+
+    public void admissionRejected() {
+        admissionRejections.increment();
+    }
+
+    public void staleAdmissionSignal() {
+        staleAdmissionSignals.increment();
+    }
+
+    public void admissionState(long late, boolean shedding, long reopenRate, long retryAfterSeconds) {
+        latePayments.set(late);
+        admissionShedding.set(shedding ? 1 : 0);
+        admissionReopenRate.set(reopenRate);
+        admissionRetryAfter.set(retryAfterSeconds);
     }
 
     public void paymentBacklog(long inProgress, long stuck) {
