@@ -216,12 +216,14 @@ public class ProjectionCatalogJdbc implements ProjectionOperations {
                 "SELECT EXISTS(SELECT 1 FROM p_settlement_projection_deliveries WHERE build_id=? AND NOT applied)",
                 Boolean.class,
                 buildId))) return false;
+        // Note: 새 세대의 통계가 적은 시점에도 applied 전체를 membership마다 반복 탐색하지 않는다.
         long missing = jdbc.queryForObject("""
-                SELECT count(*) FROM p_settlement_projection_deliveries d
-                JOIN p_settlement_projection_facts f ON f.fact_key=d.fact_key
-                LEFT JOIN p_settlement_projection_applied a ON a.build_id=d.build_id AND a.fact_key=d.fact_key
-                WHERE d.build_id=? AND (d.published_at IS NULL OR a.fact_key IS NULL OR a.meaning_hash<>f.meaning_hash)
-                """, Long.class, buildId);
+                SELECT count(*) FROM (
+                  SELECT d.fact_key,f.meaning_hash FROM p_settlement_projection_deliveries d
+                  JOIN p_settlement_projection_facts f USING(fact_key) WHERE d.build_id=?
+                  EXCEPT SELECT fact_key,meaning_hash FROM p_settlement_projection_applied WHERE build_id=?
+                ) missing
+                """, Long.class, buildId, buildId);
         // Note: 미적용이 남아 있으면 전체 금액/원장 대조로 Consumer의 build 잠금을 오래 막지 않는다.
         if (missing != 0) return false;
         long extra = jdbc.queryForObject("""

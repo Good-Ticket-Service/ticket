@@ -1,7 +1,10 @@
 package com.sparta.ticket.payment.infrastructure.persistence.settlement.projection;
 
+import com.sparta.ticket.payment.application.port.settlement.FinancialConsumerRecovery;
 import com.sparta.ticket.payment.application.port.settlement.ProjectionBatchApplier;
+import com.sparta.ticket.payment.domain.model.settlement.projection.InactiveProjectionException;
 import com.sparta.ticket.payment.domain.model.settlement.projection.PaymentProjectionState;
+import com.sparta.ticket.payment.domain.model.settlement.projection.ProjectionFactConflictException;
 import com.sparta.ticket.payment.domain.model.settlement.projection.SettlementFact;
 import com.sparta.ticket.payment.domain.model.settlement.projection.SettlementTotals;
 import com.sparta.ticket.payment.infrastructure.settlement.projection.ProjectionJson;
@@ -13,27 +16,65 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 일반 Consumer 비교군. 묶음 DB 왕복과 정렬된 행 잠금으로 동일 업무 검증·원자 커밋을 보존한다. */
 @Repository
-@RequiredArgsConstructor
 public class ProjectionConsumerJdbc implements ProjectionBatchApplier {
     private final JdbcTemplate jdbc;
     private final ProjectionSinkJdbc sink;
+    private final FinancialConsumerRecovery recovery;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProjectionConsumerJdbc(JdbcTemplate jdbc, ProjectionSinkJdbc sink, FinancialConsumerRecovery recovery) {
+        this.jdbc = jdbc;
+        this.sink = sink;
+        this.recovery = recovery;
+    }
+
+    public ProjectionConsumerJdbc(JdbcTemplate jdbc, ProjectionSinkJdbc sink) {
+        this(jdbc, sink, null);
+    }
 
     private record State(PaymentProjectionState value, long revision) {}
 
     @Override
     @Transactional
     public void apply(UUID build, List<SettlementFact> facts) {
+        applyInternal(build, facts, false);
+    }
+
+    @Override
+    @Transactional(timeout = 15)
+    public void applyStrict(UUID build, List<SettlementFact> facts) {
+        applyInternal(build, facts, true);
+    }
+
+    @Override
+    @Transactional(timeout = 15)
+    public void applyReplay(UUID build, SettlementFact fact, UUID commandId) {
+        if (recovery == null) throw new IllegalStateException("집계 재처리 저장소가 연결되지 않았다");
+        if (!commandId.toString().equals(fact.eventId()))
+            throw new ProjectionFactConflictException(fact.sourceFactKey(), "REPLAY_METADATA_INVALID");
+        var active = jdbc.queryForList(
+                "SELECT id FROM p_settlement_projection_builds WHERE id=? AND mode='B' AND status IN ('BUILDING','VERIFYING','READY','ACTIVE') FOR SHARE",
+                build);
+        if (active.isEmpty()) throw new InactiveProjectionException();
+        recovery.validateProjectionReplay(commandId, build, fact.sourceFactKey());
+        applyInternal(build, List.of(fact), true);
+        recovery.projectionFactsApplied(build, List.of(fact.sourceFactKey()));
+    }
+
+    private void applyInternal(UUID build, List<SettlementFact> facts, boolean strict) {
         if (facts.isEmpty()) return;
         var builds = jdbc.queryForList("SELECT status FROM p_settlement_projection_builds WHERE id=? FOR SHARE", build);
         if (builds.isEmpty()
-                || List.of("RETIRED", "FAILED").contains(builds.get(0).get("status"))) return;
+                || List.of("RETIRED", "FAILED").contains(builds.get(0).get("status"))) {
+            if (strict) throw new InactiveProjectionException();
+            return;
+        }
         var keys = facts.stream().map(SettlementFact::sourceFactKey).distinct().toList();
         var membership = new HashMap<String, String>();
         var membershipArgs = new ArrayList<Object>();
@@ -50,7 +91,7 @@ public class ProjectionConsumerJdbc implements ProjectionBatchApplier {
         var firstEvents = new LinkedHashMap<String, SettlementFact>();
         for (var fact : facts) {
             if (!fact.meaningHash().equals(membership.get(fact.sourceFactKey()))) {
-                sink.error(build, fact.sourceFactKey(), "SOURCE_MEMBERSHIP_CONFLICT", fact.sellerAmount());
+                reject(build, fact, "SOURCE_MEMBERSHIP_CONFLICT", strict);
                 continue;
             }
             valid.add(fact);
@@ -59,33 +100,39 @@ public class ProjectionConsumerJdbc implements ProjectionBatchApplier {
         if (valid.isEmpty()) return;
         var eventHashes = new LinkedHashMap<String, String>();
         firstEvents.forEach((key, value) -> eventHashes.put(key, value.meaningHash()));
-        var newEvents =
-                new HashSet<>(insertUnique(build, eventHashes, "p_settlement_projection_event_ids", "event_id"));
-        var persistedEvents =
+        var beforeEvents =
                 hashes(build, new ArrayList<>(eventHashes.keySet()), "p_settlement_projection_event_ids", "event_id");
         var payments = firstEvents.values().stream()
-                .filter(fact -> newEvents.contains(fact.eventId()))
+                .filter(fact -> !beforeEvents.containsKey(fact.eventId()))
                 .map(SettlementFact::paymentId)
                 .distinct()
                 .sorted()
                 .toList();
         var states = lockStates(build, payments);
+        // Note: 다른 소비자의 결제 상태 잠금을 기다린 동안 커밋한 사건도 다시 확인한다.
+        var persistedEvents =
+                hashes(build, new ArrayList<>(eventHashes.keySet()), "p_settlement_projection_event_ids", "event_id");
+        var visitedEvents = new HashSet<String>();
+        var acceptedEvents = new LinkedHashMap<String, String>();
         var changed = new HashSet<Long>();
         var receipts = new LinkedHashMap<String, String>();
         var deltas = new HashMap<String, SettlementTotals>();
         for (var fact : valid) {
-            if (!fact.meaningHash().equals(persistedEvents.get(fact.eventId()))) {
-                sink.error(build, fact.sourceFactKey(), "EVENT_ID_CONFLICT", fact.sellerAmount());
+            String persisted = persistedEvents.get(fact.eventId());
+            if (!fact.meaningHash().equals(eventHashes.get(fact.eventId()))
+                    || (persisted != null && !fact.meaningHash().equals(persisted))) {
+                reject(build, fact, "EVENT_ID_CONFLICT", strict);
                 continue;
             }
-            if (!newEvents.remove(fact.eventId())) continue;
+            if (persisted != null || !visitedEvents.add(fact.eventId())) continue;
             State old = states.get(fact.paymentId());
             if (old == null) throw new IllegalStateException("결제별 집계 잠금 상태가 없다");
             var decision = old.value().accept(fact);
             if (decision.error() != null) {
-                sink.error(build, fact.sourceFactKey(), decision.error(), fact.sellerAmount());
+                reject(build, fact, decision.error(), strict);
                 continue;
             }
+            acceptedEvents.put(fact.eventId(), fact.meaningHash());
             states.put(fact.paymentId(), new State(decision.state(), Math.addExact(old.revision(), 1)));
             changed.add(fact.paymentId());
             for (var contribution : decision.contributions()) {
@@ -95,6 +142,17 @@ public class ProjectionConsumerJdbc implements ProjectionBatchApplier {
                         contribution.aggregateKey(),
                         (key, totals) -> (totals == null ? SettlementTotals.empty() : totals).add(contribution));
             }
+        }
+        if (insertUnique(build, acceptedEvents, "p_settlement_projection_event_ids", "event_id")
+                        .size()
+                != acceptedEvents.size()) {
+            var current = hashes(
+                    build, new ArrayList<>(acceptedEvents.keySet()), "p_settlement_projection_event_ids", "event_id");
+            for (var fact : valid)
+                if (acceptedEvents.containsKey(fact.eventId())
+                        && !fact.meaningHash().equals(current.get(fact.eventId())))
+                    throw new ProjectionFactConflictException(fact.sourceFactKey(), "EVENT_ID_CONFLICT");
+            throw new org.springframework.dao.CannotAcquireLockException("집계 사건 인수 경쟁으로 다시 시도한다");
         }
         if (insertUnique(build, receipts, "p_settlement_projection_applied", "fact_key")
                         .size()
@@ -114,6 +172,12 @@ public class ProjectionConsumerJdbc implements ProjectionBatchApplier {
                     updates);
         mergeTotals(build, deltas);
         sink.markApplied(build, receipts.keySet());
+        if (strict && recovery != null) recovery.projectionFactsApplied(build, receipts.keySet());
+    }
+
+    private void reject(UUID build, SettlementFact fact, String reason, boolean strict) {
+        if (strict) throw new ProjectionFactConflictException(fact.sourceFactKey(), reason);
+        sink.error(build, fact.sourceFactKey(), reason, fact.sellerAmount());
     }
 
     /** INSERT RETURNING으로 실제 승자만 처리한다. 사전 조회만으로 중복 여부를 추정하지 않는다. */
