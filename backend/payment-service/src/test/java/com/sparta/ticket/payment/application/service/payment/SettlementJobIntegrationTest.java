@@ -137,6 +137,23 @@ class SettlementJobIntegrationTest extends PaymentIntegrationTest {
     }
 
     @Test
+    @DisplayName("작업 DONE이어도 계산 실패 결과를 UNPOSTED로 구분해 보충 복구 대상을 남긴다")
+    void finishedJobDoesNotHideUnpostedSale() {
+        Payment payment = flow.inProgress(SELLERS.incrementAndGet(), 1L);
+        paymentTransactions.complete(
+                payment.getId(),
+                new PgResult.Approved("key-" + payment.getId(), 45_000, LocalDateTime.of(2025, 12, 1, 10, 0)));
+        settlementJobs.drain();
+        assertThat(jdbc.queryForMap(
+                        "SELECT status,processing_result FROM p_settlement_jobs WHERE payment_id=?", payment.getId()))
+                .containsEntry("status", "DONE")
+                .containsEntry("processing_result", "UNPOSTED");
+        assertThat(items.findSaleByPaymentId(payment.getId()).orElseThrow().getStatus())
+                .isEqualTo(SettlementItemStatus.UNPOSTED);
+        assertThat(flow.ledgerTransactions(payment.getId())).isZero();
+    }
+
+    @Test
     @DisplayName("원장 쓰기가 계속 실패해도 결제는 DONE이고 작업만 격리되며, 원인을 고친 뒤 재처리하면 한 번 반영된다")
     void ledgerFailureIsolatesJobAndConvergesAfterFix() {
         long seller = SELLERS.incrementAndGet();

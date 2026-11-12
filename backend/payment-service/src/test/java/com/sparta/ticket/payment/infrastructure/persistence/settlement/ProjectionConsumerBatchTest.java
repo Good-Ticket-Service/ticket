@@ -3,11 +3,15 @@ package com.sparta.ticket.payment.infrastructure.persistence.settlement;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sparta.ticket.payment.domain.model.settlement.projection.InactiveProjectionException;
+import com.sparta.ticket.payment.domain.model.settlement.projection.PaymentProjectionState;
+import com.sparta.ticket.payment.domain.model.settlement.projection.ProjectionFactConflictException;
 import com.sparta.ticket.payment.domain.model.settlement.projection.SettlementFact;
 import com.sparta.ticket.payment.infrastructure.persistence.settlement.projection.ProjectionCatalogJdbc;
 import com.sparta.ticket.payment.infrastructure.persistence.settlement.projection.ProjectionConsumerJdbc;
 import com.sparta.ticket.payment.infrastructure.persistence.settlement.projection.ProjectionSinkJdbc;
 import com.sparta.ticket.payment.infrastructure.persistence.settlement.projection.SettlementSourceJdbc;
+import com.sparta.ticket.payment.infrastructure.settlement.projection.ProjectionJson;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -23,6 +27,81 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 class ProjectionConsumerBatchTest {
+    @Test
+    void strictBatchDoesNotCommitGoodPrefixOrIdentityWhenAnySourceConflicts() throws Exception {
+        withFixture(f -> {
+            var first = f.facts().get(0);
+            var second = f.facts().get(1);
+            assertThatThrownBy(() -> f.consumer()
+                            .applyStrict(
+                                    f.build(),
+                                    List.of(first, copy(second, second.eventId(), second.sellerAmount() + 1))))
+                    .isInstanceOf(ProjectionFactConflictException.class);
+            for (String table : List.of("event_ids", "payment_states", "applied", "totals"))
+                assertThat(f.jdbc().queryForObject("SELECT count(*) FROM p_settlement_projection_" + table, Long.class))
+                        .isZero();
+            f.consumer().applyStrict(f.build(), f.facts());
+            assertAmounts(f.jdbc());
+        });
+    }
+
+    @Test
+    void failedDecisionDoesNotBurnEventIdentityAndSameEventCanApplyAfterDerivedStateRepair() throws Exception {
+        withFixture(f -> {
+            var refund = f.facts().stream()
+                    .filter(fact -> fact.kind() == SettlementFact.Kind.REFUND)
+                    .findFirst()
+                    .orElseThrow();
+            var sale = f.facts().stream()
+                    .filter(fact -> fact.kind() == SettlementFact.Kind.SALE && fact.paymentId() == refund.paymentId())
+                    .findFirst()
+                    .orElseThrow();
+            String corrupt = ProjectionJson.write(
+                    new PaymentProjectionState(copy(sale, sale.eventId(), sale.sellerAmount() + 1), null, true, false));
+            f.jdbc()
+                    .update(
+                            "INSERT INTO p_settlement_projection_payment_states(build_id,payment_id,payload,pending,revision,meaning_hash) VALUES(?,?,?,false,1,?)",
+                            f.build(),
+                            sale.paymentId(),
+                            corrupt,
+                            SettlementFact.hash(corrupt));
+            assertThatThrownBy(() -> f.consumer().applyStrict(f.build(), List.of(refund)))
+                    .isInstanceOf(ProjectionFactConflictException.class)
+                    .hasMessage("REFUND_SOURCE_CONFLICT");
+            assertThat(f.jdbc()
+                            .queryForObject(
+                                    "SELECT count(*) FROM p_settlement_projection_event_ids WHERE event_id=?",
+                                    Long.class,
+                                    refund.eventId()))
+                    .isZero();
+            String empty = ProjectionJson.write(PaymentProjectionState.empty());
+            // Note: 시험이 주입한 파생 상태만 복원한다. 금융 원장/fact를 고치거나 삭제하지 않는다.
+            f.jdbc()
+                    .update(
+                            "UPDATE p_settlement_projection_payment_states SET payload=?,pending=false,revision=0,meaning_hash=? WHERE build_id=? AND payment_id=?",
+                            empty,
+                            SettlementFact.hash(empty),
+                            f.build(),
+                            sale.paymentId());
+            f.consumer().applyStrict(f.build(), List.of(refund, sale));
+            f.consumer().applyStrict(f.build(), f.facts());
+            assertThat(f.jdbc().queryForObject("SELECT count(*) FROM p_settlement_projection_applied", Long.class))
+                    .isEqualTo(100);
+            assertAmounts(f.jdbc());
+        });
+    }
+
+    @Test
+    void inactiveBuildCannotReportSuccessfulConsumption() throws Exception {
+        withFixture(f -> {
+            f.jdbc().update("UPDATE p_settlement_projection_builds SET status='FAILED' WHERE id=?", f.build());
+            assertThatThrownBy(() -> f.consumer().applyStrict(f.build(), f.facts()))
+                    .isInstanceOf(InactiveProjectionException.class);
+            assertThat(f.jdbc().queryForObject("SELECT count(*) FROM p_settlement_projection_applied", Long.class))
+                    .isZero();
+        });
+    }
+
     @Test
     void pendingMarkerFailureRollsBackReceiptsMoneyAndBusinessIdentity() throws Exception {
         withFixture(f -> {
@@ -150,18 +229,25 @@ class ProjectionConsumerBatchTest {
                 fact.policyVersion());
     }
 
-    private record Fixture(
+    record Fixture(
             JdbcTemplate jdbc,
             ProjectionCatalogJdbc catalog,
             ProjectionConsumerJdbc consumer,
             UUID build,
             List<SettlementFact> facts) {}
 
-    private static void withFixture(Consumer<Fixture> check) throws Exception {
+    static void withFixture(Consumer<Fixture> check) throws Exception {
         try (var postgres = new PostgreSQLContainer<>("postgres:16")) {
             postgres.start();
+            var admin = new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
+            admin.execute("CREATE ROLE projection_fixture_app LOGIN PASSWORD 'fixture_only' NOSUPERUSER");
+            admin.execute("CREATE SCHEMA payment_schema AUTHORIZATION projection_fixture_app");
             try (var ds = ProjectionProcessMain.dataSource(
-                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                    postgres.getJdbcUrl() + (postgres.getJdbcUrl().contains("?") ? "&" : "?")
+                            + "currentSchema=payment_schema",
+                    "projection_fixture_app",
+                    "fixture_only")) {
                 try (var connection = ds.getConnection()) {
                     ScriptUtils.executeSqlScript(
                             connection, new FileSystemResource("../sql/payment-service/schema.sql"));
