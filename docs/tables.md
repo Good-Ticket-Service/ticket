@@ -193,10 +193,13 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | refund_required_at | TIMESTAMP |
 | schedule_start_at | TIMESTAMP NOT NULL |
 | performance_title | VARCHAR(200) NOT NULL |
+| genre | VARCHAR(30) |
 | cancel_checked_at | TIMESTAMP |
 
 - performance_id·seller_id는 선점 때 판매 검증(P21)이 돌려준 값이다. 결제 준비에 그대로 넘기며 바꾸지 않는다(#86).
 - schedule_start_at·performance_title도 선점 때 판매 검증(P21)이 돌려준 값이다. 다시 조회하지 않고 취소 기한(now < schedule_start_at)과 목록 표시에 쓴다(#126).
+- genre는 선점 때 판매 검증(P21)이 돌려준 공연 장르(Genre 이름)다. 다시 조회하지 않고 결제 준비 때 쿠폰에 넘겨 장르별 쿠폰을 판단한다. 응답에 없었거나 컬럼이 생기기 전에 만든 예약은 NULL이고 장르 쿠폰만 쓸 수 없다(#383, #389).
+- 이슈 #389 이행 SQL: `backend/sql/reservation-service/migrations/389-reservation-genre.sql`. p_reservations에 genre 컬럼(NULL 허용)을 더한다. 새 버전 서버로 바꾸기 전에 적용한다.
 - cancel_checked_at은 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각이다. 끝나지 않는 취소가 다음 차례의 앞자리를 막지 않게 한다.
 - refund_required_at은 결제 중인 지금 시도의 성공을 확정하지 못한 시각이다. 기록된 예약은 결과 확인 대상에서 빠지고 확정 불가 환불 대상이 된다(#155).
 - confirm_before는 메시지로 요청한 승인의 시한이다(접수 시각 + 5분). payment는 이 시각이 지나면 PG를 부르지 않으므로, 결과 확인은 이 뒤에만 조회하고 받지 못했다는 답을 실패로 본다. 동기 승인이면 NULL이고, 메시지 승인에서는 pg_auth_token을 남기지 않는다(#318, #321).
@@ -269,6 +272,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | coupon_id | BIGINT | PK; NOT NULL; DEFAULT IDENTITY; 쿠폰 ID |
 | name | VARCHAR(100) | NOT NULL; 쿠폰 이름 (1~100자) |
 | category | VARCHAR(20) | NOT NULL; DEFAULT 'GENERAL'; 쿠폰 구분. GENERAL(일반) 또는 WELCOME(웰컴). 목록을 나눠 보여 주는 데 쓴다. 발급 시작 후 변경 불가(#357) |
+| genre | VARCHAR(30) | 쓸 수 있는 공연 장르(공연 Genre 이름). NULL이면 모든 장르. 회원 쿠폰에 복사하지 않는다. 발급 시작 후 변경 불가(#389) |
 | discount_type | VARCHAR(10) | NOT NULL; DEFAULT 'FIXED'; 할인 종류. FIXED(정액) 또는 RATE(정률)(#348). 할인 정책 다섯 컬럼은 발급 시작 후 변경 불가 |
 | discount_amount | INT | 정액 할인액(원). FIXED일 때만 있다 |
 | discount_rate | INT | 할인율(%, 1~99). RATE일 때만 있다 |
@@ -289,6 +293,8 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `ck_p_coupons_valid_days ; CHECK ; valid_days > 0`
 - `ck_p_coupons_category ; CHECK ; category IN ('GENERAL', 'WELCOME')` (#357)
 - `ck_p_coupons_welcome_valid_days ; CHECK ; category <> 'WELCOME' OR valid_days = 7` (#357)
+- `ck_p_coupons_genre ; CHECK ; genre IS NULL OR genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS', 'CLASSICAL', 'KOREAN_MUSIC', 'DANCE', 'CIRCUS_MAGIC', 'MULTIDISCIPLINARY')` (#389). 공연에 장르가 늘면 함께 늘린다.
+- 이슈 #389 이행 SQL: `backend/sql/reservation-service/migrations/389-coupon-genre.sql`. p_coupons에 genre 컬럼과 제약을 더하고, 기존 쿠폰은 NULL(모든 장르)로 동작을 그대로 둔다. 새 버전 서버로 바꾸기 전에 적용한다.
 - 이슈 #357 이행 SQL: `backend/sql/reservation-service/migrations/357-coupon-category.sql`. p_coupons에 category 컬럼과 제약을 더하고, 기존 쿠폰은 GENERAL로 동작을 그대로 둔다. 새 버전 서버로 바꾸기 전에 적용한다.
 
 ### p_user_coupons — reservation-service/coupon.sql + A
