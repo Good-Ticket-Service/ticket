@@ -31,7 +31,8 @@ SAMPLER_APP = 's5-lock-sampler'
 WAVE_MS = 1000
 # wave 경계보다 이만큼 늦게 보낸 시도가 이 비율을 넘으면 동시성이 의도보다 낮아진 것이다(k6 scenario5.js LATE_MS=100ms)
 BURST_LATE_LIMIT = 0.05
-# 1초 표본기. 수집기(15초)로는 60초 측정에 표본이 4개뿐이라 잠금 대기 세션을 따로 센다. 두 모드에 같은 부담이다
+# 0.1초 표본기. 수집기(15초)로는 60초 측정에 표본이 4개뿐이라 잠금 대기 세션을 따로 센다. 두 모드에 같은 부담이다.
+# 1초 간격은 burst wave(매 초 처음 약 0.5초)와 위상이 맞지 않으면 매번 조용한 순간만 찍었다(11/12 burst 짧은 시험, 모두 0)
 LOCK_SAMPLE_SQL = ("SELECT json_build_object('t',extract(epoch FROM clock_timestamp()),"
                    "'lock',count(*) FILTER(WHERE wait_event_type='Lock'),"
                    "'blocked',count(*) FILTER(WHERE cardinality(pg_blocking_pids(pid))>0),"
@@ -39,6 +40,7 @@ LOCK_SAMPLE_SQL = ("SELECT json_build_object('t',extract(epoch FROM clock_timest
                    "FROM pg_stat_activity WHERE backend_type='client backend' AND pid<>pg_backend_pid() "
                    "AND application_name<>'" + SAMPLER_APP + "'")
 SAMPLER_MAX_SECONDS = 3600
+SAMPLE_INTERVAL = 0.1
 # reservation만 본다. application 라벨은 Eureka 이름(대문자)일 수 있어 대소문자를 가리지 않는다
 RESERVATION = 'application=~"(?i)reservation-service"'
 SERVER_QUERIES = {
@@ -48,6 +50,11 @@ SERVER_QUERIES = {
     # Lock 대기 세션이 하나도 없으면 시계열 자체가 없다. 수집이 된 시각에는 0으로 채운다(빈칸과 0을 구분)
     'pg_lock_waits': 'sum(integration_pg_sessions{wait_type="Lock"}) or 0*sum(integration_pg_sessions)',
     'pg_blocked': 'integration_pg_blocked_sessions',
+    # 위 gauge는 5초마다 그 순간 값이라 1초 안에 끝나는 몰림을 놓친다. 아래는 구간 최댓값·평균이라 몰림이 남는다
+    'hikari_acquire_max': f'max(hikaricp_connections_acquire_seconds_max{{{RESERVATION}}})',
+    'hikari_acquire_mean': (f'sum(rate(hikaricp_connections_acquire_seconds_sum{{{RESERVATION}}}[30s]))'
+                            f'/sum(rate(hikaricp_connections_acquire_seconds_count{{{RESERVATION}}}[30s]))'),
+    'hold_http_max': f'max(http_server_requests_seconds_max{{{RESERVATION},method="POST",uri=~".*/holds"}})',
 }
 
 def classify(status, body):
@@ -86,10 +93,11 @@ def series_summary(data, start, end):
     return {'avg': sum(points.values()) / len(points), 'max': max(points.values()), 'samples': len(points)}
 
 def sample_summary(samples, start, end):
-    """1초 표본기 결과의 측정 구간 평균·최대."""
+    """0.1초 표본기 결과의 측정 구간 평균·최대와 0보다 큰 표본의 비율(몰림이 얼마나 자주 잡혔는지)."""
     rows = [s for s in samples if start <= s['t'] <= end]
     if not rows: return None
-    return {key: {'avg': sum(r[key] for r in rows) / len(rows), 'max': max(r[key] for r in rows)}
+    return {key: {'avg': sum(r[key] for r in rows) / len(rows), 'max': max(r[key] for r in rows),
+                  'nonzero_ratio': sum(r[key] > 0 for r in rows) / len(rows)}
             for key in ('lock', 'blocked', 'active')} | {'samples': len(rows)}
 
 def collector_sources(text):
@@ -253,7 +261,7 @@ class HoldContentionScenario(MixedScenario):
         (self.out/'input.json').write_text(json.dumps({'meta': meta, 'users': users}), encoding='utf-8')
         self.report['prepared_at'] = datetime.now(KST).isoformat(); self.save()
 
-    # ---------- 1초 잠금 대기 표본기 ----------
+    # ---------- 0.1초 잠금 대기 표본기 ----------
     def start_sampler(self):
         path = self.out/'pg-lock-samples.jsonl'
         conn = f'dbname=ticket application_name={SAMPLER_APP}'
@@ -262,7 +270,7 @@ class HoldContentionScenario(MixedScenario):
             self.sampler = subprocess.Popen(cmd, env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=subprocess.DEVNULL, text=True, encoding='utf-8', errors='replace')
             # 반복 횟수에 상한을 둔다. 정리가 실패해도 psql이 컨테이너에 끝없이 남지 않게 한다
-            self.sampler.stdin.write(LOCK_SAMPLE_SQL+f' \\watch i=1 c={SAMPLER_MAX_SECONDS}\n'); self.sampler.stdin.close()
+            self.sampler.stdin.write(LOCK_SAMPLE_SQL+f' \\watch i={SAMPLE_INTERVAL} c={int(SAMPLER_MAX_SECONDS/SAMPLE_INTERVAL)}\n'); self.sampler.stdin.close()
         except OSError:
             self.report['lock_sampler'] = {'error': 'start failed'}; self.sampler = None; return
         def read():
@@ -403,12 +411,13 @@ class HoldContentionScenario(MixedScenario):
             except Exception: gaps.append(name)
         samples_path = self.out/'pg-lock-samples.jsonl'
         samples = [json.loads(l) for l in samples_path.read_text(encoding='utf-8').splitlines()] if samples_path.exists() else []
-        summary['pg_lock_1s'] = sample_summary(samples, m_start, m_end)
+        summary['pg_lock_100ms'] = sample_summary(samples, m_start, m_end)
         self.report['server_summary'] = summary
         self.report['server_summary_basis'] = ('Prometheus 5s step raw values (gauges, no rate) within the measurement window; '
-            'pg_lock_waits/pg_blocked come from the 15s collector; pg_lock_1s from a 1s pg_stat_activity sampler')
+            'pg_lock_waits/pg_blocked come from the 15s collector; pg_lock_100ms from a 0.1s pg_stat_activity sampler; '
+            'hikari_acquire_max/hold_http_max are Micrometer window maxima, hikari_acquire_mean is sum/count over 30s')
         self.report['observation_gaps'] = gaps
-        self.report['checks']['pg_lock_samples_recorded'] = summary['pg_lock_1s'] is not None
+        self.report['checks']['pg_lock_samples_recorded'] = summary['pg_lock_100ms'] is not None
         self.report['observation_notes'] = {'host_metrics': 'Start/restart observe.py before a measured stage. Missing series must not be interpreted as zero.'}
 
     def execute(self):
