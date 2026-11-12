@@ -368,7 +368,9 @@ class HoldContentionScenario(MixedScenario):
     def prometheus(self):
         start = self.report.get('load_start_epoch')
         if not start: return
-        end = self.report.get('load_end_epoch', time.time())
+        # k6는 지표를 5초마다 보내고 수집기는 15초 간격이라, 부하가 끝난 시각에서 끊으면 마지막 표본이 빠진다(짧은 회차는 k6_holds가 비었다).
+        # 저장본만 15초 더 받고, 결과 요약(server_summary)은 측정 구간으로 자른다
+        end = self.report.get('load_end_epoch', time.time())+15
         queries = {'targets': 'up', 'cpu_cores': 'rate(integration_container_cpu_usage_seconds_total[30s])',
                    'pg_waits': 'integration_pg_sessions',
                    'http_p99': 'histogram_quantile(0.99,sum by(le,application,uri)(rate(http_server_requests_seconds_bucket[30s])))',
