@@ -13,7 +13,6 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -50,13 +49,11 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class SeatHoldTransactions {
 
-    /** 선점 시간. Notion API 명세서 「좌석 선점」의 계약값(선점 시각 + 10분)이라 설정이 아니라 상수로 둔다. */
-    static final Duration HOLD_DURATION = Duration.ofMinutes(10);
-
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final BookingFacade bookingFacade;
     private final SeatChangeStamps changeStamps;
     private final SeatHoldLockMode lockMode;
+    private final SeatHoldDuration holdDuration;
 
     @Transactional
     public SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldTarget target, SaleValidation validation) {
@@ -155,7 +152,7 @@ public class SeatHoldTransactions {
 
         // 8. 예약을 만들고 좌석을 잡는다. 만료 시각은 한 번 계산해 예약과 좌석에 같은 값을 쓴다. 가격은 좌석의 스냅샷 가격이다.
         //    공연·판매자(#86)와 회차 시작 시각·공연명(#126)은 클라이언트 입력이 아니라 판매 검증 응답 값을 그대로 넘긴다
-        LocalDateTime holdExpiresAt = now.plus(HOLD_DURATION);
+        LocalDateTime holdExpiresAt = now.plus(holdDuration.current());
         HoldTarget holdTarget = new HoldTarget(
                 scheduleId,
                 validation.performanceId(),
