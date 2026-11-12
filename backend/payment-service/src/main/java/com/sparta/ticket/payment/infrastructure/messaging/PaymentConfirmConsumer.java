@@ -2,7 +2,7 @@ package com.sparta.ticket.payment.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.payment.application.dto.payment.MessageConfirmCommand;
+import com.sparta.ticket.payment.application.service.payment.MessageApprovalAttempt;
 import com.sparta.ticket.payment.application.service.payment.MessageApprovalProperties;
 import com.sparta.ticket.payment.application.service.payment.MessageApprovalService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -157,10 +157,10 @@ public class PaymentConfirmConsumer {
         }
         if (!work.running.compareAndSet(false, true)) return;
         try {
-            if (work.command == null && !work.poison) {
+            if (work.attempt == null && !work.poison) {
                 try {
-                    work.command = PaymentConfirmMessage.parse(
-                            mapper, work.record.key(), work.record.value(), properties.getMaxMessageBytes());
+                    work.attempt = new MessageApprovalAttempt(PaymentConfirmMessage.parse(
+                            mapper, work.record.key(), work.record.value(), properties.getMaxMessageBytes()));
                 } catch (PaymentConfirmMessage.InvalidMessage exception) {
                     work.poison = true;
                     count("invalid");
@@ -170,7 +170,7 @@ public class PaymentConfirmConsumer {
                 sendDeadLetter(work);
                 return;
             }
-            var outcome = service.advance(work.command, () -> active(work));
+            var outcome = service.advance(work.attempt, () -> active(work));
             if (outcome == MessageApprovalService.Outcome.COMPLETE) complete(work);
             else if (outcome == MessageApprovalService.Outcome.RETRY) {
                 count("local_wait");
@@ -329,7 +329,7 @@ public class PaymentConfirmConsumer {
         volatile boolean paused;
         boolean poison;
         int failures;
-        MessageConfirmCommand command;
+        MessageApprovalAttempt attempt;
 
         Work(
                 ConsumerRecord<String, String> record,
