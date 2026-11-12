@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.coupon.application.dto;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
+import com.sparta.ticket.reservation.coupon.domain.CouponGenre;
 import com.sparta.ticket.reservation.coupon.domain.CouponIssueStatus;
 import com.sparta.ticket.reservation.coupon.domain.DiscountType;
 import java.time.LocalDateTime;
@@ -11,6 +12,8 @@ public record CouponDetailResult(
         Long couponId,
         String name,
         CouponCategory category,
+        // 쓸 수 있는 공연 장르. null이면 모든 장르(#389)
+        CouponGenre genre,
         DiscountType discountType,
         Integer discountAmount,
         Integer discountRate,
@@ -35,6 +38,7 @@ public record CouponDetailResult(
                 coupon.getId(),
                 coupon.getName(),
                 coupon.getCategory(),
+                coupon.getGenre(),
                 coupon.getDiscountPolicy().getDiscountType(),
                 coupon.getDiscountPolicy().getDiscountAmount(),
                 coupon.getDiscountPolicy().getDiscountRate(),

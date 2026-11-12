@@ -47,6 +47,7 @@ public class CouponService {
         Coupon coupon = Coupon.create(
                 command.name(),
                 command.category(),
+                command.genre(),
                 command.discountPolicy(),
                 command.totalQuantity(),
                 command.issueStartAt(),
@@ -82,6 +83,7 @@ public class CouponService {
         coupon.update(
                 command.name(),
                 command.category(),
+                command.genre(),
                 command.discountPolicy(),
                 command.totalQuantity(),
                 command.issueStartAt(),

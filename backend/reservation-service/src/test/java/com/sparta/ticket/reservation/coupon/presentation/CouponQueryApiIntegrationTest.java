@@ -265,6 +265,8 @@ class CouponQueryApiIntegrationTest extends ReservationIntegrationTest {
                     .andExpect(jsonPath("$.data.content[0].couponId").value(active.getId()))
                     .andExpect(jsonPath("$.data.content[0].userCouponId").isNumber())
                     .andExpect(jsonPath("$.data.content[0].name").value("쓸 수 있는 쿠폰"))
+                    // 장르를 정하지 않은 쿠폰은 모든 장르(null)다(#389)
+                    .andExpect(jsonPath("$.data.content[0].genre").isEmpty())
                     .andExpect(jsonPath("$.data.content[0].discountAmount").value(5000))
                     .andExpect(jsonPath("$.data.content[0].status").value("AVAILABLE"))
                     .andExpect(jsonPath("$.data.content[0].issuedAt").value(now().format(FORMAT)))
