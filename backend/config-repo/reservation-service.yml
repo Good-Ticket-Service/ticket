@@ -114,6 +114,24 @@ reservation:
       max: 5s
       busy-above: 1000
 
+    # 결제 준비 접수 제한(#356). 메시지 승인에서만 동작한다. 접수 후 late-after가 지나도 결과가 없는 결제가 shed-above보다 많고
+    # trend-window의 앞뒤 절반에서 모두 늘면 결제 준비를 503 + Retry-After로 거절하고, resume-below 이하로 내려오면 다시 받는다.
+    # 늦은 결제는 결제 중 집계(scheduler.payment-backlog)가 세므로 stale-after는 그 주기보다 길게 둔다.
+    # 거절 중에도 선점 만료가 priority-window 안이면 인스턴스마다 초당 priority-rate건까지 통과시킨다.
+    # 늦은 결제에서 시한이 지난 결제와 환불 대상은 뺀다. 결과 확인이 끝낼 몫이라 남아도 거절이 풀린다.
+    # 거절 응답의 Retry-After는 기다리는 사용자 수 ÷ 초당 받을 수 있는 수로 정하고 retry-after와 max-retry-after 사이로 묶는다
+    admission:
+      enabled: true
+      late-after: 5s
+      shed-above: 50
+      resume-below: 10
+      trend-window: 10s
+      retry-after: 5s
+      max-retry-after: 30s
+      stale-after: 10s
+      priority-window: 2m
+      priority-rate: 10
+
     # 사용자 요청의 결제 준비·승인 보호. payment가 느리거나 멈추면 승인 대기가 Tomcat 스레드를 모두 잡아 결제와 무관한 조회까지 늦어진다.
     # 동시에 기다리는 결제 호출 수를 묶고(Bulkhead), 응답 없음이 이어지면 아예 부르지 않는다(Circuit Breaker). 막으면 바로 503이다.
     # 스케줄러 호출은 막지 않는다

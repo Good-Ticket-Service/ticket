@@ -571,6 +571,20 @@ public interface ReservationJpaRepository
     @Query("""
             SELECT COUNT(r) FROM Reservation r
              WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.updatedAt < :acceptedBefore
+               AND r.confirmBefore >= :now
+               AND r.refundRequiredAt IS NULL
+            """)
+    long countLatePayments(@Param("acceptedBefore") LocalDateTime acceptedBefore, @Param("now") LocalDateTime now);
+
+    @Override
+    @Query("SELECT r.holdExpiresAt FROM Reservation r WHERE r.id = :id")
+    Optional<LocalDateTime> findHoldExpiresAt(@Param("id") Long id);
+
+    @Override
+    @Query("""
+            SELECT COUNT(r) FROM Reservation r
+             WHERE r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
                AND r.updatedAt <= :updatedBefore
             """)
     long countStalePayments(@Param("updatedBefore") LocalDateTime updatedBefore);

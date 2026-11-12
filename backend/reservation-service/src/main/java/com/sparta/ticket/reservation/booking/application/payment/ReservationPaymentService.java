@@ -37,6 +37,7 @@ public class ReservationPaymentService {
     private final PaymentPort paymentPort;
     private final PaymentCallGuard paymentCallGuard;
     private final PaymentConfirmSettings confirmSettings;
+    private final AdmissionGate admissionGate;
 
     /**
      * 결제를 준비한다. 상태는 HOLD 그대로이고, 고른 쿠폰을 예약에 잡은 뒤 새 orderId와 결제 금액을 기록한다.
@@ -44,6 +45,9 @@ public class ReservationPaymentService {
      * 막혀 있으면 쿠폰을 잡기 전에 503으로 끝낸다.
      */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
+        if (confirmSettings.viaMessage()) {
+            admit(reservationId);
+        }
         Call call = paymentCallGuard.start();
         try {
             CheckoutTarget target =
@@ -70,6 +74,26 @@ public class ReservationPaymentService {
             call.skipped();
             throw e;
         }
+    }
+
+    /**
+     * 메시지 승인은 승인을 바로 받으므로 결제 쪽이 밀려도 예매는 모른 채 결제 중을 쌓는다. 결과가 계속 늦어지면 결제창에 들어가기 전인
+     * 결제 준비에서 막는다. 승인에서 막으면 사용자가 받은 인증값을 버려야 한다. 동기 승인은 승인 호출 보호가 같은 일을 한다.
+     * 받는 동안은 요청마다 DB를 더 보지 않는다. 거절 중에는 만료 임박 통과 몫이 남았을 때만 선점 만료 시각 한 칸을 읽는다.
+     * 거절하는 원인이 DB 포화일 수 있어 거절에 드는 DB 비용을 줄인다. 본인 확인과 상태 검사는 통과한 뒤 본 흐름이 한다.
+     */
+    private void admit(Long reservationId) {
+        if (admissionGate.tryAdmit()) {
+            return;
+        }
+        if (admissionGate.hasPriorityRoom()
+                && transactions
+                        .holdExpiresAt(reservationId)
+                        .filter(admissionGate::letsThroughBeforeHoldExpires)
+                        .isPresent()) {
+            return;
+        }
+        throw admissionGate.reject();
     }
 
     private PreparedPayment prepare(Call call, PaymentPrepareRequest request) {

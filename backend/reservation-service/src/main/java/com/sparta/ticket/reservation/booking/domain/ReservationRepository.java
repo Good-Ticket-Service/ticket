@@ -149,6 +149,15 @@ public interface ReservationRepository {
 
     long countPaymentsInProgress();
 
+    /**
+     * 이 시각 전에 접수했는데 아직 결과가 없는 메시지 승인 수. 결제 중인 동안 updated_at은 접수 시각 그대로다.
+     * 시한이 지난 결제와 환불 대상은 뺀다. 결과 확인이 끝낼 몫이라 결과를 기다리는 결제가 아니고, 결제가 모르는 주문처럼 오래 남는 행이
+     * 섞이면 늦은 결제가 줄지 않아 결제 준비 거절이 풀리지 않는다.
+     */
+    long countLatePayments(LocalDateTime acceptedBefore, LocalDateTime now);
+
+    Optional<LocalDateTime> findHoldExpiresAt(Long id);
+
     /** 환불이 필요하다고 기록된 결제 중 예약을, 마지막 환불 요청(없으면 기록 시각)이 checkedBefore 이전인 것부터 고른다. 잠그지 않는다. */
     List<Long> findRefundRequiredIds(LocalDateTime checkedBefore, int limit);
 
