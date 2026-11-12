@@ -47,6 +47,7 @@ public class SaleValidationQueryRepository implements SaleValidationReader {
                         PERFORMANCE.sellerId,
                         PERFORMANCE.venueId,
                         PERFORMANCE.title,
+                        PERFORMANCE.genre,
                         SCHEDULE.startAt,
                         SCHEDULE.bookingOpenAt,
                         SCHEDULE.bookingCloseAt,

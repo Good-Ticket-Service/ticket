@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.application.dto;
 
+import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.domain.schedule.SaleRejectReason;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.List;
  *
  * @param configVersion 회차의 최신 좌석 구성 버전. SEAT_CONFIG_VERSION_MISMATCH이면 좌석 서비스가 이 값으로 갱신할 수 있다.
  * @param policyVersion 부모 공연의 version
+ * @param genre 부모 공연의 장르(#383)
  */
 public record SaleValidationResult(
         boolean allowed,
@@ -20,6 +22,7 @@ public record SaleValidationResult(
         long configVersion,
         long policyVersion,
         String performanceTitle,
+        Genre genre,
         LocalDateTime scheduleStartAt,
         LocalDateTime validatedAt,
         List<Seat> seats) {
@@ -43,6 +46,7 @@ public record SaleValidationResult(
                 target.seatConfigVersion(),
                 target.performanceVersion(),
                 target.performanceTitle(),
+                target.genre(),
                 target.startAt(),
                 validatedAt,
                 seats);
