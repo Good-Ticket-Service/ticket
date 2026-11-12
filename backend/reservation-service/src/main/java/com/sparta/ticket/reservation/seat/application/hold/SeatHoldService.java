@@ -18,7 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
- * 좌석 선점(POST /api/seats/schedules/{scheduleId}/holds)의 진입점. 좌석 1장을 10분 동안 잡고 예약을 HOLD로 만든다.
+ * 좌석 선점(POST /api/seats/schedules/{scheduleId}/holds)의 진입점. 좌석 1장을 유지 시간(기본 10분, SeatHoldProperties.duration) 동안 잡고 예약을 HOLD로 만든다.
  *
  * 처리 흐름
  *   1. 좌석을 잠금 없이 읽어 이 회차 좌석인지 확인한다(아니면 404 SEAT_NOT_FOUND).
