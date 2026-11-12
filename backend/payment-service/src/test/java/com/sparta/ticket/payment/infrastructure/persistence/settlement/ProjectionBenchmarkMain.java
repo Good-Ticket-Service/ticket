@@ -33,6 +33,10 @@ public final class ProjectionBenchmarkMain {
                 "--server.address=127.0.0.1",
                 "--server.port=" + args[3],
                 "--payment.settlement.projection.auto-start=false",
+                "--payment.settlement.posting.transport=DB",
+                "--payment.settlement.posting.kafka.enabled=false",
+                "--payment.settlement.consumer-recovery.replay-enabled=false",
+                "--payment.settlement.consumer-recovery.observation-enabled=false",
                 "--projection.measure.mode=" + args[4]));
         options.add("--payment.settlement.projection.enabled="
                 + !List.of("OFF", "PAUSED").contains(args[4]));
