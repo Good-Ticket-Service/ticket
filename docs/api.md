@@ -410,6 +410,7 @@
 - confirm: 결제 실패이고 선점 시간이 남았으면 응답 status는 HOLD이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
 - confirm: 결제 실패이고 선점 시간이 지났으면 응답 status는 EXPIRED이다. (원본 복원: reservation/orchestration.md:224,254, 담당 확인 필요)
 - confirm: 결과를 모르면 응답 status는 PAYMENT_IN_PROGRESS이다. 클라이언트는 GET /api/reservations/{reservationId}/status로 폴링한다.
+- checkout 접수 제한: 결제 승인을 메시지로 요청하는 모드에서 결제 결과가 계속 늦어지면 checkout을 503 SERVICE_UNAVAILABLE로 거절하고 `Retry-After` 헤더(초)로 다시 시도할 시간을 준다. 기다리는 예매가 많으면 서버가 간격을 늘린다(기본 5초, 최대 30초). 선점은 그대로이므로 그 뒤 같은 요청을 다시 보낸다. 선점 만료가 가까운 예매는 거절 중에도 일부 받는다. (#356)
 - 폴링: 예매가 PAYMENT_IN_PROGRESS이면 단건 조회와 상태 조회 모두 `Retry-After` 헤더(초)로 다음 조회까지 기다릴 시간을 준다. 결제 중 예약이 많으면 서버가 간격을 늘린다(기본 1초, 최대 5초). 헤더가 없으면 결과가 정해진 것이므로 조회를 멈춘다. (#321)
 - confirm: 승인 뒤 결과 반영이 실패해도 오류 대신 200과 현재 상태(PAYMENT_IN_PROGRESS)를 준다. (원본 복원: reservation/booking-decisions.md:61, 담당 확인 필요)
 - confirm: 같은 orderId의 승인이 다시 왔을 때 예매가 PAYMENT_IN_PROGRESS나 CONFIRMED이면 결제를 다시 부르지 않는다. 이때 200과 현재 상태를 준다. (원본 복원: reservation/orchestration.md:219,231, reservation/booking-decisions.md:60, 담당 확인 필요)
