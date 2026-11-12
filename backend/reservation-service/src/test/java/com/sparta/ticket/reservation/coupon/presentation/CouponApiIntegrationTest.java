@@ -210,6 +210,32 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
+        @DisplayName("장르를 보내면 그 장르 쿠폰이고, 보내지 않으면 모든 장르(null)다. 없는 장르는 400 VALIDATION_ERROR(#389)")
+        void createGenre() throws Exception {
+            LocalDateTime start = clock.now().plusDays(1).truncatedTo(ChronoUnit.SECONDS);
+            String body = """
+                    {"name": "뮤지컬 쿠폰", "genre": "%s", "discountAmount": 3000, "totalQuantity": 100,
+                     "issueStartAt": "%s", "issueEndAt": "%s", "validDays": 7}
+                    """;
+
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body.formatted("MUSICAL", format(start), format(start.plusDays(6)))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.genre").value("MUSICAL"));
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(createBody(start, start.plusDays(6))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.genre").isEmpty());
+            mockMvc.perform(as(post("/api/coupons"), Role.MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body.formatted("OPERA", format(start), format(start.plusDays(6)))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        @Test
         @DisplayName("구분을 보내지 않으면 일반 쿠폰이다(#357)")
         void createDefaultsToGeneral() throws Exception {
             LocalDateTime start = clock.now().plusDays(1);
@@ -402,6 +428,30 @@ class CouponApiIntegrationTest extends ReservationIntegrationTest {
 
             patch(coupon.getId(), """
                             {"category": "WELCOME", "validDays": 7}
+                            """)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_MODIFIABLE"));
+        }
+
+        @Test
+        @DisplayName("시작 전에는 장르만 보내도 바꿀 수 있다(#389)")
+        void genreModifiable() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().plusDays(1));
+
+            patch(coupon.getId(), """
+                            {"genre": "CONCERT"}
+                            """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.genre").value("CONCERT"));
+        }
+
+        @Test
+        @DisplayName("발급 시작 후 장르를 바꾸면 409 COUPON_NOT_MODIFIABLE(#389)")
+        void genreNotModifiable() throws Exception {
+            Coupon coupon = saveCoupon(clock.now().minusHours(1));
+
+            patch(coupon.getId(), """
+                            {"genre": "CONCERT"}
                             """)
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("COUPON_NOT_MODIFIABLE"));
