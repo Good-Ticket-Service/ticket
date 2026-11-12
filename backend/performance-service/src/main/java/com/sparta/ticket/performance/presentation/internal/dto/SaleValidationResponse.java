@@ -9,6 +9,7 @@ import java.util.List;
 /**
  * 판매 검증 응답(P21). 내부 API라 ApiResponse로 감싸지 않는다. 시각은 +09:00 오프셋을 붙인 ISO 8601이다.
  * 거절이면 allowed=false, reasonCode, 빈 seats이고 나머지 필드는 허용과 똑같이 채운다.
+ * genre는 공연 Genre 이름이다. 좌석이 예약에 넘겨 장르별 쿠폰 판단에 쓴다(#383).
  */
 public record SaleValidationResponse(
         boolean allowed,
@@ -19,6 +20,7 @@ public record SaleValidationResponse(
         long configVersion,
         long policyVersion,
         String performanceTitle,
+        String genre,
         OffsetDateTime scheduleStartAt,
         OffsetDateTime validatedAt,
         List<Seat> seats) {
@@ -35,6 +37,7 @@ public record SaleValidationResponse(
                 result.configVersion(),
                 result.policyVersion(),
                 result.performanceTitle(),
+                result.genre().name(),
                 offset(result.scheduleStartAt()),
                 offset(result.validatedAt()),
                 result.seats().stream().map(Seat::from).toList());

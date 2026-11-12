@@ -60,7 +60,7 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
     class Allowed {
 
         @Test
-        @DisplayName("판매 가능하면 P21 전체 필드와 요청 순서의 좌석 등급·가격을 주고, ApiResponse로 감싸지 않는다")
+        @DisplayName("판매 가능하면 P21 전체 필드(공연 장르 포함, #383)와 요청 순서의 좌석 등급·가격을 주고, ApiResponse로 감싸지 않는다")
         void allowedShape() throws Exception {
             validate(100, 2, 3, 1)
                     .andExpect(status().isOk())
@@ -74,6 +74,7 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
                     .andExpect(jsonPath("$.configVersion").value(2))
                     .andExpect(jsonPath("$.policyVersion").value(3))
                     .andExpect(jsonPath("$.performanceTitle").value("판매 공연"))
+                    .andExpect(jsonPath("$.genre").value("MUSICAL"))
                     .andExpect(jsonPath("$.scheduleStartAt").value("2026-12-01T19:00:00+09:00"))
                     .andExpect(jsonPath("$.validatedAt").value("2026-11-01T12:00:00+09:00"))
                     .andExpect(jsonPath("$.seats[*].venueSeatId").value(contains(3, 1)))
@@ -106,6 +107,7 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
                     .andExpect(jsonPath("$.configVersion").value(2))
                     .andExpect(jsonPath("$.policyVersion").value(3))
                     .andExpect(jsonPath("$.performanceTitle").value("판매 공연"))
+                    .andExpect(jsonPath("$.genre").value("MUSICAL"))
                     .andExpect(jsonPath("$.scheduleStartAt").value("2026-12-01T19:00:00+09:00"))
                     .andExpect(jsonPath("$.validatedAt").value("2026-11-01T12:00:00+09:00"));
         }

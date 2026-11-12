@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.application.dto;
 
+import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.PublicationStatus;
 import com.sparta.ticket.performance.domain.schedule.SaleCondition;
@@ -9,6 +10,7 @@ import java.time.LocalDateTime;
 /**
  * 판매 검증 대상 회차와 부모 공연을 한 번에 읽은 값. 시각은 KST다.
  *
+ * @param genre 부모 공연의 장르. 예매가 예약에 저장해 장르별 쿠폰 판단에 쓴다(#383).
  * @param performanceVersion 부모 공연의 version. 응답의 policyVersion이다.
  */
 public record SaleTarget(
@@ -17,6 +19,7 @@ public record SaleTarget(
         Long sellerId,
         Long venueId,
         String performanceTitle,
+        Genre genre,
         LocalDateTime startAt,
         LocalDateTime bookingOpenAt,
         LocalDateTime bookingCloseAt,
