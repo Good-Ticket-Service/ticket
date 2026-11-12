@@ -20,6 +20,7 @@ public class FakeSaleValidationPort implements SaleValidationPort {
     public static final int DEFAULT_PRICE = 150_000;
     public static final LocalDateTime SCHEDULE_START_AT = LocalDateTime.of(2026, 11, 30, 19, 0);
     public static final String PERFORMANCE_TITLE = "오페라의 유령";
+    public static final String GENRE = "MUSICAL";
 
     private volatile int basePrice = DEFAULT_PRICE;
     private volatile Long configVersionOverride;
@@ -46,6 +47,7 @@ public class FakeSaleValidationPort implements SaleValidationPort {
                     1L,
                     SCHEDULE_START_AT,
                     PERFORMANCE_TITLE,
+                    GENRE,
                     List.of());
         }
         long answeredVersion = configVersionOverride != null ? configVersionOverride : configVersion;
@@ -62,6 +64,7 @@ public class FakeSaleValidationPort implements SaleValidationPort {
                 1L,
                 SCHEDULE_START_AT,
                 PERFORMANCE_TITLE,
+                GENRE,
                 seats);
     }
 

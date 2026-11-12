@@ -90,11 +90,11 @@ class SaleValidationFeignAdapterTest {
     }
 
     @Test
-    @DisplayName("허용이면 공연·판매자 ID와 좌석 등급·가격을 돌려주고, 요청에는 구성 버전과 공연장 좌석 ID를 보낸다")
+    @DisplayName("허용이면 공연·판매자 ID·장르와 좌석 등급·가격을 돌려주고, 요청에는 구성 버전과 공연장 좌석 ID를 보낸다")
     void allowed() throws Exception {
         STUB.respond(PATH, 200, """
                 {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
-                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령",
+                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령", "genre": "MUSICAL",
                  "scheduleStartAt": "2026-11-30T19:00:00+09:00", "validatedAt": "2026-11-01T14:00:00+09:00",
                  "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""");
 
@@ -111,11 +111,27 @@ class SaleValidationFeignAdapterTest {
                         3L,
                         LocalDateTime.of(2026, 11, 30, 19, 0),
                         "오페라의 유령",
+                        "MUSICAL",
                         List.of(new SaleValidationSeat(1001L, 101L, "VIP", 150_000))));
         JsonNode body = JSON.readTree(STUB.lastBody(PATH));
         assertThat(body.get("configVersion").asLong()).isEqualTo(2L);
         assertThat(body.get("venueSeatIds").get(0).asLong()).isEqualTo(1001L);
         assertThat(body.size()).as("계약의 요청 필드 두 개만 보낸다").isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("허용 응답에 장르가 없어도 503으로 막지 않고 장르만 비워 돌려준다(#383)")
+    void allowedWithoutGenre() {
+        STUB.respond(PATH, 200, """
+                {"allowed": true, "reasonCode": null, "scheduleId": 201, "performanceId": 11, "sellerId": 1001,
+                 "configVersion": 2, "policyVersion": 3, "performanceTitle": "오페라의 유령",
+                 "scheduleStartAt": "2026-11-30T19:00:00+09:00", "validatedAt": "2026-11-01T14:00:00+09:00",
+                 "seats": [{"venueSeatId": 1001, "venueSeatGradeId": 101, "gradeName": "VIP", "basePrice": 150000}]}""");
+
+        SaleValidation result = adapter.validate(201L, 2L, List.of(1001L));
+
+        assertThat(result.allowed()).isTrue();
+        assertThat(result.genre()).isNull();
     }
 
     @Test
