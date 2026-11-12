@@ -1,13 +1,19 @@
 package com.sparta.ticket.waitingroom.presentation;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.sparta.ticket.common.auth.CurrentUser;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.waitingroom.application.QueueService;
 import com.sparta.ticket.waitingroom.application.dto.QueueStatusResult;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -27,23 +33,45 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "대기열")
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/waiting-rooms/{roomId}/entries")
 public class QueueController {
 
     private final QueueService queueService;
+    private final ObjectWriter enterResponseWriter;
+
+    /** 진입 응답 writer는 Spring이 쓰는 ObjectMapper로 한 번만 만든다. JSON 규칙이 같아 응답 모양도 같다. */
+    public QueueController(QueueService queueService, ObjectMapper objectMapper) {
+        this.queueService = queueService;
+        this.enterResponseWriter = objectMapper.writerFor(new TypeReference<ApiResponse<QueueStatusResult>>() {});
+    }
 
     /**
      * 대기열에 줄을 선다. 본문 없음. 이미 서 있으면 새로 서지 않고 원래 순번을 돌려주므로 201이 아니라 200이다.
      * 이미 입장해 있으면 줄에 다시 세우지 않고 순번 조회와 같은 ENTERED 응답을 준다.
      */
     @Operation(summary = "대기열 진입")
-    // Note: 응답은 JSON뿐이라 형식을 미리 정한다. 정하지 않으면 요청마다 등록된 변환기를 모두 훑어 쓸 수 있는 형식을 고른다
-    // (11-10 JFR: 오픈 순간 몰림에서 응답 쓰기가 진입 CPU의 18%, 그중 형식 고르기가 큰 몫). 응답 내용·형식은 그대로다
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = EnterResponseSchema.class)))
+    // Note: 오픈 순간 몰림의 진입만 다른 API와 달리 응답을 직접 쓴다. 객체를 반환하면 Spring이 요청마다 응답 형식·변환기를 다시 정하는데,
+    // 이 준비 일이 JSON 만들기보다 크다(JFR, 동시 2만 명: 응답 쓰기가 진입 CPU의 29%, 그중 Jackson 직렬화 자체는 약 7%).
+    // 요청이 2 vCPU 앞에 줄을 서므로 요청당 CPU가 곧 진입 응답 시간이다(#375). 응답 본문·상태 코드는 다른 API와 같고, 오류는 예외 처리기가 그대로 쓴다.
+    // produces는 Accept가 맞지 않는 요청을 지금처럼 406으로 막으려고 둔다
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ApiResponse<QueueStatusResult> enter(@PathVariable Long roomId, @CurrentUser UserContext user) {
-        return ApiResponse.ok(queueService.enter(roomId, user.userId()));
+    public void enter(@PathVariable Long roomId, @CurrentUser UserContext user, HttpServletResponse response)
+            throws IOException {
+        byte[] body = enterResponseWriter.writeValueAsBytes(ApiResponse.ok(queueService.enter(roomId, user.userId())));
+        response.setStatus(HttpStatus.OK.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
     }
+
+    /** API 문서에 진입 응답 모양(ApiResponse&lt;QueueStatusResult&gt;)을 보이려고만 쓴다. */
+    private record EnterResponseSchema(int status, String message, QueueStatusResult data) {}
 
     /**
      * 내 순번을 확인한다(폴링). 응답이 캐시되면 요청이 서버에 오지 않아 이탈자로 잘못 판단하므로 no-store를 붙인다.
