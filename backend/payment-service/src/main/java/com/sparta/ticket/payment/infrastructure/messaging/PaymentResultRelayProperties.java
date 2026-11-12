@@ -15,7 +15,8 @@ public record PaymentResultRelayProperties(
         @DefaultValue("30s") Duration lease,
         @DefaultValue("2s") Duration sendTimeout,
         @DefaultValue("1s") Duration maxRun,
-        @DefaultValue("1s") Duration retryDelay) {
+        @DefaultValue("1s") Duration retryDelay,
+        @DefaultValue("50") @Min(1) @Max(1000) int maxRoundsPerTick) {
     @AssertTrue(message = "발행 예산은 양수이고 lease는 실행 예산과 단일 송신 대기보다 길어야 한다")
     public boolean isBudgetValid() {
         return lease != null
