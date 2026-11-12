@@ -10,10 +10,11 @@ public interface CouponPort {
     /**
      * 회원 쿠폰을 이 예약에 잡고 이 정가에 적용한 할인액을 돌려준다(#347). 최소 결제 금액에 맞춰 자르는 일은 booking이 한다.
      * 본인 쿠폰이 아니거나, 쓸 수 있는 상태가 아니거나, 유효 기간이 지났거나, 정가가 쿠폰의 최소 적용 금액보다 작으면
-     * COUPON_NOT_AVAILABLE 예외를 던진다.
+     * COUPON_NOT_AVAILABLE 예외를 던진다. 장르 쿠폰인데 예약의 장르가 다르거나 없어도 같은 예외다(#383).
+     * genre는 예약에 저장된 선점 시점 공연 장르이고, 모르면 null을 넘긴다.
      * 이 예약에 다른 쿠폰이 잡혀 있으면 예외를 던지므로, 쿠폰을 바꿀 때는 release를 먼저 부른다.
      */
-    long reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount);
+    long reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount, String genre);
 
     /** 결제가 확정된 예약의 쿠폰을 사용 처리한다. 잡힌 쿠폰이 없으면 아무것도 하지 않는다. */
     void use(Long reservationId);

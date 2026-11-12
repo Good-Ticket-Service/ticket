@@ -33,7 +33,7 @@ public class CouponUsageService implements CouponUsage {
     private final Clock clock;
 
     @Override
-    public CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount) {
+    public CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount, String genre) {
         // 1) 회원이 고른 쿠폰을 잠그고 읽는다. 같은 쿠폰을 동시에 잡으려는 다른 예매는 이 트랜잭션이 끝날 때까지 기다린다.
         //    없는 쿠폰도 남의 쿠폰과 같은 오류로 답해 다른 회원 쿠폰의 존재를 드러내지 않는다
         UserCoupon userCoupon = userCouponRepository
@@ -49,12 +49,20 @@ public class CouponUsageService implements CouponUsage {
         // 3) 본인 쿠폰·상태·유효 기간·최소 적용 금액 확인과 RESERVED 전이는 엔티티가 한다. 이미 이 예매에 잡혀 있으면 그대로 둔다(멱등)
         userCoupon.reserve(userId, reservationId, baseAmount, now());
 
-        // 4) 이 정가에 할인 정책을 적용한 할인액과, 예매 화면에 보여 줄 쿠폰 이름을 붙여 돌려준다.
-        //    같은 예매는 정가가 바뀌지 않아 다시 불러도 같은 할인액이다(#347)
+        // 4) 장르 쿠폰이면 예약의 장르와 맞는지 쿠폰 정의로 확인한다(#389). 장르는 회원 쿠폰에 복사하지 않는다(발급 시작 뒤 바뀌지 않음)
+        //    본인 쿠폰인지 3)에서 먼저 확인해, 남의 쿠폰의 적용 장르가 메시지로 드러나지 않게 한다.
+        //    여기서 거절하면 예외로 예매 트랜잭션 전체가 롤백돼 3)의 RESERVED 전이도 남지 않는다
+        Coupon coupon = coupon(userCoupon);
+        if (coupon != null) {
+            coupon.requireApplicableTo(genre);
+        }
+
+        // 5) 이 정가에 할인 정책을 적용한 할인액과, 예매 화면에 보여 줄 쿠폰 이름을 붙여 돌려준다.
+        //    같은 예매는 정가·장르가 바뀌지 않아 다시 불러도 같은 결과다(#347, #383)
         return new CouponDiscount(
                 userCoupon.getId(),
                 userCoupon.getCouponId(),
-                couponName(userCoupon),
+                coupon == null ? null : coupon.getName(),
                 userCoupon.getDiscountPolicy().discountFor(baseAmount));
     }
 
@@ -71,14 +79,11 @@ public class CouponUsageService implements CouponUsage {
     }
 
     /**
-     * 쿠폰 정의의 이름. 회원 쿠폰에는 이름을 복사하지 않는다.
+     * 회원 쿠폰의 쿠폰 정의(이름·장르). 회원 쿠폰에는 이름·장르를 복사하지 않는다.
      * Note: 받은 사람이 있는 쿠폰은 삭제할 수 없어(Coupon.delete) 정의가 항상 있다. 받은 쿠폰도 삭제할 수 있게 바꾸면 다시 정해야 한다.
      */
-    private String couponName(UserCoupon userCoupon) {
-        return couponRepository
-                .findById(userCoupon.getCouponId())
-                .map(Coupon::getName)
-                .orElse(null);
+    private Coupon coupon(UserCoupon userCoupon) {
+        return couponRepository.findById(userCoupon.getCouponId()).orElse(null);
     }
 
     /** 다른 쿠폰 서비스와 같이 공용 Clock(Asia/Seoul)으로 구하고 초 단위로 자른다. */

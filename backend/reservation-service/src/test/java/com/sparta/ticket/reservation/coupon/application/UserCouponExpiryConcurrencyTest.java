@@ -168,7 +168,7 @@ class UserCouponExpiryConcurrencyTest extends ReservationIntegrationTest {
             // 예매는 만료 직전 시각으로 잡으려 한다. 시각만 보면 아직 쓸 수 있지만 배치의 락을 기다린다
             clock.set(EXPIRES_AT.minusSeconds(1));
             Future<ErrorCode> booking = executor.submit(
-                    () -> run(() -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L, BASE_AMOUNT)));
+                    () -> run(() -> couponUsage.reserve(coupon.getId(), 943_011L, 944_011L, BASE_AMOUNT, null)));
             waitForLockWaiters(1);
 
             release.countDown();

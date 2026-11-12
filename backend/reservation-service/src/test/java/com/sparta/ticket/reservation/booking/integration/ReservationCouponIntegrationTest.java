@@ -158,6 +158,44 @@ class ReservationCouponIntegrationTest extends BookingIntegrationTest {
         }
 
         @Test
+        @DisplayName("장르 쿠폰은 예약의 장르가 같으면 잡히고, 다르면 적용 장르를 담은 400 COUPON_NOT_AVAILABLE이다(#389)")
+        void genreCoupon() throws Exception {
+            Long reservationId = hold();
+            // TestHoldTargets의 예약 장르는 MUSICAL이다
+            Long concert = coupons.issueForGenre(userId, 3_000, "CONCERT");
+            Long musical = coupons.issueForGenre(userId, 3_000, TestHoldTargets.GENRE);
+
+            checkout(reservationId, concert)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_AVAILABLE"))
+                    .andExpect(jsonPath("$.message").value("콘서트 공연에만 사용할 수 있는 쿠폰입니다."));
+            assertThat(coupons.statusOf(concert)).isEqualTo("AVAILABLE");
+
+            checkoutOrderId(reservationId, musical);
+            assertThat(lastPrepared().discountAmount()).isEqualTo(3_000L);
+            assertThat(coupons.statusOf(musical)).isEqualTo("RESERVED");
+        }
+
+        @Test
+        @DisplayName("장르를 모르는 예약에는 장르 쿠폰을 쓸 수 없고, 장르를 정하지 않은 쿠폰은 쓸 수 있다(#383)")
+        void unknownGenreReservation() throws Exception {
+            List<SeatLine> lines = TestSeats.priced(20L, 21L);
+            Long reservationId = transactionTemplate.execute(status -> bookingFacade.hold(
+                    userId,
+                    TestHoldTargets.withGenre(scheduleId, TestHoldTargets.SCHEDULE_START_AT, null),
+                    lines,
+                    clock.now().plusMinutes(10)));
+            Long musical = coupons.issueForGenre(userId, 3_000, TestHoldTargets.GENRE);
+            Long any = coupons.issue(userId, 2_000);
+
+            checkout(reservationId, musical)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("COUPON_NOT_AVAILABLE"));
+            checkoutOrderId(reservationId, any);
+            assertThat(lastPrepared().discountAmount()).isEqualTo(2_000L);
+        }
+
+        @Test
         @DisplayName("정가가 최소 결제 금액 이하인데 쿠폰을 고르면 400 COUPON_NOT_AVAILABLE이고 쿠폰을 잡지 않는다")
         void rejectsCouponOnMinimumPrice() throws Exception {
             Long reservationId = holdPriced(100);

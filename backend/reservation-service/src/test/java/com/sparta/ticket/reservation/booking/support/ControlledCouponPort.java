@@ -32,13 +32,13 @@ public class ControlledCouponPort implements CouponPort {
     }
 
     @Override
-    public long reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount) {
+    public long reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount, String genre) {
         awaitBarrier();
         if (failNextReserveWithLock) {
             failNextReserveWithLock = false;
             throw new CannotAcquireLockException("deadlock detected");
         }
-        return delegate.reserve(userCouponId, userId, reservationId, baseAmount);
+        return delegate.reserve(userCouponId, userId, reservationId, baseAmount, genre);
     }
 
     @Override
