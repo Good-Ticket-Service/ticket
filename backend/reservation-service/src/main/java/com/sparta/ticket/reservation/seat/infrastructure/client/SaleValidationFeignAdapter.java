@@ -66,6 +66,8 @@ public class SaleValidationFeignAdapter implements SaleValidationPort {
                         ? null
                         : response.scheduleStartAt().atZoneSameInstant(SEOUL).toLocalDateTime(),
                 response.performanceTitle(),
+                // 장르는 장르별 쿠폰 판단에만 쓴다. 없어도 선점은 막지 않고 null로 넘긴다(#383). 그래서 계약 위반 검사에 넣지 않는다
+                response.genre(),
                 seats);
     }
 

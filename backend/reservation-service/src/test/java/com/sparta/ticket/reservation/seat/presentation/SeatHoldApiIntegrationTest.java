@@ -126,7 +126,7 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("새 선점은 201이고 좌석·예약이 HOLD가 된다. 만료 시각은 +10분이고 둘이 같으며, 공연·판매자·회차 시작 시각·공연명은 판매 검증 값이다")
+    @DisplayName("새 선점은 201이고 좌석·예약이 HOLD가 된다. 만료 시각은 +10분이고 둘이 같으며, 공연·판매자·회차 시작 시각·공연명·장르는 판매 검증 값이다")
     void createsHold() throws Exception {
         Long seatId = seat(SCHEDULE, true);
 
@@ -142,7 +142,7 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
         assertThat(seatRow(seatId)).containsEntry("status", "HOLD");
         assertThat(reservationOnSeat(seatId)).isEqualTo(reservationId);
         Map<String, Object> reservation = jdbcTemplate.queryForMap(
-                "SELECT status, hold_expires_at, performance_id, seller_id, schedule_start_at, performance_title"
+                "SELECT status, hold_expires_at, performance_id, seller_id, schedule_start_at, performance_title, genre"
                         + " FROM p_reservations WHERE reservation_id = ?",
                 reservationId);
         assertThat(reservation.get("status")).isEqualTo("HOLD");
@@ -153,6 +153,7 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
         assertThat(((Timestamp) reservation.get("schedule_start_at")).toLocalDateTime())
                 .isEqualTo(FakeSaleValidationPort.SCHEDULE_START_AT);
         assertThat(reservation.get("performance_title")).isEqualTo(FakeSaleValidationPort.PERFORMANCE_TITLE);
+        assertThat(reservation.get("genre")).isEqualTo(FakeSaleValidationPort.GENRE);
     }
 
     @Test

@@ -6,6 +6,7 @@ import java.util.List;
 /**
  * 판매 검증 결과. 거절이면 reasonCode가 있고 seats는 비어 있다.
  * scheduleStartAt(KST)·performanceTitle은 선점 때 예약에 스냅샷으로 저장할 회차 시작 시각·공연명이다(#126). 취소 기한과 내 예매 목록에 쓴다.
+ * genre는 공연 장르로, 예약에 저장해 장르별 쿠폰 판단에 쓴다. 응답에 없으면 null이다(#383).
  */
 public record SaleValidation(
         boolean allowed,
@@ -17,4 +18,5 @@ public record SaleValidation(
         long policyVersion,
         LocalDateTime scheduleStartAt,
         String performanceTitle,
+        String genre,
         List<SaleValidationSeat> seats) {}
