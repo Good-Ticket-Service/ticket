@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -53,9 +54,30 @@ public class SettlementJob extends BaseEntity {
 
     private LocalDateTime doneAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private SettlementJobTransport transport;
+
+    @Column(nullable = false)
+    private UUID eventId;
+
+    @Column(columnDefinition = "text")
+    private String eventPayload;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 24)
+    private SettlementJobResult processingResult;
+
     public void complete(LocalDateTime now) {
+        complete(now, SettlementJobResult.APPLIED);
+    }
+
+    public void complete(LocalDateTime now, SettlementJobResult result) {
         require(SettlementJobStatus.PENDING);
+        if (result == null || result == SettlementJobResult.LEGACY)
+            throw new IllegalArgumentException("신규 처리 결과가 필요하다");
         this.status = SettlementJobStatus.DONE;
+        this.processingResult = result;
         this.doneAt = now;
         this.lastError = null;
     }
