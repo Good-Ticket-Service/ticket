@@ -238,6 +238,29 @@ class PaymentResultConsumerIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 eventId로 다시 온 지난 시도의 성공은 두 번 세지 않는다")
+    void ignoresRedeliveredLateSuccess() throws Exception {
+        Long reservationId = hold(TestIds.next());
+        String pastOrderId = checkout(reservationId);
+        String orderId = checkout(reservationId);
+        payment.confirmTimesOut();
+        paymentService.confirm(user, reservationId, new ConfirmCommand(orderId, "pk-" + orderId));
+        InProgress marker = unansweredConfirm();
+        double lateBefore = lateSuccessCount();
+        String eventId = UUID.randomUUID().toString();
+
+        send(reservationId, message(eventId, pastOrderId, reservationId, "DONE"));
+        send(reservationId, message(eventId, pastOrderId, reservationId, "DONE"));
+        sendResult(marker, "DONE");
+
+        awaitStatus(marker.reservationId(), "CONFIRMED");
+        assertThat(statusOf(reservationId)).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(lateSuccessCount() - lateBefore)
+                .as("재전달된 같은 메시지는 받은 기록으로 걸러져 자동 환불 대상 수를 부풀리지 않는다")
+                .isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("메시지가 승인 응답보다 먼저 오면 메시지로 확정하고, 뒤에 온 응답은 같은 성공이라 무시한다")
     void messageBeforeHttpResponse() throws Exception {
         Long seatId = TestIds.next();

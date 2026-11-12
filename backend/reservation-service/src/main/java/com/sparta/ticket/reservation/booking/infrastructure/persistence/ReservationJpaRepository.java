@@ -261,11 +261,13 @@ public interface ReservationJpaRepository
             @Param("at") LocalDateTime at,
             @Param("by") String by);
 
+    // 환불 대상으로 표시한 결제는 성공이 다시 와도 확정하지 않는다. 확정하면 환불까지 되어 공짜 표가 된다.
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r
                SET r.status = :to, r.pgAuthToken = NULL, r.updatedAt = :at, r.updatedBy = :by
              WHERE r.id = :id AND r.status = :from AND r.orderId = :orderId
+               AND r.refundRequiredAt IS NULL
             """)
     int updatePaymentResult(
             @Param("id") Long id,
