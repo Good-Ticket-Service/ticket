@@ -60,6 +60,7 @@ import org.testcontainers.utility.DockerImageName;
             "reservation.booking.admission.priority-window=2m",
             "reservation.booking.admission.priority-rate=1",
             "reservation.booking.completion-pool.maximum-pool-size=3",
+            "reservation.booking.payment-result.concurrency=1",
             "reservation.seat.remaining.cache-ttl=3s",
             "reservation.seat.selectable.cache-refresh=1s",
             "reservation.seat.selectable.cache-max-age=5s",
