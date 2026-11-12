@@ -1,9 +1,11 @@
 package com.sparta.ticket.waitingroom.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,7 +30,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
@@ -100,6 +104,21 @@ class QueueApiIntegrationTest extends WaitingRoomIntegrationTest {
                 .andExpect(jsonPath("$.data.position").value(2))
                 .andExpect(jsonPath("$.data.aheadCount").value(1))
                 .andExpect(jsonPath("$.data.estimatedWaitSeconds").value(1));
+    }
+
+    @Test
+    @DisplayName("진입 응답은 JSON 형식과 본문 길이를 헤더에 담아 한 번에 쓴다")
+    void enterResponseHeaders() throws Exception {
+        long roomId = newRoom();
+
+        MvcResult result = enter(roomId, 1L)
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andReturn();
+
+        assertThat(result.getResponse().getContentLength())
+                .isEqualTo(result.getResponse().getContentAsByteArray().length)
+                .isPositive();
     }
 
     @Test
