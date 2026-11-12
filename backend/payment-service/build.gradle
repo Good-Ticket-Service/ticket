@@ -26,6 +26,14 @@ dependencies {
     testImplementation 'org.testcontainers:kafka'
 }
 
+// Note: 장수명 전용 DB/Kafka에 연결하는 #363 측정 실행기다. 정규 build에서 측정하지 않는다.
+tasks.register('settlementBenchmarkClasspath') {
+    dependsOn testClasses, configurations.testRuntimeClasspath
+    doLast {
+        layout.buildDirectory.file('settlement-benchmark-classpath.txt').get().asFile.text = sourceSets.test.runtimeClasspath.asPath
+    }
+}
+
 // Note: 기본 build와 분리한 TS6 실제 PostgreSQL 기준선이다.
 tasks.register('projectionPerformance', Test) {
     dependsOn testClasses
@@ -132,6 +140,7 @@ tasks.register('projectionFinancial', Test) {
 def fakePgJar = project(':fake-pg').tasks.named('bootJar').flatMap { it.archiveFile }
 tasks.named('test') {
     dependsOn ':fake-pg:bootJar'
+    systemProperty 'settlement.kafka.domain', providers.gradleProperty('settlementKafkaDomain').getOrElse('false')
     inputs.file(fakePgJar)
     doFirst {
         systemProperty 'fakePg.jar', fakePgJar.get().asFile.absolutePath

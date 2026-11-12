@@ -20,7 +20,18 @@ public final class PaymentConfirmProcessMain {
     private PaymentConfirmProcessMain() {}
 
     public static void main(String[] args) {
-        SpringApplication.run(new Class<?>[] {PaymentServiceApplication.class, Checkpoints.class}, args);
+        var options = new java.util.ArrayList<>(java.util.List.of(args));
+        // Note: 승인 요청 Consumer의 기존 독립 장애 시험은 후속 금융 Consumer와 분리한다.
+        for (String property : java.util.List.of(
+                "payment.settlement.posting.transport=DB",
+                "payment.settlement.posting.kafka.enabled=false",
+                "payment.settlement.consumer-recovery.replay-enabled=false",
+                "payment.settlement.consumer-recovery.observation-enabled=false")) {
+            String key = "--" + property.substring(0, property.indexOf('=')) + "=";
+            if (options.stream().noneMatch(value -> value.startsWith(key))) options.add("--" + property);
+        }
+        SpringApplication.run(
+                new Class<?>[] {PaymentServiceApplication.class, Checkpoints.class}, options.toArray(String[]::new));
     }
 
     @TestConfiguration(proxyBeanMethods = false)
