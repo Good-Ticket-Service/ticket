@@ -2,7 +2,7 @@ package com.sparta.ticket.performance.application.service;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.performance.application.dto.PublicSchedule;
-import com.sparta.ticket.performance.application.dto.PublicScheduleRow;
+import com.sparta.ticket.performance.application.dto.PublicScheduleDetailRow;
 import com.sparta.ticket.performance.application.port.PublicScheduleReader;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 일반 사용자용 회차 목록·상세 조회. 판매 상태는 서버 시각으로 계산한다. 명세는 .local/performance/api.md 「공개 조회」다.
- * 부모 공연이 공개 공연인지 먼저(또는 회차를 찾은 뒤) 한 번 확인하고, 회차는 회차 테이블만 읽는다.
+ * 목록은 부모 공연이 공개 공연인지 먼저 확인하고 회차를 읽는다. 단건은 회차와 공개 공연 확인을 한 번에 읽는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,10 +37,8 @@ public class PublicScheduleService {
 
     /** 회차가 없거나 삭제됐거나, 부모 공연이 초안·삭제됐으면 404 SCHEDULE_NOT_FOUND. */
     public PublicSchedule getSchedule(Long scheduleId) {
-        PublicScheduleRow row = reader.findSchedule(scheduleId)
+        PublicScheduleDetailRow row = reader.findPublicSchedule(scheduleId)
                 .orElseThrow(() -> new BusinessException(PerformanceErrorCode.SCHEDULE_NOT_FOUND));
-        OperationStatus performanceStatus = reader.findPublicPerformanceStatus(row.performanceId())
-                .orElseThrow(() -> new BusinessException(PerformanceErrorCode.SCHEDULE_NOT_FOUND));
-        return PublicSchedule.of(row, performanceStatus, LocalDateTime.now(clock));
+        return PublicSchedule.of(row.schedule(), row.performanceStatus(), LocalDateTime.now(clock));
     }
 }
