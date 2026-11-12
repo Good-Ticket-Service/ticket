@@ -368,4 +368,33 @@ class ReservationPaymentIntegrationTest extends BookingIntegrationTest {
         assertThat(lateSuccessCount()).isEqualTo(lateBefore + 1);
         assertThat(seats.sold).hasSize(1);
     }
+
+    @Test
+    @DisplayName("환불 대상으로 표시한 결제의 성공이 다시 와도, 좌석을 잠글 수 있게 됐더라도 확정하지 않는다")
+    void successAfterRefundMarkIsNotConfirmed() throws Exception {
+        Long reservationId = hold();
+        String orderId = checkoutOrderId(reservationId);
+        payment.confirmTimesOut();
+        confirm(reservationId, orderId, userId);
+        seats.notHeld(seatA);
+        assertThat(paymentResultApplier.apply(reservationId, orderId, ConfirmOutcome.succeeded()))
+                .as("좌석이 이 예약의 선점이 아니라 확정하지 못하고 환불 대상으로 남긴다")
+                .isFalse();
+        assertThat(refundRequiredAt(reservationId)).isNotNull();
+        seats.reset();
+
+        boolean applied = paymentResultApplier.apply(reservationId, orderId, ConfirmOutcome.succeeded());
+
+        assertThat(applied).isFalse();
+        assertThat(row(reservationId).get("status"))
+                .as("환불을 요청할 결제로 확정까지 하면 공짜 표가 된다")
+                .isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(refundRequiredAt(reservationId)).isNotNull();
+        assertThat(seats.sold).isEmpty();
+    }
+
+    private Object refundRequiredAt(Long reservationId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT refund_required_at FROM p_reservations WHERE reservation_id = ?", Object.class, reservationId);
+    }
 }
