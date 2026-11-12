@@ -779,10 +779,35 @@ DB 검사 결과와 db_valid 완료 마커는 같은 REPEATABLE READ 트랜잭�
 | next_attempt_at | TIMESTAMP NOT NULL; 다음 실행 시각(실패 시 재시도 간격만큼 미룸) |
 | last_error | VARCHAR(80); 고정 형식의 짧은 오류 설명 |
 | done_at | TIMESTAMP; status=DONE일 때만 값이 있다 |
+| transport | VARCHAR(10) NOT NULL DEFAULT DB. 생성 시 DB/KAFKA 인수 경로를 고정한다(#363, 구현 중) |
+| event_id | UUID NOT NULL UNIQUE. 발행 재시도에도 같은 ID를 유지한다 |
+| event_payload | TEXT. version1·eventId·jobId·paymentId·reason·occurredAt을 보존한다. KAFKA 작업은 필수 |
+| published_at | TIMESTAMP. broker 발행 확인 시각이며 금융 처리 완료를 뜻하지 않는다 |
+| publish_lease_token / publish_lease_until | UUID / TIMESTAMP. 둘 다 null이거나 둘 다 값이 있는 발행 임대 |
+| publish_attempts / publish_next_attempt_at | INT≥0 / TIMESTAMP NOT NULL. 금융 처리 attempts와 독립인 발행 재시도 |
+| publish_last_error | VARCHAR(80). 고정 형식 발행 오류 코드 |
+| processing_result | VARCHAR(24). APPLIED·UNPOSTED·NO_FINANCIAL_EFFECT·LEGACY. 구버전 처리 결과는 null일 수도 있다 |
 
 - 결제 승인 확정·환불 완료 트랜잭션에 함께 저장되고, 정산 워커가 별도 트랜잭션에서 SALE·원장을 그 결제의 현재 결제·환불 상태에 맞춘다(#304). 정산 쪽 오류가 결제 확정을 롤백하지 않게 하려는 분리다.
 - 부분 인덱스: 대기 작업 `(next_attempt_at, id) WHERE status='PENDING'`, 격리 작업 `(id) WHERE status='BLOCKED'`.
 - 015-settlement-jobs.sql은 테이블을 추가하고, 전환 전에 승인됐는데 정상 SALE이 없는 결제를 한 번 작업으로 옮긴다. 다시 실행해도 안전하다.
+- #363 이행026은 기존 작업의 상태·재시도·금액을 유지하고 DB 경로와 불변 사건 식별자를 채운다. 기존 DONE은 LEGACY로 구분한다. DONE이 원장 정상 반영을 보장하는 것으로 해석하지 않는다.
+- 작업 id·payment_id·reason·transport·event_id·event_payload는 UPDATE로 바꿀 수 없다. 설정 변경은 신규 작업에만 적용된다. 구버전 DB 생산자 호환을 위해 DB 작업의 payload null은 허용한다.
+- DB 워커는 transport=DB만 인수한다. 구버전 워커의 due 인덱스는 전환 중 유지하고, DB 전용 due·Kafka 미발행 due 부분 인덱스를 추가한다. 모든 처리자 교체 전에는 KAFKA 신규 작업을 켜지 않는다.
+
+### 금융 Consumer 격리·운영 재처리 — payment-service 이행027 (#363)
+
+상태: 결제 담당 설계 합의, 구현 중. 성공 처리는 기존 job/집계 receipt에 남기고 운영 이력만 두 테이블에 보존한다.
+
+| 테이블 | 주요 데이터·제약 |
+|---|---|
+| p_financial_consumer_incidents | BIGINT id와UUID incident_id UNIQUE. stage·group·topic·partition·offset UNIQUE, payload_hash·고정 reason·신뢰한 source_job_id 또는 source_build_id/source_fact_key. OPEN/REPLAY_REQUESTED/RESOLVED, DLT 확인·해소·생성/갱신 시각 |
+| p_financial_replay_commands | command_id UUID PK, incident_id FK. action REPLAY/RESOLVE, 입력 hash·actor·reason·결과, REQUESTED/PUBLISHED/DONE/DENIED, 재전달 payload·서버가 결정한topic/key·발행 lease/attempts/next_attempt_at |
+
+- 재전달에도 같은 원본 좌표는 하나의 incident이며 수신 횟수만 증가한다. 다른 hash가 같은 좌표를 차지하면 자동 덮어쓰지 않는다.
+- 신뢰하지 않은 jobId만 보고 금융 작업을 BLOCKED로 바꾸지 않는다. 영속 source를 대조한 금융 의미 충돌만 별도 TX에서 격리하고 이미 DONE인 작업은 보존한다.
+- 재처리 명령은 사건당 REQUESTED/PUBLISHED 한 건만 허용한다. 요청의 idempotency와 발행 lease를 따로 보존한다. 금융 DB 커밋과 명령 DONE/incident 해소를 함께 처리한다.
+- 미해결 incident·미완료 금융 작업·재처리 대기에는 부분 인덱스를 둔다. published_at이나 Kafka lag0만으로 금융 완료를 판정하지 않는다. 새 운영 시간/lease는 DB 세션 기본 timezone에 의존하지 않고 Asia/Seoul로 기록한다.
 
 ### PG 정산 명세·판정 — payment-service 이행 017 (#316)
 

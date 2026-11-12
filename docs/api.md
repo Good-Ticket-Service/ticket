@@ -630,6 +630,24 @@
 - rollback은 RETIRED 세대를 BUILDING으로 재개한다. 신규 유입을 따라잡아 다시 검증한 뒤 별도 activate해야 한다. 오래된 값을 즉시 노출하지 않는다. discard는 후보만 FAILED로 종료하며 활성 세대는 유지한다.
 - health의 originPending·unposted·pendingRefunds는 해당 판매자 전체의 위험/진행 건수다. 미발행·미적용·원천 식별 가능한 오류는 요청 기간·회차 범위다. 다른 판매자의 오류 상세/건수는 노출하지 않으며 귀속 불명 파이프라인 오류가 있으면 상태는 STALE일 수 있다.
 
+## 금융 Consumer 운영 — payment-service (#363)
+
+상태: 결제 담당 설계 합의, 구현 중. MASTER 전용이며 기존 `/api/admin/settlements/**`의 Gateway 사용자 재확인·서비스 역할 검사를 그대로 적용한다.
+
+| Method URI | 입력 | data |
+|---|---|---|
+| GET /api/admin/settlements/consumers/incidents | after:long≥0=0,limit:int[1,100]=20,status?:OPEN/REPLAY_REQUESTED/RESOLVED | 원본 좌표·고정 사유·hash·신뢰한 source 참조·상태·DLT 확인 시각 목록 |
+| POST /api/admin/settlements/consumers/incidents/{incidentId}/replay | commandId:UUID,reason:string[1,500] | commandId,status,explanation |
+| POST /api/admin/settlements/consumers/incidents/{incidentId}/resolve | commandId:UUID,reason:string[1,500] | commandId,status,explanation |
+| GET /api/admin/settlements/consumers/commands/{commandId} | commandId:UUID | 명령·행위자·사유·상태·발행/처리 결과 |
+
+- 외부 ApiResponse/ErrorResponse를 적용한다. 식별자 없음은404 NOT_FOUND, 같은 commandId의 입력 충돌·금융 미완료 등 실행 거절은409 INVALID_STATUS_TRANSITION이다. 거절 명령도 저장한 뒤 HTTP 오류로 변환한다.
+- 재처리는 접수 시 REQUESTED, broker 발행 확인 후 PUBLISHED, 금융 DB 반영 후 DONE이다. PUBLISHED를 금융 성공으로 해석하지 않는다. 같은 commandId·입력은 현재 명령 상태를 반환한다.
+- 금액·계좌·원문 payload·offset 변경은 받지 않는다. 영속 source에서 payload를 재구성하고 replayCommandId로 결과를 연결한다. 원문과 예외 stack trace는 목록/DLT에 노출하지 않는다.
+- 금융 POSTING과 일반 Kafka 집계 B의 신뢰한 source를 replay할 수 있다. 집계는 같은 세대의 canonical fact에서 메시지를 구성하고 실제 집계 반영과 명령 완료를 함께 기록한다. 원천을 확인할 수 없는 poison은 재처리를 거절하며, 생산자 확인 후 사유를 남겨 resolve한다.
+- 금융 미완료/UNPOSTED와 미반영 집계를 resolve로 숨길 수 없다. UNPOSTED는 기존 계산 보충 경로로 복구한다. 종료된 집계 세대는 검증된 현재 세대에 해당 원천이 반영된 경우에만 사유를 남겨 해소할 수 있다.
+- incident는 OPEN→REPLAY_REQUESTED→RESOLVED다. 재처리 요청 자체로 해소하지 않으며, 처리 실패는 다시 확인한다. 개별 재처리 명령 상태는 GET으로 확인한다. 일시 DB/인프라 장애와 알 수 없는 프로그래밍 오류는 자동 DLT 유실 처리하지 않고 Consumer를 중지한다.
+
 ## 정산 관리자 — payment-service (#208)
 
 권한: MASTER. 외부 ApiResponse/ErrorResponse 적용. Gateway는 `/api/admin/settlements/**`를 결제 관리자 체인(MASTER·사용자 재확인)에 연결한다(#174).

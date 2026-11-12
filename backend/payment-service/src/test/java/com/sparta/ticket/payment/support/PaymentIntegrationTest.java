@@ -44,6 +44,11 @@ import org.springframework.test.context.TestPropertySource;
             "payment.pg.enabled=false",
             // 정산 반영 워커는 스케줄러를 끄고, 시험이 결제·환불을 확정한 뒤 settlementJobs.drain()으로 직접 돌린다(#304).
             "payment.settlement.worker.enabled=false",
+            "payment.settlement.posting.transport=DB",
+            "payment.settlement.posting.kafka.enabled=false",
+            "payment.settlement.consumer-recovery.replay-enabled=false",
+            "payment.settlement.consumer-recovery.observation-enabled=false",
+            "payment.settlement.projection.mode=D",
             "payment.settlement.projection.auto-start=false",
             // 운영 기본값은 정산 잡을 모두 켠다. 시험에서는 스케줄러가 공유 DB의 정산서·지급을 건드리지 않도록 끄고,
             // 각 시험이 잡·트랜잭션을 직접 부른다.

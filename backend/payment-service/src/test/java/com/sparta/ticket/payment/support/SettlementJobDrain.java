@@ -28,7 +28,7 @@ public final class SettlementJobDrain {
 
     public int due() {
         return jdbc.queryForObject(
-                "SELECT count(*) FROM p_settlement_jobs WHERE status = 'PENDING' AND next_attempt_at <= ?",
+                "SELECT count(*) FROM p_settlement_jobs WHERE status = 'PENDING' AND transport = 'DB' AND next_attempt_at <= ?",
                 Integer.class,
                 LocalDateTime.now(clock));
     }
