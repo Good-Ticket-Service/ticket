@@ -1,7 +1,6 @@
 package com.sparta.ticket.performance.infrastructure.persistence;
 
 import com.querydsl.core.BooleanBuilder;
-import com.querydsl.core.Tuple;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
@@ -18,11 +17,10 @@ import com.sparta.ticket.performance.application.dto.PublicPerformanceSummary;
 import com.sparta.ticket.performance.application.dto.VenueSummary;
 import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
+import com.sparta.ticket.performance.domain.performance.PublicationStatus;
 import com.sparta.ticket.performance.domain.performance.QPerformance;
-import com.sparta.ticket.performance.domain.performance.QPerformanceGradePrice;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
 import com.sparta.ticket.performance.domain.venue.QVenue;
-import com.sparta.ticket.performance.domain.venue.QVenueSeatGrade;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +45,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
     private static final QSchedule SCHEDULE = QSchedule.schedule;
 
     private final JPAQueryFactory queryFactory;
+    private final PublicPerformanceDetailJpaRepository detailJpaRepository;
 
     /**
      * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
@@ -143,75 +142,31 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
         return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
+    /** 상세는 조건이 고정이라 JPQL 저장소로 읽는다(이슈 #370). 기간은 기본 정보와 함께, 가격은 따로 읽는다. */
     @Override
     public Optional<PublicPerformanceDetail> findDetail(Long performanceId) {
-        // 기간은 기본 정보와 함께 읽는다. 가격은 행 수가 달라 별도 조회를 유지한다.
-        Expression<LocalDateTime> firstStartAt = startAtOfActiveSchedules(new QSchedule("detailFirstSchedule"), true);
-        Expression<LocalDateTime> lastStartAt = startAtOfActiveSchedules(new QSchedule("detailLastSchedule"), false);
-        Tuple row = queryFactory
-                .select(
-                        PERFORMANCE.id,
-                        VENUE.id,
-                        VENUE.name,
-                        VENUE.address,
-                        VENUE.region,
-                        PERFORMANCE.title,
-                        PERFORMANCE.genre,
-                        PERFORMANCE.ageRating,
-                        PERFORMANCE.ageGuidance,
-                        PERFORMANCE.runningTime,
-                        PERFORMANCE.castInfo,
-                        PERFORMANCE.description,
-                        PERFORMANCE.posterUrl,
-                        PERFORMANCE.operationStatus,
-                        PERFORMANCE.publishedAt,
-                        PERFORMANCE.createdAt,
-                        PERFORMANCE.updatedAt,
-                        firstStartAt,
-                        lastStartAt)
-                .from(PERFORMANCE)
-                .join(VENUE)
-                .on(VENUE.id.eq(PERFORMANCE.venueId))
-                // 상세는 취소된 공연도 보여 준다(취소 안내). 운영 상태 조건을 걸지 않는다.
-                .where(PERFORMANCE.id.eq(performanceId), PublicPerformanceCondition.publishedAndNotDeleted())
-                .fetchOne();
-        if (row == null) {
-            return Optional.empty();
-        }
-        return Optional.of(new PublicPerformanceDetail(
-                row.get(PERFORMANCE.id),
-                new VenueSummary(row.get(VENUE.id), row.get(VENUE.name), row.get(VENUE.address), row.get(VENUE.region)),
-                row.get(PERFORMANCE.title),
-                row.get(PERFORMANCE.genre),
-                row.get(PERFORMANCE.ageRating),
-                row.get(PERFORMANCE.ageGuidance),
-                row.get(PERFORMANCE.runningTime),
-                row.get(PERFORMANCE.castInfo),
-                row.get(PERFORMANCE.description),
-                row.get(PERFORMANCE.posterUrl),
-                row.get(PERFORMANCE.operationStatus),
-                row.get(PERFORMANCE.publishedAt),
-                PerformancePeriod.of(row.get(firstStartAt), row.get(lastStartAt)),
-                row.get(PERFORMANCE.createdAt),
-                row.get(PERFORMANCE.updatedAt),
-                findGradePrices(performanceId)));
-    }
-
-    private List<PublicPerformanceDetail.GradePrice> findGradePrices(Long performanceId) {
-        QPerformanceGradePrice gradePrice = QPerformanceGradePrice.performanceGradePrice;
-        QVenueSeatGrade grade = QVenueSeatGrade.venueSeatGrade;
-        return queryFactory
-                .select(gradePrice.venueSeatGradeId, grade.name, gradePrice.price)
-                .from(gradePrice)
-                .join(grade)
-                .on(grade.id.eq(gradePrice.venueSeatGradeId), grade.deletedAt.isNull())
-                .where(gradePrice.performanceId.eq(performanceId), gradePrice.deletedAt.isNull())
-                .orderBy(gradePrice.venueSeatGradeId.asc())
-                .fetch()
-                .stream()
-                .map(price -> new PublicPerformanceDetail.GradePrice(
-                        price.get(gradePrice.venueSeatGradeId), price.get(grade.name), price.get(gradePrice.price)))
-                .toList();
+        return detailJpaRepository
+                .findDetail(performanceId, PublicationStatus.PUBLISHED, OperationStatus.ACTIVE)
+                .map(row -> new PublicPerformanceDetail(
+                        row.id(),
+                        new VenueSummary(row.venueId(), row.venueName(), row.venueAddress(), row.venueRegion()),
+                        row.title(),
+                        row.genre(),
+                        row.ageRating(),
+                        row.ageGuidance(),
+                        row.runningTime(),
+                        row.castInfo(),
+                        row.description(),
+                        row.posterUrl(),
+                        row.operationStatus(),
+                        row.publishedAt(),
+                        PerformancePeriod.of(row.firstStartAt(), row.lastStartAt()),
+                        row.createdAt(),
+                        row.updatedAt(),
+                        detailJpaRepository.findGradePrices(performanceId).stream()
+                                .map(price -> new PublicPerformanceDetail.GradePrice(
+                                        price.venueSeatGradeId(), price.gradeName(), price.price()))
+                                .toList()));
     }
 
     /** 목록 대상. 명세의 "공개·미삭제·정상 공연"이므로 취소된 공연은 뺀다. */
