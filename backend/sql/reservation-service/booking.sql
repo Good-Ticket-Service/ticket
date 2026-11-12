@@ -18,6 +18,9 @@ CREATE TABLE p_reservations
     -- 시작 시각으로 취소 기한을 판정한다. 취소가 공연 서비스 가용성에 묶이지 않게 예약에 둔다
     schedule_start_at TIMESTAMP  NOT NULL,
     performance_title VARCHAR(200) NOT NULL,
+    -- 공연 장르(Genre 이름). 선점 때 판매 검증 응답에서 받은 값이며 다시 조회하지 않는다.
+    -- 결제 준비 때 쿠폰에 넘겨 장르별 쿠폰을 판단한다. 응답에 없었거나 이 컬럼 전에 만든 예약은 NULL이다(#383)
+    genre           VARCHAR(30),
     status          VARCHAR(30)  NOT NULL,
     hold_expires_at TIMESTAMP    NOT NULL,
     -- 마지막 결제 준비의 주문 번호와 할인 후 금액. 결제 시도마다 새로 쓴다
