@@ -113,6 +113,75 @@ class MessageApprovalIntegrationTest extends PaymentIntegrationTest {
     }
 
     @Test
+    void cachedWaitingRegistrationExpiresImmediatelyAtBusinessDeadline() {
+        var payment = ready(PgProvider.TOSS);
+        var command = command(payment);
+        var nanos = new AtomicLong();
+        var attempt = new MessageApprovalAttempt(command, nanos::get);
+        pg.approvalAllowed(false);
+        for (int i = 0; i < 5; i++) {
+            nanos.set(i * 100_000_000L);
+            assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.RETRY);
+        }
+        assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.READY);
+        assertThat(load(payment).getApproveRequestedAt()).isNull();
+        paymentClock.advance(Duration.ofMinutes(4));
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(load(payment).getFailureCode()).isEqualTo("EXPIRED");
+        assertThat(pg.approveCalls()).isZero();
+        assertThat(results(payment)).isEqualTo(1);
+    }
+
+    @Test
+    void externalCompletionIsObservedAfterBoundedRecheckAndNeverReapproved() {
+        var payment = ready(PgProvider.TOSS);
+        var command = command(payment);
+        var nanos = new AtomicLong();
+        var attempt = new MessageApprovalAttempt(command, nanos::get);
+        pg.approvalAllowed(false);
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.RETRY);
+        pg.approvalAllowed(true);
+        assertThat(service.advance(command, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        pg.approvalAllowed(false);
+        nanos.set(999_999_999L);
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.RETRY);
+        nanos.incrementAndGet();
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(pg.approveCalls()).isEqualTo(1);
+        assertThat(results(payment)).isEqualTo(1);
+        settlementJobs.drain();
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM p_ledger_transactions WHERE source_type='SALE' AND source_id=?",
+                        Long.class,
+                        payment.getId()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                        "SELECT sum(e.debit-e.credit) FROM p_ledger_entries e JOIN p_ledger_transactions t ON t.id=e.transaction_id WHERE t.source_type='SALE' AND t.source_id=?",
+                        Long.class,
+                        payment.getId()))
+                .isZero();
+    }
+
+    @Test
+    void rolledBackRegistrationIsNotRememberedByWaitingAttempt() {
+        var payment = ready(PgProvider.TOSS);
+        var attempt = new MessageApprovalAttempt(command(payment));
+        jdbc.execute(
+                "ALTER TABLE p_payments ADD CONSTRAINT ck_test_registration_failure CHECK(message_confirm_before IS NULL) NOT VALID");
+        try {
+            assertThatThrownBy(() -> service.advance(attempt, () -> true)).isInstanceOf(RuntimeException.class);
+            assertThat(pg.approveCalls()).isZero();
+            assertThat(load(payment).getMessageConfirmBefore()).isNull();
+        } finally {
+            jdbc.execute("ALTER TABLE p_payments DROP CONSTRAINT ck_test_registration_failure");
+        }
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.DONE);
+        assertThat(pg.approveCalls()).isEqualTo(1);
+        assertThat(results(payment)).isEqualTo(1);
+    }
+
+    @Test
     void oneProviderCannotOccupyTheOtherProvidersApprovalBudget() throws Exception {
         var settings = new MessageApprovalProperties();
         settings.setWorkers(2);
@@ -299,12 +368,16 @@ class MessageApprovalIntegrationTest extends PaymentIntegrationTest {
     void resultRollbackTransfersToDurableInquiryWithoutReapproval() {
         var payment = ready(PgProvider.TOSS);
         var command = command(payment);
+        var attempt = new MessageApprovalAttempt(command);
+        pg.approvalAllowed(false);
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.RETRY);
+        pg.approvalAllowed(true);
         publisher.fail = true;
-        assertThat(service.advance(command, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
         assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
         assertThat(load(payment).getNextAttemptAt()).isNotNull();
         assertThat(results(payment)).isZero();
-        assertThat(service.advance(command, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(service.advance(attempt, () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
         assertThat(pg.approveCalls()).isEqualTo(1);
         publisher.fail = false;
         paymentClock.advance(Duration.ofSeconds(11));
