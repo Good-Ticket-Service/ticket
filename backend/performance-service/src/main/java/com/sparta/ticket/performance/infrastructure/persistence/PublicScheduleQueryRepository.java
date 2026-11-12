@@ -4,9 +4,11 @@ import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import com.sparta.ticket.performance.application.dto.PublicScheduleDetailRow;
 import com.sparta.ticket.performance.application.dto.PublicScheduleRow;
 import com.sparta.ticket.performance.application.port.PublicScheduleReader;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
+import com.sparta.ticket.performance.domain.performance.PublicationStatus;
 import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
 import com.sparta.ticket.performance.domain.venue.QVenue;
@@ -16,7 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 /**
- * PublicScheduleReader의 QueryDSL 구현. 공개 공연 확인은 공연·공연장 조인 한 번, 회차는 회차 테이블만 읽는다.
+ * PublicScheduleReader 구현. 회차 목록은 QueryDSL로 공개 공연 확인(공연·공연장 조인)과 회차 조회를 나눠 읽고,
+ * 회차 단건은 고정 JPQL 저장소로 회차와 공개 공연 확인을 한 번에 읽는다(이슈 #387).
  * Note: 회차 목록은 부분 UNIQUE 인덱스 uq_p_schedules_start(performance_id, start_at)가 조건과 정렬을 받친다.
  * 그 밖의 조회용 인덱스는 아직 없다. 성능 기준선을 측정한 뒤 단계별로 추가한다.
  */
@@ -29,6 +32,7 @@ public class PublicScheduleQueryRepository implements PublicScheduleReader {
     private static final QSchedule SCHEDULE = QSchedule.schedule;
 
     private final JPAQueryFactory queryFactory;
+    private final PublicScheduleJpaRepository scheduleJpaRepository;
 
     @Override
     public Optional<OperationStatus> findPublicPerformanceStatus(Long performanceId) {
@@ -50,9 +54,21 @@ public class PublicScheduleQueryRepository implements PublicScheduleReader {
     }
 
     @Override
-    public Optional<PublicScheduleRow> findSchedule(Long scheduleId) {
-        return Optional.ofNullable(
-                selectRows().where(SCHEDULE.id.eq(scheduleId), notDeleted()).fetchOne());
+    public Optional<PublicScheduleDetailRow> findPublicSchedule(Long scheduleId) {
+        return scheduleJpaRepository
+                .findPublicSchedule(scheduleId, PublicationStatus.PUBLISHED)
+                .map(row -> new PublicScheduleDetailRow(
+                        new PublicScheduleRow(
+                                row.id(),
+                                row.performanceId(),
+                                row.startAt(),
+                                row.bookingOpenAt(),
+                                row.bookingCloseAt(),
+                                row.operationStatus(),
+                                row.seatSetupStatus(),
+                                row.salesSuspended(),
+                                row.canceledAt()),
+                        row.performanceStatus()));
     }
 
     private JPAQuery<PublicScheduleRow> selectRows() {

@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasKey;
@@ -10,10 +11,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDateTime;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.context.jdbc.SqlConfig;
 import org.springframework.test.web.servlet.ResultActions;
@@ -26,6 +31,9 @@ import org.springframework.test.web.servlet.ResultActions;
         value = {"/sql/truncate.sql", "/sql/public-performance-fixture.sql", "/sql/public-schedule-fixture.sql"},
         config = @SqlConfig(encoding = "UTF-8"))
 class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private ResultActions schedules(long performanceId) throws Exception {
         return mockMvc.perform(get("/api/performances/" + performanceId + "/schedules"));
@@ -191,6 +199,27 @@ class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.performanceId").value(22))
                     .andExpect(jsonPath("$.data.operationStatus").value("ACTIVE"));
+        }
+
+        @Test
+        @DisplayName("회차와 공개 공연 확인을 SQL 한 번에 읽는다. 없는 회차·비공개 공연의 회차도 한 번이다")
+        void readsInOneStatement() throws Exception {
+            Statistics statistics =
+                    entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            boolean wasEnabled = statistics.isStatisticsEnabled();
+            statistics.setStatisticsEnabled(true);
+            try {
+                // 있는 회차, 비공개(초안) 공연의 회차, 없는 회차
+                for (long id : new long[] {6, 8, 999}) {
+                    statistics.clear();
+                    schedule(id);
+                    assertThat(statistics.getPrepareStatementCount())
+                            .as("scheduleId=%s", id)
+                            .isEqualTo(1);
+                }
+            } finally {
+                statistics.setStatisticsEnabled(wasEnabled);
+            }
         }
 
         @Test
