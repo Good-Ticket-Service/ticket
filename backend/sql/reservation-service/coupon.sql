@@ -10,6 +10,8 @@ CREATE TABLE p_coupons
     name                VARCHAR(100) NOT NULL,
     -- 쿠폰 구분(#357). 일반(GENERAL) 또는 웰컴(WELCOME). 목록을 나눠 보여 주는 데 쓴다
     category            VARCHAR(20)  NOT NULL DEFAULT 'GENERAL',
+    -- 쓸 수 있는 공연 장르(#389). 공연 Genre 이름이고, NULL이면 모든 장르에 쓸 수 있다
+    genre               VARCHAR(30),
     -- 할인 정책(#348). 정액(FIXED)은 discount_amount, 정률(RATE)은 discount_rate·max_discount_amount를 쓴다
     discount_type       VARCHAR(10)  NOT NULL DEFAULT 'FIXED',
     discount_amount     INT,
@@ -41,7 +43,10 @@ CREATE TABLE p_coupons
     CONSTRAINT ck_p_coupons_valid_days CHECK (valid_days > 0),
     CONSTRAINT ck_p_coupons_category CHECK (category IN ('GENERAL', 'WELCOME')),
     -- 웰컴 쿠폰은 받은 날부터 7일간 쓸 수 있다(Coupon.WELCOME_VALID_DAYS)
-    CONSTRAINT ck_p_coupons_welcome_valid_days CHECK (category <> 'WELCOME' OR valid_days = 7)
+    CONSTRAINT ck_p_coupons_welcome_valid_days CHECK (category <> 'WELCOME' OR valid_days = 7),
+    -- 공연 서비스의 Genre와 같은 값이다(CouponGenre). 공연에 장르가 늘면 함께 늘린다
+    CONSTRAINT ck_p_coupons_genre CHECK (genre IS NULL OR genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS', 'CLASSICAL',
+                                                                    'KOREAN_MUSIC', 'DANCE', 'CIRCUS_MAGIC', 'MULTIDISCIPLINARY'))
 );
 
 -- 회원 쿠폰. 회원이 받은 쿠폰 한 장이다. coupon 모듈이 소유한다. 명세: docs/tables.md p_user_coupons
