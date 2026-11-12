@@ -7,6 +7,23 @@ import java.time.LocalDateTime;
  * booking은 이 값을 예약에 저장해 두고 다시 조회하지 않는다. payment는 같은 orderId의 재요청에서 공연·판매자가 바뀌면
  * 거절하므로 checkout 때 선점 시점 값을 쓴다(#86). 시작 시각은 취소 기한, 공연명은 목록 표시에 쓴다. 취소가 공연 서비스
  * 가용성에 묶이지 않게 하기 위해서다(#126).
+ * genre는 공연 장르(Genre 이름)로, 결제 준비 때 쿠폰에 넘겨 장르별 쿠폰을 판단한다. 판매 검증 응답에 없으면 null이다(#383).
  */
 public record HoldTarget(
-        Long scheduleId, Long performanceId, Long sellerId, LocalDateTime scheduleStartAt, String performanceTitle) {}
+        Long scheduleId,
+        Long performanceId,
+        Long sellerId,
+        LocalDateTime scheduleStartAt,
+        String performanceTitle,
+        String genre) {
+
+    /** 장르를 모르는 선점. 장르를 쓰지 않던 기존 호출(테스트 등)을 위해 둔다. */
+    public HoldTarget(
+            Long scheduleId,
+            Long performanceId,
+            Long sellerId,
+            LocalDateTime scheduleStartAt,
+            String performanceTitle) {
+        this(scheduleId, performanceId, sellerId, scheduleStartAt, performanceTitle, null);
+    }
+}

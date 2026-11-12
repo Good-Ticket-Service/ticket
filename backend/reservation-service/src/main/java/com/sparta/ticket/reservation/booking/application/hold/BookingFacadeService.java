@@ -56,7 +56,8 @@ public class BookingFacadeService implements BookingFacade {
                                 target.performanceId(),
                                 target.sellerId(),
                                 target.scheduleStartAt(),
-                                target.performanceTitle()),
+                                target.performanceTitle(),
+                                target.genre()),
                         prices,
                         holdExpiresAt))
                 .getId();

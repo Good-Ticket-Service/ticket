@@ -56,6 +56,10 @@ public class Reservation extends BaseEntity {
     @Column(nullable = false, length = 200)
     private String performanceTitle;
 
+    /** 선점 시점의 공연 장르(Genre 이름). 결제 준비 때 쿠폰에 넘긴다. 모르면 null이고 장르 쿠폰만 쓸 수 없다(#383). */
+    @Column(length = 30)
+    private String genre;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ReservationStatus status;
@@ -98,6 +102,7 @@ public class Reservation extends BaseEntity {
         this.sellerId = target.sellerId();
         this.scheduleStartAt = target.scheduleStartAt();
         this.performanceTitle = target.performanceTitle();
+        this.genre = target.genre();
         this.holdExpiresAt = holdExpiresAt;
         this.status = ReservationStatus.HOLD;
     }

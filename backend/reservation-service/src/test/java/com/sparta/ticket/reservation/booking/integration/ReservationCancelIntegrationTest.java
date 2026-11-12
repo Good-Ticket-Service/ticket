@@ -473,14 +473,30 @@ class ReservationCancelIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
-    @DisplayName("선점 때 받은 회차 시작 시각과 공연명을 예약에 저장한다")
+    @DisplayName("선점 때 받은 회차 시작 시각·공연명·장르를 예약에 저장한다")
     void holdStoresScheduleSnapshot() {
         Long reservationId = hold(seat());
 
         assertThat(jdbcTemplate.queryForMap(
-                        "SELECT schedule_start_at, performance_title FROM p_reservations WHERE reservation_id = ?",
+                        "SELECT schedule_start_at, performance_title, genre FROM p_reservations WHERE reservation_id = ?",
                         reservationId))
                 .containsEntry("schedule_start_at", java.sql.Timestamp.valueOf(SCHEDULE_START_AT))
-                .containsEntry("performance_title", TestHoldTargets.PERFORMANCE_TITLE);
+                .containsEntry("performance_title", TestHoldTargets.PERFORMANCE_TITLE)
+                .containsEntry("genre", TestHoldTargets.GENRE);
+    }
+
+    @Test
+    @DisplayName("장르를 모르는 선점도 예약을 만들고 장르는 비워 둔다(#383)")
+    void holdWithoutGenre() {
+        Long seatId = seat();
+        Long reservationId = transactionTemplate.execute(status -> bookingFacade.hold(
+                user.userId(),
+                TestHoldTargets.withGenre(scheduleId, SCHEDULE_START_AT, null),
+                TestSeats.priced(seatId),
+                START_TIME.plusMinutes(10)));
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT genre FROM p_reservations WHERE reservation_id = ?", String.class, reservationId))
+                .isNull();
     }
 }
