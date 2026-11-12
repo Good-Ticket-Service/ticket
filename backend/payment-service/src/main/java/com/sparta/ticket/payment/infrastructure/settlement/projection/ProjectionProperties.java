@@ -34,6 +34,16 @@ public class ProjectionProperties {
         batchSize = value;
     }
 
+    public void setThreads(int value) {
+        if (value < 1 || value > 16) throw new IllegalArgumentException("집계 소비 스레드는 1~16개다");
+        threads = value;
+    }
+
+    public void setPartitions(int value) {
+        if (value < 1 || value > 24) throw new IllegalArgumentException("집계 파티션은 1~24개다");
+        partitions = value;
+    }
+
     public void setMaxPublishBatches(int value) {
         if (value < 1 || value > 16) throw new IllegalArgumentException("발행 batch 반복 상한은 1~16이다");
         maxPublishBatches = value;

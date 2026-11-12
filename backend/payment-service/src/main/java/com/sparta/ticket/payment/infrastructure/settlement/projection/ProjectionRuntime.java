@@ -1,6 +1,8 @@
 package com.sparta.ticket.payment.infrastructure.settlement.projection;
 
 import com.sparta.ticket.payment.application.port.settlement.ProjectionBatchApplier;
+import com.sparta.ticket.payment.domain.model.settlement.projection.InactiveProjectionException;
+import com.sparta.ticket.payment.domain.model.settlement.projection.ProjectionFactConflictException;
 import com.sparta.ticket.payment.domain.model.settlement.projection.ProjectionResult;
 import com.sparta.ticket.payment.domain.model.settlement.projection.SettlementFact;
 import com.sparta.ticket.payment.infrastructure.persistence.settlement.projection.ProjectionCatalogJdbc;
@@ -54,6 +56,9 @@ public class ProjectionRuntime implements AutoCloseable {
     private final ProjectionCheckpoint checkpoint;
     private final ProjectionTelemetry telemetry;
     private final ProjectionDbWorker dbWorker;
+    private ProjectionFailureHandler failureHandler;
+    private org.springframework.boot.autoconfigure.kafka.KafkaProperties clientConfig;
+    private final java.util.Set<UUID> stoppedBuilds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ExecutorService consumers = Executors.newCachedThreadPool();
 
     private record ProcessorHandle(AutoCloseable process, java.util.function.BooleanSupplier alive)
@@ -76,6 +81,21 @@ public class ProjectionRuntime implements AutoCloseable {
             ProjectionBatchApplier baseline,
             ProjectionSinkJdbc sink,
             @Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrap,
+            ProjectionTelemetry telemetry,
+            ProjectionDbWorker dbWorker,
+            org.springframework.beans.factory.ObjectProvider<ProjectionFailureHandler> failureHandlers,
+            org.springframework.boot.autoconfigure.kafka.KafkaProperties clientConfig) {
+        this(config, catalog, baseline, sink, bootstrap, ProjectionCheckpoint.NONE, telemetry, dbWorker);
+        this.failureHandler = failureHandlers.getIfAvailable();
+        this.clientConfig = clientConfig;
+    }
+
+    public ProjectionRuntime(
+            ProjectionProperties config,
+            ProjectionCatalogJdbc catalog,
+            ProjectionBatchApplier baseline,
+            ProjectionSinkJdbc sink,
+            String bootstrap,
             ProjectionTelemetry telemetry,
             ProjectionDbWorker dbWorker) {
         this(config, catalog, baseline, sink, bootstrap, ProjectionCheckpoint.NONE, telemetry, dbWorker);
@@ -140,13 +160,21 @@ public class ProjectionRuntime implements AutoCloseable {
                 builds = catalog.running();
             }
             boolean kafkaRequired = builds.stream().anyMatch(build -> !"D".equals(build.mode()));
+            boolean streamsRequired = builds.stream().anyMatch(build -> "C".equals(build.mode()));
             if (kafkaRequired) {
                 if (producer == null) initialize();
-                if (sinkTask == null || sinkTask.isDone()) sinkTask = consumers.submit(this::consumeOutput);
+                if (streamsRequired && (sinkTask == null || sinkTask.isDone())) {
+                    ensureTopic(config.outputTopic());
+                    sinkTask = consumers.submit(this::consumeOutput);
+                } else if (!streamsRequired && sinkTask != null) {
+                    sinkTask.cancel(true);
+                    sinkTask = null;
+                }
             } else {
                 stopKafkaTransport();
             }
             var ids = builds.stream().map(ProjectionCatalogJdbc.Build::id).toList();
+            stoppedBuilds.retainAll(ids);
             for (UUID old : List.copyOf(processors.keySet())) {
                 if (!ids.contains(old)) {
                     processors.remove(old).close();
@@ -156,7 +184,9 @@ public class ProjectionRuntime implements AutoCloseable {
                 if (processors.containsKey(build.id())
                         && !processors.get(build.id()).alive().getAsBoolean())
                     processors.remove(build.id()).close();
-                if (!"D".equals(build.mode()) && !processors.containsKey(build.id())) start(build);
+                if (!"D".equals(build.mode())
+                        && !processors.containsKey(build.id())
+                        && !stoppedBuilds.contains(build.id())) start(build);
                 if ("BUILDING".equals(build.status())) catalog.materialize(build.id());
                 catalog.fanout(build.id());
                 if ("D".equals(build.mode())) processDb(build.id());
@@ -178,7 +208,10 @@ public class ProjectionRuntime implements AutoCloseable {
             log.warn("예상 정산 파이프라인 진행 실패: {}", exception.getClass().getSimpleName());
             failure(ProjectionTelemetry.Phase.TICK);
         } finally {
-            if (telemetry != null) telemetry.refresh();
+            if (telemetry != null) {
+                telemetry.stoppedBuilds(stoppedBuilds.size());
+                telemetry.refresh();
+            }
         }
     }
 
@@ -207,8 +240,8 @@ public class ProjectionRuntime implements AutoCloseable {
     }
 
     private void initialize() throws Exception {
-        ensureTopic(config.outputTopic());
         Properties properties = new Properties();
+        if (clientConfig != null) properties.putAll(clientConfig.buildProducerProperties(null));
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         properties.put(ProducerConfig.ACKS_CONFIG, "all");
         properties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
@@ -217,14 +250,17 @@ public class ProjectionRuntime implements AutoCloseable {
         properties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 30000);
         properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10000);
         producer = new KafkaProducer<>(properties, new StringSerializer(), new StringSerializer());
-        sinkTask = consumers.submit(() -> consumeOutput());
     }
 
     private void ensureTopic(String name) throws Exception {
-        try (var admin = Admin.create(
-                Map.of("bootstrap.servers", bootstrap, "default.api.timeout.ms", 5000, "request.timeout.ms", 5000))) {
+        var adminProperties = new HashMap<String, Object>();
+        if (clientConfig != null) adminProperties.putAll(clientConfig.buildAdminProperties(null));
+        adminProperties.putAll(
+                Map.of("bootstrap.servers", bootstrap, "default.api.timeout.ms", 5000, "request.timeout.ms", 5000));
+        try (var admin = Admin.create(adminProperties)) {
             try {
-                admin.createTopics(List.of(new NewTopic(name, config.getPartitions(), (short) 1)))
+                admin.createTopics(List.of(new NewTopic(name, config.getPartitions(), (short) 1)
+                                .configs(Map.of("retention.ms", name.endsWith(".DLT") ? "1209600000" : "604800000"))))
                         .all()
                         .get(5, TimeUnit.SECONDS);
             } catch (java.util.concurrent.ExecutionException exception) {
@@ -257,8 +293,15 @@ public class ProjectionRuntime implements AutoCloseable {
                             () -> streams.state() != KafkaStreams.State.ERROR
                                     && streams.state() != KafkaStreams.State.NOT_RUNNING));
         } else {
-            var future = consumers.submit(() -> consumeBaseline(build.id()));
-            processors.put(build.id(), new ProcessorHandle(() -> future.cancel(true), () -> !future.isDone()));
+            ensureTopic(config.inputTopic(id) + ".DLT");
+            var futures = new ArrayList<Future<?>>();
+            for (int thread = 0; thread < config.getThreads(); thread++)
+                futures.add(consumers.submit(() -> consumeBaseline(build.id())));
+            processors.put(
+                    build.id(),
+                    new ProcessorHandle(
+                            () -> futures.forEach(future -> future.cancel(true)),
+                            () -> futures.stream().noneMatch(Future::isDone)));
         }
     }
 
@@ -293,12 +336,15 @@ public class ProjectionRuntime implements AutoCloseable {
 
     private Properties consumerProperties(String group) {
         var properties = new Properties();
+        if (clientConfig != null) properties.putAll(clientConfig.buildConsumerProperties(null));
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         properties.put(ConsumerConfig.GROUP_ID_CONFIG, group);
         properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         properties.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
         properties.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, config.getBatchSize());
+        properties.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 600000);
+        properties.put(ConsumerConfig.CLIENT_ID_CONFIG, "projection-" + group + "-" + UUID.randomUUID());
         return properties;
     }
 
@@ -334,23 +380,118 @@ public class ProjectionRuntime implements AutoCloseable {
             while (!closed && !Thread.currentThread().isInterrupted()) {
                 var records = consumer.poll(Duration.ofMillis(250));
                 if (records.isEmpty()) continue;
-                var facts = new ArrayList<SettlementFact>();
-                records.forEach(record -> {
-                    try {
-                        facts.add(ProjectionJson.read(record.value(), SettlementFact.class));
-                    } catch (IllegalArgumentException exception) {
-                        String identity = SettlementFact.hash(String.valueOf(record.key()) + "|" + record.value());
-                        sink.apply(List.of(ProjectionResult.failure(build.toString(), identity, "MALFORMED", 0)));
-                    }
-                });
-                baseline.apply(build, facts);
-                checkpoint.hit(ProjectionCheckpoint.Stage.B_DB_COMMITTED, build.toString());
-                consumer.commitSync();
+                var batch = new ArrayList<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>>();
+                records.forEach(batch::add);
+                processBaselineBatch(build, consumer, batch);
             }
+        } catch (InactiveProjectionException exception) {
+            // Note: 세대 종료는 미적용 offset을 보존한다. 명시적 rollback 뒤 같은 group으로 재개한다.
         } catch (Exception exception) {
             if (!closed) {
+                if (!Thread.currentThread().isInterrupted()) stoppedBuilds.add(build);
                 failure(ProjectionTelemetry.Phase.BASELINE);
                 log.error("예상 정산 Consumer 중단: {}", exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private record Input(SettlementFact fact, UUID replay) {}
+
+    private Input decode(org.apache.kafka.clients.consumer.ConsumerRecord<String, String> record) {
+        if (record.value() == null
+                || record.value().length() > 8192
+                || record.value().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 8192)
+            throw new ProjectionFactConflictException(null, "MALFORMED");
+        try {
+            var tree = ProjectionJson.read(record.value(), com.fasterxml.jackson.databind.JsonNode.class);
+            if (!(tree instanceof com.fasterxml.jackson.databind.node.ObjectNode object))
+                throw new IllegalArgumentException();
+            var replayNode = object.remove("replayCommandId");
+            SettlementFact fact = ProjectionJson.read(object.toString(), SettlementFact.class);
+            if (fact.eventId().length() > 100
+                    || !Long.toString(fact.paymentId()).equals(record.key()))
+                throw new ProjectionFactConflictException(fact.sourceFactKey(), "MESSAGE_KEY_CONFLICT");
+            UUID replay = replayNode == null || replayNode.isNull() ? null : UUID.fromString(replayNode.asText());
+            if (replay != null && !replay.toString().equals(fact.eventId()))
+                throw new ProjectionFactConflictException(fact.sourceFactKey(), "REPLAY_METADATA_INVALID");
+            return new Input(fact, replay);
+        } catch (IllegalArgumentException exception) {
+            throw new ProjectionFactConflictException(null, "MALFORMED");
+        }
+    }
+
+    private void processBaselineBatch(
+            UUID build,
+            KafkaConsumer<String, String> consumer,
+            List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch)
+            throws InterruptedException {
+        var inputs = new ArrayList<Input>();
+        boolean single = false;
+        for (var record : batch) {
+            try {
+                var input = decode(record);
+                inputs.add(input);
+                single |= input.replay() != null;
+            } catch (ProjectionFactConflictException exception) {
+                single = true;
+            }
+        }
+        if (!single) {
+            try {
+                retry(() -> baseline.applyStrict(
+                        build, inputs.stream().map(Input::fact).toList()));
+                checkpoint.hit(ProjectionCheckpoint.Stage.B_DB_COMMITTED, build.toString());
+                consumer.commitSync();
+                return;
+            } catch (ProjectionFactConflictException exception) {
+                // Note: 묶음 TX가 롤백된 뒤 한 건씩 격리한다. 정상 prefix만 부분 offset으로 확인한다.
+            }
+        }
+        long budget = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        for (int index = 0; index < batch.size(); index++) {
+            if (System.nanoTime() > budget) {
+                var remaining = new HashMap<org.apache.kafka.common.TopicPartition, Long>();
+                for (var pending : batch.subList(index, batch.size()))
+                    remaining.merge(
+                            new org.apache.kafka.common.TopicPartition(pending.topic(), pending.partition()),
+                            pending.offset(),
+                            Math::min);
+                remaining.forEach(consumer::seek);
+                return;
+            }
+            var record = batch.get(index);
+            Input input = null;
+            try {
+                input = decode(record);
+                var selected = input;
+                if (input.replay() == null) retry(() -> baseline.applyStrict(build, List.of(selected.fact())));
+                else retry(() -> baseline.applyReplay(build, selected.fact(), selected.replay()));
+                checkpoint.hit(ProjectionCheckpoint.Stage.B_DB_COMMITTED, build.toString());
+            } catch (ProjectionFactConflictException exception) {
+                if (failureHandler == null) throw exception;
+                failureHandler.reject(
+                        build,
+                        record,
+                        exception.factKey(),
+                        exception.getMessage(),
+                        input == null ? null : input.replay());
+            }
+            consumer.commitSync(Map.of(
+                    new org.apache.kafka.common.TopicPartition(record.topic(), record.partition()),
+                    new org.apache.kafka.clients.consumer.OffsetAndMetadata(record.offset() + 1)));
+        }
+    }
+
+    private static void retry(Runnable action) throws InterruptedException {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (org.springframework.dao.TransientDataAccessException
+                    | org.springframework.jdbc.CannotGetJdbcConnectionException
+                    | org.springframework.transaction.CannotCreateTransactionException exception) {
+                if (attempt >= 3) throw exception;
+                Thread.sleep(1000L << attempt);
             }
         }
     }

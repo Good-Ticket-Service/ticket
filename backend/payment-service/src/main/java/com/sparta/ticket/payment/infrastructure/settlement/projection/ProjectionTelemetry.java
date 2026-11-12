@@ -41,12 +41,18 @@ public class ProjectionTelemetry {
                 "errors",
                 "pending",
                 "active",
+                "consumer_stopped",
                 "fanout_age_seconds",
                 "sample_timestamp")) {
             var value = new AtomicReference<>(Double.NaN);
             gauges.put(name, value);
             meters.gauge("payment.settlement.projection." + name.replace('_', '.'), value, AtomicReference::get);
         }
+        gauges.get("consumer_stopped").set(0.0);
+    }
+
+    public void stoppedBuilds(int count) {
+        gauges.get("consumer_stopped").set((double) count);
     }
 
     public void failure(Phase phase) {

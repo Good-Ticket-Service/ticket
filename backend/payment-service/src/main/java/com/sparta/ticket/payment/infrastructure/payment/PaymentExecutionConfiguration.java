@@ -5,6 +5,7 @@ import com.sparta.ticket.payment.application.service.payment.PaymentReconcilePro
 import com.sparta.ticket.payment.application.service.payment.PaymentRecoveryProperties;
 import com.sparta.ticket.payment.application.service.payment.PaymentSettlementBackfillProperties;
 import com.sparta.ticket.payment.application.service.payment.SettlementJobProperties;
+import com.sparta.ticket.payment.application.service.payment.SettlementPostingProperties;
 import com.sparta.ticket.payment.application.service.refund.RefundRecoveryProperties;
 import java.time.Clock;
 import java.time.ZoneId;
@@ -21,7 +22,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
     PaymentReconcileProperties.class,
     RefundRecoveryProperties.class,
     PaymentSettlementBackfillProperties.class,
-    SettlementJobProperties.class
+    SettlementJobProperties.class,
+    SettlementPostingProperties.class
 })
 public class PaymentExecutionConfiguration {
     @Bean

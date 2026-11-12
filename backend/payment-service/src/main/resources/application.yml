@@ -1,6 +1,7 @@
 spring:
   datasource:
     hikari:
+      connection-init-sql: SET TIME ZONE 'Asia/Seoul'
       data-source-properties:
         # DB 제약 실패의 상세 행에 거래 키가 포함될 수 있다. 기본 오류·제약 이름은 유지한다.
         logServerErrorDetail: false
@@ -37,11 +38,11 @@ spring:
     scheduling:
       pool:
         # @Scheduled 잡은 스케줄러 하나를 함께 쓰고 Boot 기본 스레드는 1개다. 그러면 정산 대조·정산서 발행·PG 조회가 긴 잡이
-        # 도는 동안 결제 Recovery(결과 1분 확정)·환불 Recovery가 멈춘다. 잡마다 스레드를 하나씩 둔다(@Scheduled 메서드 13개).
+        # 도는 동안 결제 Recovery(결과 1분 확정)·환불 Recovery가 멈춘다. 잡마다 스레드를 하나씩 둔다(@Scheduled 메서드 19개).
         # 잡을 늘리면 함께 늘린다. 잡끼리는 SKIP LOCKED·임대로 다중 인스턴스 동시 실행을 이미 전제한다.
         # 동시에 도는 잡이 늘면 DB 연결도 그만큼 더 쓸 수 있다(잡당 최대 1개, 결제 풀 20).
         # 가상 스레드를 켜면 Boot가 실행마다 가상 스레드를 쓰는 스케줄러로 바꿔 이 값은 쓰이지 않는다.
-        size: 13
+        size: 19
 
 # 판매자 정산 정책·영업일 달력(settlement-design 2절). 버전을 지우지 않고 덧붙인다. 정산 항목은 승인 시각의 버전을 고정한다.
 # 요율은 팀 합의 전 시험용 제안이다(profit-policy.md). 값이 틀리면 기동하지 않는다.
@@ -78,17 +79,29 @@ payment:
         vat-rate-bp: 1000
         business-days: 3
   settlement:
+    consumer-recovery:
+      # 실제 적용이 끝나야 명령을 완료한다. 미해결 이력 관측은 Kafka 중지 때도 유지한다.
+      replay-enabled: true
+      observation-enabled: true
+    # 전체 처리자 배포·검증 후 신규 작업만 KAFKA로 전환한다. 기존 작업의 transport는 유지한다.
+    posting:
+      transport: KAFKA
+      kafka:
+        enabled: true
+        relay-enabled: true
+        consumer-enabled: true
+        concurrency: 2
     # 예상 정산 집계는 항상 사용한다. 긴급 중지 시에도 금융 원장과 이미 보존한 사건은 유지한다.
     projection:
       enabled: true
       auto-start: true
       # D=DB 워커, B=일반 Kafka Consumer, C=Kafka Streams. 기존 세대의 엔진은 설정만으로 바꾸지 않는다.
-      mode: D
+      mode: B
       partitions: 6
       batch-size: 500
       max-publish-batches: 8
       max-publish-run-millis: 1000
-      threads: 1
+      threads: 2
       fixed-delay-ms: 1000
       lease: 30s
       send-timeout: 5s
