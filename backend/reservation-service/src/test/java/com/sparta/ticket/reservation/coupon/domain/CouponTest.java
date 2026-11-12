@@ -174,6 +174,47 @@ class CouponTest {
     }
 
     @Nested
+    @DisplayName("적용 장르(#389)")
+    class Genre {
+
+        private Coupon create(CouponGenre genre, LocalDateTime start, LocalDateTime now) {
+            return Coupon.create(
+                    "쿠폰", CouponCategory.GENERAL, genre, DiscountPolicy.fixed(3_000), 1_000, start, END, 7, now);
+        }
+
+        @Test
+        @DisplayName("장르를 정하지 않으면 모든 장르에 쓰는 쿠폰(null)이고, 정하면 그 장르다")
+        void createWithGenre() {
+            assertThat(create(null, START, NOW).getGenre()).isNull();
+            assertThat(create(CouponGenre.MUSICAL, START, NOW).getGenre()).isEqualTo(CouponGenre.MUSICAL);
+        }
+
+        @Test
+        @DisplayName("시작 전에는 장르를 바꿀 수 있고, 장르를 보내지 않으면 그대로 둔다")
+        void changeBeforeStart() {
+            Coupon coupon = create(CouponGenre.MUSICAL, START, NOW);
+
+            coupon.update(null, null, CouponGenre.CONCERT, null, null, null, null, null, NOW);
+            assertThat(coupon.getGenre()).isEqualTo(CouponGenre.CONCERT);
+            coupon.update("새 이름", null, null, null, null, null, null, null, NOW);
+            assertThat(coupon.getGenre()).isEqualTo(CouponGenre.CONCERT);
+        }
+
+        @Test
+        @DisplayName("발급이 시작된 뒤 장르를 바꾸면 COUPON_NOT_MODIFIABLE이고, 같은 값이면 바꾸지 않은 것으로 본다")
+        void notModifiableAfterStart() {
+            Coupon issuing = create(CouponGenre.MUSICAL, NOW.minusDays(1), NOW.minusDays(2));
+
+            assertError(
+                    () -> issuing.update(null, null, CouponGenre.CONCERT, null, null, null, null, null, NOW),
+                    CouponErrorCode.COUPON_NOT_MODIFIABLE);
+            issuing.update("새 이름", null, CouponGenre.MUSICAL, null, null, null, null, null, NOW);
+            assertThat(issuing.getGenre()).isEqualTo(CouponGenre.MUSICAL);
+            assertThat(issuing.getName()).isEqualTo("새 이름");
+        }
+    }
+
+    @Nested
     @DisplayName("발급 상태")
     class IssueStatus {
 

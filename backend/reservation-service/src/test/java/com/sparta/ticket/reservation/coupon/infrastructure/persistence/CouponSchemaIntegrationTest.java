@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.coupon.domain.Coupon;
 import com.sparta.ticket.reservation.coupon.domain.CouponCategory;
+import com.sparta.ticket.reservation.coupon.domain.CouponGenre;
 import com.sparta.ticket.reservation.coupon.domain.CouponRepository;
 import com.sparta.ticket.reservation.coupon.domain.DiscountPolicy;
 import com.sparta.ticket.reservation.coupon.domain.DiscountType;
@@ -119,6 +120,31 @@ class CouponSchemaIntegrationTest extends ReservationIntegrationTest {
                         saved.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_p_coupons_welcome_valid_days");
+    }
+
+    @Test
+    @DisplayName("적용 장르를 저장하고 다시 읽는다. 장르를 정하지 않은 쿠폰은 NULL이고, 없는 장르는 ck_p_coupons_genre가 막는다(#389)")
+    void genre() {
+        Coupon musical = couponRepository.save(Coupon.create(
+                "뮤지컬 쿠폰",
+                CouponCategory.GENERAL,
+                CouponGenre.MUSICAL,
+                DiscountPolicy.fixed(3_000),
+                1_000,
+                NOW.plusDays(1),
+                NOW.plusDays(7),
+                7,
+                NOW));
+        Coupon all = saveCoupon();
+
+        assertThat(couponRepository.findById(musical.getId()).orElseThrow().getGenre())
+                .isEqualTo(CouponGenre.MUSICAL);
+        assertThat(couponRepository.findById(all.getId()).orElseThrow().getGenre())
+                .isNull();
+        assertThatThrownBy(() ->
+                        jdbcTemplate.update("UPDATE p_coupons SET genre = 'OPERA' WHERE coupon_id = ?", all.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_p_coupons_genre");
     }
 
     @Test
