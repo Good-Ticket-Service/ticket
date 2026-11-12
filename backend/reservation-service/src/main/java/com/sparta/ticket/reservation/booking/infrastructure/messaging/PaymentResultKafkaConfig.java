@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.booking.infrastructure.messaging;
 
 import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -10,6 +11,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 
 @Slf4j
 @Configuration
+@EnableConfigurationProperties(PaymentResultProperties.class)
 class PaymentResultKafkaConfig {
 
     static final String TOPIC = "payment.result";
@@ -27,8 +29,9 @@ class PaymentResultKafkaConfig {
     ConcurrentKafkaListenerContainerFactory<String, String> paymentResultContainerFactory(
             ConsumerFactory<String, String> consumerFactory,
             KafkaTemplate<String, String> kafkaTemplate,
-            BookingMetrics metrics) {
-        return RetryingListenerContainers.create(
+            BookingMetrics metrics,
+            PaymentResultProperties properties) {
+        ConcurrentKafkaListenerContainerFactory<String, String> factory = RetryingListenerContainers.create(
                 consumerFactory,
                 kafkaTemplate,
                 DEAD_LETTER_TOPIC,
@@ -52,5 +55,7 @@ class PaymentResultKafkaConfig {
                             attempt,
                             ex);
                 });
+        factory.setConcurrency(properties.concurrency());
+        return factory;
     }
 }

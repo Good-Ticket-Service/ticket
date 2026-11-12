@@ -71,7 +71,7 @@ class BookingSchedulingConfigTest {
                     "reservation.booking.scheduler.payment-backlog.interval=50ms");
 
     @Test
-    @DisplayName("컨텍스트가 뜨면 만료, 결과 확인과 확정 못 한 결제의 환불, 취소 확인을 설정값으로 돌린다")
+    @DisplayName("컨텍스트가 뜨면 만료, 결과 확인, 환불, 취소 확인, 회차 취소 정리, Outbox 발행, 결제 중 집계를 설정값으로 돌린다")
     void runsBothTasks() {
         runner.run(context -> {
             assertThat(context).hasSingleBean(BookingScheduleRunner.class);
@@ -85,7 +85,23 @@ class BookingSchedulingConfigTest {
                     .reconcile(Duration.ofMinutes(2), 20, Duration.ofMillis(40));
             verify(scheduleCancellationService, timeout(2_000).atLeastOnce())
                     .cleanUp(30, Duration.ofMinutes(1), Duration.ofMillis(40));
+            verify(outboxPublisher, timeout(2_000).atLeastOnce()).publish(100, Duration.ofSeconds(1));
+            verify(paymentBacklogService, timeout(2_000).atLeastOnce()).refresh();
         });
+    }
+
+    @Test
+    @DisplayName("간격이 0이면 쉬지 않고 돌게 되므로 기동이 실패한다")
+    void rejectsZeroInterval() {
+        runner.withPropertyValues("reservation.booking.scheduler.hold-expiry.interval=0s")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    @DisplayName("시간 예산이 0이면 한 건도 처리하지 않게 되므로 기동이 실패한다")
+    void rejectsZeroTimeBudget() {
+        runner.withPropertyValues("reservation.booking.scheduler.payment-reconcile.time-budget=0s")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
