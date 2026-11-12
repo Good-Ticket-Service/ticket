@@ -134,6 +134,12 @@
 - 좌석은 두 값도 HoldTarget으로 그대로 넘긴다. 허용 응답에 두 값이 없으면 좌석이 503으로 선점을 거절한다.
 - 예매는 두 값을 예약에 선점 시점 스냅샷으로 저장하고 다시 조회하지 않는다. scheduleStartAt은 취소 기한, performanceTitle은 내 예매 목록 표시에 쓴다. 취소가 공연 서비스 가용성에 묶이지 않게 하기 위해서다.
 
+판매 검증 P21.genre (합의 #383, 구현 전):
+- P21에 `genre:string`을 더한다. 값은 공연의 Genre 이름(CONCERT, MUSICAL, PLAY, SPORTS, CLASSICAL, KOREAN_MUSIC, DANCE, CIRCUS_MAGIC, MULTIDISCIPLINARY)이고, 공연은 허용 응답에 항상 담는다.
+- 좌석은 이 값을 HoldTarget.genre로 그대로 넘긴다. 클라이언트 입력에서 받지 않는다.
+- 허용 응답에 genre가 없어도 좌석은 선점을 거절하지 않고 HoldTarget.genre를 null로 넘긴다. #126의 두 값과 다른 점이다. 장르는 쿠폰 사용 판단에만 쓰므로 장르 때문에 선점이 막히지 않게 한다. 장르를 모르는 예약에는 장르 쿠폰을 쓸 수 없다.
+- 예매는 genre를 예약에 선점 시점 스냅샷으로 저장하고 다시 조회하지 않는다. 결제 준비 때 쿠폰에 넘긴다(서비스 내부 모듈 계약의 CouponUsage.reserve).
+
 ### 공연 오류 코드
 
 공연 업무 코드 (이번 구현 범위)
@@ -763,7 +769,7 @@
 
 ## 서비스 내부 모듈 계약
 
-상태: BookingFacade는 합의·구현됨. HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이고, 예매는 CouponPort 어댑터로 연결했다. CouponUsage.reserve의 정가 인자 추가는 합의(#347)·구현됨(#348)이다.
+상태: BookingFacade는 합의·구현됨. HoldTarget 두 필드 추가와 CANCELING 집계는 합의·구현됨(#126). 좌석의 판매 검증 응답 연결은 선점 API에서 한다. SeatFacade는 합의·구현됨(#80), CouponUsage는 합의(#125)·구현됨(#159)이고, 예매는 CouponPort 어댑터로 연결했다. CouponUsage.reserve의 정가 인자 추가는 합의(#347)·구현됨(#348)이다. HoldTarget과 CouponUsage.reserve의 공연 장르 추가는 합의(#383)·구현 전이다.
 
 | 제공 → 소비 | 상태 | 메서드/타입 |
 |---|---|---|
@@ -771,6 +777,8 @@
 | booking → seat | 합의 #34 | countActiveSeats(Long userId,Long scheduleId):int; findActiveHold(Long userId,Long scheduleId):Optional<ReservationView>; expireIfDue(Long reservationId):boolean; findPaymentInProgress(Collection<Long>):Set<Long> |
 | seat → booking | 합의 #34; 구현됨(#80) | lockSeats(Collection<Long>):List<SeatLock>; sell(Collection<Long>,Long reservationId):int; release(Collection<Long>,Long reservationId):int |
 | coupon → booking | 합의 #125, #347; 구현됨(#159, #348) | reserve(Long userCouponId,Long userId,Long reservationId,long baseAmount):CouponDiscount; use(Long reservationId); release(Long reservationId) |
+| booking → seat | 합의 #383; 구현 전 | HoldTarget에 genre:String 추가. hold 시그니처는 그대로 |
+| coupon → booking | 합의 #383; 구현 전 | reserve(Long userCouponId,Long userId,Long reservationId,long baseAmount,String genre):CouponDiscount. use·release는 그대로 |
 
 - HoldTarget=`{scheduleId:Long,performanceId:Long,sellerId:Long,scheduleStartAt:LocalDateTime,performanceTitle:String}` (#86, #126); SeatLine=`{scheduleSeatId:Long,price:int}`; ReservationView=`{reservationId:Long,userId:Long,scheduleId:Long,state:ReservationState,holdExpiresAt:LocalDateTime,scheduleSeatIds:List<Long>}`; SeatLock=`{scheduleSeatId:Long,state:SeatState,reservationId:Long,holdExpiresAt:LocalDateTime}`.
 - ReleaseResult=RELEASED/EXPIRED/ALREADY_CLOSED/NOT_RELEASABLE; facade 전용 enum은 domain enum을 노출하지 않는다. 트랜잭션 규칙은 architecture 참조.
@@ -782,6 +790,10 @@
 - reserve: baseAmount가 쿠폰의 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE 예외다. 새 오류 코드는 없고, 예매는 지금처럼 checkout 400으로 그대로 낸다. 메시지에는 최소 적용 금액을 넣어(예: "30,000원 이상 결제 시 사용할 수 있는 쿠폰입니다.") 화면이 이유를 보여 줄 수 있게 한다.
 - reserve: 정률 할인액은 long으로 계산하고 정가를 넘지 않게 자른 뒤 CouponDiscount.discountAmount(int)로 돌려준다. 예매는 받은 값을 long으로 쓴다.
 - reserve: 같은 예매는 정가가 바뀌지 않으므로 같은 쿠폰이 다시 와도 같은 할인액이다. 멱등 규칙은 #125와 같다.
+- HoldTarget(합의 #383, 구현 전): `genre:String`을 더한다. 좌석은 판매 검증 P21.genre를 그대로 넘기고, P21에 없으면 null로 넘긴다. 예매는 예약에 선점 시점 값으로 저장한다(NULL 허용). 장르 컬럼이 생기기 전에 만든 예약도 null이다.
+- reserve(합의 #383, 구현 전): 예매는 예약에 저장된 장르를 genre로 넘긴다. 없으면 null이다.
+- reserve(합의 #383, 구현 전): 장르를 지정하지 않은 쿠폰은 genre와 상관없이 쓸 수 있다. 장르를 지정한 쿠폰은 genre가 같을 때만 잡히고, 다르거나 null이면 COUPON_NOT_AVAILABLE 예외다. 새 오류 코드는 없고, 예매는 지금처럼 checkout 400으로 그대로 낸다. 메시지에 적용 장르를 넣어(예: "뮤지컬 공연에만 사용할 수 있는 쿠폰입니다.") 화면이 이유를 보여 줄 수 있게 한다.
+- reserve(합의 #383, 구현 전): 같은 예매는 장르가 바뀌지 않으므로 멱등 규칙은 #125와 같다.
 - reserve: 같은 예매에 같은 쿠폰이 다시 오면 이미 잡힌 값을 돌려준다. 예매에 다른 쿠폰이 잡혀 있으면 IllegalStateException이다(호출 순서 오류). (#125)
 - 쿠폰 교체: 예매는 기존 쿠폰의 release를 먼저 부르고 새 reserve를 같은 트랜잭션에서 부른다. 예매 하나에 쿠폰은 하나만 잡힌다(uk_p_user_coupons_reservation). (#125)
 - use: RESERVED를 USED로 바꾼다. 유효 기간이 지났어도 USED다. 이미 USED면 아무것도 하지 않는다. (#125)
