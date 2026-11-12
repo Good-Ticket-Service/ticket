@@ -98,6 +98,22 @@ public class PaymentResultOutboxJdbc implements PaymentResultPublisher {
                 """, delivery.eventId(), delivery.leaseToken()) == 1;
     }
 
+    /** 같은 claim의 ACK 받은 건을 한 TX로 기록한다. lease가 바뀐 행은 세지 않고 재전달에 맡긴다. */
+    @Transactional
+    public int published(List<Delivery> deliveries) {
+        if (deliveries.isEmpty()) return 0;
+        UUID token = deliveries.get(0).leaseToken();
+        if (deliveries.stream().anyMatch(delivery -> !token.equals(delivery.leaseToken()))) {
+            throw new IllegalArgumentException("같은 claim의 전달 건만 함께 기록한다");
+        }
+        var ids = deliveries.stream().map(Delivery::eventId).toArray(UUID[]::new);
+        return jdbc.update("""
+                UPDATE p_payment_result_outbox SET published_at=CURRENT_TIMESTAMP,lease_token=NULL,lease_until=NULL,
+                  last_error=NULL,updated_at=CURRENT_TIMESTAMP,updated_by='SYSTEM'
+                WHERE event_id=ANY(?) AND lease_token=? AND published_at IS NULL
+                """, ids, token);
+    }
+
     @Transactional
     public void failed(Delivery delivery, String reason, Duration delay) {
         jdbc.update("""

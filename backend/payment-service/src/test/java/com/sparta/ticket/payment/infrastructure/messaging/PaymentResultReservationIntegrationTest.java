@@ -167,7 +167,8 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
                                 Duration.ofSeconds(30),
                                 Duration.ofSeconds(2),
                                 Duration.ofSeconds(1),
-                                Duration.ofMillis(10)),
+                                Duration.ofMillis(10),
+                                50),
                         new SimpleMeterRegistry());
                 var evidence = new LinkedHashMap<String, Object>();
                 for (int index = 0; index < 2; index++) {
@@ -321,7 +322,8 @@ class PaymentResultReservationIntegrationTest extends PaymentIntegrationTest {
                                 Duration.ofSeconds(30),
                                 Duration.ofSeconds(2),
                                 Duration.ofSeconds(1),
-                                Duration.ofMillis(10)),
+                                Duration.ofMillis(10),
+                                50),
                         new SimpleMeterRegistry());
                 var evidence = new LinkedHashMap<String, Object>();
 

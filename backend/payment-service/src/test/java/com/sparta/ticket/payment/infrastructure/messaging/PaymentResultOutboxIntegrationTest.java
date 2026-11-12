@@ -276,7 +276,12 @@ class PaymentResultOutboxIntegrationTest extends PaymentIntegrationTest {
                 outbox,
                 kafka,
                 new PaymentResultRelayProperties(
-                        10, Duration.ofSeconds(30), Duration.ofSeconds(2), Duration.ofSeconds(1), Duration.ofMillis(1)),
+                        10,
+                        Duration.ofSeconds(30),
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(1),
+                        Duration.ofMillis(1),
+                        50),
                 new SimpleMeterRegistry());
     }
 }
