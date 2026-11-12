@@ -11,11 +11,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDateTime;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
@@ -31,6 +37,9 @@ import org.springframework.test.web.servlet.ResultActions;
         value = {"/sql/truncate.sql", "/sql/sale-validation-fixture.sql"},
         config = @SqlConfig(encoding = "UTF-8"))
 class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTest {
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private ResultActions validate(Object scheduleId, String body) throws Exception {
         return mockMvc.perform(post("/internal/schedules/" + scheduleId + "/sale-validations")
@@ -155,6 +164,74 @@ class InternalSaleValidationApiIntegrationTest extends PerformanceIntegrationTes
         void seatNotSellableBeforeMissingPrice() throws Exception {
             rejectedWith(111, 1, "SEAT_NOT_SELLABLE", 3, 999);
             rejectedWith(111, 1, "SEAT_NOT_SELLABLE", 999, 3);
+        }
+    }
+
+    @Nested
+    @DisplayName("경로별 조회 SQL 수(이슈 #405)")
+    class SqlCount {
+
+        private Statistics statistics;
+
+        @BeforeEach
+        void enableStatistics() {
+            statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            statistics.setStatisticsEnabled(true);
+            statistics.clear();
+        }
+
+        @AfterEach
+        void disableStatistics() {
+            statistics.setStatisticsEnabled(false);
+            statistics.clear();
+        }
+
+        @Test
+        @DisplayName("서로 다른 등급의 여러 좌석 허용은 두 SELECT다")
+        void allowedUsesTwoQueries() throws Exception {
+            validate(100, 2, 3, 1)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.allowed").value(true))
+                    .andExpect(jsonPath("$.seats[*].venueSeatId").value(contains(3, 1)));
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("모든 회차 단계 거절은 좌석을 읽지 않고 한 SELECT로 끝난다")
+        void scheduleRejectionUsesOneQuery() throws Exception {
+            for (long id : new long[] {101, 102, 103, 104, 105, 106, 107}) {
+                statistics.clear();
+                validate(id, 1, 1)
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.allowed").value(false));
+                assertThat(statistics.getPrepareStatementCount())
+                        .as("회차 %s", id)
+                        .isEqualTo(1);
+            }
+            statistics.clear();
+            rejectedWith(100, 1, "SEAT_CONFIG_VERSION_MISMATCH", 1);
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("좌석 거절은 두 SELECT이고 가격 누락보다 먼저 판단한다")
+        void seatRejectionUsesTwoQueries() throws Exception {
+            rejectedWith(111, 1, "SEAT_NOT_SELLABLE", 3, 999);
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("회차 없음은 한 SELECT로 404다")
+        void notFoundUsesOneQuery() throws Exception {
+            validate(999, 1, 1).andExpect(status().isNotFound());
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("가격 누락은 좌석 행을 보존해 두 SELECT 뒤 500이다")
+        void missingPriceUsesTwoQueries() throws Exception {
+            validate(111, 1, 3).andExpect(status().isInternalServerError());
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
         }
     }
 
