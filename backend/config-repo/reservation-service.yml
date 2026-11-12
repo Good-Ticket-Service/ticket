@@ -73,9 +73,11 @@ reservation:
         # 취소 기록을 보기 전에 시작한 결제 시작 트랜잭션이 끝날 만큼 기다린 뒤 기록을 완료한다
         complete-after: 1m
         time-budget: 20s
-      # 업무 트랜잭션이 남긴 메시지를 보낸다. 메시지로 요청한 승인은 이 주기만큼 늦게 payment에 닿는다
+      # 업무 트랜잭션이 남긴 메시지를 보낸다. 승인 요청은 커밋 직후 발행기를 깨워 바로 보내고(publish-on-commit, 키가 없으면 켜짐),
+      # 이 주기는 깨우기가 놓친 행(커밋 직후 꺼짐, 보내기 실패, 다른 인스턴스가 남긴 행)을 줍는 데만 쓴다.
+      # publish-on-commit을 false로 끄면 승인 요청이 이 주기만큼 늦게 payment에 닿으므로 interval도 200ms로 줄인다
       outbox:
-        interval: 200ms
+        interval: 1s
         batch-size: 100
         send-timeout: 5s
       # 결제 중 예약 수를 세어 폴링 간격(Retry-After)의 기준 게이지를 갱신한다. 결과 확인 주기(30초)로는 결제 중이 분당 수천 건 늘 때
