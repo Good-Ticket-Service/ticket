@@ -48,6 +48,9 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
     protected SwitchableConfirmSettings confirmSettings;
 
     @Autowired
+    protected SwitchableOutboxWakeup outboxWakeup;
+
+    @Autowired
     private PaymentBacklogService paymentBacklogService;
 
     /** JUnit은 부모의 @BeforeEach를 자식의 것보다 먼저 실행한다. 자식은 이 초기화 위에 자기 준비만 더한다. */
@@ -57,6 +60,7 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
         jdbcTemplate.update("DELETE FROM p_reservations");
         jdbcTemplate.update("DELETE FROM p_schedule_cancellations");
         jdbcTemplate.update("DELETE FROM p_payment_result_events");
+        outboxWakeup.reset();
         jdbcTemplate.update("DELETE FROM p_booking_outbox");
         confirmSettings.reset();
         coupons.reset();

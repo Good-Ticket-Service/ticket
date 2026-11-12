@@ -17,6 +17,7 @@ import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklo
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
+import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublishWaker;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -183,7 +184,20 @@ class BookingSchedulingConfigTest {
     @Test
     @DisplayName("enabled=false면 스케줄러를 띄우지 않는다")
     void canBeDisabled() {
-        runner.withPropertyValues("reservation.booking.scheduler.enabled=false")
-                .run(context -> assertThat(context).doesNotHaveBean(BookingScheduleRunner.class));
+        runner.withPropertyValues("reservation.booking.scheduler.enabled=false").run(context -> {
+            assertThat(context).doesNotHaveBean(BookingScheduleRunner.class);
+            assertThat(context).doesNotHaveBean(OutboxPublishWaker.class);
+        });
+    }
+
+    @Test
+    @DisplayName("커밋 직후 발행은 기본으로 켜지고, publish-on-commit=false면 발행 스케줄러만 남는다")
+    void publishOnCommitCanBeTurnedOff() {
+        runner.run(context -> assertThat(context).hasSingleBean(OutboxPublishWaker.class));
+        runner.withPropertyValues("reservation.booking.scheduler.outbox.publish-on-commit=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(OutboxPublishWaker.class);
+                    assertThat(context).hasSingleBean(BookingScheduleRunner.class);
+                });
     }
 }

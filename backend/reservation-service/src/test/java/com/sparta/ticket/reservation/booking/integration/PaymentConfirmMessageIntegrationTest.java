@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.booking.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +42,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.ConsumerFactory;
 
@@ -119,8 +121,16 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
         return reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
     }
 
-    /** 이 토픽에서 orderIds에 해당하는 레코드를 처음부터 모두 읽는다. 기대한 수를 채운 뒤에도 잠시 더 읽어 중복을 잡는다. */
     private List<ConsumerRecord<String, String>> requestsFor(Set<String> orderIds, int expected) throws Exception {
+        return requestsFor(orderIds, expected, Duration.ofSeconds(30));
+    }
+
+    /**
+     * 이 토픽에서 orderIds에 해당하는 레코드를 처음부터 모두 읽는다. 기대한 수를 채운 뒤에도 잠시 더 읽어 중복을 잡는다.
+     * wait 안에 기대한 수가 오지 않으면 그때까지 찾은 것만 돌려준다.
+     */
+    private List<ConsumerRecord<String, String>> requestsFor(Set<String> orderIds, int expected, Duration wait)
+            throws Exception {
         List<ConsumerRecord<String, String>> found = new ArrayList<>();
         try (Consumer<String, String> consumer =
                 consumerFactory.createConsumer("confirm-requested-test-" + UUID.randomUUID(), "test")) {
@@ -129,7 +139,7 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
                     .toList();
             consumer.assign(partitions);
             consumer.seekToBeginning(partitions);
-            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            long deadline = System.nanoTime() + wait.toNanos();
             long settleUntil = Long.MAX_VALUE;
             while (System.nanoTime() < Math.min(deadline, settleUntil)) {
                 for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(300))) {
@@ -250,6 +260,35 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
         assertThat(body.get("amount").asLong()).isEqualTo(amount);
         assertThat(body.get("pgAuthToken").asText()).isEqualTo("pk-" + attempt.orderId());
         assertThat(body.get("confirmBefore").asText()).isEqualTo("2026-11-01T20:05:00+09:00");
+    }
+
+    @Test
+    @DisplayName("승인 요청을 커밋하자마자 발행해, 발행 스케줄러의 다음 차례를 기다리지 않는다")
+    void publishesRightAfterCommit() throws Exception {
+        outboxWakeup.publishOnCommit();
+
+        Attempt attempt = requestedByMessage();
+
+        // 통합 테스트는 발행 스케줄러를 끄므로 여기서 보이는 레코드는 커밋 직후 발행만으로 나간 것이다
+        assertThat(requestsFor(Set.of(attempt.orderId()), 1, Duration.ofSeconds(5)))
+                .hasSize(1);
+        await().atMost(Duration.ofSeconds(5)).until(() -> outboxSize() == 0);
+    }
+
+    @Test
+    @Timeout(value = 20, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    @DisplayName("발행이 브로커를 기다리며 멈춰도 승인은 기다리지 않고 결제 중으로 답하고, 요청은 Outbox에 남는다")
+    void answersWhilePublishingIsStuck() {
+        outboxWakeup.stallPublishing();
+        confirmSettings.useMessage();
+        long started = System.nanoTime();
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(confirm(checkedOut()).status().name()).isEqualTo("PAYMENT_IN_PROGRESS");
+        }
+
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        assertThat(outboxSize()).isEqualTo(3);
     }
 
     @Test
