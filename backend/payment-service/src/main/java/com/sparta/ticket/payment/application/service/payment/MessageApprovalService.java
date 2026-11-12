@@ -48,8 +48,13 @@ public class MessageApprovalService {
     }
 
     public Outcome advance(MessageConfirmCommand command, BooleanSupplier owner) {
+        return advance(new MessageApprovalAttempt(command), owner);
+    }
+
+    public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner) {
         if (!owner.getAsBoolean()) return Outcome.CANCELED;
-        var registration = transactions.register(command);
+        var command = attempt.command();
+        var registration = attempt.registration(transactions, clock);
         if (registration.completed()) return Outcome.COMPLETE;
         Semaphore slot = slots.get(registration.provider());
         if (!slot.tryAcquire()) return Outcome.RETRY;
@@ -61,6 +66,8 @@ public class MessageApprovalService {
                 var claimed = transactions.claim(command);
                 if (claimed.isEmpty()) return Outcome.COMPLETE;
                 var claim = claimed.get();
+                if (claim.provider() != registration.provider())
+                    throw new IllegalStateException("승인 실행권의 PG가 등록 정보와 다르다");
                 if (!owner.getAsBoolean()) return Outcome.CANCELED;
                 if (!transactions.maySend(command)) return Outcome.COMPLETE;
                 // Note: DB 재검사와 실제 송신 사이의 시계 진행도 막는다. 이미 claim은 영속 복구 대상이다.
