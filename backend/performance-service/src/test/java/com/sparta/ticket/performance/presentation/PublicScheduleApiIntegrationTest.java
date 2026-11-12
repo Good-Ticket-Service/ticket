@@ -48,7 +48,7 @@ class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
     class GetSchedules {
 
         @Test
-        @DisplayName("삭제 회차를 빼고 취소 회차는 넣어 시작 시각 순으로 준다")
+        @DisplayName("삭제 회차를 빼고 취소 회차는 넣어, 여러 달의 회차를 시작 시각 순으로 준다")
         void listsSchedulesByStartAt() throws Exception {
             schedules(10)
                     .andExpect(status().isOk())
@@ -111,6 +111,61 @@ class PublicScheduleApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.schedules[*].id").value(contains(13)))
                     .andExpect(jsonPath("$.data.schedules[0].operationStatus").value("ACTIVE"))
                     .andExpect(jsonPath("$.data.schedules[0].salesStatus").value("CANCELED"));
+        }
+
+        @Test
+        @DisplayName("지난 회차도 넣고, 판매 기간이 지났으면 CLOSED다")
+        void includesPastSchedules() throws Exception {
+            schedules(14)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.schedules[*].id").value(contains(7)))
+                    .andExpect(jsonPath("$.data.schedules[0].salesStatus").value("CLOSED"));
+        }
+
+        @Test
+        @DisplayName("목록의 판매 상태는 같은 현재 시각으로 계산하고, 오픈 시각과 같으면 판매 중, 마감 시각과 같으면 마감이다")
+        void bookingBoundaries() throws Exception {
+            clock.set(LocalDateTime.of(2026, 11, 10, 13, 59, 59));
+            schedules(10)
+                    .andExpect(jsonPath("$.data.schedules[*].salesStatus")
+                            .value(contains("CANCELED", "BEFORE_OPEN", "BEFORE_OPEN")));
+            clock.set(LocalDateTime.of(2026, 11, 10, 14, 0));
+            schedules(10)
+                    .andExpect(jsonPath("$.data.schedules[*].salesStatus")
+                            .value(contains("CANCELED", "ON_SALE", "ON_SALE")));
+            clock.set(LocalDateTime.of(2026, 12, 1, 18, 0));
+            schedules(10)
+                    .andExpect(jsonPath("$.data.schedules[*].salesStatus")
+                            .value(contains("CANCELED", "CLOSED", "ON_SALE")));
+        }
+
+        @Test
+        @DisplayName("공개 공연 확인과 회차 조회로 SQL 두 번이다. 회차가 없어도 두 번, 공개 공연이 아니면 한 번이다")
+        void readsInTwoStatements() throws Exception {
+            Statistics statistics =
+                    entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            boolean wasEnabled = statistics.isStatisticsEnabled();
+            statistics.setStatisticsEnabled(true);
+            try {
+                // 회차가 있는 공연, 회차가 없는 공연
+                for (long id : new long[] {10, 13}) {
+                    statistics.clear();
+                    schedules(id).andExpect(status().isOk());
+                    assertThat(statistics.getPrepareStatementCount())
+                            .as("performanceId=%s", id)
+                            .isEqualTo(2);
+                }
+                // 초안, 삭제, 삭제된 공연장, 없는 공연
+                for (long id : new long[] {20, 21, 23, 999}) {
+                    statistics.clear();
+                    schedules(id).andExpect(status().isNotFound());
+                    assertThat(statistics.getPrepareStatementCount())
+                            .as("performanceId=%s", id)
+                            .isEqualTo(1);
+                }
+            } finally {
+                statistics.setStatisticsEnabled(wasEnabled);
+            }
         }
 
         @Test
