@@ -16,9 +16,10 @@ public interface SettlementJobJpaRepository extends JpaRepository<SettlementJob,
 
     @Override
     @Query(
-            value = "SELECT * FROM p_settlement_jobs WHERE status = 'PENDING' AND next_attempt_at <= :now"
-                    + " AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
-                    + " ORDER BY next_attempt_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+            value =
+                    "SELECT * FROM p_settlement_jobs WHERE status = 'PENDING' AND transport = 'DB' AND next_attempt_at <= :now"
+                            + " AND deleted_at IS NULL AND id NOT IN (:excludedIds)"
+                            + " ORDER BY next_attempt_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
             nativeQuery = true)
     List<SettlementJob> lockNextDue(
             @Param("now") LocalDateTime now, @Param("excludedIds") Collection<Long> excludedIds);
