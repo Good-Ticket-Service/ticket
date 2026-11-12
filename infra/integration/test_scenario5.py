@@ -71,7 +71,7 @@ class SummaryTests(unittest.TestCase):
                    {'t': 11, 'lock': 0, 'blocked': 0, 'active': 2}]
         s = sample_summary(samples, 10, 20)
         self.assertEqual(s['samples'], 2)
-        self.assertEqual(s['lock'], {'avg': 1.0, 'max': 2})
+        self.assertEqual(s['lock'], {'avg': 1.0, 'max': 2, 'nonzero_ratio': 0.5})
         self.assertIsNone(sample_summary(samples, 100, 200))
 
     def test_collector_sources(self):

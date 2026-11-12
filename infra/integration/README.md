@@ -156,7 +156,7 @@ python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1
 - 409 구분: `SEAT_ALREADY_TAKEN` 중 메시지가 잠금 실패용(`SeatHoldService.LOCK_BUSY_MESSAGE`)이면 `lock_busy`, 아니면 `taken`이다. 코드가 같아 메시지로만 나눈다. 문구를 바꾸면 `scenario5.py`의 `LOCK_BUSY_MESSAGE`도 바꾼다. wait 모드에서 `lock_busy`가 있으면 `checks.lock_busy_matches_mode`가 실패한다.
 - 잠금 방식: `compose-inputs.example`의 `INTEGRATION_SEAT_LOCK_MODE`를 바꾸고 `compose.py up -d`로 reservation을 다시 만든다. 모드마다 예열한다. 결과의 `seat_lock`에 기대값, 소스에 설정이 있는지, 컨테이너에 전달된 값이 남고, 셋이 맞아야 `checks.lock_mode_applied`가 통과한다. 설정이 없는 빌드에서는 환경 변수가 무시되므로 이 check가 실패한다.
 - 검증(DB): 인기 좌석마다 예약이 겹치지 않음(앞 예약이 해제된 뒤 다음 예약 생성), k6가 받은 성공과 DB 예약이 같음, 모든 인기 좌석이 해제 뒤 다시 선점됨, 끝 상태가 모두 AVAILABLE. 측정 뒤 해제하지 못한 선점은 API로 해제하고 `cleanup`에 남긴다.
-- 지표: `measurements`에 결과별 건수·409 비율·선점 지연(전체·결과별 p99)·해제 지연, `server_summary`에 측정 구간 reservation Hikari Pending·Active, Tomcat Busy(5초 원값), DB 잠금 대기·차단 세션을 남긴다. 수집기는 15초 간격이라 60초에 표본이 4개뿐이어서, 측정 동안 `pg_stat_activity`를 1초마다 세는 표본기를 따로 돌린다(`pg-lock-samples.jsonl`, `server_summary.pg_lock_1s`). 두 모드에 같은 부담이다.
+- 지표: `measurements`에 결과별 건수·409 비율·선점 지연(전체·결과별 p99)·해제 지연, `server_summary`에 측정 구간 reservation Hikari Pending·Active, Tomcat Busy(5초 원값), DB 잠금 대기·차단 세션을 남긴다. 이 값들은 그 순간 값이라 1초 안에 끝나는 burst 몰림을 놓치므로, 구간 최댓값인 Hikari 연결 획득 대기 최대(`hikari_acquire_max`)·평균(`hikari_acquire_mean`)과 선점 API 서버 최대 지연(`hold_http_max`)을 함께 남긴다. DB 잠금 대기는 수집기가 15초 간격이라, 측정 동안 `pg_stat_activity`를 0.1초마다 세는 표본기를 따로 돌린다(`pg-lock-samples.jsonl`, `server_summary.pg_lock_100ms`, 0보다 큰 표본 비율 `nonzero_ratio`). 1초 간격은 wave와 위상이 맞지 않으면 조용한 순간만 찍었다. 두 모드에 같은 부담이다.
 - 수집기가 DB 진단 지표(`integration_source_up{source="postgres-diagnostics"}`)를 못 모으면 준비 전에 멈춘다. `--allow-missing-pg-diagnostics`로 진행할 수 있지만 그 회차는 FAIL이다.
 
 ## 결과와 종료
