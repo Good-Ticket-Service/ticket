@@ -2,7 +2,7 @@
   "uid": "payment-operations",
   "title": "Payment · MVP 운영 관측",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "tags": [
     "payment"
   ],
@@ -1468,6 +1468,109 @@
           "displayMode": "list",
           "placement": "bottom"
         }
+      }
+    },
+    {
+      "id": 47,
+      "title": "6. Kafka 금융 Consumer · 조치는 MASTER 운영 API",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 159,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 48,
+      "title": "미해결 장애 · 단계별 건수",
+      "description": "OPEN 및 REPLAY_REQUESTED 이력. 개별 원인은 MASTER incidents API로 확인한다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 160,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage) (settlement_consumer_incidents_unresolved{application=\"payment-service\"})",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 49,
+      "title": "가장 오래된 금융 반영 대기",
+      "description": "Kafka 발행 성공은 금융 반영 완료가 아니다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 160,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(settlement_posting_oldest_pending_seconds{application=\"payment-service\"})",
+          "legendFormat": "대기 나이"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 50,
+      "title": "재처리 명령 미완료 건수",
+      "description": "REQUESTED 및 PUBLISHED. 실제 반영 후 DONE을 확인한다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 160,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(settlement_consumer_replay_pending{application=\"payment-service\"})",
+          "legendFormat": "미완료"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
       }
     }
   ],

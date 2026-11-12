@@ -23,9 +23,11 @@
 
 {{ define "payment.slack.alert" -}}
 *[{{ .Labels.severity | toUpper }}] {{ .Annotations.summary }}*
+
 {{ with .Annotations.category }}종류: {{ . }}
 {{ end }}{{ with .Annotations.detail }}내용: {{ . }}
-{{ end }}{{ with .Annotations.action }}조치: {{ . }}
+{{ end }}{{ with .Annotations.action }}*조치*
+{{ . }}
 {{ end }}
 {{- end }}
 
@@ -42,5 +44,5 @@
 {{ end }}{{ end -}}
 참고: 위험 조건 해소. 실제 입금·전체 대사 완료와 무관
 {{ end -}}
-대시보드: http://localhost:3000/d/payment-operations
+{{ with .CommonAnnotations.dashboard_url }}{{ "\n\n" }}대시보드: <{{ . }}|결제·정산 운영 현황>{{ end }}
 {{- end }}
