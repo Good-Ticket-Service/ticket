@@ -45,6 +45,12 @@ def encoding_as_requested(accept_encoding,layout):
     return True
 
 class MixedScenario(Scenario):
+    # 부하 스크립트. scenario5(#313)는 같은 실행기(load)에 다른 스크립트를 넘긴다. 줄 머리(S2_EVIDENCE·S2_WINDOW)와 환경 변수는 같이 쓴다
+    k6_script='/scripts/scenario2.js'
+
+    def progress(self):
+        return f'booking evidence {len(self.report["journeys"])}; confirmed '+str(sum(r['outcome']=='confirmed' for r in self.report['journeys']))
+
     def preflight(self):
         super().preflight()
         if self.report['scenario'] in (2,3):
@@ -152,7 +158,7 @@ class MixedScenario(Scenario):
         loadenv.update(S2_INPUT=f'/results/{folder}/input.json',S2_SUMMARY=f'/results/{folder}/k6-summary.json',
                        K6_PROMETHEUS_RW_STALE_MARKERS='true')
         args=self.cmd+['run','--rm','--no-deps','-T','--name',self.container_name,
-            '-e','S2_INPUT','-e','S2_SUMMARY','-e','K6_PROMETHEUS_RW_STALE_MARKERS','k6','run','--quiet','--out','experimental-prometheus-rw','/scripts/scenario2.js']
+            '-e','S2_INPUT','-e','S2_SUMMARY','-e','K6_PROMETHEUS_RW_STALE_MARKERS','k6','run','--quiet','--out','experimental-prometheus-rw',self.k6_script]
         self.report['load_started_at']=datetime.now(KST).isoformat()
         self.report['load_start_epoch']=time.time()
         self.report['measure_start_epoch']=time.time()+(self.args.warmup+5 if self.args.warmup else 0)
@@ -189,7 +195,7 @@ class MixedScenario(Scenario):
             time.sleep(1)
             if time.monotonic()-last>=15:
                 self.save();last=time.monotonic()
-                print(f'[load] booking evidence {len(self.report["journeys"])}; confirmed '+str(sum(r['outcome']=='confirmed' for r in self.report['journeys'])),flush=True)
+                print('[load] '+self.progress(),flush=True)
         reader.join(timeout=10)
         require(not reader.is_alive(),'k6 output reader did not finish')
         self.report['k6_exit_code']=self.process.returncode

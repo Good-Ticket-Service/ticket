@@ -141,6 +141,22 @@ python infra/integration/scenario4.py
 
 기본값은 혼합 5여정/s, 정상 60초 → DB 중단 25초 → 복구 관찰 180초다. `--dry-run`으로 대상과 계획부터 확인한다. 이 시험은 `ticket-integration`의 실행 중 PostgreSQL 컨테이너만 일시 중단하고 재시작한다. 중단 시 전체 서비스가 공유 DB의 영향을 받는다. 각 경로의 사전 인증 probe, 진행 중 예매, 신규 요청과 복구 후 상태를 확인한다. 원래 중지된 DB·다른 프로젝트 DB는 허용하지 않으며 볼륨을 삭제하지 않는다. 복구 상태가 `RESTORE_REQUIRED`이면 출력과 `result.json`을 확인하고 DB를 복구한다.
 
+### 5. 좌석 선점 경쟁(#313)
+
+```powershell
+python infra/integration/scenario5.py --rate 250 --duration 60 --hot-seats 10
+```
+
+좌석 선점 잠금 방식(FOR UPDATE 대기 `wait`, NOWAIT `nowait`)을 같은 빌드에서 비교한다. 조회·결제 없이 선점과 해제만 보낸다. `rate`는 초당 선점 시도 수다.
+
+- 준비: 공연 API로 회차를 만들고 좌석 준비가 READY가 된 좌석을 쓴다. 측정 전에 마지막 좌석으로 선점 → 같은 요청 200 → 다른 회원 409 → 남의 해제 403 → 해제 204 → 재해제 204 → 다른 회원 재선점 201을 확인한다(`functional-check.json`). 실패하면 부하를 보내지 않는다.
+- 부하: 시도 i는 `users[i % users]`가 `hot_seats[i % hot_seats]`를 선점한다. 성공하면 `--hold-ms`(기본 500ms) 동안 쥐었다가 해제하고, 다른 사용자가 그 좌석을 다시 선점한다. 사용자 수 기본값은 `max(100, rate*5)`로, 같은 사용자가 5초마다 다시 온다. 선점 응답이 그보다 늦어 같은 사용자가 겹치면 200·`PURCHASE_LIMIT_EXCEEDED`가 나오고 `checks.no_user_overlap`이 실패한다. 그때는 `--users`를 늘린다.
+- 409 구분: `SEAT_ALREADY_TAKEN` 중 메시지가 잠금 실패용(`SeatHoldService.LOCK_BUSY_MESSAGE`)이면 `lock_busy`, 아니면 `taken`이다. 코드가 같아 메시지로만 나눈다. 문구를 바꾸면 `scenario5.py`의 `LOCK_BUSY_MESSAGE`도 바꾼다. wait 모드에서 `lock_busy`가 있으면 `checks.lock_busy_matches_mode`가 실패한다.
+- 잠금 방식: `compose-inputs.example`의 `INTEGRATION_SEAT_LOCK_MODE`를 바꾸고 `compose.py up -d`로 reservation을 다시 만든다. 모드마다 예열한다. 결과의 `seat_lock`에 기대값, 소스에 설정이 있는지, 컨테이너에 전달된 값이 남고, 셋이 맞아야 `checks.lock_mode_applied`가 통과한다. 설정이 없는 빌드에서는 환경 변수가 무시되므로 이 check가 실패한다.
+- 검증(DB): 인기 좌석마다 예약이 겹치지 않음(앞 예약이 해제된 뒤 다음 예약 생성), k6가 받은 성공과 DB 예약이 같음, 모든 인기 좌석이 해제 뒤 다시 선점됨, 끝 상태가 모두 AVAILABLE. 측정 뒤 해제하지 못한 선점은 API로 해제하고 `cleanup`에 남긴다.
+- 지표: `measurements`에 결과별 건수·409 비율·선점 지연(전체·결과별 p99)·해제 지연, `server_summary`에 측정 구간 reservation Hikari Pending·Active, Tomcat Busy(5초 원값), DB 잠금 대기·차단 세션을 남긴다. 수집기는 15초 간격이라 60초에 표본이 4개뿐이어서, 측정 동안 `pg_stat_activity`를 1초마다 세는 표본기를 따로 돌린다(`pg-lock-samples.jsonl`, `server_summary.pg_lock_1s`). 두 모드에 같은 부담이다.
+- 수집기가 DB 진단 지표(`integration_source_up{source="postgres-diagnostics"}`)를 못 모으면 준비 전에 멈춘다. `--allow-missing-pg-diagnostics`로 진행할 수 있지만 그 회차는 FAIL이다.
+
 ## 결과와 종료
 
 결과는 로컬 `script/integration/results/`, 원시 관측·Docker 이벤트는 `script/integration/observation-*`에 저장된다. `scenario*-metrics.prom`, PID와 소스 worktree도 모두 런타임 파일이다. 이 전체 경로는 Git에서 제외한다. Grafana의 실제 계정·저장 데이터·스냅샷·조회 결과도 PR에 포함하지 않는다.
