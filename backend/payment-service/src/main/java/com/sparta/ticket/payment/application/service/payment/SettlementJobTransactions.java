@@ -1,5 +1,7 @@
 package com.sparta.ticket.payment.application.service.payment;
 
+import com.sparta.ticket.payment.application.dto.payment.SettlementPostingCommand;
+import com.sparta.ticket.payment.application.port.settlement.FinancialConsumerRecovery;
 import com.sparta.ticket.payment.application.service.observation.CommittedObservation;
 import com.sparta.ticket.payment.application.service.settlement.SettlementBackfillTransactions;
 import com.sparta.ticket.payment.application.service.settlement.SettlementBackfillTransactions.Outcome;
@@ -9,7 +11,9 @@ import com.sparta.ticket.payment.domain.model.payment.PaymentStatus;
 import com.sparta.ticket.payment.domain.model.refund.RefundStatus;
 import com.sparta.ticket.payment.domain.model.settlement.RefundSnapshot;
 import com.sparta.ticket.payment.domain.model.settlement.SettlementJob;
+import com.sparta.ticket.payment.domain.model.settlement.SettlementJobResult;
 import com.sparta.ticket.payment.domain.model.settlement.SettlementJobStatus;
+import com.sparta.ticket.payment.domain.model.settlement.SettlementJobTransport;
 import com.sparta.ticket.payment.domain.repository.payment.PaymentRepository;
 import com.sparta.ticket.payment.domain.repository.refund.RefundRepository;
 import com.sparta.ticket.payment.domain.repository.settlement.SettlementJobRepository;
@@ -45,6 +49,7 @@ public class SettlementJobTransactions {
     private final SettlementJobProperties properties;
     private final Clock clock;
     private final CommittedObservation observation;
+    private final FinancialConsumerRecovery recovery;
 
     /**
      * 실행 시각이 된 작업 하나를 잠그고, 결제의 정산을 현재 결제·환불 상태에 맞춘 뒤 완료한다.
@@ -60,6 +65,32 @@ public class SettlementJobTransactions {
         if (next.isEmpty()) return Optional.empty();
         SettlementJob job = next.get();
         attemptedIds.add(job.getId());
+        return Optional.of(processLocked(job, "worker"));
+    }
+
+    /** 처리 TX 커밋 뒤에만 호출자가 Kafka offset을 확인한다. 중복 수신은 DONE 검사로 끝낸다. */
+    @Transactional(timeout = 15)
+    public Processed processKafka(SettlementPostingCommand command) {
+        SettlementJob job =
+                jobs.lockById(command.jobId()).orElseThrow(() -> new InvalidSettlementPostingException("UNKNOWN_JOB"));
+        if (job.getTransport() != SettlementJobTransport.KAFKA
+                || !job.getEventId().equals(command.eventId())
+                || job.getPaymentId() != command.paymentId()
+                || job.getReason() != command.reason()
+                || !job.getCreatedAt().equals(command.occurredAt()))
+            throw new InvalidSettlementPostingException("SOURCE_IDENTITY_MISMATCH");
+        recovery.validateReplay(command.replayCommandId(), job.getId());
+        if (job.getStatus() == SettlementJobStatus.DONE) {
+            recovery.replayApplied(command.replayCommandId(), job.getId());
+            return new Processed(job.getId(), job.getPaymentId());
+        }
+        if (job.getStatus() != SettlementJobStatus.PENDING) throw new InvalidSettlementPostingException("BLOCKED_JOB");
+        Processed processed = processLocked(job, "kafka");
+        recovery.replayApplied(command.replayCommandId(), job.getId());
+        return processed;
+    }
+
+    private Processed processLocked(SettlementJob job, String origin) {
         observation.duration("payment.execution.claim.delay", job.getNextAttemptAt(), "task", "settlement-job");
         Payment payment = payments.lockById(job.getPaymentId())
                 .orElseThrow(() -> new IllegalStateException("정산 작업의 결제가 없다: " + job.getPaymentId()));
@@ -67,8 +98,8 @@ public class SettlementJobTransactions {
                 .filter(r -> r.getStatus() != RefundStatus.SKIPPED && r.getStatus() != RefundStatus.WAITING)
                 .map(SettlementSnapshots::refund)
                 .orElse(null);
-        sync(payment, refund);
-        job.complete(LocalDateTime.now(clock));
+        SettlementJobResult result = sync(payment, refund, origin);
+        job.complete(LocalDateTime.now(clock), result);
         jobs.saveAndFlush(job);
         observation.counter(
                 "settlement.job.completed", "reason", job.getReason().name());
@@ -78,7 +109,7 @@ public class SettlementJobTransactions {
                     job.getCreatedAt(),
                     "reason",
                     job.getReason().name());
-        return Optional.of(new Processed(job.getId(), job.getPaymentId()));
+        return new Processed(job.getId(), job.getPaymentId());
     }
 
     /**
@@ -104,13 +135,16 @@ public class SettlementJobTransactions {
      * SALE이 없거나 계산 실패면 판매 분개와 현재 환불 상태를 함께 반영하고, 이미 있으면 환불 상태만 맞춘다.
      * 환불 접수의 보류(HELD)는 접수 트랜잭션이 즉시 하지만, 그때 SALE이 없었으면 여기서 맞춘다.
      */
-    private void sync(Payment payment, RefundSnapshot refund) {
+    private SettlementJobResult sync(Payment payment, RefundSnapshot refund, String origin) {
         if (payment.getApprovedAt() == null
-                || (payment.getStatus() != PaymentStatus.DONE && payment.getStatus() != PaymentStatus.CANCELED)) return;
-        Outcome outcome = settlement.backfill(SettlementSnapshots.sale(payment), refund, "worker");
-        if (outcome != Outcome.SKIPPED || refund == null) return;
+                || (payment.getStatus() != PaymentStatus.DONE && payment.getStatus() != PaymentStatus.CANCELED))
+            return SettlementJobResult.NO_FINANCIAL_EFFECT;
+        Outcome outcome = settlement.backfill(SettlementSnapshots.sale(payment), refund, origin);
+        if (outcome == Outcome.UNPOSTED) return SettlementJobResult.UNPOSTED;
+        if (outcome != Outcome.SKIPPED || refund == null) return SettlementJobResult.APPLIED;
         if (refund.completed())
             settlementRefunds.refundCompleted(payment.getId(), refund.refundId(), refund.completedAt());
         else settlementRefunds.refundAccepted(payment.getId(), refund.refundId());
+        return SettlementJobResult.APPLIED;
     }
 }
