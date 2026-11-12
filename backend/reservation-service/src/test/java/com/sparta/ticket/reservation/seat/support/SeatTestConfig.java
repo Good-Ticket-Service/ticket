@@ -35,6 +35,13 @@ public class SeatTestConfig {
         return new MutableSeatHoldLockMode(properties);
     }
 
+    /** 선점 유지 시간. 기본은 코드 기본값(10분)이고, 유지 시간 테스트가 바꾼 뒤 되돌린다(#248). */
+    @Bean
+    @Primary
+    public MutableSeatHoldDuration mutableSeatHoldDuration(SeatHoldProperties properties) {
+        return new MutableSeatHoldDuration(properties);
+    }
+
     /** 좌석 배치도 캐시의 refresh·정리 작업. 테스트가 runPending()을 부를 때 실행된다(#311). */
     @Bean
     public DeferredTasks seatSnapshotRefreshTasks() {
