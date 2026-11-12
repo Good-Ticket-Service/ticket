@@ -6,6 +6,7 @@ import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklo
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
+import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublishWaker;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -45,5 +46,24 @@ public class BookingSchedulingConfig {
                 scheduleCancellationService,
                 outboxPublisher,
                 paymentBacklogService);
+    }
+
+    /**
+     * 커밋 직후 발행. 발행 스케줄러와 같은 묶음 크기·보내기 대기를 쓴다. 스케줄러를 끄면(통합 테스트) 이것도 없다.
+     * publish-on-commit=false로 끄면 승인 요청은 발행 스케줄러만 보낸다. 커밋 직후 발행에 문제가 생겼을 때 이미지를 바꾸지 않고
+     * 되돌리는 스위치이고, 같은 이미지로 켜고 끈 지연을 비교할 때도 쓴다.
+     */
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "reservation.booking.scheduler.outbox",
+            name = "publish-on-commit",
+            havingValue = "true",
+            matchIfMissing = true)
+    public OutboxPublishWaker outboxPublishWaker(
+            BookingSchedulerProperties properties, OutboxPublisher outboxPublisher) {
+        return new OutboxPublishWaker(
+                outboxPublisher,
+                properties.outbox().batchSize(),
+                properties.outbox().sendTimeout());
     }
 }

@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.booking.support;
 
 import com.sparta.ticket.reservation.booking.infrastructure.coupon.CouponUsageAdapter;
+import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -39,6 +40,11 @@ public class BookingTestConfig {
     @Primary
     public SwitchableConfirmSettings switchableConfirmSettings() {
         return new SwitchableConfirmSettings();
+    }
+
+    @Bean
+    public SwitchableOutboxWakeup switchableOutboxWakeup(OutboxPublisher outboxPublisher) {
+        return new SwitchableOutboxWakeup(outboxPublisher);
     }
 
     @Bean
