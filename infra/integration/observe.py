@@ -121,19 +121,26 @@ def vm(lines,cid):
         elif section=='disk' and len(p)>=6 and p[0]!='Filesystem':
             metric(lines,'integration_vm_disk_available_bytes',int(p[3])*1024)
 
+def psql_json(cid,sql):
+    return json.loads(run(['docker','exec',cid,'psql','-U','postgres','-d','ticket','-At','-v','ON_ERROR_STOP=1','-c',sql]))
+
 def postgres(lines,cid):
-    sql="""SELECT json_build_object(
+    """세션·잠금 대기, 차단 세션, 가장 오래된 트랜잭션, WAL. pg_stat_statements는 postgres_statements로 따로 묻는다(TS-12).
+    한 문장으로 묶었을 때 확장이 없는 DB에서 문장 전체가 실패해 잠금 대기 지표까지 모두 빠졌다."""
+    d=psql_json(cid,"""SELECT json_build_object(
  'sessions',(SELECT coalesce(json_agg(x),'[]') FROM (SELECT usename,coalesce(wait_event_type,'none') wt,coalesce(wait_event,'none') we,state,count(*) n FROM pg_stat_activity WHERE backend_type='client backend' AND pid<>pg_backend_pid() GROUP BY 1,2,3,4) x),
  'oldest',(SELECT coalesce(max(extract(epoch FROM now()-xact_start)),0) FROM pg_stat_activity WHERE pid<>pg_backend_pid()),
  'blocked',(SELECT count(*) FROM pg_stat_activity WHERE cardinality(pg_blocking_pids(pid))>0),
- 'wal',(SELECT wal_bytes FROM pg_stat_wal),
- 'sql',(SELECT coalesce(json_agg(x),'[]') FROM (SELECT r.rolname,sum(s.calls) calls,sum(s.total_exec_time)/1000 seconds FROM pg_stat_statements s JOIN pg_roles r ON r.oid=s.userid GROUP BY r.rolname) x));"""
-    d=json.loads(run(['docker','exec',cid,'psql','-U','postgres','-d','ticket','-At','-v','ON_ERROR_STOP=1','-c',sql]))
+ 'wal',(SELECT wal_bytes FROM pg_stat_wal));""")
     for x in d['sessions']:
         metric(lines,'integration_pg_sessions',x['n'],service=x['usename'],wait_type=x['wt'],wait_event=x['we'],state=x['state'])
     for name,key in [('oldest_transaction_seconds','oldest'),('blocked_sessions','blocked'),('wal_bytes_total','wal')]:
         metric(lines,'integration_pg_'+name,d[key])
-    for x in d['sql']:
+
+def postgres_statements(lines,cid):
+    """역할별 SQL 호출 수·실행 시간. pg_stat_statements 확장이 없으면 이 source만 0이 되고 위 진단 지표는 남는다(TS-12)."""
+    rows=psql_json(cid,"SELECT coalesce(json_agg(x),'[]') FROM (SELECT r.rolname,sum(s.calls) calls,sum(s.total_exec_time)/1000 seconds FROM pg_stat_statements s JOIN pg_roles r ON r.oid=s.userid GROUP BY r.rolname) x;")
+    for x in rows:
         metric(lines,'integration_pg_sql_calls_total',x['calls'],service=x['rolname'])
         metric(lines,'integration_pg_sql_exec_seconds_total',x['seconds'],service=x['rolname'])
 
@@ -160,6 +167,7 @@ def collect():
             if pg:
                 source('vm',lambda:vm(lines,pg))
                 source('postgres-diagnostics',lambda:postgres(lines,pg))
+                source('postgres-statements',lambda:postgres_statements(lines,pg))
         metric(lines,'integration_discovered_containers',len(ids))
     source('docker',docker)
     def foreign_containers():

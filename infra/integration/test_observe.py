@@ -67,6 +67,42 @@ class ContainerFailureTests(unittest.TestCase):
         self.assertFalse(any(args[:3] == ['docker', 'exec', 'pppppppppppp01'] for args in fake.calls))
         self.assertEqual(len(values(lines, 'integration_container_cpu_usage_seconds_total')), 1)
 
+class PostgresFake(FakeDocker):
+    """postgres 컨테이너의 psql에 답한다. statements_broken이면 pg_stat_statements 조회만 실패한다(확장 없는 DB, TS-12)."""
+    def __init__(self, statements_broken=False):
+        super().__init__({'pppppppppppp01': 'postgres'})
+        self.statements_broken = statements_broken
+
+    def __call__(self, args, timeout=12):
+        if args[:3] == ['docker', 'exec', 'pppppppppppp01']:
+            if 'psql' not in args:
+                # cgroup·VM 수집. 이 테스트는 DB 지표만 본다
+                return 'FILE:/proc/meminfo\n'
+            if 'pg_stat_statements' in args[-1]:
+                if self.statements_broken:
+                    raise RuntimeError('docker exited 1')
+                return json.dumps([{'rolname': 'reservation', 'calls': 10, 'seconds': 0.5}])
+            return json.dumps({'sessions': [{'usename': 'reservation', 'wt': 'Lock', 'we': 'tuple', 'state': 'active', 'n': 3}],
+                               'oldest': 1.5, 'blocked': 2, 'wal': 100})
+        return super().__call__(args, timeout)
+
+class PostgresSourceTests(unittest.TestCase):
+    """세션 조회와 pg_stat_statements 조회를 나눠, 한쪽 실패가 잠금 대기 지표를 지우지 않게 한다(TS-12)."""
+    def test_missing_statements_keeps_lock_wait_metrics(self):
+        lines = collect(PostgresFake(statements_broken=True))
+        self.assertIn('integration_source_up{source="postgres-diagnostics"} 1.0', lines)
+        self.assertIn('integration_source_up{source="postgres-statements"} 0.0', lines)
+        self.assertEqual(values(lines, 'integration_pg_sessions'),
+                         {'{service="reservation",wait_type="Lock",wait_event="tuple",state="active"}': 3.0})
+        self.assertIn('integration_pg_blocked_sessions 2.0', lines)
+        self.assertFalse(any(line.startswith('integration_pg_sql_') for line in lines))
+
+    def test_both_sources_up(self):
+        lines = collect(PostgresFake())
+        self.assertIn('integration_source_up{source="postgres-diagnostics"} 1.0', lines)
+        self.assertIn('integration_source_up{source="postgres-statements"} 1.0', lines)
+        self.assertEqual(values(lines, 'integration_pg_sql_calls_total'), {'{service="reservation"}': 10.0})
+
 class ForeignContainerTests(unittest.TestCase):
     """ticket-integration 밖의 실행 중 컨테이너 수를 지표로 남겨 측정 도중 생긴 경우도 보이게 한다(#336)."""
     def test_counts_running_foreign_containers(self):
