@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 일반 사용자용 회차 조회. 구현은 infrastructure의 저장소가 맡는다(목록은 QueryDSL, 단건은 고정 JPQL).
+ * 일반 사용자용 회차 조회. 구현은 infrastructure의 저장소가 맡는다(목록·단건 모두 고정 JPQL).
  * 공개 공연의 기준은 공연 목록·상세와 같다: 공연이 PUBLISHED이고 공연·공연장이 삭제되지 않았다. 취소된 공연은 포함한다.
  */
 public interface PublicScheduleReader {
