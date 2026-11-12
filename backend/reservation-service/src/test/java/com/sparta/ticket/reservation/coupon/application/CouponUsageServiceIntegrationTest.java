@@ -99,11 +99,11 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
             UserCoupon large = issueRate(980_102L);
 
             assertThat(couponUsage
-                            .reserve(small.getId(), 980_101L, 981_101L, 40_000)
+                            .reserve(small.getId(), 980_101L, 981_101L, 40_000, null)
                             .discountAmount())
                     .isEqualTo(4_000);
             assertThat(couponUsage
-                            .reserve(large.getId(), 980_102L, 981_102L, 80_000)
+                            .reserve(large.getId(), 980_102L, 981_102L, 80_000, null)
                             .discountAmount())
                     .isEqualTo(5_000);
         }
@@ -113,8 +113,8 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void idempotent() {
             UserCoupon issued = issueRate(980_103L);
 
-            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000);
-            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000);
+            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000, null);
+            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_103L, 981_103L, 40_000, null);
 
             assertThat(second).isEqualTo(first);
             assertThat(row(issued.getId())).containsEntry("status", "RESERVED");
@@ -125,7 +125,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void belowMinBase() {
             UserCoupon issued = issueRate(980_104L);
 
-            assertThatThrownBy(() -> couponUsage.reserve(issued.getId(), 980_104L, 981_104L, 29_999))
+            assertThatThrownBy(() -> couponUsage.reserve(issued.getId(), 980_104L, 981_104L, 29_999, null))
                     .isInstanceOf(BusinessException.class)
                     .hasMessage("30,000원 이상 결제 시 사용할 수 있는 쿠폰입니다.")
                     .extracting(e -> ((BusinessException) e).getErrorCode())
@@ -143,7 +143,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void reserves() {
             UserCoupon issued = issue(980_001L);
 
-            CouponDiscount discount = couponUsage.reserve(issued.getId(), 980_001L, 981_001L, BASE_AMOUNT);
+            CouponDiscount discount = couponUsage.reserve(issued.getId(), 980_001L, 981_001L, BASE_AMOUNT, null);
 
             assertThat(discount.userCouponId()).isEqualTo(issued.getId());
             assertThat(discount.couponId()).isEqualTo(issued.getCouponId());
@@ -158,9 +158,9 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("같은 예매에 같은 쿠폰을 다시 잡으면 같은 값을 돌려주고 상태는 그대로다(멱등)")
         void idempotent() {
             UserCoupon issued = issue(980_011L);
-            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT);
+            CouponDiscount first = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT, null);
 
-            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT);
+            CouponDiscount second = couponUsage.reserve(issued.getId(), 980_011L, 981_011L, BASE_AMOUNT, null);
 
             assertThat(second).isEqualTo(first);
             assertThat(row(issued.getId())).containsEntry("reservation_id", 981_011L);
@@ -171,14 +171,14 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void notAvailable() {
             UserCoupon othersCoupon = issue(980_022L);
             UserCoupon takenByOther = issue(980_021L);
-            couponUsage.reserve(takenByOther.getId(), 980_021L, 981_021L, BASE_AMOUNT);
+            couponUsage.reserve(takenByOther.getId(), 980_021L, 981_021L, BASE_AMOUNT, null);
             // 8일 전에 받아 유효 일수(7일)가 지났다. 만료 배치 전이라 저장된 상태는 아직 AVAILABLE이다
             UserCoupon expired = issueAt(980_021L, now().minusDays(8));
 
-            assertNotAvailable(() -> couponUsage.reserve(-1L, 980_021L, 981_022L, BASE_AMOUNT));
-            assertNotAvailable(() -> couponUsage.reserve(othersCoupon.getId(), 980_021L, 981_022L, BASE_AMOUNT));
-            assertNotAvailable(() -> couponUsage.reserve(takenByOther.getId(), 980_021L, 981_022L, BASE_AMOUNT));
-            assertNotAvailable(() -> couponUsage.reserve(expired.getId(), 980_021L, 981_022L, BASE_AMOUNT));
+            assertNotAvailable(() -> couponUsage.reserve(-1L, 980_021L, 981_022L, BASE_AMOUNT, null));
+            assertNotAvailable(() -> couponUsage.reserve(othersCoupon.getId(), 980_021L, 981_022L, BASE_AMOUNT, null));
+            assertNotAvailable(() -> couponUsage.reserve(takenByOther.getId(), 980_021L, 981_022L, BASE_AMOUNT, null));
+            assertNotAvailable(() -> couponUsage.reserve(expired.getId(), 980_021L, 981_022L, BASE_AMOUNT, null));
 
             // 실패한 요청은 아무것도 바꾸지 않는다
             assertThat(row(othersCoupon.getId())).containsEntry("status", "AVAILABLE");
@@ -191,15 +191,15 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void changeCoupon() {
             UserCoupon first = issue(980_031L);
             UserCoupon second = issue(980_031L);
-            couponUsage.reserve(first.getId(), 980_031L, 981_031L, BASE_AMOUNT);
+            couponUsage.reserve(first.getId(), 980_031L, 981_031L, BASE_AMOUNT, null);
 
-            assertThatThrownBy(() -> couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT))
+            assertThatThrownBy(() -> couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT, null))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(row(second.getId())).containsEntry("status", "AVAILABLE");
 
             // 예매가 쿠폰을 바꿀 때 하는 순서: 기존 쿠폰을 돌려주고 새 쿠폰을 잡는다
             couponUsage.release(981_031L);
-            couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT);
+            couponUsage.reserve(second.getId(), 980_031L, 981_031L, BASE_AMOUNT, null);
 
             assertThat(row(first.getId())).containsEntry("status", "AVAILABLE").containsEntry("reservation_id", null);
             assertThat(row(second.getId())).containsEntry("reservation_id", 981_031L);
@@ -214,7 +214,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("예매에 잡힌 쿠폰을 USED로 바꾸고 사용 시각을 남기며, 다시 불러도 그대로다(멱등)")
         void uses() {
             UserCoupon issued = issue(980_041L);
-            couponUsage.reserve(issued.getId(), 980_041L, 981_041L, BASE_AMOUNT);
+            couponUsage.reserve(issued.getId(), 980_041L, 981_041L, BASE_AMOUNT, null);
 
             couponUsage.use(981_041L);
             Object usedAt = row(issued.getId()).get("used_at");
@@ -243,7 +243,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("RESERVED 쿠폰을 돌려주면 AVAILABLE이고, 다시 불러도 아무것도 하지 않는다(멱등)")
         void releasesReserved() {
             UserCoupon issued = issue(980_051L);
-            couponUsage.reserve(issued.getId(), 980_051L, 981_051L, BASE_AMOUNT);
+            couponUsage.reserve(issued.getId(), 980_051L, 981_051L, BASE_AMOUNT, null);
 
             couponUsage.release(981_051L);
             couponUsage.release(981_051L);
@@ -255,7 +255,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("USED 쿠폰을 돌려주면(예매 취소) AVAILABLE로 복원되고 사용 시각이 지워진다")
         void releasesUsed() {
             UserCoupon issued = issue(980_061L);
-            couponUsage.reserve(issued.getId(), 980_061L, 981_061L, BASE_AMOUNT);
+            couponUsage.reserve(issued.getId(), 980_061L, 981_061L, BASE_AMOUNT, null);
             couponUsage.use(981_061L);
 
             couponUsage.release(981_061L);
@@ -271,7 +271,7 @@ class CouponUsageServiceIntegrationTest extends ReservationIntegrationTest {
         void releasesAsExpired() {
             // 6일 23시간 전에 받아 1시간 뒤 만료되는 쿠폰을 잡고, 만료 뒤에 돌려준다
             UserCoupon issued = issueAt(980_071L, now().minusDays(7).plusHours(1));
-            couponUsage.reserve(issued.getId(), 980_071L, 981_071L, BASE_AMOUNT);
+            couponUsage.reserve(issued.getId(), 980_071L, 981_071L, BASE_AMOUNT, null);
             clock.advance(Duration.ofHours(2));
 
             couponUsage.release(981_071L);

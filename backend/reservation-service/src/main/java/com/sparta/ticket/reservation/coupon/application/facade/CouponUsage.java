@@ -14,11 +14,13 @@ public interface CouponUsage {
      * 할인액은 이 정가(baseAmount)에 발급 시점 할인 정책을 적용한 값이다(#347). 정액은 할인액 그대로, 정률은 정가 × 할인율을
      * 원 미만 버림한 뒤 최대 할인액으로 자른다. 최소 결제 금액에 맞춰 자르는 일은 booking이 한다(DiscountCap).
      * 없는 쿠폰이거나, 본인 쿠폰이 아니거나, 쓸 수 있는 상태가 아니거나, 유효 기간이 지났거나,
-     * 정가가 최소 적용 금액보다 작으면 COUPON_NOT_AVAILABLE(400)이다. 최소 적용 금액 미달은 메시지에 금액을 담는다.
+     * 정가가 최소 적용 금액보다 작거나, 장르 쿠폰인데 예약의 장르(genre)가 다르거나 없으면 COUPON_NOT_AVAILABLE(400)이다.
+     * 최소 적용 금액 미달은 메시지에 금액을, 장르가 맞지 않으면 적용 장르를 담는다.
+     * genre는 예약에 저장된 공연 장르(Genre 이름)이고 모르면 null이다(#383). 장르를 정하지 않은 쿠폰은 genre와 상관없이 쓸 수 있다.
      * 같은 예매에 같은 쿠폰이 이미 잡혀 있으면 그 값을 돌려준다. 이 예매에 다른 쿠폰이 잡혀 있으면 IllegalStateException이다.
      * 쿠폰을 바꾸려면 booking이 같은 트랜잭션에서 release를 먼저 부른다.
      */
-    CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount);
+    CouponDiscount reserve(Long userCouponId, Long userId, Long reservationId, long baseAmount, String genre);
 
     /**
      * 이 예매에 잡힌 쿠폰을 사용 확정한다(RESERVED → USED). 결제가 성공해 예매가 확정될 때 부른다.

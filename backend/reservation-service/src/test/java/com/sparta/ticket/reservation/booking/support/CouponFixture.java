@@ -51,6 +51,17 @@ public class CouponFixture {
                 now);
     }
 
+    /** 이 회원에게 장르 쿠폰(할인액 amount)을 발급하고 회원 쿠폰 ID를 돌려준다. genre는 공연 Genre 이름이다(#389). */
+    public Long issueForGenre(Long userId, int amount, String genre) {
+        Long userCouponId = issue(userId, amount);
+        jdbc.update(
+                "UPDATE p_coupons SET genre = ? WHERE coupon_id ="
+                        + " (SELECT coupon_id FROM p_user_coupons WHERE user_coupon_id = ?)",
+                genre,
+                userCouponId);
+        return userCouponId;
+    }
+
     public String statusOf(Long userCouponId) {
         return jdbc.queryForObject(
                 "SELECT status FROM p_user_coupons WHERE user_coupon_id = ?", String.class, userCouponId);

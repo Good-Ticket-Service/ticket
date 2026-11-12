@@ -212,6 +212,21 @@ class CouponTest {
             assertThat(issuing.getGenre()).isEqualTo(CouponGenre.MUSICAL);
             assertThat(issuing.getName()).isEqualTo("새 이름");
         }
+
+        @Test
+        @DisplayName("장르를 정하지 않은 쿠폰은 어느 예약에나, 장르 쿠폰은 같은 장르 예약에만 쓸 수 있다(#383)")
+        void applicableTo() {
+            Coupon all = create(null, START, NOW);
+            Coupon musical = create(CouponGenre.MUSICAL, START, NOW);
+
+            all.requireApplicableTo("CONCERT");
+            all.requireApplicableTo(null);
+            musical.requireApplicableTo("MUSICAL");
+            assertError(() -> musical.requireApplicableTo("CONCERT"), CouponErrorCode.COUPON_NOT_AVAILABLE);
+            // 예약의 장르를 모르면 장르 쿠폰은 쓸 수 없다
+            assertError(() -> musical.requireApplicableTo(null), CouponErrorCode.COUPON_NOT_AVAILABLE);
+            assertThatThrownBy(() -> musical.requireApplicableTo("PLAY")).hasMessage("뮤지컬 공연에만 사용할 수 있는 쿠폰입니다.");
+        }
     }
 
     @Nested

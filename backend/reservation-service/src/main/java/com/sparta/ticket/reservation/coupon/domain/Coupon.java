@@ -352,6 +352,18 @@ public class Coupon extends BaseEntity {
         return !now.isBefore(issueStartAt);
     }
 
+    /**
+     * 이 장르의 예약에 쓸 수 있는지 확인한다(#389). 장르를 정하지 않은 쿠폰은 어느 예약에나 쓸 수 있다.
+     * 장르 쿠폰은 예약의 장르(공연 Genre 이름)가 같을 때만 쓸 수 있고, 다르거나 예약의 장르를 모르면(null)
+     * 적용 장르를 담은 COUPON_NOT_AVAILABLE이다(계약 #383). 모르는 예약을 통과시키면 다른 장르에 쓰일 수 있기 때문이다.
+     */
+    public void requireApplicableTo(String reservationGenre) {
+        if (genre == null || genre.name().equals(reservationGenre)) {
+            return;
+        }
+        throw new BusinessException(CouponErrorCode.COUPON_NOT_AVAILABLE, genre.label() + " 공연에만 사용할 수 있는 쿠폰입니다.");
+    }
+
     /** 요청한 값이 있고, 그 값이 지금 값과 다르면 true. 보내지 않았거나(null) 같은 값이면 바꾸지 않는 것으로 본다. */
     private static boolean changes(Object requested, Object current) {
         return requested != null && !Objects.equals(requested, current);

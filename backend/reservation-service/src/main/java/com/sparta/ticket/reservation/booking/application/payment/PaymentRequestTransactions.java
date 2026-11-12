@@ -39,7 +39,10 @@ public class PaymentRequestTransactions {
     private final CouponPort couponPort;
     private final PaymentConfirmRequests confirmRequests;
 
-    /** 결제 준비 대상. currentOrderId는 기록할 때, userCouponId는 쿠폰을 바꿀 때 조건으로 쓴다. */
+    /**
+     * 결제 준비 대상. currentOrderId는 기록할 때, userCouponId는 쿠폰을 바꿀 때 조건으로 쓴다.
+     * genre는 예약에 저장된 공연 장르로, 쿠폰을 잡을 때 넘겨 장르별 쿠폰을 판단한다. 모르면 null이다(#383).
+     */
     public record CheckoutTarget(
             Long reservationId,
             Long userId,
@@ -49,6 +52,7 @@ public class PaymentRequestTransactions {
             String currentOrderId,
             LocalDateTime holdExpiresAt,
             LocalDateTime scheduleStartAt,
+            String genre,
             long baseAmount,
             Long userCouponId,
             long discountAmount) {
@@ -64,6 +68,7 @@ public class PaymentRequestTransactions {
                     null,
                     holdExpiresAt,
                     scheduleStartAt,
+                    genre,
                     baseAmount,
                     newUserCouponId,
                     newDiscountAmount);
@@ -101,6 +106,7 @@ public class PaymentRequestTransactions {
                 reservation.getOrderId(),
                 reservation.getHoldExpiresAt(),
                 reservation.getScheduleStartAt(),
+                reservation.getGenre(),
                 reservation.baseAmount(),
                 reservation.getUserCouponId(),
                 reservation.getDiscountAmount() == null ? 0 : reservation.getDiscountAmount());
@@ -131,7 +137,8 @@ public class PaymentRequestTransactions {
         if (userCouponId == null) {
             return target.withCoupon(null, 0);
         }
-        long couponAmount = couponPort.reserve(userCouponId, target.userId(), reservationId, target.baseAmount());
+        long couponAmount =
+                couponPort.reserve(userCouponId, target.userId(), reservationId, target.baseAmount(), target.genre());
         long discountAmount = DiscountCap.of(target.baseAmount(), couponAmount);
         reservationRepository.recordDiscount(reservationId, discountAmount);
         return target.withCoupon(userCouponId, discountAmount);
