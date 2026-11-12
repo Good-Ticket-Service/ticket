@@ -1,7 +1,10 @@
 """S5 좌석 선점 경쟁(#313): 인기 좌석 몇 개에 선점을 몰고, 성공하면 잠시 쥐었다가 해제해 다른 사용자가 다시 선점하게 한다.
 
+python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1
 python infra/integration/scenario5.py --rate 250 --duration 60 --hot-seats 10
-rate는 초당 선점 시도 수다. 조회·결제는 하지 않는다. 회차마다 새 공연·회차·계정을 준비한다.
+--burst N은 매 초 정각에 N명이 동시에 선점한다(오픈 순간의 몰림). --rate는 초당 rate회를 고르게 보낸다.
+고른 부하는 같은 좌석 잠금이 거의 겹치지 않아(1석 250/s도 잠금 대기 0) 잠금 방식 비교에는 burst를 쓴다.
+조회·결제는 하지 않는다. 회차마다 새 공연·회차·계정을 준비한다.
 잠금 방식(wait|nowait)은 compose-inputs.example의 INTEGRATION_SEAT_LOCK_MODE로 바꾸고 compose.py up -d로 reservation을 다시 만든다.
 """
 import argparse
@@ -24,6 +27,10 @@ import foreign
 LOCK_BUSY_MESSAGE = '다른 요청이 이 좌석을 처리 중입니다. 잠시 후 다시 시도해 주세요.'
 OUTCOMES = ('created', 'existing', 'taken', 'lock_busy', 'purchase_limit', 'error')
 SAMPLER_APP = 's5-lock-sampler'
+# burst의 wave 간격. 매 wave에 burst명이 같은 순간에 보낸다
+WAVE_MS = 1000
+# wave 경계보다 이만큼 늦게 보낸 시도가 이 비율을 넘으면 동시성이 의도보다 낮아진 것이다(k6 scenario5.js LATE_MS=100ms)
+BURST_LATE_LIMIT = 0.05
 # 1초 표본기. 수집기(15초)로는 60초 측정에 표본이 4개뿐이라 잠금 대기 세션을 따로 센다. 두 모드에 같은 부담이다
 LOCK_SAMPLE_SQL = ("SELECT json_build_object('t',extract(epoch FROM clock_timestamp()),"
                    "'lock',count(*) FILTER(WHERE wait_event_type='Lock'),"
@@ -101,10 +108,11 @@ class HoldContentionScenario(MixedScenario):
         self.args = args
         Scenario.__init__(self, args.users, 180, scenario=5, allow_foreign=args.allow_foreign)
         self.lock_mode = self.env.get('INTEGRATION_SEAT_LOCK_MODE', 'wait')
-        self.report.update(workload={'attempts_per_second': args.rate, 'duration_seconds': args.duration,
+        self.report.update(workload={'load_mode': 'burst' if args.burst else 'rate', 'burst': args.burst,
+            'wave_ms': WAVE_MS if args.burst else None, 'attempts_per_second': args.rate, 'duration_seconds': args.duration,
             'hot_seats': args.hot_seats, 'seat_count': args.seats, 'users': args.users, 'hold_ms': args.hold_ms,
             'preallocated_vus': args.vus, 'max_vus': args.max_vus, 'seat_lock_mode': self.lock_mode,
-            'seat_selection': 'iteration i -> users[i % users], hot_seats[i % hot_seats]; winners release after hold_ms',
+            'seat_selection': 'attempt i -> users[i % users], hot_seats[i % hot_seats] (burst: i = wave*burst + slot); winners release after hold_ms',
             'authentication': 'accounts login in k6 setup; tokens reused during measurement'},
             limitations=['Hold and release only; no seat reads, no payment',
                 'Gateway path (Caddy -> Gateway -> reservation); sale validation calls performance-service',
@@ -235,7 +243,8 @@ class HoldContentionScenario(MixedScenario):
         self.report['fixtures']['hot_seat_ids'] = hot
         self.functional_check(sid, available[-1])
         self.stage = 'prepare'
-        meta = {'run_id': self.run_id, 'rate': self.args.rate, 'duration': self.args.duration,
+        meta = {'run_id': self.run_id, 'mode': 'burst' if self.args.burst else 'rate', 'burst': self.args.burst,
+                'wave_ms': WAVE_MS, 'rate': self.args.rate, 'duration': self.args.duration,
                 'vus': self.args.vus, 'max_vus': self.args.max_vus, 'password': PASSWORD, 'schedule_id': sid,
                 'hot_seats': hot, 'hold_ms': self.args.hold_ms, 'lock_mode': self.lock_mode,
                 'lock_busy_message': LOCK_BUSY_MESSAGE}
@@ -304,7 +313,14 @@ class HoldContentionScenario(MixedScenario):
             'release_duration_ms': trend('release_duration'),
             'release_ok': value('release_ok'), 'release_failed': value('release_failed')}
         checks = self.report['checks']
-        checks['arrival_rate_achieved'] = value('dropped_iterations') == 0 and abs(attempts-expected) <= 3
+        if self.args.burst:
+            # wave마다 burst명이 모두 보냈고, 경계보다 크게 늦은 시도가 적어야 의도한 동시성이다
+            late = value('burst_late')
+            self.report['measurements'].update(burst_late=late, burst_late_ratio=late/attempts if attempts else None,
+                                               burst_skew_ms=trend('burst_skew'))
+            checks['arrival_rate_achieved'] = attempts == expected and attempts > 0 and late/attempts <= BURST_LATE_LIMIT
+        else:
+            checks['arrival_rate_achieved'] = value('dropped_iterations') == 0 and abs(attempts-expected) <= 3
         checks['measurement_windows_recorded'] = 'hold' in self.report.get('measurement_windows', {})
         checks['k6_thresholds'] = self.report['k6_exit_code'] == 0
         checks['no_unexpected_responses'] = counts['error'] == 0
@@ -430,7 +446,9 @@ class HoldContentionScenario(MixedScenario):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--rate', type=int, default=100, help='hold attempts started per second')
+    p.add_argument('--rate', type=int, default=100, help='hold attempts started per second, spread evenly')
+    p.add_argument('--burst', type=int, default=0,
+                   help='N users fire together at every 1s wave (overrides --rate; rate=N). Use this to compare lock modes')
     p.add_argument('--duration', type=int, default=60, help='measured seconds')
     p.add_argument('--hot-seats', type=int, default=10, help='popular seats receiving all attempts (round robin)')
     p.add_argument('--seats', type=int, default=1000, help='seats in the schedule; the last one is used for the functional check')
@@ -443,6 +461,11 @@ if __name__ == '__main__':
                    help='run even if the collector cannot read DB sessions (TS-12); checks.pg_diagnostics_up=false (FAIL)')
     a = p.parse_args()
     a.warmup = 0  # MixedScenario.load가 쓴다. 예열은 별도 회차로 한다
+    if a.burst:
+        if not 1 <= a.burst <= 1000: p.error('burst 1..1000')
+        # 초당 시도 수가 burst다. 사용자 기본값·기대 시도 수·출력이 rate를 쓴다. VU는 burst개(VU마다 wave당 1번)
+        a.rate = a.burst
+        a.vus = a.max_vus = a.burst
     if a.users is None: a.users = max(100, a.rate*5)
     if a.vus is None: a.vus = max(50, a.rate*2)
     if a.max_vus is None: a.max_vus = max(500, a.vus, a.rate*4)

@@ -29,6 +29,13 @@ class ClassifyTests(unittest.TestCase):
         for outcome in scenario5.OUTCOMES:
             self.assertIn("'"+outcome+"'", js)
 
+    def test_burst_mode_fires_waves_together(self):
+        # burst는 VU마다 wave당 한 번, 같은 경계 시각(t0 + k*wave_ms)에 보낸다. 고른 부하(rate)로는 잠금 경합이 생기지 않았다
+        js = (Path(scenario5.__file__).parent/'k6'/'scenario5.js').read_text(encoding='utf-8')
+        self.assertIn("executor: 'per-vu-iterations', exec: 'burst', vus: meta.burst, iterations: meta.duration", js)
+        self.assertIn('const target = data.t0 + k * meta.wave_ms;', js)
+        self.assertIn('attempt(k * meta.burst + slot, data);', js)
+
 class SeatTimelineTests(unittest.TestCase):
     def test_sequential_holds_pass(self):
         rows = [row(1, 10, 'RELEASED', 100.0, 100.5), row(2, 10, 'RELEASED', 100.5, 101.0), row(3, 11, 'RELEASED', 100.2, 100.7)]
