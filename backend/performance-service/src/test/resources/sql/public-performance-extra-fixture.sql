@@ -4,7 +4,7 @@
 --   16 PLAY    서울 '연극 Only Canceled' 공개 10-19, 취소 회차(12-11)만 있음 → 목록에 남고 period=null
 --   17 CONCERT 서울 '콘서트 Tie'         공개 10-17, 활성 회차 12-25(오픈 11-05, 11과 같은 오픈 시각)
 --
--- LATEST: 14, 13, 12, 11, 10, 16, 15, 17
+-- 전체 상태 선택 시 LATEST: 14, 13, 12, 11, 10, 16, 15, 17. 기본은 12, 11, 10, 17(이슈 #382).
 -- BOOKING_OPEN_ASC: 12(10-25), 17·11(11-05, 동률은 ID 역순), 10(11-10), 그다음 오픈할 회차 없음 16, 15, 14, 13
 
 INSERT INTO p_performances (id, seller_id, venue_id, title, genre, age_rating, running_time, cast_info, description,

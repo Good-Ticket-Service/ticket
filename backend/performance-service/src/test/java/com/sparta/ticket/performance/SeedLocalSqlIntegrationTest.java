@@ -82,14 +82,17 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
     }
 
     @Test
-    @DisplayName("공개 목록에는 공연 1~5만 나오고, 예매 오픈 순 정렬은 판매 중 → 오픈 전 → 오픈할 회차 없음 순이다")
+    @DisplayName("기본 목록은 남은 회차가 있는 공연 1~3이고 판매종료는 명시적으로 조회한다")
     void publicListMatchesScenario() throws Exception {
         mockMvc.perform(get("/api/performances"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[*].id").value(contains(4, 3, 2, 1, 5)))
-                .andExpect(jsonPath("$.data.totalElements").value(5));
+                .andExpect(jsonPath("$.data.content[*].id").value(contains(3, 2, 1)))
+                .andExpect(jsonPath("$.data.totalElements").value(3));
         mockMvc.perform(get("/api/performances").param("sort", "BOOKING_OPEN_ASC"))
-                .andExpect(jsonPath("$.data.content[*].id").value(contains(1, 2, 3, 5, 4)));
+                .andExpect(jsonPath("$.data.content[*].id").value(contains(1, 2, 3)));
+        mockMvc.perform(get("/api/performances").param("status", "ENDED"))
+                .andExpect(jsonPath("$.data.content[*].id").value(contains(4, 5)))
+                .andExpect(jsonPath("$.data.totalElements").value(2));
     }
 
     @Test

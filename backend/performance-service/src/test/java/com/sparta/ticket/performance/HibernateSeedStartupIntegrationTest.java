@@ -123,11 +123,18 @@ class HibernateSeedStartupIntegrationTest {
                         Integer.class,
                         id))
                 .isEqualTo(150);
-        mvc.perform(get("/api/performances").param("genre", "CLASSICAL").param("keyword", "김채윤"))
+        // Note: 고정 날짜의 시드 내용을 확인하므로 실제 실행일에 종료됐어도 조회하도록 세 상태를 선택한다.
+        mvc.perform(get("/api/performances")
+                        .param("status", "ON_SALE,UPCOMING,ENDED")
+                        .param("genre", "CLASSICAL")
+                        .param("keyword", "김채윤"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].title").value(title));
-        mvc.perform(get("/api/performances").param("genre", "CONCERT").param("keyword", "김채윤"))
+        mvc.perform(get("/api/performances")
+                        .param("status", "ON_SALE,UPCOMING,ENDED")
+                        .param("genre", "CONCERT")
+                        .param("keyword", "김채윤"))
                 .andExpect(jsonPath("$.data.totalElements").value(0));
         mvc.perform(get("/api/performances/{id}", id))
                 .andExpect(status().isOk())
