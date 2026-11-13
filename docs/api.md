@@ -571,7 +571,7 @@
 | Method URI | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|
 | POST /internal/payments | 200 | orderId:string,reservationId:long,userId:long,sellerId:long,performanceId:long,scheduleId:long,scheduleStartAt:datetime?,totalPrice:int>0,discountAmount:int>=0,pgProvider:string,expiresAt:datetime | paymentId:long,orderId:string,amount:int>=100,status:READY/FAILED,failureType:string?,failureCode:string?,checkoutUrl:string\|null | 400 INVALID_PAYMENT_AMOUNT;409 PAYMENT_ORDER_CONFLICT/PAYMENT_ALREADY_IN_PROGRESS/PAYMENT_ALREADY_DONE/PAYMENT_CHECKOUT_CONFLICT |
-| POST /internal/payments/{orderId}/confirm | 200 | pgAuthToken:string,amount:int | paymentId:long,status:DONE/FAILED/IN_PROGRESS,failureType:string?,failureCode:string? | 400 PAYMENT_AMOUNT_MISMATCH;404 PAYMENT_NOT_FOUND |
+| POST /internal/payments/{orderId}/confirm | 200 | pgAuthToken:string,amount:int,confirmBefore:datetime(+09:00)?(#422) | paymentId:long,status:DONE/FAILED/IN_PROGRESS/READY(#422 대체 승인만),failureType:string?,failureCode:string? | 400 PAYMENT_AMOUNT_MISMATCH;404 PAYMENT_NOT_FOUND;409 PAYMENT_ORDER_CONFLICT(#422 대체 승인);503 SERVICE_UNAVAILABLE+Retry-After(#422 대체 승인) |
 | GET /internal/payments/{orderId} | 200 | 없음 | paymentId:long,orderId:string,reservationId:long,status:string,amount:int,failureType:string?,failureCode:string?,confirmRequestedAt:datetime\|null,approvedAt:datetime\|null,refund:RefundView\|null | 404 PAYMENT_NOT_FOUND |
 | POST /internal/payments/{orderId}/refund | 200 | reason:USER_CANCEL/SCHEDULE_CANCELED/CONFIRM_FAILED | refundStatus:WAITING/REQUESTED/DONE/FAILED/SKIPPED/NOT_REQUIRED,refundAmount:int | 404 PAYMENT_NOT_FOUND |
 
@@ -581,6 +581,21 @@
 - 실패 구분: REJECTED(PG_REJECTED/AMOUNT_MISMATCH/INVALID_AUTH_TOKEN), UNAVAILABLE(PG_UNAVAILABLE/PG_BUSY/PG_UNRESOLVED), EXPIRED(EXPIRED), NOT_APPROVED(NOT_APPROVED/CANCELED_AT_PG), CLOSED(SUPERSEDED/ABANDONED/READY_FAILED).
 - 환불은 전액. READY→FAILED(ABANDONED), FAILED는 NOT_REQUIRED(환불 행 없음); IN_PROGRESS는 WAITING, DONE은 REQUESTED 후 PG 취소, CANCELED는 기존 환불. 접수와 PG 취소 완료는 다르다.
 - 기존 환불 행이 있으면 최초 사유와 상태를 먼저 재현한다. NOT_REQUIRED의 refundAmount는 0이다.
+
+승인의 메시지 대체 승인(#422 합의, 구현 전)
+
+Kafka가 멈춰 예매가 Outbox에 남은 승인 요청(`payment.confirm.requested`)을 HTTP `confirm`으로 보내는 경우다(#403). `confirmBefore`가 있으면 대체 승인, 없으면 지금 동기 승인 그대로다. 기존 동기 승인 요청의 동작은 바뀌지 않는다.
+
+- 요청: `confirmBefore`는 같은 주문 Outbox 메시지의 값을 그대로 보낸다. 결제는 KST·마이크로초로 맞춘 뒤 메시지 지문(orderId·reservationId·amount·confirmBefore·pgAuthToken)을 만든다. 값이 하나라도 다르면 같은 요청이 아니다.
+- 처리: 메시지 승인과 같은 처리(등록 → 시한 검사 → 메시지 승인 PG별 자리·PG 허가 → claim → PG)를 동기로 한다. 시한은 `confirmBefore`다. 선점 만료와 `confirmBefore` 사이에 와도 처리한다. 지난 요청은 PG를 부르지 않고 FAILED(EXPIRED)로 답한다.
+- 동시 상한: 메시지 승인과 같은 PG별 자리를 쓴다. HTTP 동기 승인·복구·환불 몫(Bulkhead 안의 나머지)을 침범하지 않는다.
+- 503 SERVICE_UNAVAILABLE + `Retry-After`(초): PG별 자리나 PG 허가(서킷 열림·Bulkhead 거절)를 얻지 못했다. claim하지 않았으므로 결제는 READY 그대로이고, 대체 승인은 FAILED(`PG_BUSY`)로 닫지 않는다. 자리를 기다리지 않고 바로 답한다. 예매는 `Retry-After` 뒤 같은 내용으로 다시 보낸다.
+- 409 PAYMENT_ORDER_CONFLICT: 같은 주문에 다른 지문의 메시지 승인이 이미 등록됐거나, `confirmBefore`가 선점 만료 + 5분을 넘는다.
+- 200 READY: 등록됐지만 아직 claim하지 않았다. 결과는 `payment.result`로 온다.
+- 지문 저장: 대체 승인도 지문을 저장한다. 그 뒤 같은 내용의 메시지가 오면 이미 처리로 ACK하고, 다르면 충돌이다. 메시지가 먼저 등록된 주문에 같은 지문의 대체 승인이 오면, 먼저 claim한 쪽만 PG를 부르고 다른 쪽은 현재 상태를 받는다.
+- 이미 끝났거나 진행 중인 주문(DONE·FAILED·IN_PROGRESS)은 PG를 부르지 않고 현재 상태로 답한다.
+- 멱등성: 키는 orderId다. 같은 지문이면 몇 번을 보내도 PG는 한 번만 부른다(결제 행 잠금·READY 재확인·claim). 결과를 모르면(타임아웃·IN_PROGRESS) 재시도하지 않고 `payment.result`·결제 조회로 마무리한다. 예매는 `confirmBefore`가 지난 행을 보내지 않는다.
+- `payment.result`는 승인·실패를 확정할 때 지금처럼 발행한다. HTTP 응답과 결과 메시지가 둘 다 갈 수 있다.
 
 ## 결제 관리자 — payment-service (#88 브랜치 구현)
 
@@ -713,7 +728,7 @@
 - payment.confirm.requested: 예매가 PAYMENT_IN_PROGRESS로 바꾸는 트랜잭션에 Outbox로 저장한다. amount는 예매에 저장한 payment_amount다. pgAuthToken은 토스 paymentKey 또는 카카오 pg_token이다.
 - payment.confirm.requested: 결제는 orderId로 중복을 막아(같은 orderId는 READY일 때만 IN_PROGRESS로 바뀌는 결제 상태 전이) 같은 orderId의 PG 승인을 한 번만 부른다. eventId는 저장하지 않고 추적용으로만 쓴다. confirmBefore 처리 순서는 architecture 6절 「승인 요청의 불변 조건」을 따른다.
 - payment.confirm.requested: 토픽 보관은 1일, DLT는 7일이다. DLT로 간 승인은 confirmBefore가 지나 예매의 결과 확인이 실패로 끝낸다.
-- #346 작업 브랜치: 결제는 최초 시한·요청 의미를 고정하고 로컬 PG 허가 대기는 READY로 유지한다. 메시지 접수된 결제의 HTTP 승인 재요청은 새 실행 없이 IN_PROGRESS로 응답하며, 조회 API는 실제 READY와 confirmRequestedAt을 반환한다.
+- #346 작업 브랜치: 결제는 최초 시한·요청 의미를 고정하고 로컬 PG 허가 대기는 READY로 유지한다. 메시지 접수된 결제의 HTTP 승인 재요청(`confirmBefore` 없음)은 새 실행 없이 IN_PROGRESS로 응답하며(`confirmBefore`가 있는 대체 승인은 위 결제 내부 절 #422), 조회 API는 실제 READY와 confirmRequestedAt을 반환한다.
 - #346 작업 브랜치의 DLT는 원문·인증값·원본 헤더를 복사하지 않고 sourceTopic/sourcePartition/sourceOffset, 고정 reason, firstFailedAt, payloadHash, schemaVersion을 담는다. 유효한 reservationId key는 유지하고 해석 불가 key는 null로 둔다. 원본 좌표로 DLT 중복을 식별한다. DLT ACK를 확인한 뒤 원본 offset을 진행하며, 의미 충돌·주문 없음·DB 장애는 자동 DLT로 확대하지 않는다.
 - payment.result: 필드 이름은 결제 조회 API(GET /internal/payments/{orderId})와 같다. failureType·failureCode는 FAILED일 때, approvedAt은 DONE일 때만 있다.
 - payment.result: 예매는 지금 eventId, schemaVersion, occurredAt, orderId, reservationId, status만 읽는다.
