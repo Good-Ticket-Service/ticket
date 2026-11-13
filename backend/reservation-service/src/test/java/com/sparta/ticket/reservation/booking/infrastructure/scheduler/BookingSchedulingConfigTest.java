@@ -4,22 +4,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileService;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.payment.StrandedConfirmDrain;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmSettings;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklogService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
 import com.sparta.ticket.reservation.booking.application.schedulecancel.ScheduleCancellationService;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublishWaker;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
+import com.sparta.ticket.reservation.booking.support.SwitchableConfirmSettings;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
@@ -199,5 +206,46 @@ class BookingSchedulingConfigTest {
                     assertThat(context).doesNotHaveBean(OutboxPublishWaker.class);
                     assertThat(context).hasSingleBean(BookingScheduleRunner.class);
                 });
+    }
+
+    @Test
+    @DisplayName("대신 보내기 스위치를 켜지 않으면 작업자 스레드를 띄우지 않는다")
+    void noDrainWorkersByDefault() {
+        runner.run(context -> assertThat(context).doesNotHaveBean(StrandedConfirmDrainWorkers.class));
+    }
+
+    @Test
+    @DisplayName("대신 보내기 스위치를 켜면 concurrency개 스레드가 sendNext를 되풀이하고, 컨텍스트가 닫히면 멈춘다")
+    void drainWorkersRunUntilContextCloses() {
+        StrandedConfirmDrain drain = mock(StrandedConfirmDrain.class);
+        Set<String> threads = ConcurrentHashMap.newKeySet();
+        doAnswer(invocation -> {
+                    threads.add(Thread.currentThread().getName());
+                    Thread.sleep(50);
+                    return true;
+                })
+                .when(drain)
+                .sendNext();
+        runner.withBean(StrandedConfirmDrain.class, () -> drain)
+                .withBean(PaymentConfirmSettings.class, SwitchableConfirmSettings::new)
+                .withPropertyValues("reservation.booking.payment-confirm.fallback.drain.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(StrandedConfirmDrainWorkers.class);
+                    verify(drain, timeout(2_000).atLeast(4)).sendNext();
+                    assertThat(threads).hasSize(SwitchableConfirmSettings.DRAIN_CONCURRENCY);
+                });
+        clearInvocations(drain);
+        verify(drain, after(300).never()).sendNext();
+    }
+
+    @Test
+    @DisplayName("sendNext가 실패해도 작업자는 멈추지 않고 다시 부른다")
+    void drainWorkerSurvivesFailure() {
+        StrandedConfirmDrain drain = mock(StrandedConfirmDrain.class);
+        when(drain.sendNext()).thenThrow(new IllegalStateException("db down")).thenReturn(false);
+        runner.withBean(StrandedConfirmDrain.class, () -> drain)
+                .withBean(PaymentConfirmSettings.class, SwitchableConfirmSettings::new)
+                .withPropertyValues("reservation.booking.payment-confirm.fallback.drain.enabled=true")
+                .run(context -> verify(drain, timeout(2_000).atLeast(3)).sendNext());
     }
 }

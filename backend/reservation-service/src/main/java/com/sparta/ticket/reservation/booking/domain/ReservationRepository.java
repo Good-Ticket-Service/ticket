@@ -133,6 +133,13 @@ public interface ReservationRepository {
             Long id, LocalDateTime checkedAt, LocalDateTime checkedBefore, LocalDateTime requestedBefore);
 
     /**
+     * 메시지로 요청한 승인을 HTTP로 대신 보낸 시각을 남긴다. at이 null이면 지워 바로 다시 보낼 수 있게 한다. 결과 확인과 같은
+     * 확인 시각 컬럼을 쓴다. 대신 보내기는 시한 전에만, 결과 확인은 시한과 여유 시간이 지난 뒤에만 메시지 승인을 고르므로 겹치지 않는다.
+     * 결제 중인 지금 시도일 때만 1행이다. 상태와 감사 컬럼은 바꾸지 않는다.
+     */
+    int markSubstituteSent(Long id, String orderId, LocalDateTime at);
+
+    /**
      * 결제 중인 지금 시도가 성공했는데 확정하지 못했다고 기록한다. 이미 기록됐으면 0행이다.
      * 상태와 감사 컬럼은 바꾸지 않는다.
      */

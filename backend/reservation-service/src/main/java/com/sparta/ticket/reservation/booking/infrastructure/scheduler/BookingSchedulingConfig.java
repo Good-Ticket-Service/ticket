@@ -2,6 +2,9 @@ package com.sparta.ticket.reservation.booking.infrastructure.scheduler;
 
 import com.sparta.ticket.reservation.booking.application.cancel.CancelReconcileService;
 import com.sparta.ticket.reservation.booking.application.expiry.HoldExpiryService;
+import com.sparta.ticket.reservation.booking.application.payment.StrandedConfirmDrain;
+import com.sparta.ticket.reservation.booking.application.port.DrainSettings;
+import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmSettings;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklogService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.application.reconcile.UnconfirmedRefundService;
@@ -65,5 +68,20 @@ public class BookingSchedulingConfig {
                 outboxPublisher,
                 properties.outbox().batchSize(),
                 properties.outbox().sendTimeout());
+    }
+
+    /**
+     * Outbox에 남은 승인 요청을 HTTP로 대신 보내는 작업자. 스위치를 켠 인스턴스에서만 스레드를 띄운다. 스케줄러를 끄는
+     * 통합 테스트에서는 없고, 테스트가 StrandedConfirmDrain.sendNext를 직접 부른다.
+     */
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "reservation.booking.payment-confirm.fallback.drain",
+            name = "enabled",
+            havingValue = "true")
+    public StrandedConfirmDrainWorkers strandedConfirmDrainWorkers(
+            StrandedConfirmDrain drain, PaymentConfirmSettings confirmSettings) {
+        DrainSettings settings = confirmSettings.drain();
+        return new StrandedConfirmDrainWorkers(drain, settings.concurrency(), settings.resendAfter());
     }
 }

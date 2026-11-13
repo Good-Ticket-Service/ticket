@@ -3,12 +3,31 @@ package com.sparta.ticket.reservation.booking.application;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 
 /** 예약과 결제가 어긋난 정도를 센다. 측정의 불일치 건수와 결제 중 체류 알림의 근거가 된다. */
 @Component
 public class BookingMetrics {
+
+    /** Outbox에 묶인 승인 요청을 HTTP로 대신 보낸 결과. 지표의 result 태그 값이다. */
+    public enum DrainResult {
+        /** 결과가 정해져 반영했다. 비운 요청 수다. */
+        SETTLED,
+        /** payment가 받았고 결과는 정해지지 않았다. 조회로 결과를 묻는다. */
+        ACCEPTED,
+        /** 조회해 보니 payment가 승인을 받은 적이 없다. 요청은 다시 보낼 차례로 돌린다. */
+        NOT_RECEIVED,
+        /** payment가 받을 자리가 없다며 돌려보냈다. 요청은 다시 보낼 차례로 돌린다. */
+        BUSY,
+        /** payment가 받지 않았다. 시한 뒤 결과 확인이 끝낸다. */
+        REJECTED,
+        /** 답을 받지 못했다. resendAfter 뒤 조회로 결과를 묻는다. */
+        UNKNOWN
+    }
 
     private final Counter expiredHolds;
     private final Counter releasedHolds;
@@ -41,6 +60,7 @@ public class BookingMetrics {
     private final Counter fallbackConfirms;
     private final AtomicLong outboxOldestWaiting = new AtomicLong();
     private final AtomicLong confirmFallbackActive = new AtomicLong();
+    private final Map<DrainResult, Counter> drainResults = new EnumMap<>(DrainResult.class);
 
     public BookingMetrics(MeterRegistry registry) {
         this.expiredHolds = Counter.builder("reservation.expired")
@@ -138,6 +158,14 @@ public class BookingMetrics {
         Gauge.builder("reservation.payment.confirm.fallback.active", confirmFallbackActive, AtomicLong::get)
                 .description("새 승인을 메시지 대신 동기로 부르는 중이면 1(이 인스턴스)")
                 .register(registry);
+        for (DrainResult result : DrainResult.values()) {
+            drainResults.put(
+                    result,
+                    Counter.builder("reservation.payment.confirm.drain")
+                            .tag("result", result.name().toLowerCase(Locale.ROOT))
+                            .description("승인 요청이 브로커로 나가지 못하는 동안 Outbox에 남은 요청을 HTTP로 대신 보낸 수. result는 payment의 답이다")
+                            .register(registry));
+        }
     }
 
     public void expiredHold() {
@@ -260,6 +288,10 @@ public class BookingMetrics {
 
     public void fallbackConfirm() {
         fallbackConfirms.increment();
+    }
+
+    public void drainResult(DrainResult result) {
+        drainResults.get(result).increment();
     }
 
     public void confirmFallbackState(long oldestWaitingSeconds, boolean fallbackActive) {

@@ -19,6 +19,12 @@ spring:
           saleValidationClient:
             connect-timeout: 1000
             read-timeout: 3000
+          # Outbox에 남은 승인 요청을 대신 보내는 작업자의 payment 호출(#422, 키는 SubstituteConfirmClient의 contextId).
+          # 합이 작업자의 다시 볼 간격(payment-confirm.fallback.drain.resend-after 2초)보다 짧아야 한다. 길면 답을 기다리는 동안
+          # 다른 작업자가 같은 요청을 다시 집는다. payment는 PG를 기다리지 않고 바로 답하므로 이 안에 끝난다
+          substituteConfirmClient:
+            connect-timeout: 1000
+            read-timeout: 1500
   # 쿠폰 발급 판단(Redis Lua) 명령 제한 시간(#340). 연결 정보는 application.yml의 spring.data.redis를 그대로 쓴다.
   # 없으면 Lettuce 기본 60초를 기다리며 요청 스레드(쿠폰·예매·좌석 공용)를 잡아, Redis 장애가 서비스 전체로 번진다.
   # 평소 판단은 몇 ms라 1초면 넉넉하고, 장애면 1초 만에 503이다. 대략 "초당 쿠폰 요청 × 제한 시간"이 Tomcat 스레드(200)를 넘지 않아야 한다
@@ -113,6 +119,22 @@ reservation:
         # 실패한 메시지 뒤에 걸려 있다. 늦게 돌리면 그 1초마다 받은 승인이 약 6분 묶이고, 잘못 돌리면 맨 앞이 나갈 때까지 새 승인이
         # 동기로 갈 뿐이라 일찍 돌리는 쪽으로 둔다. window보다 짧아야 하고 1초보다 짧을 수 없다(아니면 기동 실패)
         unsent-after: 5s
+        # 동기로 돌리는 동안, 그 전에 Outbox에 남은 승인 요청을 payment에 HTTP로 대신 보내(#403) 시한 전에 끝낸다. 끄면 그 요청은
+        # 브로커가 돌아오거나 결과 확인이 시한 뒤 끝낼 때까지(약 6분) 결제 중에 묶인다. 이 작업자는 #422 계약(confirmBefore 시한 검사,
+        # 503 + Retry-After, READY 응답)대로 답을 읽으므로, payment가 그 대체 승인을 받기 전에는 false로 둔다.
+        # 보낸 요청의 Outbox 행은 지우지 않는다. 지우면 Outbox가 비어 브로커가 멈춘 채인데 새 승인을 다시 메시지로 남기고, 그 요청이
+        # 몇 초 뒤 또 묶이기를 되풀이한다. 행은 발행기가 브로커에 넘기며 지우고, payment는 이미 처리한 주문의 메시지를 받아 넘긴다
+        drain:
+          enabled: ${PAYMENT_CONFIRM_DRAIN_ENABLED:false}
+          # 인스턴스당 동시에 보내는 요청 수. 고르기와 결과 반영이 완료 전용 풀(completion-pool 5개)을 쓰는데 발행기와 결제 중 집계가
+          # 하나씩 쓰므로 4를 넘지 않는다(아니면 기동 실패). HTTP를 기다리는 동안에는 연결을 쥐지 않는다
+          concurrency: 3
+          # 보낸 요청을 다시 볼 수 있게 되기까지의 시간. payment가 받았다고만 답했거나 답이 없던 요청은 승인을 다시 보내지 않고
+          # 이 간격으로 결제 조회를 불러 결과를 묻는다. 호출 한 번의 대기(substituteConfirmClient 타임아웃)는 이보다 짧아야 한다.
+          # 1초보다 짧을 수 없다(아니면 기동 실패)
+          resend-after: 2s
+          # payment가 받을 자리가 없다며 돌려보낼 때 쉬는 시간의 상한. resend-after보다 짧을 수 없다(아니면 기동 실패)
+          max-backoff: 30s
 
     # 결제 중 예약의 결과 폴링 간격(Retry-After, 초). 메시지 승인은 모든 사용자가 결과를 폴링하므로 서버가 간격을 정한다.
     # 결제 중 예약 수(결과 확인 스케줄러가 갱신하는 게이지)가 busy-above의 배수를 넘을 때마다 두 배로 늘리고 max에서 멈춘다.
