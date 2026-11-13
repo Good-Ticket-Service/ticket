@@ -29,7 +29,7 @@ public class MessageApprovalProperties {
                 || maxPollRecords < 1
                 || maxPollRecords > 32
                 || workers < 2
-                || workers > 64
+                || workers > 400
                 || perProvider < 1
                 || perProvider > workers / 2
                 || maxInFlight < concurrency * maxPollRecords
