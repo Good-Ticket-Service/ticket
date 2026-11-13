@@ -284,6 +284,7 @@ flowchart LR
 - #346 작업 브랜치의 승인 Consumer는 `payment.messaging.confirm.enabled=false`가 전환 전 기본값이다. 이행025와 결제 모든 인스턴스의 시한/READY 정리 버전, 결과 relay·Consumer 준비, 예매 모든 인스턴스의 메시지 승인 버전을 확인한 뒤 켠다. 구버전 결제 노드가 READY를 선점 만료 즉시 정리하는 혼합 배포에서는 메시지 모드를 켜지 않는다. 실제 운영 배포 완료를 의미하지 않는다.
 - 기본 concurrency3·max.poll.records16·worker16·PG별 승인8·미완료48건이다. PG별 승인 상한은 기존 PG 전체 상한보다 작아야 하며, 지연 재시도도 같은 미완료 집합 안에서만 유지한다. 한 PG의 느린 호출이 모든 승인 worker를 차지하지 않게 한다.
 - MANUAL+asyncAcks로 성공한 DB 책임 인수·마스킹 DLT 송신에만 ACK한다. PG 대기는 poll 스레드에서 하지 않는다. 재배정 후 옛 소유권의 ACK와 새 승인을 막으며, 이미 진행한 PG의 결과 저장·조회 복구는 보존한다.
+- DB 책임 인수 시점은 claim 커밋이다(#417). claim이 결제를 IN_PROGRESS로 바꾸고 조회 복구 근거를 남긴 직후 ACK하고, PG 호출은 그 뒤에 이어 간다. asyncAcks는 한 partition의 poll 묶음이 모두 ACK돼야 다음 묶음을 가져오므로, PG 응답을 기다리는 레코드가 그 partition의 진행을 막지 않게 하려는 것이다. claim 뒤에는 재배정이 나도 PG까지 보낸다. ACK 뒤 결과 저장 실패·프로세스 종료는 조회 Recovery가 마무리한다. `payment.messaging.confirm.acknowledge-on-claim=false`면 결과 저장 뒤 ACK하는 이전 동작이다.
 - 결제 JDBC는 `logServerErrorDetail=false`로 제약 실패 행의 거래 키가 애플리케이션 오류 로그에 복사되지 않게 한다. 기본 오류·제약 이름은 유지한다. DB 서버 로그·토픽 ACL은 별도 운영 통제 대상이다.
 - 로컬 허가 대기는 최초 confirmBefore 안에서 재시도한다. 메시지 인수된 READY는 저장된 시한으로 정리하고, Consumer 활성 시 미수신 READY는 expiresAt+6분 뒤 정리한다. Consumer를 끄더라도 이미 저장한 메시지 시한은 유지한다.
 - DB/DLT 일시 실패는 제한 재시도 뒤 ACK 없이 관련 partition을 운영 중지한다. 원인 제거 뒤 Consumer를 재기동해 미커밋 원본을 다시 읽는다. 정상 메시지를 재시도 소진만으로 DLT/FAILED 처리하지 않는다. asyncAcks의 선행 gap은 같은 poll의 다른 partition 진행도 기다리게 할 수 있다.
