@@ -1,5 +1,25 @@
 # #396 환경 B. HTTP 500/s 측정(p13)과 같은 결제 DB CPU 6을 전용 PostgreSQL에만 적용한다.
 # script/settlement-kafka/compose.yml 뒤에 겹쳐 쓴다. 볼륨·계정·포트는 그대로다.
+# fakepg-db는 M6용이다. p13처럼 FakePG DB를 결제 DB와 다른 인스턴스로 분리한다(같은 저장장치, CPU 2).
 services:
   postgres:
     cpus: 6
+  fakepg-db:
+    image: postgres:16
+    profiles: ["fakepg-separate"]
+    ports: ["127.0.0.1:15464:5432"]
+    environment:
+      POSTGRES_USER: sk363_admin
+      POSTGRES_PASSWORD: sk363_local_fixture
+      POSTGRES_DB: postgres
+    command: ["postgres", "-c", "track_io_timing=on"]
+    volumes: ["fakepg-data:/var/lib/postgresql/data"]
+    cpus: 2
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sk363_admin -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  fakepg-data:

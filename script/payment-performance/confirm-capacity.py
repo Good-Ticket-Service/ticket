@@ -68,17 +68,45 @@ def health():
         return False
 
 
-def fake_pg(java):
-    """환경 B FakePG. 같은 설정으로 떠 있으면 재사용하고, 다른 프로세스가 포트를 쓰면 중단한다."""
+FAKE_PG_DB_PORT = {"shared": 15463, "separate": 15464}
+PROFILE = ["--profile", "fakepg-separate"]
+
+
+def fakepg_sql(statement, database="postgres"):
+    """M6: 분리한 FakePG DB 인스턴스에서만 실행한다."""
+    return bench.execute(COMPOSE + PROFILE + ["exec", "-T", "fakepg-db", "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+                                              "-U", "sk363_admin", "-d", database, "-c", statement])
+
+
+def stop_fake_pg(marker):
+    powershell(f"Stop-Process -Id {marker['pid']} -ErrorAction SilentlyContinue")
+    until = time.monotonic() + 30
+    while health() and time.monotonic() < until:
+        time.sleep(.3)
+    if health():
+        raise RuntimeError("이전 FakePG가 종료되지 않았다")
+
+
+def fake_pg(java, db_mode):
+    """환경 B FakePG. 같은 설정(DB 위치 포함)으로 떠 있으면 재사용하고, 내가 띄운 다른 설정이면 다시 띄운다."""
+    port = FAKE_PG_DB_PORT[db_mode]
     if health():
         marker = json.loads(FAKE_PG_MARKER.read_text(encoding="utf-8")) if FAKE_PG_MARKER.exists() else {}
-        if marker.get("purpose") == "issue396" and powershell(f"(Get-Process -Id {marker['pid']}).Id") == str(marker["pid"]):
+        mine = marker.get("purpose") == "issue396" and powershell(f"(Get-Process -Id {marker['pid']}).Id") == str(marker["pid"])
+        if not mine:
+            raise RuntimeError("18077에 환경 B가 아닌 FakePG가 떠 있다. 소유를 확인하고 먼저 종료한다")
+        if marker.get("dbPort", 15463) == port:
             marker["affinityVerified"] = set_affinity(marker["pid"], PG_AFFINITY)
             return marker
-        raise RuntimeError("18077에 환경 B가 아닌 FakePG가 떠 있다. 소유를 확인하고 먼저 종료한다")
+        stop_fake_pg(marker)
     database = "sk363_cw_fakepg"
-    if not bench.database_info(database):
-        raise RuntimeError("#377 전용 FakePG DB가 없다")
+    if db_mode == "shared":
+        if not bench.database_info(database):
+            raise RuntimeError("#377 전용 FakePG DB가 없다")
+    else:
+        if fakepg_sql(f"SELECT 1 FROM pg_database WHERE datname='{database}'") != "1":
+            fakepg_sql(f"CREATE DATABASE {database}")
+        fakepg_sql("CREATE SCHEMA IF NOT EXISTS fake_pg_schema", database)
     jar = ROOT / "backend/fake-pg/build/libs/app.jar"
     if not jar.exists():
         bench.execute([str(ROOT / "backend/gradlew.bat"), ":fake-pg:bootJar"], cwd=ROOT / "backend",
@@ -87,17 +115,17 @@ def fake_pg(java):
     argfile = ASSETS / "fake-pg.args"
     wait.java_args(argfile, ["-Xms128m", "-Xmx384m", f"-XX:ActiveProcessorCount={CPUS}", "-Dfile.encoding=UTF-8",
                              "-jar", jar, "--server.address=127.0.0.1", "--server.port=18077",
-                             f"--spring.datasource.url=jdbc:postgresql://127.0.0.1:15463/{database}?currentSchema=fake_pg_schema",
+                             f"--spring.datasource.url=jdbc:postgresql://127.0.0.1:{port}/{database}?currentSchema=fake_pg_schema",
                              "--spring.datasource.username=sk363_admin",
                              "--spring.datasource.password=sk363_local_fixture"])
     with (ASSETS / "fake-pg.log").open("w", encoding="utf-8") as stream:
         process = subprocess.Popen([java, "@" + str(argfile)], cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW)
     affinity = set_affinity(process.pid, PG_AFFINITY)
-    marker = {"pid": process.pid, "port": 18077, "database": database, "activeProcessorCount": CPUS,
-              "affinity": affinity, "heap": "128m~384m", "purpose": "issue396"}
+    marker = {"pid": process.pid, "port": 18077, "database": database, "dbPort": port, "dbMode": db_mode,
+              "activeProcessorCount": CPUS, "affinity": affinity, "heap": "128m~384m", "purpose": "issue396"}
     bench.save(FAKE_PG_MARKER, marker)
-    until = time.monotonic() + 60
+    until = time.monotonic() + 90
     while time.monotonic() < until:
         if process.poll() is not None:
             raise RuntimeError("전용 FakePG 시작 실패. fake-pg.log 확인")
@@ -107,12 +135,18 @@ def fake_pg(java):
     raise RuntimeError("전용 FakePG 시작 시간 초과")
 
 
-def environment():
+def environment(db_mode="shared"):
     """환경 B를 적용·검증한다. 기준과 다르면 실행하지 않는다."""
     bench.execute(COMPOSE + ["up", "-d", "--wait", "postgres", "kafka"], timeout=300)
     value = {"postgresCpus": container_cpus("postgres"), "kafkaCpus": container_cpus("kafka"),
              "appAffinity": APP_AFFINITY, "appActiveProcessorCount": CPUS, "appHeap": "128m~1g",
+             "fakePgDb": db_mode,
              "hostLogicalCpus": int(powershell("(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors"))}
+    if db_mode == "separate":
+        bench.execute(COMPOSE + PROFILE + ["up", "-d", "--wait", "fakepg-db"], timeout=300)
+        value["fakePgDbCpus"] = container_cpus("fakepg-db")
+        if value["fakePgDbCpus"] != 2:
+            raise RuntimeError(f"FakePG DB CPU 한도가 다르다: {value}")
     if value["postgresCpus"] != 6 or value["kafkaCpus"] != 2:
         raise RuntimeError(f"컨테이너 CPU 한도가 환경 B와 다르다: {value}")
     return value
@@ -147,6 +181,9 @@ def main():
     parser.add_argument("--set", nargs="*", default=[],
                         help="승인 소비 설정. 예: concurrency=6 max-poll-records=32 workers=64 per-provider=32 max-in-flight=192")
     parser.add_argument("--suffix", default="", help="같은 label 안의 변형 이름")
+    parser.add_argument("--bulkhead", type=int, help="PG별 Bulkhead 상한(기본: 운영값 200)")
+    parser.add_argument("--fakepg-db", choices=["shared", "separate"], default="shared",
+                        help="FakePG DB 위치. shared=결제 DB와 같은 인스턴스(기존), separate=별도 인스턴스(M6)")
     parser.add_argument("--check", action="store_true", help="환경 B 적용·검증만 한다")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z][a-z0-9]{0,7}", args.label):
@@ -156,11 +193,14 @@ def main():
         if not re.fullmatch(r"[a-z-]+=[0-9a-z]+", value):
             parser.error("--set 형식은 이름=값이다")
         overrides.append("--payment.messaging.confirm." + value)
+    if args.bulkhead:
+        overrides += [f"--pg.bulkhead.toss-max-concurrent={args.bulkhead}",
+                      f"--pg.bulkhead.kakao-max-concurrent={args.bulkhead}"]
     java = shutil.which("java")
     if not java:
         raise RuntimeError("Java 17이 필요하다")
-    env = environment()
-    env["fakePg"] = fake_pg(java)
+    env = environment(args.fakepg_db)
+    env["fakePg"] = fake_pg(java, args.fakepg_db)
     if args.check:
         print(json.dumps(env, ensure_ascii=False, indent=2), flush=True)
         return
@@ -186,12 +226,16 @@ def main():
         classpath = (bench.SERVICE / "build/settlement-benchmark-classpath.txt").read_text().strip()
         argfile = output.with_suffix(".args")
         count = rate * args.seconds
+        samplers = "jdbc:postgresql://127.0.0.1:15463/postgres"
+        if args.fakepg_db == "separate":
+            samplers += "|jdbc:postgresql://127.0.0.1:15464/postgres"
         wait.java_args(argfile, ["-Xms128m", "-Xmx1g", f"-XX:ActiveProcessorCount={CPUS}", "-Dfile.encoding=UTF-8",
+                                 f"-Dcap.waitSampling={samplers}",
                                  "-cp", classpath, MAIN, database, output, rate, count, args.toss, args.toss_ms,
                                  args.kakao_ms, args.pool, args.drain, *overrides])
         print(f"{args.label}/{name}: {rate}건/초 × {args.seconds}초 = {count}건, TOSS {args.toss}%, "
               f"PG {args.toss_ms}/{args.kakao_ms}ms, 풀 {args.pool}, {overrides} 시작", flush=True)
-        run_env = dict(environment(), fakePgAffinity=set_affinity(env["fakePg"]["pid"], PG_AFFINITY))
+        run_env = dict(environment(args.fakepg_db), fakePgAffinity=set_affinity(env["fakePg"]["pid"], PG_AFFINITY))
         resource = {"before": bench.resources(), "environment": run_env}
         affinity = None
         try:
