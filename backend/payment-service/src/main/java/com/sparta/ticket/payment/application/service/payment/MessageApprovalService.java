@@ -73,12 +73,30 @@ public class MessageApprovalService {
      * 원본 Topic 레인이 PG별 retry Topic으로 넘길 때 쓴다(#417 B). 등록 TX는 DEFER 전에 이미 커밋돼 있다.
      */
     public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner, Runnable accepted, boolean defer) {
+        return advance(attempt, owner, accepted, defer, true);
+    }
+
+    /**
+     * HTTP 메시지 대체 승인(#422). 메시지 승인과 같은 처리(등록 → 시한 → PG별 자리·PG 허가 → claim → PG)를 호출 스레드에서 한다.
+     * 자리를 기다리지 않는다. 자리·허가가 없으면 결제를 READY로 둔 채 DEFER를 돌려주고, 호출자가 503으로 답한다.
+     */
+    public Outcome approveNow(MessageConfirmCommand command) {
+        return advance(new MessageApprovalAttempt(command), () -> true, () -> {}, true, false);
+    }
+
+    private Outcome advance(
+            MessageApprovalAttempt attempt,
+            BooleanSupplier owner,
+            Runnable accepted,
+            boolean defer,
+            boolean waitForSlot) {
         if (!owner.getAsBoolean()) return Outcome.CANCELED;
         var command = attempt.command();
         var registration = attempt.registration(transactions, clock);
         if (registration.completed()) return Outcome.COMPLETE;
         Semaphore slot = slots.get(registration.provider());
-        if (!acquire(slot)) return unavailable(attempt, registration.provider(), defer);
+        if (!(waitForSlot ? acquire(slot) : slot.tryAcquire()))
+            return unavailable(attempt, registration.provider(), defer);
         try {
             var permit = clients.get(registration.provider()).reserveApproval();
             if (permit.isEmpty()) return unavailable(attempt, registration.provider(), defer);

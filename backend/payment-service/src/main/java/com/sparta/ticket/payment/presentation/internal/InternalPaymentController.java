@@ -1,5 +1,8 @@
 package com.sparta.ticket.payment.presentation.internal;
 
+import com.sparta.ticket.common.exception.CommonErrorCode;
+import com.sparta.ticket.common.exception.ErrorResponse;
+import com.sparta.ticket.payment.application.service.payment.ConfirmDeferredException;
 import com.sparta.ticket.payment.application.service.payment.PaymentService;
 import com.sparta.ticket.payment.application.service.refund.RefundService;
 import com.sparta.ticket.payment.presentation.dto.internal.CheckoutRequest;
@@ -9,8 +12,12 @@ import com.sparta.ticket.payment.presentation.dto.internal.ConfirmResponse;
 import com.sparta.ticket.payment.presentation.dto.internal.PaymentResponse;
 import com.sparta.ticket.payment.presentation.dto.internal.RefundRequest;
 import com.sparta.ticket.payment.presentation.dto.internal.RefundResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,6 +51,17 @@ public class InternalPaymentController {
     @GetMapping("/{orderId}")
     public PaymentResponse find(@PathVariable String orderId) {
         return PaymentResponse.from(paymentService.find(orderId));
+    }
+
+    /** 메시지 대체 승인(#422)이 자리·PG 허가를 얻지 못했다. 결제는 READY 그대로이고, 예매는 Retry-After 뒤 같은 내용으로 다시 보낸다. */
+    @ExceptionHandler(ConfirmDeferredException.class)
+    public ResponseEntity<ErrorResponse> deferred(ConfirmDeferredException exception, HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.SERVICE_UNAVAILABLE.status())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(ErrorResponse.of(
+                        CommonErrorCode.SERVICE_UNAVAILABLE,
+                        CommonErrorCode.SERVICE_UNAVAILABLE.message(),
+                        request.getRequestURI()));
     }
 
     @PostMapping("/{orderId}/confirm")
