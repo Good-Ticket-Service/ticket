@@ -51,12 +51,17 @@ payment:
     # 예매 전 인스턴스 전환·결과 relay 배포 확인 후 켠다. 기존 HTTP 승인은 유지한다.
     confirm:
       enabled: false
-      concurrency: 3
-      max-poll-records: 16
-      workers: 16
-      per-provider: 8
-      max-in-flight: 48
-      retry-delay: 200ms
+      # #396 전환 기간 권고값(HTTP 승인과 메시지 승인을 함께 운영). 처리 ≈ PG별 자리 ÷ 0.4초(PG 300ms)라 PG별 약 375건/s.
+      # 300건/s × 3분 2회 p99 1.6~2.2초로 검증했다. 이전 기본값(3·16·16·8·48·200ms)은 약 19건/s가 상한이었다.
+      # Consumer × poll = 미완료 상한으로 둔다. max-in-flight만 키우면 asyncAcks가 막아 효과가 없다.
+      # PG별 자리는 Bulkhead(config-repo pg.bulkhead, 250)보다 작아야 한다. 나머지 100이 HTTP 승인·복구·환불 몫이다.
+      concurrency: 12
+      max-poll-records: 32
+      workers: 320
+      per-provider: 150
+      max-in-flight: 384
+      # 자리 반환을 기다리는 재시도 간격. 200ms보다 처리량 +16~17%, 20ms는 이득 없이 재시도만 2배였다
+      retry-delay: 50ms
       max-infrastructure-retries: 4
       max-message-bytes: 8192
       # #417: claim 커밋 직후 acknowledge(느린 PG가 다른 PG의 Partition 진행을 막지 않게 함). false면 PG 결과 저장 뒤 acknowledge
