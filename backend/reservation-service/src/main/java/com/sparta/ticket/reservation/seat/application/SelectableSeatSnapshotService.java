@@ -1,5 +1,7 @@
 package com.sparta.ticket.reservation.seat.application;
 
+import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.dto.SeatLayoutBody;
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
@@ -51,5 +53,28 @@ public class SelectableSeatSnapshotService {
      */
     public SeatLayoutBody getLayoutBody(SeatMapSnapshot snapshot, Function<SeatMapSnapshot, byte[]> render) {
         return layoutBodyCache.get(snapshot, render);
+    }
+
+    /**
+     * 응답 범위의 스냅샷(#397). section이 null이면 회차 전체, 있으면 그 구역 좌석만 담은 하위 스냅샷이다.
+     * 구역 이름은 정확히 일치해야 하고(대소문자·공백 포함), 없는 구역이면 404 SEAT_NOT_FOUND다. 받은 값은 오류 메시지에 넣지 않는다.
+     */
+    public SeatMapSnapshot getSnapshot(Long scheduleId, String section) {
+        SeatMapSnapshot snapshot = getSnapshot(scheduleId);
+        if (section == null) {
+            return snapshot;
+        }
+        return snapshot.sections()
+                .get(section)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
+    }
+
+    /**
+     * 범위별 layout 응답 본문 한 벌(#397). section이 null이면 회차 전체 본문이고, 있으면 (회차, configVersion, 구역)마다 한 번 만든다.
+     * snapshot은 {@link #getSnapshot(Long, String)}로 받은 같은 범위의 스냅샷이다. 그래서 캐시 키의 구역은 스냅샷에 있는 이름뿐이다.
+     */
+    public SeatLayoutBody getLayoutBody(
+            SeatMapSnapshot snapshot, String section, Function<SeatMapSnapshot, byte[]> render) {
+        return layoutBodyCache.get(snapshot, section, render);
     }
 }
