@@ -62,5 +62,44 @@ class RegisterSeatsTests(unittest.TestCase):
         self.assertEqual(1, request.call_count)
         self.assertEqual(2, version)
 
+class VenueSeatsTests(unittest.TestCase):
+    """공연장 좌석 배치(#397). single은 기존과 같고, sections는 한 열 25석·구역당 1,000석이다."""
+    def test_single_is_section_a_row_1(self):
+        seats = scenario1.venue_seats(3)
+        self.assertEqual([{'section': 'A', 'rowLabel': '1', 'seatNumber': n} for n in (1, 2, 3)], seats)
+
+    def test_sections_fill_rows_then_next_section(self):
+        seats = scenario1.venue_seats(2001, 'sections')
+        self.assertEqual({'section': 'A', 'rowLabel': '1', 'seatNumber': 25}, seats[24])
+        self.assertEqual({'section': 'A', 'rowLabel': '2', 'seatNumber': 1}, seats[25])
+        self.assertEqual({'section': 'A', 'rowLabel': '40', 'seatNumber': 25}, seats[999])
+        self.assertEqual({'section': 'B', 'rowLabel': '1', 'seatNumber': 1}, seats[1000])
+        self.assertEqual({'section': 'C', 'rowLabel': '1', 'seatNumber': 1}, seats[2000])
+
+    def test_20000_seats_are_20_sections_of_1000(self):
+        seats = scenario1.venue_seats(20000, 'sections')
+        counts = {}
+        for s in seats:
+            counts[s['section']] = counts.get(s['section'], 0) + 1
+        self.assertEqual([chr(65 + i) for i in range(20)], list(counts))
+        self.assertEqual({1000}, set(counts.values()))
+        self.assertEqual(20000, len({(s['section'], s['rowLabel'], s['seatNumber']) for s in seats}))
+
+    def test_section_names_continue_after_z(self):
+        self.assertEqual(['A', 'Z', 'AA', 'AB'], [scenario1.section_name(i) for i in (0, 25, 26, 27)])
+
+    def test_unknown_layout_fails(self):
+        with self.assertRaises(Failure):
+            scenario1.venue_seats(1, 'grid')
+
+    def test_register_uses_venue_layout(self):
+        obj = object.__new__(Scenario)
+        obj.venue_layout = 'sections'
+        obj.request = Mock(side_effect=[{'venueVersion': v} for v in range(2, 12)])
+        obj.register_seats(VENUE, GRADE, 6000, 1, 'token')
+        bodies = [c.args[2]['seats'] for c in obj.request.call_args_list]
+        self.assertEqual([5000, 1000], [len(b) for b in bodies])
+        self.assertEqual({'section': 'F', 'rowLabel': '1', 'seatNumber': 1, 'venueSeatGradeId': GRADE}, bodies[1][0])
+
 if __name__ == '__main__':
     unittest.main()
