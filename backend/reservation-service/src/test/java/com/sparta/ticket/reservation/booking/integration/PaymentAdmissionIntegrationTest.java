@@ -116,6 +116,16 @@ class PaymentAdmissionIntegrationTest extends BookingIntegrationTest {
         refreshAfter(Duration.ofSeconds(5));
     }
 
+    /** 브로커가 받지 못한 승인 요청 하나를 지금 시각으로 Outbox 맨 앞에 둔다. 이 테스트들은 발행기를 돌리지 않아 그대로 남는다. */
+    private void confirmRequestWaiting() {
+        jdbcTemplate.update(
+                "INSERT INTO p_booking_outbox (topic, message_key, payload, created_at) VALUES (?, ?, ?, ?)",
+                "payment.confirm.requested",
+                "1",
+                "{}",
+                clock.now());
+    }
+
     private Object orderIdOf(Long reservationId) {
         return jdbcTemplate.queryForObject(
                 "SELECT order_id FROM p_reservations WHERE reservation_id = ?", Object.class, reservationId);
@@ -418,5 +428,26 @@ class PaymentAdmissionIntegrationTest extends BookingIntegrationTest {
         checkout(waiting)
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string(HttpHeaders.RETRY_AFTER, "10"));
+    }
+
+    @Test
+    @DisplayName("승인 요청이 나가지 못해 승인을 동기로 돌리는 동안에는 늦은 결제가 계속 늘어도 결제 준비를 받고, 요청이 나가면 다시 거절한다")
+    void admitsCheckoutWhileConfirmsGoSync() throws Exception {
+        confirmSettings.useMessage();
+        Long first = hold(Duration.ofMinutes(10));
+        Long second = hold(Duration.ofMinutes(10));
+        confirmRequestWaiting();
+        // 늦은 결제가 거절 기준을 넘는 10초 동안 맨 앞 승인 요청도 기준 시간을 넘겨 기다린다
+        paymentsKeepGettingLate();
+
+        checkout(first).andExpect(status().isOk());
+        assertThat(payment.prepared).hasSize(1);
+
+        // 브로커가 받아 발행기가 지운 것과 같다
+        jdbcTemplate.update("DELETE FROM p_booking_outbox");
+        refreshAfter(Duration.ofSeconds(1));
+
+        checkout(second).andExpect(status().isServiceUnavailable()).andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+        assertThat(payment.prepared).hasSize(1);
     }
 }

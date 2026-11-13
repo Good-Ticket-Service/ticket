@@ -17,6 +17,7 @@ import com.sparta.ticket.reservation.booking.application.payment.ReservationPaym
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup;
 import com.sparta.ticket.reservation.booking.application.port.PaymentLookup.Status;
+import com.sparta.ticket.reservation.booking.application.reconcile.PaymentBacklogService;
 import com.sparta.ticket.reservation.booking.application.reconcile.PaymentReconcileService;
 import com.sparta.ticket.reservation.booking.infrastructure.messaging.OutboxPublisher;
 import com.sparta.ticket.reservation.booking.infrastructure.payment.PaymentGuardProperties;
@@ -59,6 +60,7 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(10);
     private static final String UNRECEIVED_METER = "reservation.payment.confirm.unreceived";
     private static final String PUBLISH_FAILED_METER = "reservation.outbox.publish_failed";
+    private static final String FALLBACK_METER = "reservation.payment.confirm.fallback";
 
     @Autowired
     private BookingFacade bookingFacade;
@@ -68,6 +70,9 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private PaymentReconcileService reconcileService;
+
+    @Autowired
+    private PaymentBacklogService backlogService;
 
     @Autowired
     private OutboxPublisher publisher;
@@ -119,6 +124,19 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
 
     private int reconcile() {
         return reconcileService.reconcile(THRESHOLD, STUCK_AFTER, 10, BUDGET);
+    }
+
+    /** 1초마다 도는 결제 중 집계를, 시계를 움직인 뒤 한 번 돌린다. 통합 테스트는 스케줄러를 끄므로 직접 부른다. */
+    private void refreshAfter(Duration elapsed) {
+        clock.advance(elapsed);
+        backlogService.refresh();
+    }
+
+    private LocalDateTime confirmBeforeOf(Long reservationId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT confirm_before FROM p_reservations WHERE reservation_id = ?",
+                LocalDateTime.class,
+                reservationId);
     }
 
     private List<ConsumerRecord<String, String>> requestsFor(Set<String> orderIds, int expected) throws Exception {
@@ -390,5 +408,126 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
 
         assertThat(payment.confirmedOrderIds).containsExactly(attempt.orderId(), attempt.orderId());
         assertThat(statusOf(attempt.reservationId())).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    @DisplayName("승인 요청이 브로커로 나가지 못한 채 기준 시간이 지나면 새 승인은 payment를 바로 불러 확정하고 Outbox에 남기지 않는다")
+    void confirmsSyncWhileRequestsCannotLeave() {
+        // 커밋 직후 발행이 꺼져 있어 메시지로 남긴 요청은 Outbox에 그대로 남는다. 브로커가 받지 못한 것과 같다
+        requestedByMessage();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
+        Attempt next = checkedOut();
+        double fallbacks = count(FALLBACK_METER);
+
+        ReservationResult result = confirm(next);
+
+        assertThat(result.status().name()).isEqualTo("CONFIRMED");
+        assertThat(payment.confirmedOrderIds).containsExactly(next.orderId());
+        assertThat(outboxSize()).isEqualTo(1);
+        assertThat(confirmBeforeOf(next.reservationId())).isNull();
+        assertThat(count(FALLBACK_METER)).isEqualTo(fallbacks + 1);
+    }
+
+    @Test
+    @DisplayName("먼저 남긴 승인 요청이 기준 시간을 기다렸으면 방금 남긴 요청이 뒤에 있어도 새 승인을 동기로 부른다")
+    void oldestWaitingRequestDecides() {
+        requestedByMessage();
+        clock.advance(SwitchableConfirmSettings.UNSENT_AFTER.minusSeconds(1));
+        requestedByMessage();
+        refreshAfter(Duration.ofSeconds(1));
+        Attempt next = checkedOut();
+
+        ReservationResult result = confirm(next);
+
+        assertThat(result.status().name()).isEqualTo("CONFIRMED");
+        assertThat(payment.confirmedOrderIds).containsExactly(next.orderId());
+        assertThat(outboxSize()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("맨 앞 승인 요청이 기준 시간을 기다리기 전에는 새 승인도 메시지로 요청한다")
+    void keepsMessageBeforeThreshold() {
+        requestedByMessage();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER.minusSeconds(1));
+        Attempt next = checkedOut();
+
+        ReservationResult result = confirm(next);
+
+        assertThat(result.status().name()).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).isEmpty();
+        assertThat(outboxSize()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("남아 있던 승인 요청이 브로커로 나가면 새 승인은 다시 메시지로 요청한다")
+    void returnsToMessageOnceRequestsLeave() throws Exception {
+        Attempt stuck = requestedByMessage();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
+        Attempt duringOutage = checkedOut();
+        confirm(duringOutage);
+        // 발행 스케줄러가 남은 행을 다시 보낸 것과 같다. 이번에는 테스트 브로커가 받는다
+        publisher.publish(100, SEND_TIMEOUT);
+        refreshAfter(Duration.ofSeconds(1));
+        Attempt next = checkedOut();
+
+        ReservationResult result = confirm(next);
+
+        assertThat(result.status().name()).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).containsExactly(duringOutage.orderId());
+        assertThat(requestsFor(Set.of(stuck.orderId()), 1)).hasSize(1);
+        assertThat(outboxSize()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("동기로 돌리는 동안 이미 메시지로 접수한 승인이 다시 와도 payment를 부르지 않고 결제 중으로 답한다")
+    void retryOfMessageConfirmDoesNotCallPayment() {
+        Attempt stuck = requestedByMessage();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
+        double fallbacks = count(FALLBACK_METER);
+
+        ReservationResult again = confirm(stuck);
+
+        assertThat(again.status().name()).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).isEmpty();
+        assertThat(outboxSize()).isEqualTo(1);
+        assertThat(count(FALLBACK_METER)).isEqualTo(fallbacks);
+        // 같은 때 새 승인은 payment를 부른다. 위에서 부르지 않은 것은 이미 접수한 승인이어서다
+        Attempt next = checkedOut();
+        confirm(next);
+        assertThat(payment.confirmedOrderIds).containsExactly(next.orderId());
+    }
+
+    @Test
+    @DisplayName("동기로 돌리는 기능을 끄면 승인 요청이 아무리 오래 나가지 못해도 새 승인을 메시지로 요청한다")
+    void keepsMessageWhenFallbackIsDisabled() {
+        requestedByMessage();
+        confirmSettings.disableFallback();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER.multipliedBy(6));
+        Attempt next = checkedOut();
+
+        ReservationResult result = confirm(next);
+
+        assertThat(result.status().name()).isEqualTo("PAYMENT_IN_PROGRESS");
+        assertThat(payment.confirmedOrderIds).isEmpty();
+        assertThat(outboxSize()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("동기로 돌린 승인의 결과를 모르면 결과 확인이 동기 승인처럼 같은 인증값으로 다시 보내 확정한다")
+    void reconcilesFallbackConfirmLikeSyncConfirm() {
+        requestedByMessage();
+        refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
+        Attempt next = checkedOut();
+        payment.confirmTimesOut();
+        confirm(next);
+        payment.confirmReturns(ConfirmOutcome.succeeded());
+        payment.lookupReturns(next.orderId(), PaymentLookup.of(Status.NOT_RECEIVED));
+        clock.advance(THRESHOLD.plusSeconds(1));
+
+        reconcile();
+
+        assertThat(payment.confirmedOrderIds).containsExactly(next.orderId(), next.orderId());
+        assertThat(payment.confirmedAuthTokens).containsExactly("pk-" + next.orderId(), "pk-" + next.orderId());
+        assertThat(statusOf(next.reservationId())).isEqualTo("CONFIRMED");
     }
 }
