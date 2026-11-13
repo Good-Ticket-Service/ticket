@@ -113,15 +113,31 @@ python infra/integration/scenario2.py --rate 300 --duration 60 --seats 15000
 
 **좌석 경계 측정 조건(#287).** 기본값(`--layout-body parse --accept-encoding default`)은 이전 측정과 같다.
 
-- `--layout-body skip`(`--seat-api split` 전용): k6가 layout 본문을 받아 두지 않는다(`responseType: 'none'`). 큰 회차에서 k6 메모리가 아니라 서버 지표로 한계를 보기 위한 조건이다. layout은 ETag(configVersion)로만 확인하고, status 검증 기준과 배정 좌석의 비트 위치는 측정 전에 Python이 layout을 한 번 받아 `input.json`에 넣는다.
+- `--layout-body skip`(`--seat-api split`·`zone` 전용): k6가 layout 본문을 받아 두지 않는다(`responseType: 'none'`). 큰 회차에서 k6 메모리가 아니라 서버 지표로 한계를 보기 위한 조건이다. layout은 ETag(configVersion)로만 확인하고, status 검증 기준과 배정 좌석의 비트 위치는 측정 전에 Python이 layout을 한 번 받아 `input.json`에 넣는다.
 - `--accept-encoding identity|gzip`: 모든 요청에 이 헤더를 붙인다. `default`는 헤더를 보내지 않는다.
 - 측정 중 layout 응답이 요청한 압축 조건과 다르면 `checks.layout_encoding_as_requested`가 실패한다. layout은 강한 ETag라 Tomcat 압축이 걸리지 않는다(TS-9, Tomcat `CompressionConfig#useCompression`의 강한 ETag 조건). 지금은 `gzip`을 요청해도 압축본이 오지 않아 이 check가 실패하므로, 경계 측정은 `identity`로 한다. 압축 측정은 #287 2번(사전 압축)에서 한다.
 - 이 옵션을 쓴 회차는 `layout-cost.json`(layout 전송 바이트 identity·gzip, Content-Length 유무), `result.json`의 `layout`·`measurements.layout`을 남긴다. layout은 chunked로 와서 Content-Length가 없으므로 크기는 `layout-cost.json`을 기준으로 한다. 측정 구간의 reservation·gateway·caddy CPU는 모든 회차의 `server_cpu_cores_measure`에 남는다.
+
+**구역별 조회(#397).** 기본값(`--venue-layout single --seat-api legacy`)은 이전 측정과 같다.
+
+```powershell
+python infra/integration/scenario2.py --rate 250 --duration 60 --seats 20000 --venue-layout sections --seat-api zone
+python infra/integration/scenario2.py --rate 250 --duration 60 --seats 20000 --venue-layout sections --seat-api zone --zone-visits 2 --status-reads 3
+```
+
+- `--venue-layout sections`: 좌석을 A구역 1열이 아니라 한 열 25석, 구역당 40열(1,000석)로 구역 A, B, ...에 등록한다. 20,000석이면 구역 20개다. 다른 `--seat-api`와도 쓸 수 있다.
+- `--seat-api zone`(`--venue-layout sections` 필요): 좌석 탐색·예매가 구역 목록(`/sections`) → 구역 layout(`?section=`) → 구역 status로 조회한다.
+  - 좌석 탐색은 여정 순서대로 첫 구역을 돌려 구역마다 고르게 나눈다. 예매는 다른 구역을 먼저 보고 마지막에 배정 좌석의 구역에서 선택 가능한지 확인한 뒤 선점한다.
+  - 구역 목록의 이름·좌석 수·순서와 구매자의 구역 안 비트 위치는 측정 전에 Python이 기존 좌석 조회로 계산해 `input.json`에 넣는다.
+- `--zone-visits N`(기본 1): 여정마다 보는 구역 수. `--status-reads N`(기본 없음): 구역마다 받는 status 수. 기본값이면 split과 요청 수가 같다(좌석 탐색 layout 1번 + status 3~5번, 예매 layout 1번 + status 1번). 실제 사용자에 가깝게 구역을 옮기는 회차는 이 두 값을 올린다(값은 가정이다).
+- `result.json`의 `measurements.zone`에 구역 목록·layout·status 요청 수가 남는다. 경계 측정 옵션을 함께 쓰면 첫 구역 layout의 크기가 `layout-cost-section.json`과 `zone.layout`에 남는다.
+- 시나리오2는 대기열 room을 만들지 않는다. Gateway는 room이 보호하는 회차만 입장 토큰을 검사하므로 좌석 API를 토큰 없이 잰다.
 
 사용자 1명 기준 layout 비용(전송 바이트·시간·파싱 시간)은 부하 없이 따로 잰다. 시나리오2 결과 폴더의 시험 계정으로 로그인하며 데이터를 만들지 않는다. 파싱 시간은 Python 기준이라 좌석 수 사이의 상대 비교로만 쓴다.
 
 ```powershell
 python infra/integration/layout_probe.py --result script/integration/results/scenario2-<run_id> --repeat 5
+python infra/integration/layout_probe.py --result script/integration/results/scenario2-<run_id> --repeat 5 --section A
 ```
 
 ### 3. 인기 회차 부하가 다른 회차에 미치는 영향
