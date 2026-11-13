@@ -74,7 +74,7 @@ export function Layout() {
       ? location.pathname === '/' && location.hash === '#ticket-openings'
       : to === '/'
         ? (location.pathname === '/' && location.hash !== '#ticket-openings') ||
-          location.pathname.startsWith('/performances/')
+          location.pathname.startsWith('/performances/') || location.pathname === '/search'
         : location.pathname === to || location.pathname.startsWith(to + '/');
   return (
     <div className="app">

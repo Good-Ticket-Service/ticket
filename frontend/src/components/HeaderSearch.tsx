@@ -8,23 +8,26 @@ export function HeaderSearch() {
   const keyword = params.get('keyword') ?? '';
   const [value, setValue] = useState(keyword);
   useEffect(() => setValue(keyword), [keyword, location.pathname]);
-  const search = (text: string, replace = false) => {
-    const next = location.pathname === '/' ? new URLSearchParams(params) : new URLSearchParams();
+  const search = (text: string) => {
+    const next =
+      location.pathname === '/' || location.pathname === '/search'
+        ? new URLSearchParams(params)
+        : new URLSearchParams();
     if (text) next.set('keyword', text);
     else next.delete('keyword');
     next.delete('page');
     navigate(
       {
-        pathname: '/',
+        pathname: '/search',
         search: next.toString(),
-        hash: replace ? '' : '#performances',
+        hash: '',
       },
-      { replace, preventScrollReset: true },
+      { preventScrollReset: false },
     );
   };
   return (
     <form
-      className="header-search"
+      className={`header-search${location.pathname === '/search' ? ' header-search-results' : ''}`}
       role="search"
       onSubmit={(event) => {
         event.preventDefault();
@@ -41,7 +44,6 @@ export function HeaderSearch() {
         value={value}
         onChange={(event) => {
           setValue(event.target.value);
-          if (location.pathname === '/') search(event.target.value, true);
         }}
       />
       <button type="submit" aria-label="공연 검색">
