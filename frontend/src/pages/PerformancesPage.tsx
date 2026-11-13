@@ -6,9 +6,8 @@ import { ErrorNotice, Loading, Poster } from '../components/Common';
 import { GenreIcon } from '../components/GenreIcon';
 import { HomeHero } from '../components/HomeHero';
 import { TicketOpenings } from '../components/TicketOpenings';
-import { formatDate } from '../lib/format';
 import { GENRE_OPTIONS, genreLabel } from '../lib/genres';
-import { useDebounced } from '../lib/useDebounced';
+import { PerformanceCard } from '../components/PerformanceCard';
 
 const GENRES = [{ value: '', label: '전체' }, ...GENRE_OPTIONS];
 const EDITORIALS = [
@@ -35,13 +34,10 @@ const EDITORIALS = [
 export function PerformancesPage() {
   const [search, setSearch] = useSearchParams();
   const genre = GENRES.some((item) => item.value === search.get('genre')) ? (search.get('genre') ?? '') : '';
-  const keyword = search.get('keyword') ?? '';
   const pageValue = Number(search.get('page') ?? 0);
   const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
-  const searched = useDebounced(keyword.trim());
   const params = new URLSearchParams({ page: String(page), size: '5' });
   if (genre) params.set('genre', genre);
-  if (searched) params.set('keyword', searched);
   const query = useQuery({
     queryKey: ['performances', params.toString()],
     queryFn: () => api<PageC<PerformanceSummary>>(`/api/performances?${params}`),
@@ -98,7 +94,7 @@ export function PerformancesPage() {
       <section id="performances" className="home-section" aria-labelledby="performances-title">
         <div className="home-section-heading">
           <h2 id="performances-title" className="section-marker">
-            {searched ? `'${searched}' 검색 결과` : '지금 주목할 공연'}
+            지금 주목할 공연
           </h2>
           {query.data && (
             <span className="result-count">
@@ -140,26 +136,7 @@ export function PerformancesPage() {
           )}
           <div className="poster-grid">
             {query.data?.content.map((item) => (
-              <Link key={item.id} to={`/performances/${item.id}`} className="performance-card">
-                <span className="performance-poster">
-                  <Poster src={item.posterUrl} />
-                  <span className="poster-fallback" aria-hidden="true">
-                    <span>safe ticket</span>
-                    <strong>{item.title}</strong>
-                    <span>{genreLabel(item.genre)}</span>
-                  </span>
-                </span>
-                <strong className="performance-name">{item.title}</strong>
-                <span className="performance-venue">
-                  {item.venue.name} · {item.venue.region}
-                </span>
-                {item.period && (
-                  <span className="performance-period num">
-                    {formatDate(item.period.from)} — {formatDate(item.period.to)}
-                  </span>
-                )}
-                <span className="performance-genre">{genreLabel(item.genre)}</span>
-              </Link>
+              <PerformanceCard key={item.id} item={item} />
             ))}
           </div>
           {lastPage > 0 && (

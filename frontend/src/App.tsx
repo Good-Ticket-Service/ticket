@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { AdminLayout, Layout, RequireLogin, RequireRole, SellerLayout } from './components/Layout';
 import { AdminCouponPage } from './pages/admin/AdminCouponPage';
 import { AdminCouponCreatePage } from './pages/admin/AdminCouponCreatePage';
@@ -19,6 +19,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MyPage } from './pages/MyPage';
 import { PerformanceDetailPage } from './pages/PerformanceDetailPage';
 import { PerformancesPage } from './pages/PerformancesPage';
+import { SearchPage } from './pages/SearchPage';
 import { QueuePage } from './pages/QueuePage';
 import { SeatsPage } from './pages/SeatsPage';
 import { SellerHomePage } from './pages/seller/SellerHomePage';
@@ -33,7 +34,8 @@ export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<PerformancesPage />} />
+        <Route path="/" element={<HomeEntry />} />
+        <Route path="/search" element={<SearchPage />} />
         <Route path="/performances/:performanceId" element={<PerformanceDetailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage key="user" />} />
@@ -81,4 +83,11 @@ export function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/** 이전 검색 주소로 들어와도 검색 전용 화면으로 연결한다. */
+function HomeEntry() {
+  const [params] = useSearchParams();
+  if (params.get('keyword')?.trim()) return <Navigate to={`/search?${params}`} replace />;
+  return <PerformancesPage />;
 }
