@@ -11,8 +11,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 /** 선점 유지 시간 설정 검사(#248). 값이 없으면 계약값 10분이고, 0 이하면 기동이 멈춘다. */
 class SeatHoldPropertiesTest {
 
-    private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withUserConfiguration(SeatHoldDuration.class);
+    private final ApplicationContextRunner runner =
+            new ApplicationContextRunner().withUserConfiguration(SeatHoldDuration.class);
 
     @Test
     @DisplayName("유지 시간 값이 없으면 계약값 10분이다")
