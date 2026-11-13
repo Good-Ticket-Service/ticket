@@ -2,7 +2,8 @@
 from pathlib import Path
 import unittest
 import scenario5
-from scenario5 import LOCK_BUSY_MESSAGE, classify, collector_sources, sample_summary, seat_timeline, series_summary
+from scenario5 import (LOCK_BUSY_MESSAGE, base_checks, base_measurements, base_seat_shortage, classify, collector_sources,
+                       sample_summary, seat_timeline, series_summary)
 
 def row(rid, seat, status, created, updated):
     return {'reservation_id': rid, 'user_id': rid, 'seat': seat, 'status': status, 'created': created, 'updated': updated}
@@ -79,6 +80,55 @@ class SummaryTests(unittest.TestCase):
                 'integration_source_up{source="postgres-diagnostics"} 1.0\n'
                 'integration_source_up{source="postgres-statements"} 0.0\n')
         self.assertEqual(collector_sources(text), {'docker': True, 'postgres-diagnostics': True, 'postgres-statements': False})
+
+
+class BaseLoadTests(unittest.TestCase):
+    """다른 좌석 선점(--base-rate, #390). 인기 좌석 경쟁이 다른 좌석 선점을 늦추는지 따로 센다."""
+    def summary(self, created=500, taken=0, release_ok=500, release_failed=0, attempts=500):
+        counts = {'base_hold_attempts': attempts, 'base_hold_created': created, 'base_hold_taken': taken,
+                  'base_release_ok': release_ok, 'base_release_failed': release_failed}
+        value = lambda name, key='count', default=0: counts.get(name, default)
+        trend = lambda name: {'p(99)': 12.0} if name == 'base_hold_duration' else {}
+        return base_measurements(value, trend, 50, 10)
+
+    def test_seat_shortage(self):
+        # 같은 좌석을 2초 안에 다시 고르지 않을 만큼 좌석이 있어야 한다
+        self.assertEqual(base_seat_shortage(250, 499), 500)
+        self.assertIsNone(base_seat_shortage(250, 500))
+        self.assertIsNone(base_seat_shortage(0, 0))
+
+    def test_measurements_are_separate_from_hot_seats(self):
+        base = self.summary()
+        self.assertEqual(base['expected_attempts'], 500)
+        self.assertEqual(base['hold_duration_ms'], {'p(99)': 12.0})
+        self.assertEqual(base['outcomes']['created'], 500)
+
+    def test_checks_pass_when_all_created_and_released(self):
+        self.assertTrue(all(base_checks(self.summary(), dropped=0).values()))
+
+    def test_one_second_of_attempts_may_differ(self):
+        # 측정 구간 밖 반복은 보내지 않아 시도 수가 1초 분량(rate)까지 다를 수 있다
+        self.assertTrue(base_checks(self.summary(created=450, release_ok=450, attempts=450), 0)['base_arrival_rate_achieved'])
+        self.assertFalse(base_checks(self.summary(created=449, release_ok=449, attempts=449), 0)['base_arrival_rate_achieved'])
+        self.assertFalse(base_checks(self.summary(), dropped=1)['base_arrival_rate_achieved'])
+
+    def test_conflict_or_unreleased_fails(self):
+        # 다른 좌석끼리 겹치면(taken) 좌석이 모자란 것이다
+        self.assertFalse(base_checks(self.summary(created=499, taken=1, release_ok=499), 0)['base_all_created'])
+        self.assertFalse(base_checks(self.summary(release_ok=499, release_failed=1), 0)['base_all_released'])
+
+    def test_k6_base_uses_own_users_seats_and_window(self):
+        js = (Path(scenario5.__file__).parent/'k6'/'scenario5.js').read_text(encoding='utf-8')
+        self.assertIn('const index = hotUsers + j % meta.base_users;', js)
+        self.assertIn('const seat = meta.base_seats[j % meta.base_seats.length];', js)
+        self.assertIn('if (now < data.t0 || now >= data.t0 + meta.duration * 1000) return;', js)
+        self.assertIn("tags: {name: HOLD, target: 'base'}", js)
+
+    def test_k6_burst_slot_does_not_use_vu_id(self):
+        # VU 번호는 다른 좌석 선점 시나리오와 함께 매겨진다. slot은 첫 반복의 시나리오 반복 번호다
+        js = (Path(scenario5.__file__).parent/'k6'/'scenario5.js').read_text(encoding='utf-8')
+        self.assertNotIn('exec.vu.idInTest', js)
+        self.assertIn('if (burstSlot === null) burstSlot = exec.scenario.iterationInTest;', js)
 
 if __name__ == '__main__':
     unittest.main()
