@@ -8,8 +8,10 @@ import com.sparta.ticket.performance.application.service.PublicPerformanceServic
 import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
+import com.sparta.ticket.performance.presentation.support.PerformanceStatusParameter;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,7 +27,7 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
 
     private final PublicPerformanceService publicPerformanceService;
 
-    /** 공개 공연 목록. 공개됐고 삭제·취소되지 않은 공연만 돌려준다. */
+    /** 공개 공연 목록. status 생략은 판매중·판매예정이며, 종료 공연은 명시적으로 선택한다. */
     @Override
     @GetMapping
     public ApiResponse<PageResponse<PublicPerformanceListResponse.Item>> search(
@@ -34,11 +36,20 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
             LocalDate from,
             LocalDate to,
             String keyword,
+            MultiValueMap<String, String> queryParameters,
             PublicPerformanceSort sort,
             int page,
             int size) {
         PublicPerformanceSearchCondition condition = new PublicPerformanceSearchCondition(
-                genre, blankToNull(region), from, to, blankToNull(keyword), sort, page, size);
+                genre,
+                blankToNull(region),
+                from,
+                to,
+                blankToNull(keyword),
+                PerformanceStatusParameter.parse(queryParameters.get("status")),
+                sort,
+                page,
+                size);
         // sort는 생략하면 LATEST로 바인딩된다(ApiSpec 기본값). 응답의 sort에 그대로 넣는다.
         return ApiResponse.ok(PublicPerformanceListResponse.from(publicPerformanceService.search(condition), sort));
     }
