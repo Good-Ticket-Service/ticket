@@ -71,6 +71,7 @@
 - 두 연령 필드가 모두 미입력인 경우 필드 오류 이름은 `ageInformationProvided`다(교차 필드 검증).
 - 상세의 '연령:'은 화면 라벨이며 ageGuidance에는 관람 안내 문구만 저장한다. 생년월일 검사·예매 차단은 하지 않는다.
 - 표의 PerformanceSort는 LATEST, BOOKING_OPEN_ASC 중 하나다.
+- PerformanceStatus는 ON_SALE, UPCOMING, ENDED 중 하나이며 여러 값을 선택한다(이슈 #382).
 
 ### 이번 기간 구현 API
 
@@ -85,7 +86,7 @@
 | POST /api/seller/performances/{performanceId}/schedules | 소유 SELLER | 201, Location | B: startAt:datetime,bookingOpenAt:datetime,bookingCloseAt:datetime | P13 | 400 INVALID_TIME_RANGE;404 PERFORMANCE_NOT_FOUND;409 DUPLICATE_SCHEDULE;409 INVALID_STATUS_TRANSITION |
 | GET /api/seller/schedules/{scheduleId} | 소유 SELLER | 200, ETag | 없음 | P13 | 404 SCHEDULE_NOT_FOUND |
 | PUT /api/admin/schedules/{scheduleId}/sales-suspension | MASTER | 200 | 헤더 If-Match; B: suspended:boolean,reason?:string\|null | P15 | 404 SCHEDULE_NOT_FOUND;409 INVALID_STATUS_TRANSITION;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
-| GET /api/performances | 누구나 | 200 | Q: genre?:Genre,region?:string,from?:date,to?:date,keyword?:string,sort?:PerformanceSort=LATEST,page?:int=0,size?:int=20[1~100] | P16 | 400 INVALID_TIME_RANGE |
+| GET /api/performances | 누구나 | 200 | Q: genre?:Genre,region?:string,from?:date,to?:date,keyword?:string,status?:PerformanceStatus[]=ON_SALE+UPCOMING,sort?:PerformanceSort=LATEST,page?:int=0,size?:int=20[1~100] | P16 | 400 INVALID_TIME_RANGE |
 | GET /api/performances/{performanceId} | 누구나 | 200 | 없음 | P17 | 404 PERFORMANCE_NOT_FOUND |
 | GET /api/performances/{performanceId}/schedules | 누구나 | 200 | 없음 | P18 | 404 PERFORMANCE_NOT_FOUND |
 | GET /api/schedules/{scheduleId} | 누구나 | 200 | 없음 | P19 | 404 SCHEDULE_NOT_FOUND |
@@ -121,6 +122,7 @@
 - P13 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null; seatConfigVersion:long; seatSetupRequestId:string; seatSetupError:string|null; suspensionReason:string|null; cancelReason:string|null; version:long`.
 - P15 = `scheduleId:long; salesSuspended:boolean; suspensionReason:string|null; version:long`.
 - P16 = `content:PerformanceSummary[]; content[].id:long; content[].venue:VenueSummary; content[].venue.id:long; content[].venue.name:string; content[].venue.address:string; content[].venue.region:string; content[].title:string; content[].genre:string; content[].posterUrl:string|null; content[].operationStatus:string; content[].period:Period|null; content[].period.from:date; content[].period.to:date; page:integer; size:integer; totalElements:long; totalPages:integer; sort:string`.
+- P16의 content와 totalElements에는 같은 status 조건을 적용한다. 응답에 판매 상태 필드는 추가하지 않는다.
 - P17 = `id:long; venue:VenueSummary; venue.id:long; venue.name:string; venue.address:string; venue.region:string; title:string; genre:string; ageRating:string|null; ageGuidance:string|null; runningTime:integer; castInfo:string|null; description:string|null; posterUrl:string|null; operationStatus:string; publishedAt:datetime|null; period:Period|null; period.from:date; period.to:date; createdAt:datetime; updatedAt:datetime; gradePrices:GradePrice[]; gradePrices[].venueSeatGradeId:long; gradePrices[].gradeName:string; gradePrices[].price:integer`.
 - P18 = `performanceId:long; schedules:SchedulePublic[]; schedules[].id:long; schedules[].performanceId:long; schedules[].startAt:datetime; schedules[].bookingOpenAt:datetime; schedules[].bookingCloseAt:datetime; schedules[].operationStatus:string; schedules[].seatSetupStatus:string; schedules[].salesSuspended:boolean; schedules[].salesStatus:string; schedules[].canceledAt:datetime|null`.
 - P19 = `id:long; performanceId:long; startAt:datetime; bookingOpenAt:datetime; bookingCloseAt:datetime; operationStatus:string; seatSetupStatus:string; salesSuspended:boolean; salesStatus:string; canceledAt:datetime|null`.
@@ -198,14 +200,29 @@
 공개 조회
 - 공개 조회는 PUBLISHED이고 삭제되지 않은 공연만 보여 준다. DRAFT이거나 삭제된 공연은 404 PERFORMANCE_NOT_FOUND다.
 - 공개 공연 목록은 취소된 공연을 뺀다(#83 결정).
+- 공개 목록은 기본으로 판매중·판매예정 공연만 준다. 판매종료 공연은 status로 고른다(이슈 #382).
+- status 생략은 ON_SALE + UPCOMING이다. 키워드 유무와 무관하며 ENDED는 필터로 선택한다.
+- status는 쉼표·같은 이름 반복·혼합을 모두 받고 중복을 합친다.
+  명시적 빈값·공백 항목·빈 항목·알 수 없는 값은 400 VALIDATION_ERROR다.
+- 남은 회차는 삭제·취소되지 않은 활성 회차 중 startAt > 요청 시각인 회차다.
+  판매 중지·좌석 준비 중·실패 여부는 활성 회차 판단에 영향을 주지 않는다.
+- 남은 회차가 없으면 ENDED다. 활성 회차가 없거나 삭제·취소 회차만 있어도 같다.
+- 남은 회차가 있으면 이미 시작한 회차까지 포함한 전체 활성 회차 중
+  bookingOpenAt <= 요청 시각인 회차가 하나라도 있을 때 ON_SALE, 없으면 UPCOMING이다.
+  예매 마감·판매 중지·좌석 미준비 때문에 이 분류를 바꾸지 않는다.
+- 세 상태 모두 선택하면 시간 분류 조건만 해제하며 공개·미삭제·미취소 조건은 유지한다.
+- status와 genre·region·keyword·from·to는 공연 단위의 독립된 AND 조건이다.
+  날짜 필터와 period는 전체 활성 회차 기준이며 상태 조건과 서로 다른 회차가 만족할 수 있다.
+- 한 요청의 상태 필터·정렬·전체 개수는 같은 KST 현재 시각을 사용한다.
 - 취소된 공개 공연은 취소 안내를 위해 상세를 200으로 조회할 수 있다.
 - 공개 회차 상세는 부모 공연이 DRAFT이거나 삭제됐으면 404 SCHEDULE_NOT_FOUND다.
 - 공개 응답에는 sellerId, version, publicationStatus를 넣지 않는다.
 - 공개 응답에는 좌석 준비 내부 오류와 판매 제외 사유를 넣지 않는다.
 - 공개 조회는 알 수 없는 쿼리 파라미터를 거절하지 않고 무시한다(#83 결정). 프런트의 추적·캐시 파라미터를 허용하기 위해서다.
 - LATEST는 공개 시각의 최신순이다. 공개 시각이 같으면 ID 역순이다.
-- BOOKING_OPEN_ASC는 예매가 마감되지 않은 활성 회차 중 가장 이른 예매 오픈 시각의 오름차순이다.
-- BOOKING_OPEN_ASC에서 그런 회차가 없는 공연은 마지막에 둔다. 기준 시각이 같으면 ID 역순이다.
+- BOOKING_OPEN_ASC는 남은 활성 회차 중 가장 이른 예매 오픈 시각의 오름차순이다. 예매 마감 조건은 사용하지 않는다.
+- BOOKING_OPEN_ASC에서 남은 회차가 없는 ENDED 공연은 마지막에 둔다. 기준 시각이 같으면 ID 역순이다.
+- 판매중 우선 정렬은 없다. 남은 회차의 오픈 시각에 따라 판매예정 공연이 판매중보다 먼저 나올 수 있다.
 - 활성 회차는 삭제되지 않고 취소되지 않은 회차다.
 - period는 활성 회차의 첫 공연 날짜와 마지막 공연 날짜다. 활성 회차가 없으면 null이다.
 - from·to 필터는 시작일(KST)이 범위 안인 활성 회차가 있는 공연을 고른다.
