@@ -266,8 +266,10 @@ class PaymentConfirmConsumerIntegrationTest extends PaymentIntegrationTest {
     }
 
     private double counter(String outcome) {
-        var counter =
-                meters.find("payment.confirm.records").tag("outcome", outcome).counter();
+        var counter = meters.find("payment.confirm.records")
+                .tag("outcome", outcome)
+                .tag("lane", "main")
+                .counter();
         return counter == null ? 0 : counter.count();
     }
 

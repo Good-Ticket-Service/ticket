@@ -61,6 +61,10 @@ payment:
       max-message-bytes: 8192
       # #417: claim 커밋 직후 acknowledge(느린 PG가 다른 PG의 Partition 진행을 막지 않게 함). false면 PG 결과 저장 뒤 acknowledge
       acknowledge-on-claim: true
+      # #417: 자리·PG 허가를 못 얻은 원본 레코드를 PG별 retry Topic(payment.confirm.retry.toss/kakao)으로 넘김. false면 원본에서 재시도
+      forward-on-unavailable: true
+      # 넘기기 전에 PG별 자리를 기다리는 시간. 순간 경합까지 넘기지 않게 짧게 둔다(0~1s)
+      slot-wait: 100ms
 
   pg:
     enabled: true

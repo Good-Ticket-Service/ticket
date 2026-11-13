@@ -509,4 +509,29 @@ class MessageApprovalIntegrationTest extends PaymentIntegrationTest {
 
         assertThat(accepted.get()).isZero();
     }
+
+    @Test
+    void deferredWhenNoSlotOrPermitAfterRegistrationIsCommitted() {
+        var payment = ready(PgProvider.TOSS);
+        var command = command(payment);
+        var attempt = new MessageApprovalAttempt(command);
+        pg.approvalAllowed(false);
+
+        assertThat(service.advance(attempt, () -> true, () -> {}, true))
+                .isEqualTo(MessageApprovalService.Outcome.DEFER);
+
+        assertThat(attempt.provider()).contains(PgProvider.TOSS);
+        var registered = load(payment);
+        assertThat(registered.getStatus()).isEqualTo(PaymentStatus.READY);
+        assertThat(registered.getMessageConfirmBefore()).isNotNull();
+        assertThat(pg.approveCalls()).isZero();
+        assertThat(service.advance(new MessageApprovalAttempt(command), () -> true, () -> {}, false))
+                .isEqualTo(MessageApprovalService.Outcome.RETRY);
+
+        pg.approvalAllowed(true);
+        assertThat(service.advance(new MessageApprovalAttempt(command), () -> true))
+                .isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(pg.approveCalls()).isEqualTo(1);
+        assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.DONE);
+    }
 }

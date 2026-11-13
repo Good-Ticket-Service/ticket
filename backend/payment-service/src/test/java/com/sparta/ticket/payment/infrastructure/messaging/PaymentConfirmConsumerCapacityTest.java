@@ -3,6 +3,7 @@ package com.sparta.ticket.payment.infrastructure.messaging;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -102,7 +103,11 @@ class PaymentConfirmConsumerCapacityTest {
 
     /** 처리 순서(=받은 순서)별 문을 열 때까지 PG 대기처럼 막혀 있다가 완료한다. */
     private void blockUntilReleased() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     long order = calls.getAndIncrement();
                     gates.computeIfAbsent("order-" + order, key -> new CountDownLatch(1))
@@ -166,7 +171,11 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void operationPauseIsNotResumedByCapacityRecovery() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenThrow(new IllegalStateException("unexpected"));
         var subject = consumer(1);
         var first = mock(Acknowledgment.class);
@@ -184,7 +193,11 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void operationPausedWorkDoesNotHoldCapacityForOtherPartitions() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenThrow(new IllegalStateException("unexpected"))
                 .thenReturn(MessageApprovalService.Outcome.COMPLETE);
         var subject = consumer(1);
@@ -204,7 +217,11 @@ class PaymentConfirmConsumerCapacityTest {
     void acknowledgesRightAfterClaimWithoutWaitingForPgAndNeverTwice() throws Exception {
         var claimed = new CountDownLatch(1);
         var pgDone = new CountDownLatch(1);
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     Runnable accepted = call.getArgument(2);
                     accepted.run();
@@ -229,7 +246,11 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void failureAfterAcknowledgeDoesNotPauseOrRetry() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     Runnable accepted = call.getArgument(2);
                     accepted.run();
@@ -245,14 +266,22 @@ class PaymentConfirmConsumerCapacityTest {
         verify(container, never()).pausePartition(PARTITION);
         assertThat(count("operation_pause")).isZero();
         verify(service, org.mockito.Mockito.times(1))
-                .advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class));
+                .advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean());
     }
 
     @Test
     void acknowledgedClaimFreesCapacityForTheNextRecord() throws Exception {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var hold = new CountDownLatch(1);
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     Runnable accepted = call.getArgument(2);
                     accepted.run();
@@ -276,7 +305,11 @@ class PaymentConfirmConsumerCapacityTest {
     @Test
     void blockedWorkersDoNotPauseThePartitionAndEveryRecordIsProcessed() throws Exception {
         var release = new CountDownLatch(1);
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     Runnable accepted = call.getArgument(2);
                     accepted.run();
@@ -305,7 +338,11 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void failureOfWorkThatLostOwnershipDoesNotPauseThePartition() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
                 .thenAnswer(call -> {
                     ownership.onPartitionsRevokedBeforeCommit(null, List.of(PARTITION));
                     throw new IllegalStateException("after rebalance");
@@ -319,5 +356,97 @@ class PaymentConfirmConsumerCapacityTest {
         verify(container, never()).pausePartition(PARTITION);
         assertThat(count("operation_pause")).isZero();
         verify(ack, never()).acknowledge();
+    }
+
+    private void deferToToss() throws Exception {
+        when(service.advance(
+                        any(MessageApprovalAttempt.class),
+                        any(BooleanSupplier.class),
+                        any(Runnable.class),
+                        anyBoolean()))
+                .thenAnswer(call -> {
+                    MessageApprovalAttempt attempt = call.getArgument(0);
+                    boolean defer = call.getArgument(3);
+                    if (!defer) return MessageApprovalService.Outcome.RETRY;
+                    attempt.deferTo(com.sparta.ticket.payment.domain.model.pg.PgProvider.TOSS);
+                    return MessageApprovalService.Outcome.DEFER;
+                });
+    }
+
+    @Test
+    void deferredRecordIsForwardedToProviderRetryTopicAndAcknowledgedOnlyAfterBrokerAck() throws Exception {
+        deferToToss();
+        var sent = new java.util.concurrent.CompletableFuture<
+                org.springframework.kafka.support.SendResult<String, String>>();
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<org.apache.kafka.clients.producer.ProducerRecord<String, String>> captor =
+                org.mockito.ArgumentCaptor.forClass(org.apache.kafka.clients.producer.ProducerRecord.class);
+        when(kafka.send(captor.capture())).thenReturn(sent);
+        var subject = consumer(4);
+        var ack = mock(Acknowledgment.class);
+        var record = record(0);
+
+        subject.receive(record, ack);
+
+        verify(kafka, timeout(2000)).send(any(org.apache.kafka.clients.producer.ProducerRecord.class));
+        assertThat(captor.getValue().topic()).isEqualTo(PaymentConfirmRetryConsumers.TOSS_TOPIC);
+        assertThat(captor.getValue().key()).isEqualTo(record.key());
+        assertThat(captor.getValue().value()).isEqualTo(record.value());
+        Thread.sleep(200);
+        // Note: 브로커 확인 전에는 원본을 ACK하지 않는다.
+        verify(ack, never()).acknowledge();
+
+        sent.complete(null);
+
+        verify(ack, timeout(2000)).acknowledge();
+        await().atMost(Duration.ofSeconds(2)).until(() -> count("forwarded") == 1);
+    }
+
+    @Test
+    void failedForwardIsNotAcknowledgedAndIsRetried() throws Exception {
+        deferToToss();
+        when(kafka.send(any(org.apache.kafka.clients.producer.ProducerRecord.class)))
+                .thenReturn(
+                        java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("broker down")))
+                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(null));
+        var subject = consumer(4);
+        var ack = mock(Acknowledgment.class);
+
+        subject.receive(record(0), ack);
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> count("forward_failed") == 1);
+        verify(ack, timeout(5000)).acknowledge();
+        verify(kafka, org.mockito.Mockito.times(2)).send(any(org.apache.kafka.clients.producer.ProducerRecord.class));
+        assertThat(count("operation_pause")).isZero();
+    }
+
+    @Test
+    void forwardingOffKeepsTheRecordInTheOriginalLane() throws Exception {
+        deferToToss();
+        var subject = consumerWithoutForwarding(4);
+        var ack = mock(Acknowledgment.class);
+
+        subject.receive(record(0), ack);
+
+        await().atMost(Duration.ofSeconds(2)).until(() -> count("local_wait") >= 1);
+        verify(kafka, never()).send(any(org.apache.kafka.clients.producer.ProducerRecord.class));
+        verify(ack, never()).acknowledge();
+    }
+
+    private PaymentConfirmConsumer consumerWithoutForwarding(int maxInFlight) {
+        var properties = new MessageApprovalProperties();
+        properties.setEnabled(true);
+        properties.setConcurrency(1);
+        properties.setMaxPollRecords(1);
+        properties.setWorkers(4);
+        properties.setPerProvider(2);
+        properties.setMaxInFlight(maxInFlight);
+        properties.setRetryDelay(Duration.ofMillis(10));
+        properties.setForwardOnUnavailable(false);
+        ownership.onPartitionsAssigned(null, List.of(PARTITION, OTHER));
+        when(registry.getListenerContainer(PaymentConfirmConsumer.ID)).thenReturn(container);
+        consumer = new PaymentConfirmConsumer(
+                service, properties, ownership, registry, kafka, mapper, meters, Clock.systemDefaultZone());
+        return consumer;
     }
 }

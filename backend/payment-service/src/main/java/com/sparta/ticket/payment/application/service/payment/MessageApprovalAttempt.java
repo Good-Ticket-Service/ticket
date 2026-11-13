@@ -28,6 +28,18 @@ public final class MessageApprovalAttempt {
         return command;
     }
 
+    private com.sparta.ticket.payment.domain.model.pg.PgProvider deferredTo;
+
+    /** DEFER를 돌려줄 때 넘길 PG를 기록한다. 등록 결과 재사용(1초)이 끝나도 넘길 Topic을 잃지 않는다(#417). */
+    public void deferTo(com.sparta.ticket.payment.domain.model.pg.PgProvider provider) {
+        deferredTo = java.util.Objects.requireNonNull(provider);
+    }
+
+    /** 넘길 retry Topic을 정할 PG. DEFER 때 기록한 값이다(#417). */
+    public java.util.Optional<com.sparta.ticket.payment.domain.model.pg.PgProvider> provider() {
+        return java.util.Optional.ofNullable(deferredTo);
+    }
+
     MessageApprovalTransactions.Registration registration(MessageApprovalTransactions transactions, Clock clock) {
         long elapsed = ticker.getAsLong() - checkedAt;
         if (registration == null

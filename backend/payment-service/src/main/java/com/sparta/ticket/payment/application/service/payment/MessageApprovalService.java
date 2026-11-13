@@ -20,7 +20,9 @@ public class MessageApprovalService {
     public enum Outcome {
         COMPLETE,
         RETRY,
-        CANCELED
+        CANCELED,
+        /** 등록은 커밋됐지만 PG별 자리나 PG 허가(서킷·Bulkhead)를 얻지 못했다. 호출자가 다른 경로로 넘길 수 있다(#417). */
+        DEFER
     }
 
     private final MessageApprovalTransactions transactions;
@@ -28,6 +30,7 @@ public class MessageApprovalService {
     private final PgClientRegistry clients;
     private final Clock clock;
     private final Map<PgProvider, Semaphore> slots;
+    private final long slotWaitNanos;
 
     public MessageApprovalService(
             MessageApprovalTransactions transactions,
@@ -40,11 +43,12 @@ public class MessageApprovalService {
         this.results = results;
         this.clients = clients;
         this.clock = clock;
+        slotWaitNanos = properties.getSlotWait().toNanos();
         slots = Map.of(
                 PgProvider.TOSS,
-                new Semaphore(properties.getPerProvider()),
+                new Semaphore(properties.getPerProvider(), true),
                 PgProvider.KAKAO,
-                new Semaphore(properties.getPerProvider()));
+                new Semaphore(properties.getPerProvider(), true));
     }
 
     public Outcome advance(MessageConfirmCommand command, BooleanSupplier owner) {
@@ -61,15 +65,23 @@ public class MessageApprovalService {
      * 결제가 IN_PROGRESS로 남아 Recovery의 NOT_APPROVED로 끝난다. 같은 주문의 PG 호출은 claim 행 잠금으로 한 번이다.
      */
     public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner, Runnable accepted) {
+        return advance(attempt, owner, accepted, false);
+    }
+
+    /**
+     * {@code defer}이면 자리를 {@code slot-wait}만큼 기다려도 없거나 PG 허가가 없을 때 RETRY 대신 DEFER를 돌려준다.
+     * 원본 Topic 레인이 PG별 retry Topic으로 넘길 때 쓴다(#417 B). 등록 TX는 DEFER 전에 이미 커밋돼 있다.
+     */
+    public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner, Runnable accepted, boolean defer) {
         if (!owner.getAsBoolean()) return Outcome.CANCELED;
         var command = attempt.command();
         var registration = attempt.registration(transactions, clock);
         if (registration.completed()) return Outcome.COMPLETE;
         Semaphore slot = slots.get(registration.provider());
-        if (!slot.tryAcquire()) return Outcome.RETRY;
+        if (!acquire(slot)) return unavailable(attempt, registration.provider(), defer);
         try {
             var permit = clients.get(registration.provider()).reserveApproval();
-            if (permit.isEmpty()) return Outcome.RETRY;
+            if (permit.isEmpty()) return unavailable(attempt, registration.provider(), defer);
             try (var approval = permit.get()) {
                 if (!owner.getAsBoolean()) return Outcome.CANCELED;
                 var claimed = transactions.claim(command);
@@ -108,5 +120,25 @@ public class MessageApprovalService {
         } finally {
             slot.release();
         }
+    }
+
+    /**
+     * 모든 레인이 자리를 {@code slot-wait}만큼 공정(FIFO) 대기한다(#417). 원본 레인만 기다리고 retry 레인은 즉시 시도만 하면,
+     * 새 레코드가 먼저 넘겨진(더 오래 기다린) 레코드보다 자리를 먼저 가져가 넘겨진 레코드의 꼬리 지연이 커진다(측정 p95 9 → 19초).
+     */
+    private boolean acquire(Semaphore slot) {
+        if (slotWaitNanos <= 0) return slot.tryAcquire();
+        try {
+            return slot.tryAcquire(slotWaitNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static Outcome unavailable(MessageApprovalAttempt attempt, PgProvider provider, boolean defer) {
+        if (!defer) return Outcome.RETRY;
+        attempt.deferTo(provider);
+        return Outcome.DEFER;
     }
 }
