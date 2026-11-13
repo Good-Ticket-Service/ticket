@@ -89,6 +89,38 @@ class CaffeineSeatLayoutBodyCacheTest {
     }
 
     @Test
+    @DisplayName("같은 회차·configVersion이어도 전체 본문과 구역 본문, 구역끼리는 따로 만들고, 같은 구역은 다시 쓴다(#397)")
+    void keyedBySection() {
+        SeatLayoutBody whole = cache.get(snapshot(1L, 2L), render);
+        SeatLayoutBody a = cache.get(snapshot(1L, 2L), "A", render);
+        SeatLayoutBody b = cache.get(snapshot(1L, 2L), "B", render);
+
+        assertThat(a).isNotSameAs(whole);
+        assertThat(b).isNotSameAs(a);
+        assertThat(cache.get(snapshot(1L, 2L), "A", render)).isSameAs(a);
+        assertThat(cache.get(snapshot(1L, 2L), render)).isSameAs(whole);
+        assertThat(renders).hasValue(3);
+    }
+
+    @Test
+    @DisplayName("구역 본문도 키마다 따로 뒤에서 압축한다(#397)")
+    void compressesSectionBodySeparately() {
+        AtomicInteger submitted = new AtomicInteger();
+        CaffeineSeatLayoutBodyCache counting = new CaffeineSeatLayoutBodyCache(ticker, Runnable::run, task -> {
+            submitted.incrementAndGet();
+            compressTasks.execute(task);
+        });
+
+        counting.get(snapshot(1L, 2L, 100), render);
+        counting.get(snapshot(1L, 2L, 100), "A", render);
+        compressTasks.runPending();
+
+        assertThat(submitted).hasValue(2);
+        assertThat(counting.get(snapshot(1L, 2L, 100), "A", render).gzip()).isNotNull();
+        assertThat(counting.get(snapshot(1L, 2L, 100), render).gzip()).isNotNull();
+    }
+
+    @Test
     @DisplayName("캐시에 없을 때 같은 키 동시 요청 10건은 본문을 한 번만 만들고 모두 같은 본문을 받는다")
     void concurrentMissRendersOnce() throws Exception {
         CountDownLatch rendering = new CountDownLatch(1);
