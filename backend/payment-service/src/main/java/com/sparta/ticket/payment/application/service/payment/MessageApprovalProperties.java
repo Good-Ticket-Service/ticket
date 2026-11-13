@@ -23,6 +23,13 @@ public class MessageApprovalProperties {
      * 같은 조건 전후 비교와 운영 중 되돌리기에 쓴다.
      */
     private boolean acknowledgeOnClaim = true;
+    /**
+     * 원본 Topic에서 PG별 자리나 PG 허가를 얻지 못한 레코드를 PG별 retry Topic으로 넘긴다(#417 B).
+     * 끄면 원본 Topic 안에서 재시도로 기다리는 이전 동작이다.
+     */
+    private boolean forwardOnUnavailable = true;
+    /** 원본 레인이 넘기기 전에 PG별 자리를 기다리는 시간. 순간 경합까지 넘기지 않도록 짧게 둔다. */
+    private Duration slotWait = Duration.ofMillis(100);
 
     public Duration readyGrace() {
         return enabled ? Duration.ofMinutes(6) : Duration.ZERO;
@@ -45,6 +52,9 @@ public class MessageApprovalProperties {
                 || maxInfrastructureRetries < 1
                 || maxInfrastructureRetries > 10
                 || maxMessageBytes < 1024
-                || maxMessageBytes > 65536) throw new IllegalArgumentException("승인 소비 자원 설정이 허용 범위를 벗어났다");
+                || maxMessageBytes > 65536
+                || slotWait == null
+                || slotWait.isNegative()
+                || slotWait.toMillis() > 1000) throw new IllegalArgumentException("승인 소비 자원 설정이 허용 범위를 벗어났다");
     }
 }

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
@@ -21,6 +22,43 @@ import org.springframework.kafka.listener.ContainerProperties;
 public class PaymentConfirmKafkaConfiguration {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> paymentConfirmContainerFactory(
+            KafkaProperties kafka,
+            MessageApprovalProperties properties,
+            @Qualifier("paymentConfirmOwnership") PaymentConfirmOwnership ownership,
+            PgBulkheadProperties pg) {
+        return factory(kafka, properties, ownership, pg);
+    }
+
+    /** PG별 retry 레인은 원본과 Consumer Group·소유권을 따로 둔다(#417 B). 소유권이 섞이면 한 레인의 회수가 다른 레인을 무효로 만든다. */
+    @Bean
+    PaymentConfirmOwnership paymentConfirmRetryTossOwnership() {
+        return new PaymentConfirmOwnership();
+    }
+
+    @Bean
+    PaymentConfirmOwnership paymentConfirmRetryKakaoOwnership() {
+        return new PaymentConfirmOwnership();
+    }
+
+    @Bean
+    ConcurrentKafkaListenerContainerFactory<String, String> paymentConfirmRetryTossContainerFactory(
+            KafkaProperties kafka,
+            MessageApprovalProperties properties,
+            @Qualifier("paymentConfirmRetryTossOwnership") PaymentConfirmOwnership ownership,
+            PgBulkheadProperties pg) {
+        return factory(kafka, properties, ownership, pg);
+    }
+
+    @Bean
+    ConcurrentKafkaListenerContainerFactory<String, String> paymentConfirmRetryKakaoContainerFactory(
+            KafkaProperties kafka,
+            MessageApprovalProperties properties,
+            @Qualifier("paymentConfirmRetryKakaoOwnership") PaymentConfirmOwnership ownership,
+            PgBulkheadProperties pg) {
+        return factory(kafka, properties, ownership, pg);
+    }
+
+    private static ConcurrentKafkaListenerContainerFactory<String, String> factory(
             KafkaProperties kafka,
             MessageApprovalProperties properties,
             PaymentConfirmOwnership ownership,
@@ -50,6 +88,25 @@ public class PaymentConfirmKafkaConfiguration {
     @Bean
     NewTopic paymentConfirmTopic() {
         return TopicBuilder.name(PaymentConfirmConsumer.TOPIC)
+                .partitions(12)
+                .replicas(1)
+                .config("retention.ms", "86400000")
+                .build();
+    }
+
+    /** 결제 내부 retry Topic. 원본과 같은 Partition 수·보존 기간을 쓴다. 보존 기간은 메시지 시한(5분)보다 충분히 길다. */
+    @Bean
+    NewTopic paymentConfirmRetryTossTopic() {
+        return TopicBuilder.name(PaymentConfirmRetryConsumers.TOSS_TOPIC)
+                .partitions(12)
+                .replicas(1)
+                .config("retention.ms", "86400000")
+                .build();
+    }
+
+    @Bean
+    NewTopic paymentConfirmRetryKakaoTopic() {
+        return TopicBuilder.name(PaymentConfirmRetryConsumers.KAKAO_TOPIC)
                 .partitions(12)
                 .replicas(1)
                 .config("retention.ms", "86400000")
