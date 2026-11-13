@@ -105,7 +105,7 @@ docs에는 api.md/tables.md/conventions.md/architecture.md/infra.md 5개만 둔�
 |---|---|
 | 이슈 | .github/ISSUE_TEMPLATE/ 중 작업 종류의 양식 사용. 범위·완료 조건을 정의하고 1~2일을 넘는 큰 작업은 분리 |
 | 브랜치 | 최신 develop에서 생성. 이름 `<type>/<scope>/<이슈번호>-<설명>`. 일반 PR은 develop, 릴리스는 main. 두 통합 브랜치에 직접/강제 push 금지 |
-| scope/type | scope=user/performance/reservation/payment/gateway/config/eureka/common/infra/project. type=feat/fix/refactor/docs/test/style/build/ci/chore |
+| scope/type | scope=user/performance/reservation/waiting-room/payment/gateway/config/eureka/common/infra/project. type=feat/fix/perf/refactor/docs/test/style/build/ci/chore |
 | 커밋·PR 제목 | `<type>(<scope>): <한국어 변경 내용>`. 한 PR은 한 목적, 의미 단위 커밋. 무관한 포맷/생성물 포함 금지 |
 | 선행 PR | 의존 작업만 임시 base 사용. 선행 머지 뒤 develop으로 rebase/base 변경·CI/승인 재확인. 공유 이력 변경은 협업자와 먼저 맞추고 force-with-lease 사용 |
 | PR 작성 | .github/pull_request_template.md의 이유·변경·검증·연결 이슈 기재, 해당할 때 Closes #번호. .github/CODEOWNERS와 .github/workflows/ci.yml은 PR 작업 때만 확인 |
