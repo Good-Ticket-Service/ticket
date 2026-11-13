@@ -13,6 +13,7 @@ import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
 import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceStatus;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSummary;
 import com.sparta.ticket.performance.application.dto.VenueSummary;
 import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
@@ -22,6 +23,7 @@ import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
 import com.sparta.ticket.performance.domain.venue.QVenue;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,7 +36,7 @@ import org.springframework.stereotype.Repository;
 /**
  * PublicPerformanceReader의 QueryDSL 구현. 공연·공연장·회차를 조인해 공개 응답에 필요한 값만 읽는다.
  * Note: Entity는 서로 ID로만 참조하므로 연관관계 조인 대신 {@code join(...).on(...)}으로 조인한다.
- * 조회용 인덱스는 아직 없다. 목록 쿼리를 먼저 고치고(이슈 #343 1단계) 인덱스·캐시를 단계별로 붙인다.
+ * 목록은 동적 조건이므로 QueryDSL을 유지한다. 판매 상태는 요청 시각과 활성 회차로 판단한다(이슈 #382).
  */
 @Repository
 @RequiredArgsConstructor
@@ -54,7 +56,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
      */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {
-        BooleanBuilder where = listablePerformance().and(filters(condition));
+        BooleanBuilder where = listablePerformance().and(filters(condition)).and(saleStatus(condition, now));
         List<Long> ids = findPageIds(condition, where, now);
         List<PublicPerformanceSummary> items = ids.isEmpty() ? List.of() : findSummaries(ids);
 
@@ -78,13 +80,10 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .join(VENUE)
                 .on(VENUE.id.eq(PERFORMANCE.venueId));
         if (condition.sort() == PublicPerformanceSort.BOOKING_OPEN_ASC) {
-            // 예매가 마감되지 않은 활성 회차만 붙여 가장 이른 오픈 시각을 구한다. 그런 회차가 없는 공연도 남도록
+            // 시작 전인 활성 회차만 붙여 가장 이른 오픈 시각을 구한다. 그런 회차가 없는 공연도 남도록
             // LEFT JOIN 하고 조건을 ON에 둔다. 이때 오픈 시각은 null이라 마지막에 놓인다.
             query.leftJoin(SCHEDULE)
-                    .on(
-                            SCHEDULE.performanceId.eq(PERFORMANCE.id),
-                            activeSchedule(SCHEDULE),
-                            SCHEDULE.bookingCloseAt.gt(now))
+                    .on(SCHEDULE.performanceId.eq(PERFORMANCE.id), activeSchedule(SCHEDULE), SCHEDULE.startAt.gt(now))
                     .groupBy(PERFORMANCE.id)
                     .orderBy(
                             new OrderSpecifier<>(
@@ -190,6 +189,38 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
             builder.and(hasActiveScheduleStartingBetween(condition));
         }
         return builder;
+    }
+
+    /** 상태·날짜는 독립된 공연 단위 조건이며, 목록과 count에 동일한 요청 시각으로 적용한다. */
+    private BooleanBuilder saleStatus(PublicPerformanceSearchCondition condition, LocalDateTime now) {
+        if (condition.statuses().containsAll(EnumSet.allOf(PublicPerformanceStatus.class))) {
+            return new BooleanBuilder();
+        }
+        QSchedule remaining = new QSchedule("remainingSchedule");
+        BooleanExpression hasRemaining = JPAExpressions.selectOne()
+                .from(remaining)
+                .where(remaining.performanceId.eq(PERFORMANCE.id), activeSchedule(remaining), remaining.startAt.gt(now))
+                .exists();
+        // Note: 이미 시작한 활성 회차의 오픈도 포함해야 시간 경과만으로 판매중이 판매예정으로 되돌아가지 않는다.
+        QSchedule opened = new QSchedule("openedSchedule");
+        BooleanExpression hasOpened = JPAExpressions.selectOne()
+                .from(opened)
+                .where(opened.performanceId.eq(PERFORMANCE.id), activeSchedule(opened), opened.bookingOpenAt.loe(now))
+                .exists();
+        boolean onSale = condition.statuses().contains(PublicPerformanceStatus.ON_SALE);
+        boolean upcoming = condition.statuses().contains(PublicPerformanceStatus.UPCOMING);
+        BooleanBuilder selected = new BooleanBuilder();
+        if (onSale && upcoming) {
+            selected.or(hasRemaining);
+        } else if (onSale) {
+            selected.or(hasRemaining.and(hasOpened));
+        } else if (upcoming) {
+            selected.or(hasRemaining.and(hasOpened.not()));
+        }
+        if (condition.statuses().contains(PublicPerformanceStatus.ENDED)) {
+            selected.or(hasRemaining.not());
+        }
+        return selected;
     }
 
     /** 시작일(KST)이 [from, to] 안인 활성 회차가 하나라도 있는 공연. 날짜 경계는 [from 00:00, to+1일 00:00)이다. */

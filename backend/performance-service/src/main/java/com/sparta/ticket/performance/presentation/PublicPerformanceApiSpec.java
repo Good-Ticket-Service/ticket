@@ -8,12 +8,15 @@ import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailRes
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 
@@ -28,9 +31,20 @@ public interface PublicPerformanceApiSpec {
 
     @Operation(
             summary = "공개 공연 목록 조회",
-            description = "로그인 없이 호출한다. 공개됐고 삭제·취소되지 않은 공연만 준다. "
+            description = "로그인 없이 호출한다. 공개됐고 삭제·취소되지 않은 공연만 준다. 기본은 판매중·판매예정이며 판매종료는 status로 선택한다. "
+                    + "남은 활성 회차(startAt > 현재)가 없으면 ENDED, 있으면 이미 시작한 회차까지 포함한 전체 활성 회차 중 "
+                    + "예매 오픈된 회차가 하나라도 있으면 ON_SALE, 없으면 UPCOMING이다. 판매 중지·좌석 미준비는 분류에 영향을 주지 않는다. "
+                    + "status는 날짜·검색 필터와 독립된 AND 조건이며 응답에 판매 상태 필드를 추가하지 않는다. "
                     + "from이 to보다 늦으면 400 INVALID_TIME_RANGE, 값 형식·범위 오류는 400 VALIDATION_ERROR다. "
-                    + "알 수 없는 쿼리 파라미터는 무시한다.")
+                    + "알 수 없는 쿼리 파라미터는 무시한다.",
+            parameters =
+                    @Parameter(
+                            name = "status",
+                            in = ParameterIn.QUERY,
+                            description = "ON_SALE/UPCOMING/ENDED. 생략하면 ON_SALE+UPCOMING. 쉼표·반복·혼합 전달을 허용하고 중복은 합친다. "
+                                    + "명시적 빈값·빈 항목·알 수 없는 값은 400 VALIDATION_ERROR다. 세 상태를 모두 선택하면 종료 공연도 포함한다.",
+                            example = "ON_SALE,UPCOMING",
+                            schema = @Schema(type = "string")))
     ApiResponse<PageResponse<PublicPerformanceListResponse.Item>> search(
             @Parameter(description = "장르") @RequestParam(required = false) Genre genre,
             @Parameter(description = "공연장 지역. 일치 검색", example = "서울") @RequestParam(required = false) String region,
@@ -43,7 +57,11 @@ public interface PublicPerformanceApiSpec {
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate to,
             @Parameter(description = "공연명 부분 일치. 대소문자 무시") @RequestParam(required = false) String keyword,
-            @Parameter(description = "LATEST: 최근 공개 순, BOOKING_OPEN_ASC: 다음 예매 오픈이 이른 순")
+            // Note: Spring의 컬렉션 변환 전에 원시 값을 읽어 반복 파라미터의 빈 항목도 검증한다.
+            @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> queryParameters,
+            @Parameter(
+                            description = "LATEST: 최근 공개 순, BOOKING_OPEN_ASC: 남은 활성 회차 중 최소 예매 오픈 시각순. "
+                                    + "종료 공연은 마지막, 동률은 ID 역순이며 판매중 우선순위는 없다")
                     @RequestParam(defaultValue = "LATEST")
                     PublicPerformanceSort sort,
             @Parameter(description = "0부터 시작하는 페이지 번호") @RequestParam(defaultValue = "0") @Min(0) int page,

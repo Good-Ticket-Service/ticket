@@ -50,6 +50,7 @@ public class PublicPerformanceService {
      * from이 to보다 늦으면 400 INVALID_TIME_RANGE.
      * Note: 목록은 페이지 ID·표시 정보와 기간·전체 개수를 쿼리 여러 개로 읽는다. 그 사이에 커밋된 변경이 섞여 한 응답 안에서
      * 항목이 빠지거나 개수가 어긋나지 않도록 REPEATABLE READ로 같은 시점을 읽는다(이슈 #343).
+     * 상태·정렬·전체 개수의 시간 경계도 일치하도록 현재 시각은 한 번만 읽어 Reader에 전달한다(이슈 #382).
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition) {
