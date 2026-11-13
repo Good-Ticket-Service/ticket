@@ -17,6 +17,7 @@ import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.port.PaymentSettledEvents;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -47,8 +48,9 @@ class PaymentResultApplierTest {
     private final ReservationTransitionExecutor transitionExecutor = mock(ReservationTransitionExecutor.class);
     private final ChangeStamps changeStamps = mock(ChangeStamps.class);
     private final BookingMetrics metrics = mock(BookingMetrics.class);
+    private final PaymentSettledEvents settledEvents = mock(PaymentSettledEvents.class);
     private final PaymentResultApplier applier =
-            new PaymentResultApplier(reservationRepository, transitionExecutor, changeStamps, metrics);
+            new PaymentResultApplier(reservationRepository, transitionExecutor, changeStamps, metrics, settledEvents);
 
     @BeforeEach
     void setUp() {
@@ -67,6 +69,7 @@ class PaymentResultApplierTest {
         verify(reservation).issueTicketCodes();
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verifyNoInteractions(metrics);
+        verify(settledEvents).settled(RESERVATION_ID, ReservationStatus.CONFIRMED);
     }
 
     @Test
@@ -82,6 +85,7 @@ class PaymentResultApplierTest {
         verify(reservation, never()).issueTicketCodes();
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verifyNoInteractions(metrics);
+        verifyNoInteractions(settledEvents);
     }
 
     @Test
@@ -98,6 +102,7 @@ class PaymentResultApplierTest {
 
         verify(reservationRepository).markRefundRequired(RESERVATION_ID, ORDER_ID, STAMP.at());
         verify(metrics).lateSuccess();
+        verifyNoInteractions(settledEvents);
     }
 
     @Test
@@ -113,6 +118,7 @@ class PaymentResultApplierTest {
                 .isFalse();
 
         verifyNoInteractions(metrics);
+        verifyNoInteractions(settledEvents);
     }
 
     @Test
@@ -126,6 +132,7 @@ class PaymentResultApplierTest {
         verifyNoInteractions(transitionExecutor);
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verify(metrics).lateSuccess();
+        verifyNoInteractions(settledEvents);
     }
 
     @Test
@@ -139,6 +146,7 @@ class PaymentResultApplierTest {
         verifyNoInteractions(transitionExecutor);
         verify(reservationRepository, never()).markRefundRequired(anyLong(), anyString(), any());
         verify(metrics).lateSuccess();
+        verifyNoInteractions(settledEvents);
     }
 
     @Test
@@ -150,6 +158,47 @@ class PaymentResultApplierTest {
                 .isFalse();
 
         verifyNoInteractions(transitionExecutor, metrics);
+        verifyNoInteractions(settledEvents);
+    }
+
+    @Test
+    @DisplayName("지금 시도의 실패는 선점 시간이 남았으면 HOLD로 되돌리고 결과가 정해졌다고 알린다")
+    void failureReturnsToHoldAndNotifies() {
+        givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
+        when(reservationRepository.returnToHold(RESERVATION_ID, ORDER_ID, STAMP))
+                .thenReturn(1);
+
+        assertThat(applier.apply(RESERVATION_ID, ORDER_ID, ConfirmOutcome.failed()))
+                .isTrue();
+
+        verify(settledEvents).settled(RESERVATION_ID, ReservationStatus.HOLD);
+    }
+
+    @Test
+    @DisplayName("지금 시도의 실패는 선점 시간이 지났으면 만료하고 결과가 정해졌다고 알린다")
+    void failureAfterHoldExpiryExpiresAndNotifies() {
+        Reservation reservation = givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
+        ReflectionTestUtils.setField(reservation, "holdExpiresAt", STAMP.at().minusMinutes(1));
+        when(transitionExecutor.expireAndRelease(eq(RESERVATION_ID), anyList(), any(IntSupplier.class)))
+                .thenReturn(true);
+
+        assertThat(applier.apply(RESERVATION_ID, ORDER_ID, ConfirmOutcome.failed()))
+                .isTrue();
+
+        verify(settledEvents).settled(RESERVATION_ID, ReservationStatus.EXPIRED);
+    }
+
+    @Test
+    @DisplayName("이미 바뀐 실패(0행)는 알리지 않는다")
+    void unchangedFailureDoesNotNotify() {
+        givenFound(ReservationStatus.PAYMENT_IN_PROGRESS, true);
+        when(reservationRepository.returnToHold(RESERVATION_ID, ORDER_ID, STAMP))
+                .thenReturn(0);
+
+        assertThat(applier.apply(RESERVATION_ID, ORDER_ID, ConfirmOutcome.failed()))
+                .isFalse();
+
+        verifyNoInteractions(settledEvents);
     }
 
     private Reservation givenFound(ReservationStatus status, boolean sameAttempt) {

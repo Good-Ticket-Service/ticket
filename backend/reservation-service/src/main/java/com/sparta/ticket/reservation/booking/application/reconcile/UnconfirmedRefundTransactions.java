@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.booking.application.reconcile;
 import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
+import com.sparta.ticket.reservation.booking.application.port.PaymentSettledEvents;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
@@ -26,6 +27,7 @@ public class UnconfirmedRefundTransactions {
     private final ReservationTransitionExecutor transitionExecutor;
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
+    private final PaymentSettledEvents settledEvents;
 
     /**
      * 아직 환불을 기다리는 결제 중 예약이고 checkedBefore 이전에 요청했으면 요청 시각을 남기고(다음 차례에서 뒤로 간다) 환불할 orderId를
@@ -56,6 +58,7 @@ public class UnconfirmedRefundTransactions {
                 () -> reservationRepository.cancelUnconfirmed(reservationId, orderId, stamp));
         if (canceled) {
             metrics.unconfirmedRefunded();
+            settledEvents.settled(reservationId, ReservationStatus.CANCELED);
         }
         return canceled;
     }

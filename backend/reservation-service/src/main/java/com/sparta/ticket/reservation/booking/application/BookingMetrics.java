@@ -16,6 +16,9 @@ public class BookingMetrics {
     private final Counter unreceivedConfirms;
     private final Counter outboxPublished;
     private final Counter outboxPublishFailures;
+    private final AtomicLong resultWaiters = new AtomicLong();
+    private final Counter resultWaitTimeouts;
+    private final Counter settledBroadcastFailures;
     private final Counter lateSuccesses;
     private final Counter canceled;
     private final Counter resentRefunds;
@@ -110,6 +113,15 @@ public class BookingMetrics {
                 .baseUnit("seconds")
                 .description("결제 준비 거절 응답에 싣는 Retry-After. 기다리는 사용자가 많으면 늘어난다")
                 .register(registry);
+        Gauge.builder("reservation.payment.result_waiters", resultWaiters, AtomicLong::get)
+                .description("결제 결과를 롱폴링으로 기다리는 상태 조회 수(이 인스턴스)")
+                .register(registry);
+        this.resultWaitTimeouts = Counter.builder("reservation.payment.result_wait_timeouts")
+                .description("롱폴링 대기 시간 안에 결과가 정해지지 않아 결제 중으로 답한 수")
+                .register(registry);
+        this.settledBroadcastFailures = Counter.builder("reservation.payment.settled_broadcast_failed")
+                .description("결제 결과를 다른 인스턴스에 알리지 못한 수. 그 인스턴스의 기다리던 조회는 대기 시간 끝에 결과를 본다")
+                .register(registry);
         Gauge.builder("reservation.payment.stuck", stuckPayments, AtomicLong::get)
                 .description("상한 시간을 넘겨 결제 중인 예약 수. 0보다 크면 관리자가 확인한다")
                 .register(registry);
@@ -133,6 +145,26 @@ public class BookingMetrics {
 
     public void outboxPublished(int count) {
         outboxPublished.increment(count);
+    }
+
+    public void resultWaiterAdded() {
+        resultWaiters.incrementAndGet();
+    }
+
+    public void resultWaiterRemoved() {
+        resultWaiters.decrementAndGet();
+    }
+
+    public long resultWaitersCount() {
+        return resultWaiters.get();
+    }
+
+    public void resultWaitTimedOut() {
+        resultWaitTimeouts.increment();
+    }
+
+    public void settledBroadcastFailed() {
+        settledBroadcastFailures.increment();
     }
 
     public void outboxPublishFailed() {

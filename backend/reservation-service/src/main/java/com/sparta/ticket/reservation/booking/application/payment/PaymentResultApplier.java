@@ -4,9 +4,11 @@ import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.ReservationTransitionExecutor;
 import com.sparta.ticket.reservation.booking.application.port.ConfirmOutcome;
+import com.sparta.ticket.reservation.booking.application.port.PaymentSettledEvents;
 import com.sparta.ticket.reservation.booking.domain.ChangeStamp;
 import com.sparta.ticket.reservation.booking.domain.Reservation;
 import com.sparta.ticket.reservation.booking.domain.ReservationRepository;
+import com.sparta.ticket.reservation.booking.domain.ReservationStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ public class PaymentResultApplier {
     private final ReservationTransitionExecutor transitionExecutor;
     private final ChangeStamps changeStamps;
     private final BookingMetrics metrics;
+    private final PaymentSettledEvents settledEvents;
 
     /** 예약 상태가 바뀌었으면 true. 결과를 모르거나, 같은 결과가 다시 왔거나, 지난 시도의 결과면 false. */
     @Transactional
@@ -62,6 +65,7 @@ public class PaymentResultApplier {
         if (transitionExecutor.confirmAndSell(
                 id, reservation.getSeatIds(), () -> reservationRepository.confirm(id, orderId, stamp))) {
             reservation.issueTicketCodes();
+            settledEvents.settled(id, ReservationStatus.CONFIRMED);
             return true;
         }
         return false;
@@ -98,9 +102,21 @@ public class PaymentResultApplier {
         }
         Long id = reservation.getId();
         if (reservation.isHoldExpiredAt(stamp.at())) {
-            return transitionExecutor.expireAndRelease(
-                    id, reservation.getSeatIds(), () -> reservationRepository.expireAfterFailure(id, orderId, stamp));
+            return settledIf(
+                    transitionExecutor.expireAndRelease(
+                            id,
+                            reservation.getSeatIds(),
+                            () -> reservationRepository.expireAfterFailure(id, orderId, stamp)),
+                    id,
+                    ReservationStatus.EXPIRED);
         }
-        return reservationRepository.returnToHold(id, orderId, stamp) == 1;
+        return settledIf(reservationRepository.returnToHold(id, orderId, stamp) == 1, id, ReservationStatus.HOLD);
+    }
+
+    private boolean settledIf(boolean changed, Long reservationId, ReservationStatus status) {
+        if (changed) {
+            settledEvents.settled(reservationId, status);
+        }
+        return changed;
     }
 }
