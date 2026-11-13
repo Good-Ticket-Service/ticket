@@ -45,6 +45,17 @@ LOCK_SAMPLE_SQL = ("SELECT json_build_object('t',extract(epoch FROM clock_timest
                    "AND application_name<>'" + SAMPLER_APP + "'")
 SAMPLER_MAX_SECONDS = 3600
 SAMPLE_INTERVAL = 0.1
+# 0.2초 CPU 표본기(#390). 수집기 CPU는 15초 간격이라 매초 burst 순간에 예매 서비스 코어가 다 찼는지 보이지 않는다.
+# 예매 서비스 컨테이너 안에서 cgroup cpu.stat 첫 줄(usage_usec)을 읽는다. 표본마다 sleep 프로세스 하나가 그 컨테이너 CPU를 조금 쓴다(모든 조건에 같음).
+# 중지 파일이 생기면 끝나고, 정리가 실패해도 SAMPLER_MAX_SECONDS 뒤에는 끝난다
+CPU_SAMPLE_INTERVAL = 0.2
+CPU_SAMPLER_SERVICE = 'reservation-service'
+CPU_SAMPLER_STOP = '/tmp/s5-cpu-sampler-stop'
+CPU_SAMPLER_SCRIPT = (f'rm -f {CPU_SAMPLER_STOP}; n=0; while [ $n -lt {int(SAMPLER_MAX_SECONDS/CPU_SAMPLE_INTERVAL)} ] '
+                      f'&& [ ! -e {CPU_SAMPLER_STOP} ]; do read -r k v < /sys/fs/cgroup/cpu.stat; '
+                      f'echo "$EPOCHREALTIME $v"; sleep {CPU_SAMPLE_INTERVAL}; n=$((n+1)); done')
+# 이 비율 이상 쓰면 그 구간은 코어가 다 찬 것으로 센다
+CPU_SATURATED = 0.9
 # reservation만 본다. application 라벨은 Eureka 이름(대문자)일 수 있어 대소문자를 가리지 않는다
 RESERVATION = 'application=~"(?i)reservation-service"'
 SERVER_QUERIES = {
@@ -59,6 +70,9 @@ SERVER_QUERIES = {
     'hikari_acquire_mean': (f'sum(rate(hikaricp_connections_acquire_seconds_sum{{{RESERVATION}}}[30s]))'
                             f'/sum(rate(hikaricp_connections_acquire_seconds_count{{{RESERVATION}}}[30s]))'),
     'hold_http_max': f'max(http_server_requests_seconds_max{{{RESERVATION},method="POST",uri=~".*/holds"}})',
+    # GC로 멈춘 시간 비율(30초 평균)과 구간 최댓값(#390). 해제처럼 판매 검증을 부르지 않는 요청도 느려져서 서버 전체가 멈췄는지 본다
+    'gc_pause_ratio': f'sum(rate(jvm_gc_pause_seconds_sum{{{RESERVATION}}}[30s]))',
+    'gc_pause_max': f'max(jvm_gc_pause_seconds_max{{{RESERVATION}}})',
 }
 
 # 다른 좌석 선점(--base-rate)의 좌석은 이 시간(초) 안에 다시 쓰지 않는다. 앞 선점이 해제(hold_ms 뒤)되기 전에 같은 좌석을
@@ -128,6 +142,33 @@ def sample_summary(samples, start, end):
                   'nonzero_ratio': sum(r[key] > 0 for r in rows) / len(rows)}
             for key in ('lock', 'blocked', 'active')} | {'samples': len(rows)}
 
+def cpu_count(cpuset):
+    """'2-3,6' 같은 cpuset 문자열의 코어 수. 비었으면 None."""
+    if not cpuset: return None
+    n = 0
+    for part in str(cpuset).split(','):
+        lo, _, hi = part.strip().partition('-')
+        n += int(hi or lo) - int(lo) + 1
+    return n
+
+def parse_cpu_line(line):
+    """CPU 표본기 한 줄('<epoch> <usage_usec>')을 읽는다. 형식이 아니면 None."""
+    fields = line.split()
+    if len(fields) != 2: return None
+    try: return {'t': float(fields[0]), 'usage_usec': int(fields[1])}
+    except ValueError: return None
+
+def cpu_summary(samples, start, end, cpus):
+    """0.2초 CPU 표본(누적 usage_usec)을 이웃 표본 사이 사용 코어 수로 바꿔 측정 구간의 평균·p95·최대와 코어가 다 찬 구간 비율을 낸다."""
+    rows = sorted((s for s in samples if start <= s['t'] <= end), key=lambda s: s['t'])
+    cores = [(b['usage_usec']-a['usage_usec'])/1e6/(b['t']-a['t']) for a, b in zip(rows, rows[1:]) if b['t'] > a['t']]
+    if not cores: return None
+    ordered = sorted(cores)
+    out = {'avg': sum(cores)/len(cores), 'p95': ordered[min(len(ordered)-1, int(len(ordered)*0.95))], 'max': ordered[-1],
+           'intervals': len(cores), 'cpus': cpus}
+    if cpus: out['saturated_ratio'] = sum(c >= cpus*CPU_SATURATED for c in cores)/len(cores)
+    return out
+
 def collector_sources(text):
     """수집기 /metrics에서 integration_source_up{source=...} 값을 읽는다."""
     found = {}
@@ -160,6 +201,7 @@ class HoldContentionScenario(MixedScenario):
                 'Lock mode is a container setting; compare runs with the same build and conditions'])
         self.process = None
         self.sampler = None
+        self.cpu_sampler = None
         self.container_name = 'ticket-integration-s5-load'
         self.metrics_path = ROOT/'script/integration/scenario5-metrics.prom'
 
@@ -333,10 +375,38 @@ class HoldContentionScenario(MixedScenario):
         self.sampler_reader.join(timeout=5)
         self.sampler = None
 
+    # ---------- 0.2초 예매 서비스 CPU 표본기 ----------
+    def start_cpu_sampler(self):
+        path = self.out/'cpu-samples.jsonl'
+        cmd = self.cmd+['exec', '-T', CPU_SAMPLER_SERVICE, 'bash', '-c', CPU_SAMPLER_SCRIPT]
+        try:
+            self.cpu_sampler = subprocess.Popen(cmd, env=self.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                                stderr=subprocess.DEVNULL, text=True, encoding='utf-8', errors='replace')
+        except OSError:
+            self.report['cpu_sampler'] = {'error': 'start failed'}; self.cpu_sampler = None; return
+        def read():
+            with path.open('w', encoding='utf-8') as f:
+                for line in self.cpu_sampler.stdout:
+                    row = parse_cpu_line(line)
+                    if row: f.write(json.dumps(row)+'\n'); f.flush()
+        self.cpu_sampler_reader = threading.Thread(target=read, daemon=True); self.cpu_sampler_reader.start()
+
+    def stop_cpu_sampler(self):
+        if not self.cpu_sampler: return
+        # docker exec 클라이언트만 끝내면 컨테이너 안의 반복이 남을 수 있어 중지 파일을 만든다
+        try:
+            subprocess.run(self.cmd+['exec', '-T', CPU_SAMPLER_SERVICE, 'touch', CPU_SAMPLER_STOP],
+                           env=self.env, capture_output=True, text=True, timeout=20)
+            self.cpu_sampler.wait(timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            self.cpu_sampler.kill()
+        self.cpu_sampler_reader.join(timeout=5)
+        self.cpu_sampler = None
+
     def load(self):
-        self.start_sampler()
+        self.start_sampler(); self.start_cpu_sampler()
         try: super().load()
-        finally: self.stop_sampler()
+        finally: self.stop_cpu_sampler(); self.stop_sampler()
 
     # ---------- 판정 ----------
     def review(self):
@@ -470,12 +540,19 @@ class HoldContentionScenario(MixedScenario):
         samples_path = self.out/'pg-lock-samples.jsonl'
         samples = [json.loads(l) for l in samples_path.read_text(encoding='utf-8').splitlines()] if samples_path.exists() else []
         summary['pg_lock_100ms'] = sample_summary(samples, m_start, m_end)
+        cpu_path = self.out/'cpu-samples.jsonl'
+        cpu_rows = [json.loads(l) for l in cpu_path.read_text(encoding='utf-8').splitlines()] if cpu_path.exists() else []
+        cpus = cpu_count(self.report.get('resources', {}).get(CPU_SAMPLER_SERVICE, {}).get('cpuset'))
+        summary['reservation_cpu_200ms'] = cpu_summary(cpu_rows, m_start, m_end, cpus)
         self.report['server_summary'] = summary
         self.report['server_summary_basis'] = ('Prometheus 5s step raw values (gauges, no rate) within the measurement window; '
             'pg_lock_waits/pg_blocked come from the 15s collector; pg_lock_100ms from a 0.1s pg_stat_activity sampler; '
-            'hikari_acquire_max/hold_http_max are Micrometer window maxima, hikari_acquire_mean is sum/count over 30s')
+            'hikari_acquire_max/hold_http_max/gc_pause_max are Micrometer window maxima, hikari_acquire_mean is sum/count over 30s, '
+            'gc_pause_ratio is paused seconds per second over 30s; reservation_cpu_200ms is cores used between 0.2s cgroup samples '
+            '(saturated_ratio: intervals at >= 90% of the cpuset)')
         self.report['observation_gaps'] = gaps
         self.report['checks']['pg_lock_samples_recorded'] = summary['pg_lock_100ms'] is not None
+        self.report['checks']['cpu_samples_recorded'] = summary['reservation_cpu_200ms'] is not None
         self.report['observation_notes'] = {'host_metrics': 'Start/restart observe.py before a measured stage. Missing series must not be interpreted as zero.'}
 
     def execute(self):

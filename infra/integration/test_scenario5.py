@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 import scenario5
 from scenario5 import (LOCK_BUSY_MESSAGE, base_checks, base_measurements, base_seat_shortage, classify, collector_sources,
-                       sample_summary, seat_timeline, series_summary)
+                       cpu_count, cpu_summary, parse_cpu_line, sample_summary, seat_timeline, series_summary)
 
 def row(rid, seat, status, created, updated):
     return {'reservation_id': rid, 'user_id': rid, 'seat': seat, 'status': status, 'created': created, 'updated': updated}
@@ -74,6 +74,28 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(s['samples'], 2)
         self.assertEqual(s['lock'], {'avg': 1.0, 'max': 2, 'nonzero_ratio': 0.5})
         self.assertIsNone(sample_summary(samples, 100, 200))
+
+    def test_cpu_count(self):
+        self.assertEqual(cpu_count('2-3'), 2)
+        self.assertEqual(cpu_count('0-1,4,6-9'), 7)
+        self.assertIsNone(cpu_count(''))
+
+    def test_parse_cpu_line(self):
+        self.assertEqual(parse_cpu_line('1794557377.250000 123456\n'), {'t': 1794557377.25, 'usage_usec': 123456})
+        self.assertIsNone(parse_cpu_line('bash: warning\n'))
+        self.assertIsNone(parse_cpu_line('1.0 x'))
+
+    def test_cpu_summary_cores_between_samples(self):
+        # 0.2초 사이 0.4초 사용 = 2코어(다 참), 0.1초 사용 = 0.5코어. 구간 밖 표본은 뺀다
+        samples = [{'t': 9.8, 'usage_usec': 0}, {'t': 10.0, 'usage_usec': 1_000_000}, {'t': 10.2, 'usage_usec': 1_400_000},
+                   {'t': 10.4, 'usage_usec': 1_500_000}]
+        s = cpu_summary(samples, 10, 20, 2)
+        self.assertEqual(s['intervals'], 2)
+        self.assertAlmostEqual(s['max'], 2.0)
+        self.assertAlmostEqual(s['avg'], 1.25)
+        self.assertEqual(s['saturated_ratio'], 0.5)
+        self.assertIsNone(cpu_summary(samples[:1], 0, 20, 2))
+        self.assertNotIn('saturated_ratio', cpu_summary(samples, 10, 20, None))
 
     def test_collector_sources(self):
         text = ('integration_source_up{source="docker"} 1.0\n'
