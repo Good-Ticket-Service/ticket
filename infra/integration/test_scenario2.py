@@ -1,4 +1,4 @@
-"""좌석 경계 측정 조건(#287)에 대한 모의 검증. 실제 서버·Docker·k6를 부르지 않는다."""
+"""좌석 경계 측정 조건(#287)·구역 모드(#397)에 대한 모의 검증. 실제 서버·Docker·k6를 부르지 않는다."""
 import gzip
 import io
 import json
@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import Mock, patch
 import layout_probe
 import scenario2
-from scenario2 import MixedScenario, cpu_summary, encoding_as_requested, layout_measurements
+from argparse import Namespace
+from scenario2 import MixedScenario, cpu_summary, encoding_as_requested, layout_measurements, option_error, zone_fixture
 
 SEATS = [{'scheduleSeatId': 501}, {'scheduleSeatId': 502}, {'scheduleSeatId': 503}]
 BODY = json.dumps({'status': 200, 'data': {'scheduleId': 7, 'configVersion': 3, 'seats': SEATS}}).encode()
@@ -49,6 +50,19 @@ class LayoutProbeTests(unittest.TestCase):
         http = FakeHttp(compressed=False)
         layout_probe.probe(http, 7, 'token', repeat=1)
         self.assertEqual([r.get_header('Accept-encoding') for r in http.requests], ['identity', 'gzip'])
+
+    def test_section_is_url_encoded_and_recorded(self):
+        # 구역 이름은 그대로 인코딩한다. +를 그대로 두면 서버가 공백으로 읽는다(#397)
+        http = FakeHttp(compressed=False)
+        result, _ = layout_probe.probe(http, 7, 'token', repeat=1, section='1층 C+')
+        self.assertTrue(all(r.full_url.endswith('/layout?section=1%EC%B8%B5%20C%2B') for r in http.requests))
+        self.assertEqual(result['section'], '1층 C+')
+
+    def test_whole_layout_has_no_query(self):
+        http = FakeHttp(compressed=False)
+        result, _ = layout_probe.probe(http, 7, 'token', repeat=1)
+        self.assertTrue(all(r.full_url.endswith('/api/seats/schedules/7/layout') for r in http.requests))
+        self.assertIsNone(result['section'])
 
     def test_seat_index_is_layout_order(self):
         self.assertEqual(layout_probe.seat_indexes(SEATS), {501: 0, 502: 1, 503: 2})
@@ -111,6 +125,82 @@ class LayoutResultTests(unittest.TestCase):
             {'metric': {'service': 'reservation-service', 'container': 'b'}, 'values': [[105, '0.5']]},
             {'metric': {'service': 'postgres', 'container': 'c'}, 'values': [[100, '1']]}]}}
         self.assertEqual(cpu_summary(data, 100, 110), {'reservation-service': {'avg': 1.25, 'max': 2.0, 'samples': 2}})
+
+class ZoneFixtureTests(unittest.TestCase):
+    """구역 모드 준비값(#397). 구역 순서와 구역 안 순서는 서버 규칙(가장 작은 좌석 id 순, 구역 좌석 id 오름차순)과 같아야 한다."""
+    # 응답 순서가 id 순이 아니고, B·C 구역이 id 순서에서 섞여 있다. 숫자 같은 이름("1")도 순서를 지킨다
+    SEATS = [{'scheduleSeatId': i, 'section': s} for i, s in
+             [(9, 'B'), (1, 'A'), (6, '1'), (5, 'B'), (2, 'A'), (7, 'B'), (8, '1')]]
+
+    def test_sections_in_first_seat_order_with_counts(self):
+        self.assertEqual([{'section': 'A', 'seat_count': 2}, {'section': 'B', 'seat_count': 3}, {'section': '1', 'seat_count': 2}],
+                         zone_fixture(self.SEATS, []))
+
+    def test_buyer_gets_section_and_index_within_section(self):
+        buyers = [{'schedule_seat_id': 7}, {'schedule_seat_id': 9}, {'schedule_seat_id': 8}, {'schedule_seat_id': 1}]
+        zone_fixture(self.SEATS, buyers)
+        self.assertEqual([('B', 1), ('B', 2), ('1', 1), ('A', 0)], [(b['section'], b['section_index']) for b in buyers])
+
+class PrepareZoneTests(unittest.TestCase):
+    SEATS = {'scheduleId': 7, 'configVersion': 3,
+             'seats': [{'scheduleSeatId': 501, 'section': 'A'}, {'scheduleSeatId': 502, 'section': 'B'}, {'scheduleSeatId': 503, 'section': 'B'}]}
+
+    def prepare(self, obj, visits=1):
+        obj.report['workload'].update(seat_api='zone', zone_visits=visits, status_reads=None)
+        obj.http = FakeHttp(compressed=False)
+        buyers = [{'schedule_seat_id': 503}]
+        with patch('builtins.print'):
+            meta = obj.prepare_zone(7, 'token', self.SEATS, buyers)
+        return meta, buyers
+
+    def test_gives_k6_sections_version_and_buyer_section(self):
+        meta, buyers = self.prepare(scenario('parse', 'default'))
+        self.assertEqual(meta, {'config_version': 3, 'sections': [{'section': 'A', 'seat_count': 1}, {'section': 'B', 'seat_count': 2}],
+                                'zone_visits': 1, 'status_reads': None})
+        self.assertEqual((buyers[0]['section'], buyers[0]['section_index']), ('B', 1))
+
+    def test_default_options_do_not_probe_section_layout(self):
+        obj = scenario('parse', 'default')
+        self.prepare(obj)
+        self.assertEqual(obj.http.requests, [])
+        self.assertNotIn('layout', obj.report['zone'])
+
+    def test_boundary_conditions_probe_first_section_layout(self):
+        obj = scenario()
+        self.prepare(obj)
+        self.assertTrue(all(r.full_url.endswith('/layout?section=A') for r in obj.http.requests))
+        self.assertEqual(obj.report['zone']['layout']['section'], 'A')
+        self.assertTrue((obj.out/'layout-cost-section.json').exists())
+
+    def test_more_visits_than_sections_fails(self):
+        with self.assertRaises(scenario2.Failure):
+            self.prepare(scenario('parse', 'default'), visits=3)
+
+class OptionErrorTests(unittest.TestCase):
+    """좌석 조회 옵션 조합(#287 skip, #397 zone)."""
+    def args(self, **kw):
+        base = dict(seat_api='legacy', layout_body='parse', venue_layout='single', zone_visits=1, status_reads=None)
+        return Namespace(**{**base, **kw})
+
+    def test_defaults_and_valid_zone_pass(self):
+        self.assertIsNone(option_error(self.args()))
+        self.assertIsNone(option_error(self.args(seat_api='split', layout_body='skip')))
+        self.assertIsNone(option_error(self.args(seat_api='zone', venue_layout='sections', layout_body='skip', zone_visits=3, status_reads=3)))
+
+    def test_zone_needs_sections_layout(self):
+        self.assertIn('venue-layout sections', option_error(self.args(seat_api='zone')))
+
+    def test_zone_options_need_zone(self):
+        self.assertIn('need --seat-api zone', option_error(self.args(seat_api='split', zone_visits=2)))
+        self.assertIn('need --seat-api zone', option_error(self.args(seat_api='split', status_reads=3)))
+
+    def test_skip_needs_split_or_zone(self):
+        self.assertIn('skip', option_error(self.args(layout_body='skip')))
+
+    def test_ranges(self):
+        zone = dict(seat_api='zone', venue_layout='sections')
+        self.assertIn('zone-visits', option_error(self.args(**zone, zone_visits=0)))
+        self.assertIn('status-reads', option_error(self.args(**zone, status_reads=21)))
 
 if __name__ == '__main__':
     unittest.main()

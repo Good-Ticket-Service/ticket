@@ -3,6 +3,7 @@
 python infra/integration/scenario2.py --rate 25 --duration 60
 rate는 초당 시작하는 사용자 여정 수다. 단계마다 새 회차/계정을 준비한다.
 --seat-api split은 좌석 조회를 layout 1번 + status 조회로 바꾼다(#271). 기본 legacy는 기존 좌석 조회를 쓴다.
+--seat-api zone은 구역 목록 → 구역 layout → 구역 status로 조회한다(#397). --venue-layout sections가 필요하다.
 """
 import argparse
 from datetime import datetime
@@ -15,7 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD
+from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD, VENUE_LAYOUTS
 import foreign
 import layout_probe
 
@@ -44,6 +45,29 @@ def encoding_as_requested(accept_encoding,layout):
     if accept_encoding=='identity':return layout['gzip_responses']==0
     return True
 
+def zone_fixture(seats,buyers):
+    """구역 모드(#397)의 준비값. seats는 기존 좌석 조회 응답의 seats다.
+    - 반환: [{section, seat_count}]. 순서는 구역의 가장 작은 좌석 id 순으로 /sections 응답 순서와 같다.
+      k6(JavaScript)에서 숫자 같은 구역 이름("1")의 객체 키 순서가 바뀌지 않게 목록으로 넘긴다
+    - 구매자마다 section(배정 좌석의 구역)과 section_index(구역 layout 안의 순서 = 구역 status 비트 위치)를 넣는다.
+      구역 layout은 그 구역 좌석의 id 오름차순이다(docs/api.md 좌석 절)"""
+    by_section={};position={}
+    for seat in sorted(seats,key=lambda s:s['scheduleSeatId']):
+        group=by_section.setdefault(seat['section'],[])
+        position[seat['scheduleSeatId']]=(seat['section'],len(group))
+        group.append(seat['scheduleSeatId'])
+    for b in buyers: b['section'],b['section_index']=position[b['schedule_seat_id']]
+    return [{'section':name,'seat_count':len(ids)} for name,ids in by_section.items()]
+
+def option_error(a):
+    """좌석 조회 옵션 조합 검사. 틀리면 이유를, 맞으면 None을 준다."""
+    if a.layout_body=='skip' and a.seat_api not in ('split','zone'):return '--layout-body skip needs --seat-api split or zone'
+    if a.seat_api=='zone' and a.venue_layout!='sections':return '--seat-api zone needs --venue-layout sections'
+    if a.seat_api!='zone' and (a.zone_visits!=1 or a.status_reads is not None):return '--zone-visits/--status-reads need --seat-api zone'
+    if not 1<=a.zone_visits<=20:return 'zone-visits 1..20'
+    if a.status_reads is not None and not 1<=a.status_reads<=20:return 'status-reads 1..20'
+    return None
+
 class MixedScenario(Scenario):
     # 부하 스크립트. scenario5(#313)는 같은 실행기(load)에 다른 스크립트를 넘긴다. 줄 머리(S2_EVIDENCE·S2_WINDOW)와 환경 변수는 같이 쓴다
     k6_script='/scripts/scenario2.js'
@@ -67,17 +91,21 @@ class MixedScenario(Scenario):
 
     def __init__(self,args,scenario=2,buyer_count=None):
         self.args=args
+        # 공연장 좌석 배치(#397). scenario3·4는 이 옵션이 없어 기존 배치(A구역 1열)로 둔다
+        self.venue_layout=getattr(args,'venue_layout','single')
         # arrival executor의 경계 시각 차이를 위한 두 계정 여유. 좌석은 매번 같은 인자로 고정한다.
         buyers=math.ceil(args.rate*args.duration/10)+2 if buyer_count is None else buyer_count
         require(args.seats>=buyers,f'Need at least {buyers} seats. Keep --seats identical when comparing rates.')
         super().__init__(buyers,180,scenario=scenario,allow_foreign=getattr(args,'allow_foreign',False))
         self.report.update(workload={'rate_journeys_per_second':args.rate,'duration_seconds':args.duration,
             'warmup_seconds':args.warmup,'mix_percent':{'browse':70,'seat':20,'booking':10},
-            'seat_count':args.seats,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
+            'seat_count':args.seats,'venue_layout':self.venue_layout,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
             'think_seconds':[.3,1.0],'seat_reads_per_viewer':[3,5],
             'booking_seat_selection':'disjoint assigned seats; no intentional seat competition',
             # scenario3·4는 이 옵션이 없을 수 있어 legacy로 둔다
             'seat_api':getattr(args,'seat_api','legacy'),
+            # zone(#397) 여정: 여정마다 보는 구역 수, 구역마다 받는 status 수(None이면 split과 같은 횟수: 좌석 탐색 3~5, 예매 1)
+            'zone_visits':getattr(args,'zone_visits',1),'status_reads':getattr(args,'status_reads',None),
             # 좌석 경계 측정 조건(#287). scenario3·4는 이 옵션이 없어 기존 동작(parse·default)으로 둔다
             'layout_body':getattr(args,'layout_body','parse'),'accept_encoding':getattr(args,'accept_encoding','default'),
             'authentication':('browse anonymous; authenticated accounts login in k6 setup; tokens reused during measurement'
@@ -116,6 +144,7 @@ class MixedScenario(Scenario):
         require(len(available)==self.args.seats,'Prepared seat count mismatch')
         buyers=[{'email':email,'user_id':uid,'schedule_seat_id':available[i]} for i,(email,uid) in enumerate(buyer_accounts)]
         layout=self.prepare_layout(sid,token,buyers)
+        if self.report['workload']['seat_api']=='zone':layout.update(self.prepare_zone(sid,token,seats,buyers))
         meta={'run_id':self.run_id,'rate':self.args.rate,'duration':self.args.duration,'warmup':self.args.warmup,
               'vus':self.args.vus,'max_vus':self.args.max_vus,'password':PASSWORD,'prelogin':self.report['scenario'] in (2,3),
               'performance_id':self.report['fixtures']['performance_id'],'schedule_id':sid,
@@ -147,6 +176,22 @@ class MixedScenario(Scenario):
         print(f"[prepare] layout {result['seat_count']} seats: "+', '.join(
               f"{k} requested -> {'/'.join(v['content_encoding'])} {v['wire_bytes']} bytes" for k,v in result['encodings'].items()),flush=True)
         return {'config_version':result['config_version'],'seat_count':result['seat_count']}
+
+    def prepare_zone(self,sid,token,seats,buyers):
+        """구역 모드(#397) 준비값을 만들어 k6에 넘긴다. 구역 목록·구역 layout 응답 검증 기준과 구매자의 배정 구역이다."""
+        sections=zone_fixture(seats['seats'],buyers)
+        w=self.report['workload']
+        require(w['zone_visits']<=len(sections),f"--zone-visits {w['zone_visits']} exceeds {len(sections)} sections")
+        self.report['zone']={'sections':len(sections),'seat_count_per_section':sorted({s['seat_count'] for s in sections})}
+        if self.boundary_conditions():
+            # 경계 측정 조건이면 첫 구역 layout의 크기·헤더도 남긴다. 전체 layout(layout-cost.json)과 비교한다
+            result,_=layout_probe.probe(self.http,sid,token,repeat=1,section=sections[0]['section'])
+            (self.out/'layout-cost-section.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+            self.report['zone']['layout']={'section':result['section'],'seat_count':result['seat_count'],'encodings':result['encodings']}
+        self.save()
+        print(f"[prepare] zone: {len(sections)} sections, visits {w['zone_visits']}, status reads {w['status_reads'] or 'split default'}",flush=True)
+        return {'config_version':seats['configVersion'],'sections':sections,
+                'zone_visits':w['zone_visits'],'status_reads':w['status_reads']}
 
     def db_size(self):
         return self.db("SELECT coalesce(json_agg(x),'[]') FROM (SELECT schemaname,relname,n_live_tup estimated_live_rows,pg_total_relation_size(relid) total_bytes FROM pg_stat_user_tables WHERE schemaname IN ('user_schema','performance_schema','reservation_schema','payment_schema','fake_pg_schema') ORDER BY schemaname,relname) x")
@@ -235,6 +280,10 @@ class MixedScenario(Scenario):
         self.report['checks']['mix_achieved']=all(abs(started[k]-expected*w)<=2 for k,w in [('browse',.7),('seat',.2),('booking',.1)])
         self.report['checks']['k6_thresholds']=self.report['k6_exit_code']==0
         self.report['checks']['booking_evidence_complete']=len(self.report['journeys'])==started['booking'] and not self.report.get('evidence_parse_errors')
+        if self.report['workload']['seat_api']=='zone':
+            # 여정 옵션대로 요청이 나갔는지 확인용(#397)
+            self.report['measurements']['zone']={'sections_reads':value('seat_sections_reads','count'),
+                'layout_reads':value('seat_layout_reads','count'),'status_reads':value('seat_reads','count')}
         if self.boundary_conditions():
             self.report['measurements']['layout']=layout_measurements(value,m)
             self.report['checks']['layout_encoding_as_requested']=encoding_as_requested(self.report['workload']['accept_encoding'],self.report['measurements']['layout'])
@@ -350,15 +399,22 @@ if __name__=='__main__':
     p.add_argument('--viewers',type=int,default=50,help='fixed account pool for seat-only visitors')
     p.add_argument('--vus',type=int,help='default max(200, rate*6), split 70/20/10')
     p.add_argument('--max-vus',type=int,help='default max(1000, vus, rate*7)')
-    p.add_argument('--seat-api',choices=['legacy','split'],default='legacy',
-                   help='legacy: GET seats map; split: layout once per journey + status reads (#271)')
+    p.add_argument('--seat-api',choices=['legacy','split','zone'],default='legacy',
+                   help='legacy: GET seats map; split: layout once per journey + status reads (#271); '
+                        'zone: sections, then layout/status per section (#397)')
+    p.add_argument('--zone-visits',type=int,default=1,
+                   help='zone only: sections visited per seat/booking journey; booking visits its assigned section last')
+    p.add_argument('--status-reads',type=int,
+                   help='zone only: status reads per visited section; default same as split (seat 3..5, booking 1)')
+    p.add_argument('--venue-layout',choices=VENUE_LAYOUTS,default='single',
+                   help='single: all seats in section A row 1 (as before); sections: 25 seats/row, 1,000 seats/section A, B, ... (#397)')
     p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     p.add_argument('--layout-body',choices=['parse','skip'],default='parse',
-                   help='skip: k6 does not keep the layout body (split only, #287 boundary)')
+                   help='skip: k6 does not keep the layout body (split or zone, #287 boundary)')
     p.add_argument('--accept-encoding',choices=['default','identity','gzip'],default='default',
                    help='Accept-Encoding sent by k6; default sends none as before (#287)')
     a=p.parse_args()
-    if a.layout_body=='skip' and a.seat_api!='split':p.error('--layout-body skip needs --seat-api split')
+    if option_error(a):p.error(option_error(a))
     if a.vus is None:a.vus=max(200,a.rate*6)
     if a.max_vus is None:a.max_vus=max(1000,a.vus,a.rate*7)
     if not (1<=a.rate<=400 and 10<=a.duration<=600 and 0<=a.warmup<=120 and 1<=a.viewers<=500 and 3<=a.vus<=a.max_vus<=3000 and 1<=a.seats<=20000):
