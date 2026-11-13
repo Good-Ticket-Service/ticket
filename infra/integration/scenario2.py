@@ -188,10 +188,28 @@ class MixedScenario(Scenario):
             result,_=layout_probe.probe(self.http,sid,token,repeat=1,section=sections[0]['section'])
             (self.out/'layout-cost-section.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
             self.report['zone']['layout']={'section':result['section'],'seat_count':result['seat_count'],'encodings':result['encodings']}
+        if w['accept_encoding']=='gzip':
+            self.report['zone']['gzip_primed_seconds']=self.prime_section_gzip(sid,token,[s['section'] for s in sections])
         self.save()
         print(f"[prepare] zone: {len(sections)} sections, visits {w['zone_visits']}, status reads {w['status_reads'] or 'split default'}",flush=True)
         return {'config_version':seats['configVersion'],'sections':sections,
                 'zone_visits':w['zone_visits'],'status_reads':w['status_reads']}
+
+    def prime_section_gzip(self,sid,token,names,timeout=30,clock=time.monotonic,sleep=time.sleep):
+        """gzip 측정 전에 모든 구역 layout의 압축본을 만들어 둔다(#397). 걸린 초를 돌려준다.
+        서버는 (회차, configVersion, 구역) 본문을 처음 요청받을 때 원본을 주고 압축은 뒤에서 한다(#287 사전 압축).
+        split은 준비 단계 layout_probe가 전체 layout을 한 번 받아 압축이 끝난 채로 측정했다. 구역은 20개라 짧은 측정에서는
+        구역마다 첫 요청이 원본으로 나가 checks.layout_encoding_as_requested가 실패한다(11/13 short).
+        운영에서도 구역마다 첫 요청 뒤에는 압축본이 나가므로, split과 같게 압축이 끝난 상태에서 잰다."""
+        start=clock();waiting=list(names)
+        while waiting:
+            waiting=[n for n in waiting if layout_probe.fetch(self.http,sid,token,'gzip',n)['content_encoding']!='gzip']
+            if not waiting:break
+            require(clock()-start<timeout,f'section layout gzip not ready in {timeout}s: {len(waiting)} sections')
+            sleep(.5)
+        seconds=clock()-start
+        print(f'[prepare] zone: gzip layout ready for {len(names)} sections ({seconds:.1f}s)',flush=True)
+        return seconds
 
     def db_size(self):
         return self.db("SELECT coalesce(json_agg(x),'[]') FROM (SELECT schemaname,relname,n_live_tup estimated_live_rows,pg_total_relation_size(relid) total_bytes FROM pg_stat_user_tables WHERE schemaname IN ('user_schema','performance_schema','reservation_schema','payment_schema','fake_pg_schema') ORDER BY schemaname,relname) x")

@@ -172,6 +172,29 @@ class PrepareZoneTests(unittest.TestCase):
         self.assertEqual(obj.report['zone']['layout']['section'], 'A')
         self.assertTrue((obj.out/'layout-cost-section.json').exists())
 
+    def test_gzip_primes_every_section_until_compressed(self):
+        # 서버는 구역마다 첫 요청에 원본을 주고 뒤에서 압축한다. 모든 구역이 gzip으로 올 때까지 다시 받는다
+        obj = scenario('parse', 'gzip')
+        obj.http = FakeHttp(compressed=True)
+        seen = {}
+        real = layout_probe.fetch
+        def fetch(http, sid, token, encoding, section=None):
+            seen[section] = seen.get(section, 0) + 1
+            row = real(http, sid, token, encoding, section)
+            if seen[section] == 1:  # 첫 요청은 압축 전 원본
+                row['content_encoding'] = 'identity'
+            return row
+        with patch.object(layout_probe, 'fetch', fetch), patch('builtins.print'):
+            obj.prime_section_gzip(7, 'token', ['A', 'B'], sleep=lambda s: None)
+        self.assertEqual(seen, {'A': 2, 'B': 2})
+
+    def test_gzip_prime_gives_up_after_timeout(self):
+        obj = scenario('parse', 'gzip')
+        obj.http = FakeHttp(compressed=False)
+        ticks = iter(range(0, 100, 10))
+        with patch('builtins.print'), self.assertRaises(scenario2.Failure):
+            obj.prime_section_gzip(7, 'token', ['A'], timeout=30, clock=lambda: next(ticks), sleep=lambda s: None)
+
     def test_more_visits_than_sections_fails(self):
         with self.assertRaises(scenario2.Failure):
             self.prepare(scenario('parse', 'default'), visits=3)
