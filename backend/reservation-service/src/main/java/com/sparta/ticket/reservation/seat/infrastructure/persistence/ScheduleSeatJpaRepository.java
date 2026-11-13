@@ -4,7 +4,6 @@ import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import jakarta.persistence.LockModeType;
-import jakarta.persistence.QueryHint;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -12,7 +11,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, Long>, ScheduleSeatRepository {
@@ -25,17 +23,6 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
-
-    /**
-     * Note: 잠금 대기 시간 0을 주면 Hibernate가 FOR UPDATE 뒤에 NOWAIT를 붙인다. 잠금 순서는 위 메서드와 같은 id 오름차순이다.
-     * 요청 좌석만 NOWAIT로 잠그고 나머지 좌석을 따로 기다려 잠그면 잠금 순서가 섞여 교착할 수 있어, 함께 잠글 좌석을 이 한 쿼리로
-     * 모두 잠근다.
-     */
-    @Override
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "0"))
-    @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
-    List<ScheduleSeat> findAllByIdsForUpdateNoWait(@Param("ids") Collection<Long> ids);
 
     /** 회차별 조회는 ix_p_schedule_seats_selectable(schedule_id, is_sellable, status)의 앞 컬럼을 탄다. */
     @Override

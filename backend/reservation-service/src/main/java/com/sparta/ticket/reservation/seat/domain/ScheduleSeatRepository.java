@@ -19,12 +19,6 @@ public interface ScheduleSeatRepository {
     /** 넘긴 좌석을 id 오름차순으로 잠그고 읽는다. 없는 id와 삭제된 좌석은 결과에서 빠진다. 트랜잭션 안에서만 부른다. */
     List<ScheduleSeat> findAllByIdsForUpdate(Collection<Long> ids);
 
-    /**
-     * {@link #findAllByIdsForUpdate}와 같지만 잠금을 기다리지 않는다(FOR UPDATE NOWAIT). 넘긴 좌석 중 하나라도 다른 트랜잭션이
-     * 잠그고 있으면 바로 PessimisticLockingFailureException(SQLSTATE 55P03)으로 끝난다. 선점 경로에서만 쓴다(#313).
-     */
-    List<ScheduleSeat> findAllByIdsForUpdateNoWait(Collection<Long> ids);
-
     /** 회차의 좌석을 id 순서로 읽는다. 잠그지 않는다. 삭제된 좌석은 빠진다. */
     List<ScheduleSeat> findAllBySchedule(Long scheduleId);
 
