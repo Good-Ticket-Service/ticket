@@ -281,6 +281,38 @@ class PaymentConfirmMessageIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
+    @DisplayName("한 번에 보내는 수보다 많이 쌓였으면 덜 찬 묶음이 나올 때까지 이어서 다 보낸다")
+    void publishAllSendsEveryBatch() throws Exception {
+        Set<String> orderIds = new HashSet<>();
+        for (int i = 0; i < 5; i++) {
+            orderIds.add(requestedByMessage().orderId());
+        }
+
+        assertThat(publisher.publishAll(2, SEND_TIMEOUT)).isEqualTo(5);
+
+        assertThat(outboxSize()).isZero();
+        assertThat(requestsFor(orderIds, 5)).hasSize(5);
+    }
+
+    @Test
+    @Timeout(value = 20, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    @DisplayName("이어서 보내다가 보내지 못한 행을 만나면 멈추고 남은 행은 다음 차례에 넘긴다")
+    void publishAllStopsAtUnsendableRow() {
+        jdbcTemplate.update(
+                "INSERT INTO p_booking_outbox (topic, message_key, payload, created_at) VALUES (?, ?, ?, ?)",
+                "invalid topic!",
+                "1",
+                "{}",
+                clock.now());
+        requestedByMessage();
+        requestedByMessage();
+
+        assertThat(publisher.publishAll(1, SEND_TIMEOUT)).isZero();
+
+        assertThat(outboxSize()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("승인 요청을 커밋하자마자 발행해, 발행 스케줄러의 다음 차례를 기다리지 않는다")
     void publishesRightAfterCommit() throws Exception {
         outboxWakeup.publishOnCommit();

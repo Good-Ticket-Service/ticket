@@ -65,7 +65,7 @@ public class OutboxPublishWaker implements OutboxWakeup, SmartLifecycle {
     private void drain() {
         try {
             while (pending.getAndSet(false)) {
-                publishAll();
+                publisher.publishAll(batchSize, sendTimeout);
             }
         } catch (RuntimeException e) {
             log.warn("커밋 직후 발행이 실패했다. 남은 행은 발행 스케줄러가 보낸다", e);
@@ -76,14 +76,6 @@ public class OutboxPublishWaker implements OutboxWakeup, SmartLifecycle {
                 submit();
             }
         }
-    }
-
-    /** 한 번에 batchSize개까지 보내므로, 꽉 채워 보냈으면 더 남았을 수 있어 다시 돈다. 덜 보냈으면 다 보냈거나 실패한 것이다. */
-    private void publishAll() {
-        int sent;
-        do {
-            sent = publisher.publish(batchSize, sendTimeout);
-        } while (sent == batchSize);
     }
 
     @Override

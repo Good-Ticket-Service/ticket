@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
@@ -33,7 +34,7 @@ class OutboxPublishWakerTest {
     }
 
     private void publisherAnswers(IntSupplier answer) {
-        when(publisher.publish(anyInt(), any())).thenAnswer(invocation -> {
+        when(publisher.publishAll(anyInt(), any())).thenAnswer(invocation -> {
             runs.incrementAndGet();
             return answer.getAsInt();
         });
@@ -67,17 +68,6 @@ class OutboxPublishWakerTest {
     }
 
     @Test
-    @DisplayName("묶음을 꽉 채워 보냈으면 남은 행이 있을 수 있어 덜 찰 때까지 이어서 보낸다")
-    void keepsPublishingWhileBatchesAreFull() {
-        int[] answers = {BATCH, BATCH, 1};
-        publisherAnswers(() -> answers[Math.min(runs.get(), answers.length) - 1]);
-
-        waker.wake();
-
-        await().atMost(Duration.ofSeconds(5)).until(() -> runs.get() == 3);
-    }
-
-    @Test
     @DisplayName("발행이 예외로 끝나도 다음 깨우기에는 다시 발행한다")
     void wakesAgainAfterException() {
         publisherAnswers(() -> {
@@ -107,7 +97,7 @@ class OutboxPublishWakerTest {
             return 0;
         });
         waker.wake();
-        inRun.await();
+        assertThat(inRun.await(5, TimeUnit.SECONDS)).isTrue();
 
         waker.stop();
 
