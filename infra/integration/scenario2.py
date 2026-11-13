@@ -361,7 +361,10 @@ class MixedScenario(Scenario):
           'gc_pause_seconds':'rate(jvm_gc_pause_seconds_sum[30s])','gc_allocated_bytes':'rate(jvm_gc_memory_allocated_bytes_total[30s])',
           'http_p99':'histogram_quantile(0.99,sum by(le,application,uri)(rate(http_server_requests_seconds_bucket[30s])))',
           'k6_requests':'rate(k6_http_reqs_total{phase="measure"}[30s])',
-          'k6_confirmed':'rate(k6_booking_confirmed_total[30s])'}
+          'k6_confirmed':'rate(k6_booking_confirmed_total[30s])',
+          # 스냅샷 생성 시간(#397: 구역 나누기 포함)과 요청 스레드 대기 시간. 회차 태그가 없어 측정 중 모든 회차의 합이다
+          'snapshot_load_p99':'histogram_quantile(0.99,sum by(le)(rate(reservation_seat_snapshot_load_seconds_bucket{result="success"}[30s])))',
+          'snapshot_get_p99':'histogram_quantile(0.99,sum by(le)(rate(reservation_seat_snapshot_get_seconds_bucket[30s])))'}
         queries['k6_requests']=f'rate(k6_http_reqs_total{{phase="measure",test_id="{self.run_id}"}}[30s])'
         queries['k6_confirmed']=f'rate(k6_booking_confirmed_total{{test_id="{self.run_id}"}}[30s])'
         gaps=[]
