@@ -380,7 +380,7 @@
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/reservations/{reservationId} | 본인 USER 또는 MASTER | 200 | 없음 | Reservation | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
-| GET /api/reservations/{reservationId}/status | 본인 USER 또는 MASTER | 200 | 없음 | ReservationStatus | 404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
+| GET /api/reservations/{reservationId}/status | 본인 USER 또는 MASTER | 200 | Q wait?:int(1~10, 초) | ReservationStatus | 400 VALIDATION_ERROR(wait 범위 밖);404 RESERVATION_NOT_FOUND;403 FORBIDDEN |
 | POST /api/reservations/{reservationId}/payments/checkout | 본인 USER | 200 | userCouponId?:long,pgProvider:string(TOSS/KAKAO) | orderId:string,amount:int,checkoutUrl:string\|null | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;쿠폰 오류;503 SERVICE_UNAVAILABLE |
 | POST /api/reservations/{reservationId}/payments/confirm | 본인 USER | 200 | orderId:string(1~64),pgAuthToken:string(1~255) | Reservation | 400 VALIDATION_ERROR;409 HOLD_EXPIRED/INVALID_STATUS_TRANSITION;503 SERVICE_UNAVAILABLE |
 | GET /api/reservations | 본인 USER | 200 | Q status?:string,page?:int=0,size?:int=10(10/30/50),sort?:string=createdAt,DESC(createdAt,ASC/DESC) | PageC<ReservationSummary> | 400 VALIDATION_ERROR;403 FORBIDDEN(USER가 아님) |
@@ -418,6 +418,7 @@
 - confirm: 결과를 모르면 응답 status는 PAYMENT_IN_PROGRESS이다. 클라이언트는 GET /api/reservations/{reservationId}/status로 폴링한다.
 - checkout 접수 제한: 결제 승인을 메시지로 요청하는 모드에서 결제 결과가 계속 늦어지면 checkout을 503 SERVICE_UNAVAILABLE로 거절하고 `Retry-After` 헤더(초)로 다시 시도할 시간을 준다. 기다리는 예매가 많으면 서버가 간격을 늘린다(기본 5초, 최대 30초). 선점은 그대로이므로 그 뒤 같은 요청을 다시 보낸다. 선점 만료가 가까운 예매는 거절 중에도 일부 받는다. (#356)
 - 폴링: 예매가 PAYMENT_IN_PROGRESS이면 단건 조회와 상태 조회 모두 `Retry-After` 헤더(초)로 다음 조회까지 기다릴 시간을 준다. 결제 중 예약이 많으면 서버가 간격을 늘린다(기본 1초, 최대 5초). 헤더가 없으면 결과가 정해진 것이므로 조회를 멈춘다. (#321)
+- 롱폴링: 상태 조회에 `wait`(초, 1~10)를 주면, 예매가 PAYMENT_IN_PROGRESS인 동안 응답을 미루고 결과(CONFIRMED·HOLD·EXPIRED·CANCELED)가 정해지는 즉시 응답한다. wait 안에 정해지지 않으면 200 PAYMENT_IN_PROGRESS를 주고, 클라이언트는 `Retry-After`를 기다리지 않고 바로 다시 wait로 조회한다. 결과가 이미 정해진 예매와 wait 없는 요청은 지금처럼 바로 응답한다. 서버는 기다리는 동안 요청 스레드와 DB 연결을 잡지 않는다. 서버가 여러 대여도 결과를 받은 서버가 다른 서버에 알린다. 알림이 늦거나 빠지면 그 요청은 wait가 끝날 때 결제 중으로 응답하고, 다음 조회에서 결과를 본다. 동시에 다시 묻지 않도록 서버는 실제 대기 시간을 wait보다 조금 짧게 흩는다. (#420)
 - confirm: 승인 뒤 결과 반영이 실패해도 오류 대신 200과 현재 상태(PAYMENT_IN_PROGRESS)를 준다. (원본 복원: reservation/booking-decisions.md:61, 담당 확인 필요)
 - confirm: 같은 orderId의 승인이 다시 왔을 때 예매가 PAYMENT_IN_PROGRESS나 CONFIRMED이면 결제를 다시 부르지 않는다. 이때 200과 현재 상태를 준다. (원본 복원: reservation/orchestration.md:219,231, reservation/booking-decisions.md:60, 담당 확인 필요)
 - confirm: 선점 시간이 지난 뒤의 승인은 만료 스케줄러가 돌았는지와 관계없이 409 HOLD_EXPIRED이다. (원본 복원: reservation/orchestration.md:220, reservation/booking-decisions.md:60, 담당 확인 필요)
