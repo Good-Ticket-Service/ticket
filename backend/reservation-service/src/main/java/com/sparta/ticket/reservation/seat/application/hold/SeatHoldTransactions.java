@@ -8,7 +8,6 @@ import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.booking.application.facade.SeatLine;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.SeatChangeStamps;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties.LockMode;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
@@ -52,7 +51,6 @@ public class SeatHoldTransactions {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final BookingFacade bookingFacade;
     private final SeatChangeStamps changeStamps;
-    private final SeatHoldLockMode lockMode;
     private final SeatHoldDuration holdDuration;
 
     @Transactional
@@ -69,9 +67,9 @@ public class SeatHoldTransactions {
         previousHolder.ifPresent(view -> lockIds.addAll(view.scheduleSeatIds()));
 
         // 2. 한 번에 id 오름차순으로 잠근다. 이 트랜잭션에서 처음 읽는 좌석이라 결과가 DB의 최신 값이다.
-        //    nowait면 하나라도 다른 트랜잭션이 잠그고 있을 때 기다리지 않고 실패하고, SeatHoldService가 409로 바꾼다(#313)
+        //    앞선 트랜잭션이 잡고 있으면 끝날 때까지 기다린다. NOWAIT와 비교해 기다리는 쪽으로 정했다(#313, #390)
         Map<Long, ScheduleSeat> locked =
-                lockSeats(lockIds).stream().collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
+                scheduleSeatRepository.findAllByIdsForUpdate(lockIds).stream().collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
         ScheduleSeat seat = locked.get(target.scheduleSeatId());
         if (seat == null) {
             // 1단계 조회 뒤 좌석이 논리 삭제됐다
@@ -164,13 +162,6 @@ public class SeatHoldTransactions {
                 userId, holdTarget, List.of(new SeatLine(seat.getId(), seat.getBasePrice())), holdExpiresAt);
         seat.hold(reservationId, holdExpiresAt, now);
         return new SeatHoldResult(reservationId, seat.getId(), holdExpiresAt, seat.getBasePrice(), true);
-    }
-
-    private List<ScheduleSeat> lockSeats(Collection<Long> ids) {
-        if (lockMode.current() == LockMode.NOWAIT) {
-            return scheduleSeatRepository.findAllByIdsForUpdateNoWait(ids);
-        }
-        return scheduleSeatRepository.findAllByIdsForUpdate(ids);
     }
 
     /**

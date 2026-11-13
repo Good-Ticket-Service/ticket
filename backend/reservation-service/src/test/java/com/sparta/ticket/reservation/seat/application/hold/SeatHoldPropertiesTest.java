@@ -12,8 +12,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class SeatHoldPropertiesTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withUserConfiguration(SeatHoldLockMode.class, SeatHoldDuration.class)
-            .withPropertyValues("reservation.seat.hold.lock-mode=wait");
+            .withUserConfiguration(SeatHoldDuration.class);
 
     @Test
     @DisplayName("유지 시간 값이 없으면 계약값 10분이다")

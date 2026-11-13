@@ -8,12 +8,10 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
-import java.sql.SQLException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.postgresql.util.PSQLException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -27,8 +25,6 @@ import org.springframework.stereotype.Service;
  *   3. 좌석 잠금·예약 생성은 {@link SeatHoldTransactions}의 트랜잭션 하나에서 한다.
  *   4. 같은 회원이 같은 회차에 진행 중인 예약을 또 만들면 booking의 hold가 부분 UNIQUE 위반을 그대로 던진다. 트랜잭션이 롤백된 뒤
  *      여기서 제약 이름을 확인해 409 PURCHASE_LIMIT_EXCEEDED로 바꾼다(BookingFacade.hold 계약).
- *   5. 잠금 방식이 nowait면, 함께 잠글 좌석 중 하나라도 다른 트랜잭션이 잡고 있을 때 잠금이 바로 실패한다. 롤백된 뒤 여기서
- *      409 SEAT_ALREADY_TAKEN으로 바꾸고 메시지만 잠금 실패용으로 준다(#313).
  *
  * Note: 이 클래스에는 트랜잭션이 없다. 1단계의 읽기는 저장소 기본 읽기 트랜잭션에서 끝나므로, 3단계 트랜잭션이 좌석을 잠글 때
  * 영속성 컨텍스트에 미리 읽은 좌석 Entity가 남아 있지 않다. 그래서 잠근 결과가 DB의 최신 값이다.
@@ -39,16 +35,6 @@ public class SeatHoldService {
 
     /** booking.sql의 활성 예매 부분 UNIQUE. 이 제약 위반만 매수 제한으로 바꾸고 다른 무결성 오류는 그대로 둔다. */
     static final String ACTIVE_RESERVATION_CONSTRAINT = "uk_p_reservations_active_user_schedule";
-
-    /**
-     * PostgreSQL lock_not_available. NOWAIT 잠금이 이미 잠긴 행을 만나면 이 SQLSTATE로 끝난다.
-     * Note: lock_timeout을 넘긴 대기도 같은 SQLSTATE다. 지금 선점 경로에는 lock_timeout이 없지만, 나중에 DB·역할에 걸면 wait
-     * 모드의 시간 초과도 같은 409("잠시 후 다시 시도")가 된다. 그때도 맞는 응답이라 잠금 방식으로 나누지 않는다.
-     */
-    static final String LOCK_NOT_AVAILABLE = "55P03";
-
-    /** 잠금 실패 409의 메시지. 좌석이 이미 선점된 것과 달리 잠시 뒤 다시 시도하면 될 수 있다. */
-    static final String LOCK_BUSY_MESSAGE = "다른 요청이 이 좌석을 처리 중입니다. 잠시 후 다시 시도해 주세요.";
 
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final SaleValidationPort saleValidationPort;
@@ -80,12 +66,6 @@ public class SeatHoldService {
                 throw new BusinessException(ReservationErrorCode.PURCHASE_LIMIT_EXCEEDED);
             }
             throw e;
-        } catch (PessimisticLockingFailureException e) {
-            // 5. 교착(40P01) 같은 다른 잠금 오류는 409로 감추지 않고 그대로 던진다
-            if (lockNotAvailable(e)) {
-                throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN, LOCK_BUSY_MESSAGE);
-            }
-            throw e;
         }
     }
 
@@ -115,16 +95,6 @@ public class SeatHoldService {
             if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null) {
                 return constraintName.equalsIgnoreCase(
                         psql.getServerErrorMessage().getConstraint());
-            }
-        }
-        return false;
-    }
-
-    /** 원인 중 SQLSTATE가 55P03인 SQL 예외가 있는지 본다. Hibernate·Spring이 감싼 뒤에도 드라이버 예외가 원인으로 남는다. */
-    private static boolean lockNotAvailable(PessimisticLockingFailureException e) {
-        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sql && LOCK_NOT_AVAILABLE.equals(sql.getSQLState())) {
-                return true;
             }
         }
         return false;

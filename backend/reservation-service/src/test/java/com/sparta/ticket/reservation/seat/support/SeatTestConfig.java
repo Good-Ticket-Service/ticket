@@ -28,13 +28,6 @@ public class SeatTestConfig {
         return new MutableTicker();
     }
 
-    /** 선점 잠금 방식. 기본은 설정값(wait)이고, NOWAIT 테스트가 바꾼 뒤 되돌린다(#313). */
-    @Bean
-    @Primary
-    public MutableSeatHoldLockMode mutableSeatHoldLockMode(SeatHoldProperties properties) {
-        return new MutableSeatHoldLockMode(properties);
-    }
-
     /** 선점 유지 시간. 기본은 코드 기본값(10분)이고, 유지 시간 테스트가 바꾼 뒤 되돌린다(#248). */
     @Bean
     @Primary
