@@ -38,6 +38,9 @@ public class BookingMetrics {
     private final AtomicLong admissionShedding = new AtomicLong();
     private final AtomicLong admissionReopenRate = new AtomicLong();
     private final AtomicLong admissionRetryAfter = new AtomicLong();
+    private final Counter fallbackConfirms;
+    private final AtomicLong outboxOldestWaiting = new AtomicLong();
+    private final AtomicLong confirmFallbackActive = new AtomicLong();
 
     public BookingMetrics(MeterRegistry registry) {
         this.expiredHolds = Counter.builder("reservation.expired")
@@ -124,6 +127,16 @@ public class BookingMetrics {
                 .register(registry);
         Gauge.builder("reservation.payment.stuck", stuckPayments, AtomicLong::get)
                 .description("상한 시간을 넘겨 결제 중인 예약 수. 0보다 크면 관리자가 확인한다")
+                .register(registry);
+        this.fallbackConfirms = Counter.builder("reservation.payment.confirm.fallback")
+                .description("메시지 승인으로 설정했지만 승인 요청이 브로커로 나가지 못해 동기로 부른 승인 수. 결제 중으로 바꾼 승인만 세고 같은 승인의 재시도는 세지 않는다")
+                .register(registry);
+        Gauge.builder("reservation.outbox.oldest_waiting", outboxOldestWaiting, AtomicLong::get)
+                .baseUnit("seconds")
+                .description("Outbox에서 발행기가 다음에 보낼 메시지가 기다린 시간. 비었으면 0. 결제 중 집계가 갱신한다")
+                .register(registry);
+        Gauge.builder("reservation.payment.confirm.fallback.active", confirmFallbackActive, AtomicLong::get)
+                .description("새 승인을 메시지 대신 동기로 부르는 중이면 1(이 인스턴스)")
                 .register(registry);
     }
 
@@ -243,6 +256,15 @@ public class BookingMetrics {
         admissionShedding.set(shedding ? 1 : 0);
         admissionReopenRate.set(reopenRate);
         admissionRetryAfter.set(retryAfterSeconds);
+    }
+
+    public void fallbackConfirm() {
+        fallbackConfirms.increment();
+    }
+
+    public void confirmFallbackState(long oldestWaitingSeconds, boolean fallbackActive) {
+        outboxOldestWaiting.set(oldestWaitingSeconds);
+        confirmFallbackActive.set(fallbackActive ? 1 : 0);
     }
 
     public void paymentBacklog(long inProgress, long stuck) {

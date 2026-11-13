@@ -17,6 +17,7 @@ class AdmissionPropertiesTest {
             .withPropertyValues(
                     "reservation.booking.payment-confirm.window=5m",
                     "reservation.booking.payment-confirm.grace=1m",
+                    "reservation.booking.payment-confirm.fallback.unsent-after=5s",
                     "reservation.booking.payment-polling.base=1s",
                     "reservation.booking.payment-polling.max=5s",
                     "reservation.booking.payment-polling.busy-above=1000",
@@ -55,6 +56,7 @@ class AdmissionPropertiesTest {
                 .withPropertyValues(
                         "reservation.booking.payment-confirm.window=5m",
                         "reservation.booking.payment-confirm.grace=1m",
+                        "reservation.booking.payment-confirm.fallback.unsent-after=5s",
                         "reservation.booking.payment-polling.base=1s",
                         "reservation.booking.payment-polling.max=5s",
                         "reservation.booking.payment-polling.busy-above=1000",

@@ -2,6 +2,7 @@ package com.sparta.ticket.reservation.booking.application.payment;
 
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.reservation.booking.application.BookingMetrics;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutCommand;
 import com.sparta.ticket.reservation.booking.application.dto.CheckoutResult;
 import com.sparta.ticket.reservation.booking.application.dto.ConfirmCommand;
@@ -37,7 +38,9 @@ public class ReservationPaymentService {
     private final PaymentPort paymentPort;
     private final PaymentCallGuard paymentCallGuard;
     private final PaymentConfirmSettings confirmSettings;
+    private final ConfirmRouter confirmRouter;
     private final AdmissionGate admissionGate;
+    private final BookingMetrics metrics;
 
     /**
      * 결제를 준비한다. 상태는 HOLD 그대로이고, 고른 쿠폰을 예약에 잡은 뒤 새 orderId와 결제 금액을 기록한다.
@@ -45,7 +48,9 @@ public class ReservationPaymentService {
      * 막혀 있으면 쿠폰을 잡기 전에 503으로 끝낸다.
      */
     public CheckoutResult checkout(UserContext user, Long reservationId, CheckoutCommand command) {
-        if (confirmSettings.viaMessage()) {
+        // 이 준비 뒤의 승인이 메시지로 갈 때만 접수 제한을 본다. 승인 요청이 나가지 못해 동기로 돌리는 동안에도 보면,
+        // 이미 묶인 요청이 시한까지 늦은 결제로 세어져 결제 준비를 몇 분 막고 동기로 돌린 승인을 쓸 사용자가 들어오지 못한다
+        if (confirmRouter.route().byMessage()) {
             admit(reservationId);
         }
         Call call = paymentCallGuard.start();
@@ -142,9 +147,14 @@ public class ReservationPaymentService {
      * 막혀 있으면 결제 중으로 바꾸기 전에 503으로 끝낸다. 예약은 HOLD 그대로라 선점 시간 안에 같은 인증값으로 다시 승인할 수 있다.
      * 결제 중으로 바꾼 뒤에 막으면 결과 모름이 되어 사용자가 결과 확인 스케줄러를 1~2분 기다린다.
      * 같은 승인이 다시 와도 막혀 있는 동안은 503이다. 지금 상태는 조회 API로 본다.
+     *
+     * 메시지로 요청할지 동기로 부를지는 결제 중으로 바꾸기 전에 한 번만 정한다. 메시지로 남긴 뒤 보내지 못했다고 동기로 다시 부르면
+     * 한 orderId가 두 길로 간다. 이미 메시지로 접수한 예약에 같은 승인이 다시 와서 동기로 가도, 결제 시작이 HOLD만 바꾸므로
+     * payment를 부르지 않고 지금 상태를 돌려준다.
      */
     public ReservationResult confirm(UserContext user, Long reservationId, ConfirmCommand command) {
-        if (confirmSettings.viaMessage()) {
+        ConfirmRoute route = confirmRouter.route();
+        if (route.byMessage()) {
             return confirmByMessage(user, reservationId, command);
         }
         Call call = paymentCallGuard.start();
@@ -153,6 +163,9 @@ public class ReservationPaymentService {
             if (!start.started()) {
                 call.skipped();
                 return start.current();
+            }
+            if (route == ConfirmRoute.SYNC_FALLBACK) {
+                metrics.fallbackConfirm();
             }
             ConfirmOutcome outcome = requestConfirm(call, command, start.amount());
             try {

@@ -3,6 +3,8 @@ package com.sparta.ticket.reservation.booking.infrastructure.messaging;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.reservation.booking.application.ChangeStamps;
 import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmRequests;
+import java.time.LocalDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -38,5 +40,12 @@ class OutboxPaymentConfirmRequests implements PaymentConfirmRequests {
                         target.wake();
                     }
                 }));
+    }
+
+    /** 읽는 쪽(결제 중 집계)의 트랜잭션에 얹어, 완료 전용 풀의 연결을 쓰는 곳을 늘리지 않는다. */
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
+    public Optional<LocalDateTime> oldestWaitingSince() {
+        return outbox.findOldestCreatedAt();
     }
 }

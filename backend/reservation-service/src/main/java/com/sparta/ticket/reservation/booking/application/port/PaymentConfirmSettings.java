@@ -16,4 +16,10 @@ public interface PaymentConfirmSettings {
      * 짧으면 예매가 실패로 끝낸 뒤 시계가 늦은 payment가 아직 시한 안이라며 PG를 부를 수 있다.
      */
     Duration grace();
+
+    /** 메시지 승인으로 설정했지만 승인 요청이 브로커로 나가지 못할 때 새 승인을 동기로 부를지. */
+    boolean fallbackEnabled();
+
+    /** Outbox 맨 앞 메시지가 이 시간 이상 기다렸으면 승인 요청이 나가지 못하는 것으로 본다. */
+    Duration unsentAfter();
 }

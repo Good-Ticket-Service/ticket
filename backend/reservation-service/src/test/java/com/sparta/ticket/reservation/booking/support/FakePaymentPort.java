@@ -25,6 +25,7 @@ public class FakePaymentPort implements PaymentPort {
     public final List<PaymentPrepareRequest> prepared = new CopyOnWriteArrayList<>();
     public final List<String> confirmedOrderIds = new CopyOnWriteArrayList<>();
     public final List<Long> confirmedAmounts = new CopyOnWriteArrayList<>();
+    public final List<String> confirmedAuthTokens = new CopyOnWriteArrayList<>();
     public final List<Boolean> calledInTransaction = new CopyOnWriteArrayList<>();
     public final List<String> lookedUpOrderIds = new CopyOnWriteArrayList<>();
     public final List<String> refundedOrderIds = new CopyOnWriteArrayList<>();
@@ -44,6 +45,7 @@ public class FakePaymentPort implements PaymentPort {
         prepared.clear();
         confirmedOrderIds.clear();
         confirmedAmounts.clear();
+        confirmedAuthTokens.clear();
         calledInTransaction.clear();
         lookedUpOrderIds.clear();
         refundedOrderIds.clear();
@@ -140,6 +142,7 @@ public class FakePaymentPort implements PaymentPort {
         record();
         confirmedOrderIds.add(orderId);
         confirmedAmounts.add(amount);
+        confirmedAuthTokens.add(pgAuthToken);
         return confirmResult.get();
     }
 
