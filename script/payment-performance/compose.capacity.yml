@@ -1,0 +1,5 @@
+# #396 환경 B. HTTP 500/s 측정(p13)과 같은 결제 DB CPU 6을 전용 PostgreSQL에만 적용한다.
+# script/settlement-kafka/compose.yml 뒤에 겹쳐 쓴다. 볼륨·계정·포트는 그대로다.
+services:
+  postgres:
+    cpus: 6
