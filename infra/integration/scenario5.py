@@ -453,7 +453,10 @@ class HoldContentionScenario(MixedScenario):
         queries = {'targets': 'up', 'cpu_cores': 'rate(integration_container_cpu_usage_seconds_total[30s])',
                    'pg_waits': 'integration_pg_sessions',
                    'http_p99': 'histogram_quantile(0.99,sum by(le,application,uri)(rate(http_server_requests_seconds_bucket[30s])))',
-                   'k6_holds': f'rate(k6_hold_attempts_total{{test_id="{self.run_id}"}}[30s])', **SERVER_QUERIES}
+                   **SERVER_QUERIES}
+        # 보낸 부하만 조회한다. 보내지 않은 쪽(기준 회차의 인기 좌석 등)을 넣으면 빈 결과가 관측 누락으로 남는다
+        if self.hot_enabled: queries['k6_holds'] = f'rate(k6_hold_attempts_total{{test_id="{self.run_id}"}}[30s])'
+        if self.args.base_rate: queries['k6_base_holds'] = f'rate(k6_base_hold_attempts_total{{test_id="{self.run_id}"}}[30s])'
         gaps, summary = [], {}
         m_start, m_end = self.report.get('measure_start_epoch', start), self.report.get('measure_end_epoch', end)
         for name, query in queries.items():
