@@ -291,19 +291,21 @@
 
 ## 좌석 — reservation-service / seat
 
-상태: 선택 가능 좌석 조회(#84), 좌석 배치·상태 조회(이슈 #271), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: 선택 가능 좌석 조회(#84), 좌석 배치·상태 조회(이슈 #271), 구역별 좌석 조회(이슈 #397), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
 | GET /api/seats/schedules/{scheduleId} | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seats:SelectableSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(회차에 좌석이 없음: 없는 회차·좌석 준비 전을 나누지 않음) |
-| GET /api/seats/schedules/{scheduleId}/layout | JWT+X-Queue-Token | 200; If-None-Match 일치 304 | 없음 | scheduleId:long,configVersion:long,seats:SeatLayoutSeat[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND |
-| GET /api/seats/schedules/{scheduleId}/status | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seatCount:int,selectableBitmap:string(base64) | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND |
+| GET /api/seats/schedules/{scheduleId}/sections | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,sections:SeatSection[] | 403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND |
+| GET /api/seats/schedules/{scheduleId}/layout?section={section} | JWT+X-Queue-Token | 200; If-None-Match 일치 304 | 없음 | scheduleId:long,configVersion:long,seats:SeatLayoutSeat[] | 400 VALIDATION_ERROR(section 빈 값·20자 초과);403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(없는 구역 포함) |
+| GET /api/seats/schedules/{scheduleId}/status?section={section} | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seatCount:int,selectableBitmap:string(base64) | 400 VALIDATION_ERROR(section 빈 값·20자 초과);403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(없는 구역 포함) |
 | GET /api/seats/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
 | POST /api/seats/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 400 판매 거절 reasonCode;404 SEAT_NOT_FOUND/SCHEDULE_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
 | DELETE /api/seats/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
 
 - SelectableSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null,selectable:boolean}`. 다른 사용자의 예약 ID/만료 시각 제외.
 - SeatLayoutSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null}`. 선택 가능 여부는 넣지 않는다. (이슈 #271)
+- SeatSection = `{section:string,seatCount:int,selectableCount:int}`. selectableCount는 같은 스냅샷의 status 판정으로 센 선택 가능 좌석 수다. (이슈 #397)
 - 선점 판매 거절은 sale-validations의 reasonCode를 외부 code로 반환: 기본 400, SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH만 409. 삭제·미존재는 404. 연령 미달 오류는 미합의이며 architecture 14절을 따른다.
 
 - 선점 API도 입장 토큰이 없거나 만료되면 Gateway가 403 QUEUE_TOKEN_INVALID로 거절한다. (원본 복원: seat/api.md:124,191, 담당 확인 필요)
@@ -332,6 +334,11 @@
 - Accept-Encoding에 gzip이 있으면 layout은 같은 버전 단위로 미리 압축한 본문을 `Content-Encoding: gzip`으로 준다. 본문을 풀면 압축하지 않은 응답과 같은 JSON이다. 2KB보다 작은 본문은 압축하지 않는다. 압축본은 서버가 버전마다 한 번 뒤에서 만들어, 그 전 짧은 동안은 gzip을 요청해도 원본을 줄 수 있다. 원본과 압축본의 바이트가 달라 ETag는 약한 ETag 하나를 쓴다. (이슈 #287)
 - layout의 304는 같은 사용자가 다시 볼 때(선점 만료 뒤 다시 고르기, 새로고침) 효과가 있다. 여정마다 새 사용자인 부하 시나리오에서는 효과가 거의 없다. (이슈 #271)
 - status는 1초마다 바뀌어 ETag를 두지 않고, 지난 상태가 저장되지 않게 `Cache-Control: no-store`를 준다. (이슈 #271)
+- layout·status의 `section`은 선택이다. 없으면 회차 전체, 있으면 그 구역 좌석만 준다. 구역 좌석도 좌석 id 오름차순이고, 구역 status 비트맵의 i번째 좌석은 같은 구역 layout의 i번째 좌석이다. configVersion·ETag·asOf 규칙은 전체 조회와 같다. (이슈 #397)
+- 구역은 좌석의 section 값이다(공연 담당 확인, 이슈 #397). 1~20자 자유 문자열이고 한글·공백·특수문자가 들어갈 수 있다(예 `1층 A구역`). 서버는 정규화하지 않고 저장값과 정확히 일치로 비교한다(대소문자·공백 구분). 클라이언트는 /sections의 section 값을 그대로 URL 인코딩(`encodeURIComponent`)해 보낸다. `+`는 공백으로 읽히므로 `%2B`로 보내야 한다. (이슈 #397)
+- 회차에 없는 구역은 404 SEAT_NOT_FOUND다. layout은 304 판단 전에 구역부터 확인한다. 404를 받으면 /sections를 다시 받는다. (이슈 #397)
+- /sections의 구역 순서는 구역의 가장 작은 좌석 id 순(공연장 좌석 등록 순서)이다. layout·status와 같은 스냅샷에서 만들고, 선택 가능 수가 1초마다 바뀌어 status처럼 `Cache-Control: no-store`다. 구역 선택 화면용이고, 고른 구역의 최신 상태는 status?section=으로 받는다. (이슈 #397)
+- 구역 layout 본문도 (회차, configVersion, 구역)마다 한 번 만들고 gzip 규칙은 전체 layout과 같다. 큰 공연장은 구역별 조회를 쓴다. 브라우저 실측에서 전체 10,000석을 넘으면 좌석 화면이 버티지 못했다(이슈 #287). (이슈 #397)
 - 좌석 API 응답 시각은 +09:00 오프셋을 포함한 ISO 8601이다. (원본 복원: seat/api.md:15, 담당 확인 필요)
 
 ### 좌석 내부 API
