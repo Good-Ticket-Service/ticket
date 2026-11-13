@@ -48,6 +48,12 @@ public class BookingTestConfig {
     }
 
     @Bean
+    @Primary
+    public FakeSubstituteConfirm fakeSubstituteConfirm() {
+        return new FakeSubstituteConfirm();
+    }
+
+    @Bean
     public CouponFixture couponFixture(JdbcTemplate jdbcTemplate, MutableClock clock) {
         return new CouponFixture(jdbcTemplate, clock);
     }

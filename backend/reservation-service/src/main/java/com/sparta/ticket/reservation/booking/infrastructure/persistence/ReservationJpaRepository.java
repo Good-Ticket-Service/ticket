@@ -433,6 +433,15 @@ public interface ReservationJpaRepository
             @Param("checkedBefore") LocalDateTime checkedBefore,
             @Param("requestedBefore") LocalDateTime requestedBefore);
 
+    @Override
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reservation r SET r.paymentCheckedAt = :at
+             WHERE r.id = :id AND r.status = com.sparta.ticket.reservation.booking.domain.ReservationStatus.PAYMENT_IN_PROGRESS
+               AND r.orderId = :orderId
+            """)
+    int markSubstituteSent(@Param("id") Long id, @Param("orderId") String orderId, @Param("at") LocalDateTime at);
+
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE Reservation r

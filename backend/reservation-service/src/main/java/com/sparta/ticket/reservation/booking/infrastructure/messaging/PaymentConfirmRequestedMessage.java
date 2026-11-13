@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.booking.infrastructure.messaging;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.reservation.booking.application.port.PaymentConfirmRequests.PaymentConfirmRequest;
+import com.sparta.ticket.reservation.infrastructure.config.ClockConfig;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -24,7 +25,8 @@ record PaymentConfirmRequestedMessage(
 
     static final String TOPIC = "payment.confirm.requested";
     private static final int SCHEMA_VERSION = 1;
-    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+    /** HTTP 대체 승인도 이 시간대로 confirmBefore를 보낸다. payment가 두 값으로 같은 지문을 만들어야 같은 요청으로 본다. */
+    private static final ZoneId SEOUL = ClockConfig.ZONE;
 
     static PaymentConfirmRequestedMessage of(PaymentConfirmRequest request, LocalDateTime occurredAt) {
         return new PaymentConfirmRequestedMessage(
@@ -36,6 +38,22 @@ record PaymentConfirmRequestedMessage(
                 request.amount(),
                 request.pgAuthToken(),
                 atSeoul(request.confirmBefore()));
+    }
+
+    /** Outbox에 남긴 본문을 요청으로 되돌린다. 시한은 남길 때처럼 서울 시각으로 읽는다. */
+    static PaymentConfirmRequest toRequest(ObjectMapper objectMapper, String payload) {
+        try {
+            PaymentConfirmRequestedMessage message =
+                    objectMapper.readValue(payload, PaymentConfirmRequestedMessage.class);
+            return new PaymentConfirmRequest(
+                    message.orderId(),
+                    message.reservationId(),
+                    message.amount(),
+                    message.pgAuthToken(),
+                    message.confirmBefore().atZoneSameInstant(SEOUL).toLocalDateTime());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Outbox의 승인 요청 메시지를 읽지 못했다", e);
+        }
     }
 
     String key() {

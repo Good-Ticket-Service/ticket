@@ -51,6 +51,9 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
     protected SwitchableOutboxWakeup outboxWakeup;
 
     @Autowired
+    protected FakeSubstituteConfirm substitute;
+
+    @Autowired
     private PaymentBacklogService paymentBacklogService;
 
     /** JUnit은 부모의 @BeforeEach를 자식의 것보다 먼저 실행한다. 자식은 이 초기화 위에 자기 준비만 더한다. */
@@ -67,6 +70,7 @@ public abstract class BookingIntegrationTest extends ReservationIntegrationTest 
         couponPort.reset();
         clock.set(BookingTestConfig.START_TIME);
         payment.reset();
+        substitute.reset();
         paymentGuard.reset();
         seats.reset();
         // 결제 중 집계는 결제 준비 접수 제한의 판단을 바꾼다. 비운 테이블과 처음 시각으로 한 번 세어 앞 테스트의 판단을 지운다

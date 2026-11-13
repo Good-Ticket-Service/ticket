@@ -22,4 +22,7 @@ public interface PaymentConfirmSettings {
 
     /** Outbox 맨 앞 메시지가 이 시간 이상 기다렸으면 승인 요청이 나가지 못하는 것으로 본다. */
     Duration unsentAfter();
+
+    /** 승인 요청이 브로커로 나가지 못하는 동안, 이미 Outbox에 남은 요청을 HTTP로 대신 보내는 작업자의 설정. */
+    DrainSettings drain();
 }
