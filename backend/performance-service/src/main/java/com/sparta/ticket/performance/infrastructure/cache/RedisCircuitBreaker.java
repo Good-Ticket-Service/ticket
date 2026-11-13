@@ -36,7 +36,7 @@ final class RedisCircuitBreaker {
         consecutiveFailures.set(0);
         if (open) {
             open = false;
-            log.info("Redis 명령이 다시 성공해 상세 캐시를 다시 사용한다.");
+            log.info("Redis 명령이 다시 성공해 공연 조회 캐시를 다시 사용한다.");
         }
     }
 
@@ -48,7 +48,7 @@ final class RedisCircuitBreaker {
         if (!open) {
             open = true;
             log.warn(
-                    "Redis 명령이 {}번 연속 실패해 {}ms 동안 상세 캐시를 건너뛰고 DB로 응답한다. cause={}",
+                    "Redis 명령이 {}번 연속 실패해 {}ms 동안 공연 조회 캐시를 건너뛰고 DB로 응답한다. cause={}",
                     failureThreshold,
                     Duration.ofNanos(openNanos).toMillis(),
                     e.toString());

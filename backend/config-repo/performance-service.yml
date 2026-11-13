@@ -10,9 +10,9 @@ spring:
     properties:
       hibernate:
         default_schema: performance_schema
-  # 공개 공연 상세 캐시(이슈 #398). 연결 정보는 application.yml의 spring.data.redis를 그대로 쓴다.
+  # 공개 공연 상세·회차 목록 캐시(이슈 #398, 이슈 #431). 공통 Redis 연결 정보를 쓴다.
   # 캐시가 실패하면 DB로 응답하므로 기다리지 않는 편이 낫다. 없으면 Lettuce 기본 60초를 기다리며 요청 스레드를 잡는다.
-  # 평소 명령은 1ms 안팎이라 100ms면 넉넉하다. 장애가 이어지면 performance.detail-cache가 Redis를 잠시 건너뛴다
+  # 평소 명령은 1ms 안팎이라 100ms면 넉넉하다. 장애가 이어지면 캐시별 회로 차단기가 Redis를 잠시 건너뛴다
   data:
     redis:
       timeout: 100ms
@@ -30,10 +30,16 @@ spring:
 management:
   health:
     redis:
-      # Redis는 상세 캐시라서 장애여도 DB로 응답한다. 헬스 체크에 넣으면 Redis 장애가 공연 서비스 DOWN(재시작·트래픽 제외)이 된다
+      # Redis는 조회 캐시라서 장애여도 DB로 응답한다. 헬스 체크에 넣으면 Redis 장애가 공연 서비스 DOWN(재시작·트래픽 제외)이 된다
       enabled: false
 
 performance:
+  schedule-list-cache:
+    # 저장한 조회값으로 판매 상태는 요청마다 계산한다(이슈 #431). 적중 시 TTL을 늘리지 않는다.
+    ttl: 1m
+    jitter: 6s
+    failure-threshold: 5
+    open-duration: 10s
   detail-cache:
     # TTL은 저장 시점부터다. 적중해도 늘리지 않는다. jitter는 0–60초를 더해 여러 키의 만료를 흩는다(이슈 #398)
     ttl: 10m
