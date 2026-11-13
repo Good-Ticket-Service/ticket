@@ -221,7 +221,13 @@ class Scenario:
             '-X','-qAt','-v','ON_ERROR_STOP=1'],env=self.env,
             input="BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL statement_timeout='10s';\n"+sql+';\nCOMMIT;\n',
             capture_output=True,text=True,timeout=25)
-        require(p.returncode==0,'Read-only DB verification failed; check schema/pg permissions')
+        if p.returncode!=0:
+            # 원인(예: statement timeout, 권한, 스키마)을 결과 폴더에 남긴다. psql stderr에는 접속 비밀번호가 들어가지 않는다
+            detail=p.stderr.strip()
+            with (self.out/'db-error.txt').open('a',encoding='utf-8') as f:
+                f.write(f'[{datetime.now(KST).isoformat(timespec="seconds")}] exit={p.returncode}\n{detail}\n\n')
+            first=detail.splitlines()[0][:200] if detail else 'no stderr'
+            raise Failure('Read-only DB verification failed: '+first+' (see db-error.txt)')
         return json.loads(p.stdout) if json_result else p.stdout
 
     def register_seats(self, venue_id, grade, seat_count, version, token):
