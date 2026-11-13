@@ -23,6 +23,9 @@ import com.sparta.ticket.reservation.booking.presentation.dto.ReservationSummary
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.CacheControl;
@@ -35,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 
 @Tag(name = "예약")
 @RestController
@@ -46,6 +50,7 @@ public class ReservationController {
     private final ReservationPaymentService reservationPaymentService;
     private final ReservationCancelService reservationCancelService;
     private final PaymentPollingInterval pollingInterval;
+    private final PaymentResultLongPoll longPoll;
 
     @Operation(summary = "내 예매 목록", description = "최신순이다. 상태를 고르지 않으면 결제 없이 끝난 EXPIRED·RELEASED는 빼고 보여 준다.")
     @RequireRole(Role.USER)
@@ -78,9 +83,28 @@ public class ReservationController {
     public ResponseEntity<ApiResponse<ReservationStatusResponse>> getStatus(
             @CurrentUser UserContext user, @PathVariable Long reservationId) {
         ReservationStatusView view = reservationQueryService.getStatus(user, reservationId);
-        return polling(view.status())
+        return statusResponse(view.reservationId(), view.status());
+    }
+
+    /**
+     * 결제 결과를 기다리는 롱폴링. 결제 중이면 응답을 미뤘다가 결과가 정해지는 즉시 답하고, wait가 끝나면 결제 중으로 답한다.
+     * 기다리는 동안 요청 스레드를 쓰지 않는다. wait 없는 조회는 위 짧은 폴링이 받는다.
+     */
+    @Operation(
+            summary = "예약 상태 조회(결과 기다리기)",
+            description = "결제 중이면 결과가 정해질 때까지 최대 wait초 기다렸다가 답한다. 결제 중으로 답하면 바로 다시 wait로 조회한다.")
+    @GetMapping(value = "/{reservationId}/status", params = "wait")
+    public DeferredResult<ResponseEntity<ApiResponse<ReservationStatusResponse>>> awaitStatus(
+            @CurrentUser UserContext user, @PathVariable Long reservationId, @RequestParam @Min(1) @Max(10) int wait) {
+        return longPoll.await(
+                user, reservationId, Duration.ofSeconds(wait), status -> statusResponse(reservationId, status));
+    }
+
+    private ResponseEntity<ApiResponse<ReservationStatusResponse>> statusResponse(
+            Long reservationId, ReservationStatus status) {
+        return polling(status)
                 .cacheControl(CacheControl.noStore())
-                .body(ApiResponse.ok(ReservationStatusResponse.from(view)));
+                .body(ApiResponse.ok(new ReservationStatusResponse(reservationId, status)));
     }
 
     private ResponseEntity.BodyBuilder polling(ReservationStatus status) {
