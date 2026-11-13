@@ -1,5 +1,6 @@
 package com.sparta.ticket.performance.application.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.schedule.SeatSetupStatus;
 import java.time.LocalDateTime;
@@ -16,5 +17,8 @@ public record PublicScheduleRow(
         LocalDateTime bookingCloseAt,
         OperationStatus operationStatus,
         SeatSetupStatus seatSetupStatus,
+
+        @JsonProperty(value = "salesSuspended", required = true)
         boolean salesSuspended,
+
         LocalDateTime canceledAt) {}
