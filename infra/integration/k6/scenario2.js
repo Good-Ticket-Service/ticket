@@ -39,6 +39,13 @@ const acceptEncoding = meta.accept_encoding||'default';
 const layoutGzip = new Counter('seat_layout_gzip');
 const layoutLengthMissing = new Counter('seat_layout_length_missing');
 const layoutContentLength = new Trend('seat_layout_content_length');
+// zone(#397): 구역 목록 → 구역 layout → 구역 status. 구역 목록(이름·좌석 수 순서)과 구매자의 배정 구역은 Python이 input.json에 넣는다
+const zoneSections = meta.sections||[];
+// 여정마다 보는 구역 수. 예매는 다른 구역을 먼저 보고 마지막에 배정 좌석의 구역으로 간다
+const zoneVisits = meta.zone_visits||1;
+// 구역마다 받는 status 수. 없으면 split과 같은 횟수(좌석 탐색 3~5, 예매 1)라 split과 요청 수가 같다
+const statusReads = meta.status_reads||null;
+const sectionsReads = new Counter('seat_sections_reads');
 const failures = new Counter('journey_failures');
 const probeStarted = new Counter('probe_started');
 const probeConfirmed = new Counter('probe_confirmed');
@@ -148,6 +155,7 @@ function listing(token,t) {
   get('/api/performances/'+fixture.performance_id+'/schedules','GET /api/performances/{id}/schedules',token,t);
 }
 const LAYOUT='GET /api/seats/schedules/{id}/layout';
+const SECTIONS='GET /api/seats/schedules/{id}/sections';
 // 압축 조건 확인용. 크기는 Content-Length가 있을 때만 안다(chunked면 없음). 전송 바이트는 Python의 layout-cost.json이 기준이다
 function layoutHeaders(r,t) {
   if ((r.headers['Content-Encoding']||'').toLowerCase()==='gzip') layoutGzip.add(1,t);
@@ -156,24 +164,46 @@ function layoutHeaders(r,t) {
 }
 // split 모드 좌석 API(#271). layout은 여정마다 1번 받는다. 여정마다 새 사용자라 VU 단위로 재사용하면 서로 다른 사용자가
 // layout을 함께 쓰는 셈이 되어 결과가 실제보다 좋게 나온다.
-function seatLayout(scheduleId,token,t) {
-  const path='/api/seats/schedules/'+scheduleId+'/layout';
+// section이 있으면 그 구역 layout(#397). 같은 요청 이름(LAYOUT)으로 세어 split과 같은 지표로 비교한다
+function seatLayout(scheduleId,token,t,section) {
+  const path='/api/seats/schedules/'+scheduleId+'/layout'+sectionQuery(section);
+  const seatCount=section===undefined?meta.seat_count:sectionSeatCount(section);
   if (layoutBody==='skip') {
     // ETag는 configVersion이다. 본문 없이 같은 구성인지 확인한다.
     // 사전 압축(#287 2번)을 하면 원본·압축본이 같은 약한 ETag(W/"configVersion")를 쓰므로 W/를 떼고 비교한다(강한 ETag도 그대로 받는다)
     const r=request('GET',path,LAYOUT,null,token,t,false,'none');
     if ((r.headers['Etag']||'').replace(/^W\//,'')!=='"'+meta.config_version+'"') throw new Error('SEAT_LAYOUT_VERSION_MISMATCH');
     layoutReads.add(1,t);
-    return {scheduleId,configVersion:meta.config_version,seatCount:meta.seat_count,seats:null};
+    return {scheduleId,section,configVersion:meta.config_version,seatCount,seats:null};
   }
   const layout=get(path,LAYOUT,token,t);
   if (layout.scheduleId!==scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
+  if (section!==undefined&&(layout.seats.length!==seatCount||layout.seats.some(s=>s.section!==section)))
+    throw new Error('SEAT_SECTION_MISMATCH');
   layoutReads.add(1,t);
-  return {scheduleId,configVersion:layout.configVersion,seatCount:layout.seats.length,seats:layout.seats};
+  return {scheduleId,section,configVersion:layout.configVersion,seatCount:layout.seats.length,seats:layout.seats};
+}
+// 구역 이름은 /sections 값을 그대로 URL 인코딩한다(docs/api.md 좌석 절). 없으면 회차 전체
+function sectionQuery(section) {return section===undefined?'':'?section='+encodeURIComponent(section);}
+function sectionSeatCount(section) {
+  const zone=zoneSections.find(s=>s.section===section);
+  if (!zone) throw new Error('SEAT_SECTION_UNKNOWN');
+  return zone.seat_count;
+}
+// 구역 목록(#397). 측정 중에는 좌석 준비가 없으므로 구역 이름·좌석 수·순서가 준비 때와 같아야 한다. 선택 가능 수는 바뀌므로 보지 않는다
+function seatSections(scheduleId,token,t) {
+  const r=get('/api/seats/schedules/'+scheduleId+'/sections',SECTIONS,token,t);
+  if (r.scheduleId!==scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
+  if (r.configVersion!==meta.config_version) throw new Error('SEAT_SECTIONS_VERSION_MISMATCH');
+  if (r.sections.length!==zoneSections.length||
+      r.sections.some((s,i)=>s.section!==zoneSections[i].section||s.seatCount!==zoneSections[i].seat_count))
+    throw new Error('SEAT_SECTIONS_MISMATCH');
+  sectionsReads.add(1,t);
+  return r.sections.map(s=>s.section);
 }
 // status는 layout과 같은 구성 버전·좌석 수여야 비트 위치가 맞는다. 측정 중에는 좌석 준비가 없으므로 다르면 오류로 본다
 function seatStatus(layout,token,t) {
-  const status=get('/api/seats/schedules/'+layout.scheduleId+'/status','GET /api/seats/schedules/{id}/status',token,t);
+  const status=get('/api/seats/schedules/'+layout.scheduleId+'/status'+sectionQuery(layout.section),'GET /api/seats/schedules/{id}/status',token,t);
   if (status.scheduleId!==layout.scheduleId) throw new Error('SEAT_SCHEDULE_MISMATCH');
   if (status.configVersion!==layout.configVersion||status.seatCount!==layout.seatCount)
     throw new Error('SEAT_LAYOUT_STATUS_MISMATCH');
@@ -208,6 +238,17 @@ export function seat(data) {
     const account=viewers[index];
     const token=journeyToken(account,t,data,'viewers',index);listing(token,t);
     const repeat=3+(exec.scenario.iterationInTest%3);
+    if (seatApi==='zone') {
+      // 여정 순서대로 첫 구역을 돌려 구역마다 고르게 나눈다. 여러 구역을 보면 이어지는 구역으로 옮긴다
+      const names=seatSections(meta.schedule_id,token,t);
+      const first=exec.scenario.iterationInTest%names.length;
+      for (let v=0;v<zoneVisits;v++) {
+        const layout=seatLayout(meta.schedule_id,token,t,names[(first+v)%names.length]);
+        for (let i=0;i<(statusReads||repeat);i++) {seatStatus(layout,token,t);reads.add(1,t);think();}
+      }
+      ok=true;
+      return;
+    }
     const layout=seatApi==='split'?seatLayout(meta.schedule_id,token,t):null;
     for (let i=0;i<repeat;i++) {
       if (layout) {
@@ -235,7 +276,22 @@ export function booking(data) {
     evidence.stage='browse';listing(token,t);think();
     evidence.stage='seat_query';
     // 두 모드 모두 배정 좌석을 선점한다. 좌석 선택 방식이 같아야 legacy와 split을 비교할 수 있고, 금융 검증도 배정 좌석을 전제로 한다
-    if (seatApi==='split') {
+    if (seatApi==='zone') {
+      // 다른 구역을 먼저 보고(zoneVisits-1개) 마지막에 배정 좌석의 구역에서 선택 가능한지 확인한다(#397)
+      const names=seatSections(fixture.schedule_id,token,t);
+      const home=names.indexOf(account.section);
+      if (home<0) throw new Error('ASSIGNED_SECTION_MISSING');
+      let layout,bits;
+      for (let v=zoneVisits-1;v>=0;v--) {
+        layout=seatLayout(fixture.schedule_id,token,t,names[(home+v)%names.length]);
+        for (let i=0;i<(statusReads||1);i++) {
+          bits=seatStatus(layout,token,t);reads.add(1,t);
+          if (v>0||i<(statusReads||1)-1) think();
+        }
+      }
+      const index=layout.seats?layout.seats.findIndex(s=>s.scheduleSeatId===account.schedule_seat_id):account.section_index;
+      if (index<0||!selectableAt(bits,index)) throw new Error('ASSIGNED_SEAT_NOT_SELECTABLE');
+    } else if (seatApi==='split') {
       const layout=seatLayout(fixture.schedule_id,token,t);
       const bits=seatStatus(layout,token,t);
       reads.add(1,t);
