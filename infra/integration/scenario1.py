@@ -26,9 +26,10 @@ KST = timezone(timedelta(hours=9))
 SEAT_SNAPSHOT_WAIT_SECONDS = 2.0
 # 물리 좌석 일괄 등록은 요청당 5,000개까지다(#272). 넘으면 나눠 보내고 다음 요청에 새 venueVersion을 쓴다
 SEAT_REGISTER_CHUNK = 5000
-# 구역 배치(#397). 실제 공연장처럼 한 열 25석, 구역당 40열(1,000석)로 구역 A, B, ...에 나눠 등록한다(#287 브라우저 실측과 같은 배치)
+# 구역 배치(#397). 실제 공연장처럼 한 열 25석으로 구역 A, B, ...에 나눠 등록한다.
+# 기본 구역 크기 1,000석(40열)은 #287 브라우저 실측과 같은 배치다. 구역 수를 늘려 볼 때는 구역 크기(25의 배수)를 줄인다
 SECTION_SEATS_PER_ROW = 25
-SECTION_ROWS = 40
+DEFAULT_SECTION_SEATS = 1000
 VENUE_LAYOUTS = ('single', 'sections')
 
 def section_name(index):
@@ -40,16 +41,18 @@ def section_name(index):
         name = chr(65 + rest) + name
     return name
 
-def venue_seats(seat_count, layout='single'):
+def venue_seats(seat_count, layout='single', section_seats=DEFAULT_SECTION_SEATS):
     """등록할 물리 좌석의 위치 목록(등록 순서).
     - single: A구역 1열에 좌석 번호 1..seat_count(기존 측정과 같음)
-    - sections: 한 열 25석, 구역당 40열. 구역 A의 1열 1..25번, 2열, ... 순서라 구역 좌석이 id 순서에서 이어진다"""
+    - sections: 한 열 25석, 구역당 section_seats석(25의 배수). 구역 A의 1열 1..25번, 2열, ... 순서라 구역 좌석이 id 순서에서 이어진다"""
     if layout == 'single':
         return [{'section': 'A', 'rowLabel': '1', 'seatNumber': n + 1} for n in range(seat_count)]
     require(layout == 'sections', 'Unknown venue layout: ' + str(layout))
+    require(section_seats > 0 and section_seats % SECTION_SEATS_PER_ROW == 0,
+            f'section seats must be a positive multiple of {SECTION_SEATS_PER_ROW}')
     seats = []
     for n in range(seat_count):
-        section, rest = divmod(n, SECTION_SEATS_PER_ROW * SECTION_ROWS)
+        section, rest = divmod(n, section_seats)
         row, number = divmod(rest, SECTION_SEATS_PER_ROW)
         seats.append({'section': section_name(section), 'rowLabel': str(row + 1), 'seatNumber': number + 1})
     return seats
@@ -223,8 +226,8 @@ class Scenario:
 
     def register_seats(self, venue_id, grade, seat_count, version, token):
         """좌석 seat_count개를 SEAT_REGISTER_CHUNK개씩 등록하고 마지막 venueVersion을 돌려준다.
-        배치는 venue_layout(기본 single: A구역 1열)을 따른다. scenario2의 --venue-layout이 정한다(#397)."""
-        seats=venue_seats(seat_count,getattr(self,'venue_layout','single'))
+        배치는 venue_layout(기본 single: A구역 1열)과 section_seats를 따른다. scenario2의 --venue-layout·--section-seats가 정한다(#397)."""
+        seats=venue_seats(seat_count,getattr(self,'venue_layout','single'),getattr(self,'section_seats',DEFAULT_SECTION_SEATS))
         for start in range(0,seat_count,SEAT_REGISTER_CHUNK):
             chunk=[{**seat,'venueSeatGradeId':grade} for seat in seats[start:start+SEAT_REGISTER_CHUNK]]
             version=self.request('POST',f'/api/admin/venues/{venue_id}/seats',{'seats':chunk},token,
