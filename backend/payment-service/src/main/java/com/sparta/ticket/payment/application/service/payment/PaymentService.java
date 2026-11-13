@@ -7,6 +7,7 @@ import com.sparta.ticket.payment.application.dto.payment.CheckoutCommand;
 import com.sparta.ticket.payment.application.dto.payment.CheckoutResult;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmCommand;
 import com.sparta.ticket.payment.application.dto.payment.ConfirmResult;
+import com.sparta.ticket.payment.application.dto.payment.MessageConfirmCommand;
 import com.sparta.ticket.payment.application.dto.payment.PaymentDetail;
 import com.sparta.ticket.payment.application.dto.payment.PreparedPayment;
 import com.sparta.ticket.payment.application.port.payment.PaymentDispatcher;
@@ -17,6 +18,7 @@ import com.sparta.ticket.payment.domain.model.payment.Payment;
 import com.sparta.ticket.payment.domain.model.payment.PaymentOrder;
 import com.sparta.ticket.payment.domain.model.pg.PgReadyResult;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -30,6 +32,9 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+    /** 대체 승인 503의 재시도 간격. 자리는 PG 응답 한 번(수백 ms)이면 비므로 짧게 둔다. */
+    private static final long FALLBACK_RETRY_AFTER_SECONDS = 1;
 
     /** 카카오 결제창에 보이는 상품명. 준비 요청에 공연 이름이 없어 고정값을 쓴다. */
     static final String ITEM_NAME = "공연 티켓";
@@ -46,10 +51,39 @@ public class PaymentService {
     private final PgClientRegistry pgClients;
     private final PaymentDispatcher dispatcher;
     private final io.micrometer.core.instrument.MeterRegistry meters;
+    private final MessageApprovalService messageApprovals;
 
     public ConfirmResult confirm(String orderId, ConfirmCommand command) {
+        if (command.fallback()) return confirmFallback(orderId, command);
         ConfirmResult result = confirmOnce(orderId, command);
         response("confirm", result.status().name());
+        return result;
+    }
+
+    /**
+     * 메시지 대체 승인(#422). Kafka 장애로 예매가 Outbox의 승인 요청을 HTTP로 보낸 경우다. 메시지 승인과 같은 시한·지문·PG별 자리로
+     * 처리하고 지문을 저장해, 뒤에 같은 메시지가 오면 이미 처리로 ACK한다. 예약 ID는 결제 행의 값으로 지문을 만든다.
+     */
+    private ConfirmResult confirmFallback(String orderId, ConfirmCommand command) {
+        Payment payment = transactions
+                .findByOrderId(orderId)
+                .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND));
+        if (payment.getAmount() != command.amount())
+            throw new BusinessException(PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH);
+        var message = new MessageConfirmCommand(
+                orderId,
+                payment.getReservationId(),
+                command.amount(),
+                command.confirmBefore().atZoneSameInstant(SEOUL).toLocalDateTime(),
+                command.pgAuthToken());
+        if (messageApprovals.approveNow(message) == MessageApprovalService.Outcome.DEFER) {
+            response("confirm_fallback", "DEFERRED");
+            throw new ConfirmDeferredException(FALLBACK_RETRY_AFTER_SECONDS);
+        }
+        ConfirmResult result = ConfirmResult.current(transactions
+                .findByOrderId(orderId)
+                .orElseThrow(() -> new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND)));
+        response("confirm_fallback", result.status().name());
         return result;
     }
 
