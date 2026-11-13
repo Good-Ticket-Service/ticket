@@ -161,6 +161,8 @@ python infra/integration/scenario4.py
 
 ```powershell
 python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1
+python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1 --base-rate 250 --seats 2000
+python infra/integration/scenario5.py --rate 0 --duration 60 --base-rate 250 --seats 2000
 ```
 
 좌석 선점 잠금 방식(FOR UPDATE 대기 `wait`, NOWAIT `nowait`)을 같은 빌드에서 비교한다. 조회·결제 없이 선점과 해제만 보낸다.
@@ -173,6 +175,10 @@ python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1
 - 잠금 방식: `compose-inputs.example`의 `INTEGRATION_SEAT_LOCK_MODE`를 바꾸고 `compose.py up -d`로 reservation을 다시 만든다. 모드마다 예열한다. 결과의 `seat_lock`에 기대값, 소스에 설정이 있는지, 컨테이너에 전달된 값이 남고, 셋이 맞아야 `checks.lock_mode_applied`가 통과한다. 설정이 없는 빌드에서는 환경 변수가 무시되므로 이 check가 실패한다.
 - 검증(DB): 인기 좌석마다 예약이 겹치지 않음(앞 예약이 해제된 뒤 다음 예약 생성), k6가 받은 성공과 DB 예약이 같음, 모든 인기 좌석이 해제 뒤 다시 선점됨, 끝 상태가 모두 AVAILABLE. 측정 뒤 해제하지 못한 선점은 API로 해제하고 `cleanup`에 남긴다.
 - 지표: `measurements`에 결과별 건수·409 비율·선점 지연(전체·결과별 p99)·해제 지연, `server_summary`에 측정 구간 reservation Hikari Pending·Active, Tomcat Busy(5초 원값), DB 잠금 대기·차단 세션을 남긴다. 이 값들은 그 순간 값이라 1초 안에 끝나는 burst 몰림을 놓치므로, 구간 최댓값인 Hikari 연결 획득 대기 최대(`hikari_acquire_max`)·평균(`hikari_acquire_mean`)과 선점 API 서버 최대 지연(`hold_http_max`)을 함께 남긴다. DB 잠금 대기는 수집기가 15초 간격이라, 측정 동안 `pg_stat_activity`를 0.1초마다 세는 표본기를 따로 돌린다(`pg-lock-samples.jsonl`, `server_summary.pg_lock_100ms`, 0보다 큰 표본 비율 `nonzero_ratio`). 1초 간격은 wave와 위상이 맞지 않으면 조용한 순간만 찍었다. 두 모드에 같은 부담이다.
+- 다른 좌석 선점(#390): `--base-rate R`은 인기 좌석 부하와 함께 다른 좌석 선점을 초당 R회 고르게 보낸다. 인기 좌석 경쟁이 다른 좌석 선점을 늦추는지 본다. `--rate 0 --base-rate R`이면 인기 좌석 부하 없이 다른 좌석 선점만 보낸다(기준).
+  - 계정은 인기 좌석용(`--users`) 뒤에 따로(`--base-users`, 기본 `max(100, R*5)`) 만들고, 좌석은 인기 좌석과 기능 확인 좌석을 뺀 나머지를 돌려 쓴다. 같은 좌석을 2초 안에 다시 고르지 않도록 다른 좌석이 `R*2`석 이상이어야 한다(250/s면 `--seats 2000` 권장).
+  - 인기 좌석 burst와 같은 구간(첫 wave부터 `--duration`초)에 든 반복만 보낸다. 지표는 `measurements.base`(시도·결과별 건수·선점 지연 p99·해제)에 인기 좌석과 따로 남는다. k6 요청 태그는 `target=base`다.
+  - 매번 다른 좌석·다른 사용자라 모두 201이어야 한다(`checks.base_all_created`). 모두 해제되고 DB 예약 상태가 모두 RELEASED이며 건수가 201 수와 같아야 한다(`base_all_released`, `base_db_released`).
 - 수집기가 DB 진단 지표(`integration_source_up{source="postgres-diagnostics"}`)를 못 모으면 준비 전에 멈춘다. `--allow-missing-pg-diagnostics`로 진행할 수 있지만 그 회차는 FAIL이다.
 
 ## 결과와 종료
