@@ -120,9 +120,7 @@ services:
       SERVER_PORT: "8083"
       OTEL_SERVICE_NAME: reservation-service
       PYROSCOPE_APPLICATION_NAME: reservation-service
-      # 선점 잠금 방식(#313, config-repo의 ${SEAT_HOLD_LOCK_MODE:wait})과 선점 유지 시간(#248, reservation.seat.hold.duration).
-      # 값은 compose-inputs.example에서 바꾼다. 기본값은 코드·설정의 기본값과 같다
-      SEAT_HOLD_LOCK_MODE: ${INTEGRATION_SEAT_LOCK_MODE:-wait}
+      # 선점 유지 시간(#248, reservation.seat.hold.duration). 값은 compose-inputs.example에서 바꾼다. 기본값은 코드 기본값과 같다
       RESERVATION_SEAT_HOLD_DURATION: ${INTEGRATION_SEAT_HOLD_DURATION:-10m}
       # JFR과 누수 탐지는 observability 프로필에서만 compose.py가 켠다. 기본 실행의 측정 조건을 이전과 같게 둔다. 0은 누수 탐지 끔이다.
       SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: ${INTEGRATION_LEAK_DETECTION_MS:-0}
