@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 import scenario5
-from scenario5 import (LOCK_BUSY_MESSAGE, base_checks, base_measurements, base_seat_shortage, classify, collector_sources,
+from scenario5 import (base_checks, base_measurements, base_seat_shortage, classify, collector_sources,
                        cpu_count, cpu_summary, parse_cpu_line, sample_summary, seat_timeline, series_summary)
 
 def row(rid, seat, status, created, updated):
@@ -13,7 +13,6 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(classify(201, {}), 'created')
         self.assertEqual(classify(200, {}), 'existing')
         self.assertEqual(classify(409, {'code': 'SEAT_ALREADY_TAKEN', 'message': '이미 다른 예약이 선점했거나 판매된 좌석입니다.'}), 'taken')
-        self.assertEqual(classify(409, {'code': 'SEAT_ALREADY_TAKEN', 'message': LOCK_BUSY_MESSAGE}), 'lock_busy')
         self.assertEqual(classify(409, {'code': 'PURCHASE_LIMIT_EXCEEDED'}), 'purchase_limit')
 
     def test_other_responses_are_errors(self):
@@ -23,9 +22,9 @@ class ClassifyTests(unittest.TestCase):
             self.assertEqual(classify(status, body), 'error', status)
 
     def test_k6_uses_same_rules(self):
-        # k6는 메시지를 input.json으로 받는다. 분류 규칙 문자열이 Python과 같은지 본다
+        # 분류 규칙 문자열이 Python과 같은지 본다
         js = (Path(scenario5.__file__).parent/'k6'/'scenario5.js').read_text(encoding='utf-8')
-        self.assertIn("body.message === meta.lock_busy_message ? 'lock_busy' : 'taken'", js)
+        self.assertIn("body.code === 'SEAT_ALREADY_TAKEN') return 'taken'", js)
         self.assertIn("body.code === 'PURCHASE_LIMIT_EXCEEDED') return 'purchase_limit'", js)
         for outcome in scenario5.OUTCOMES:
             self.assertIn("'"+outcome+"'", js)

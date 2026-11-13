@@ -5,11 +5,10 @@ python infra/integration/scenario5.py --rate 250 --duration 60 --hot-seats 10
 python infra/integration/scenario5.py --burst 250 --hot-seats 1 --base-rate 250 --seats 2000
 python infra/integration/scenario5.py --rate 0 --base-rate 250 --seats 2000
 --burst N은 매 초 정각에 N명이 동시에 선점한다(오픈 순간의 몰림). --rate는 초당 rate회를 고르게 보낸다.
-고른 부하는 같은 좌석 잠금이 거의 겹치지 않아(1석 250/s도 잠금 대기 0) 잠금 방식 비교에는 burst를 쓴다.
+고른 부하는 같은 좌석 잠금이 거의 겹치지 않아(1석 250/s도 잠금 대기 0) 같은 좌석 몰림은 burst로 만든다.
 조회·결제는 하지 않는다. 회차마다 새 공연·회차·계정을 준비한다.
 --base-rate R은 인기 좌석과 별도로 다른 좌석 선점을 초당 R회 고르게 함께 보낸다(#390). 인기 좌석 경쟁이 다른 좌석 선점을
 늦추는지 본다. 매번 다른 좌석·다른 사용자라 서로 경쟁하지 않는다. --rate 0이면 인기 좌석 부하 없이 다른 좌석 선점만 보낸다(기준).
-잠금 방식(wait|nowait)은 compose-inputs.example의 INTEGRATION_SEAT_LOCK_MODE로 바꾸고 compose.py up -d로 reservation을 다시 만든다.
 """
 import argparse
 from datetime import datetime
@@ -20,16 +19,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 from scenario1 import Failure, require, KST, ROOT, PASSWORD, BASE, Scenario
 from scenario2 import MixedScenario
 import foreign
 
-# SeatHoldService.LOCK_BUSY_MESSAGE(#365). 잠금 실패 409는 코드가 SEAT_ALREADY_TAKEN으로 같고 메시지만 다르다.
-# 문구가 바뀌면 lock_busy가 taken으로 세어진다. wait 모드 check(lock_busy 0)로는 드러나지 않으므로 함께 고친다
-LOCK_BUSY_MESSAGE = '다른 요청이 이 좌석을 처리 중입니다. 잠시 후 다시 시도해 주세요.'
-OUTCOMES = ('created', 'existing', 'taken', 'lock_busy', 'purchase_limit', 'error')
+OUTCOMES = ('created', 'existing', 'taken', 'purchase_limit', 'error')
 SAMPLER_APP = 's5-lock-sampler'
 # burst의 wave 간격. 매 wave에 burst명이 같은 순간에 보낸다
 WAVE_MS = 1000
@@ -103,8 +98,7 @@ def classify(status, body):
     """k6 scenario5.js의 classify와 같은 규칙. 시험 실행 없이 분류를 확인하려고 Python에도 둔다."""
     if status == 201: return 'created'
     if status == 200: return 'existing'
-    if status == 409 and body.get('code') == 'SEAT_ALREADY_TAKEN':
-        return 'lock_busy' if body.get('message') == LOCK_BUSY_MESSAGE else 'taken'
+    if status == 409 and body.get('code') == 'SEAT_ALREADY_TAKEN': return 'taken'
     if status == 409 and body.get('code') == 'PURCHASE_LIMIT_EXCEEDED': return 'purchase_limit'
     return 'error'
 
@@ -186,19 +180,17 @@ class HoldContentionScenario(MixedScenario):
         # 계정은 인기 좌석용(args.users) 뒤에 다른 좌석용(args.base_users)을 붙여 만든다. 두 부하가 같은 사용자를 쓰지 않는다
         Scenario.__init__(self, args.users+args.base_users, 180, scenario=5, allow_foreign=args.allow_foreign)
         self.hot_enabled = bool(args.burst or args.rate)
-        self.lock_mode = self.env.get('INTEGRATION_SEAT_LOCK_MODE', 'wait')
         self.report.update(workload={'load_mode': 'burst' if args.burst else 'rate', 'burst': args.burst,
             'wave_ms': WAVE_MS if args.burst else None, 'attempts_per_second': args.rate, 'duration_seconds': args.duration,
             'hot_seats': args.hot_seats, 'seat_count': args.seats, 'users': args.users, 'hold_ms': args.hold_ms,
-            'preallocated_vus': args.vus, 'max_vus': args.max_vus, 'seat_lock_mode': self.lock_mode,
+            'preallocated_vus': args.vus, 'max_vus': args.max_vus,
             'hot_load': self.hot_enabled, 'base_rate': args.base_rate, 'base_users': args.base_users,
             'base_vus': args.base_vus, 'base_max_vus': args.base_max_vus,
             'seat_selection': 'attempt i -> users[i % users], hot_seats[i % hot_seats] (burst: i = wave*burst + slot); winners release after hold_ms',
             'base_selection': 'base attempt j -> users[users + j % base_users], base_seats[j % base_seats] (all seats except hot and check seat); release after hold_ms',
             'authentication': 'accounts login in k6 setup; tokens reused during measurement'},
             limitations=['Hold and release only; no seat reads, no payment',
-                'Gateway path (Caddy -> Gateway -> reservation); sale validation calls performance-service',
-                'Lock mode is a container setting; compare runs with the same build and conditions'])
+                'Gateway path (Caddy -> Gateway -> reservation); sale validation calls performance-service'])
         self.process = None
         self.sampler = None
         self.cpu_sampler = None
@@ -213,7 +205,7 @@ class HoldContentionScenario(MixedScenario):
         if not hasattr(self, 'out'): return
         (self.out/'result.json').write_text(json.dumps(self.report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
         metrics = [f'integration_scenario5_target_attempts_per_second {self.args.rate}',
-                   f'integration_scenario5_run_info{{test_id="{self.run_id}",lock_mode="{self.lock_mode}"}} 1',
+                   f'integration_scenario5_run_info{{test_id="{self.run_id}"}} 1',
                    f'integration_scenario5_verified {int(self.report["verdict"]=="PASS")}',
                    f'integration_scenario5_wins_total {len(self.report["journeys"])}',
                    f'integration_scenario5_updated_timestamp_seconds {time.time()}']
@@ -222,28 +214,7 @@ class HoldContentionScenario(MixedScenario):
     # ---------- 준비 ----------
     def preflight(self):
         super().preflight()
-        self.check_lock_mode()
         self.check_pg_diagnostics()
-
-    def check_lock_mode(self):
-        """compose가 넘긴 값만 보면, 설정이 없는 빌드(#365 전)에서 nowait 측정이 실제로는 wait로 돌아도 통과한다.
-        그래서 소스에 설정이 있는지와 컨테이너에 전달된 값을 함께 본다. 컨테이너 환경 변수는 이 한 줄만 읽는다."""
-        source = Path(self.env['INTEGRATION_SOURCE'])
-        config = source/'backend/config-repo/reservation-service.yml'
-        supports = config.exists() and 'lock-mode:' in config.read_text(encoding='utf-8')
-        p = subprocess.run(self.cmd+['ps', '-q', 'reservation-service'], env=self.env, capture_output=True, text=True, timeout=20)
-        cid = p.stdout.split()[0] if p.returncode == 0 and p.stdout.split() else None
-        applied = None
-        if cid:
-            fmt = '{{range .Config.Env}}{{if eq (index (split . "=") 0) "SEAT_HOLD_LOCK_MODE"}}{{.}}{{end}}{{end}}'
-            q = subprocess.run(['docker', 'inspect', '--format', fmt, cid], capture_output=True, text=True, timeout=20)
-            value = q.stdout.strip()
-            applied = value.split('=', 1)[1] if q.returncode == 0 and '=' in value else None
-        self.report['seat_lock'] = {'expected': self.lock_mode, 'source_supports_lock_mode': supports, 'container_env': applied}
-        self.report['checks']['lock_mode_applied'] = supports and applied == self.lock_mode
-        if not self.report['checks']['lock_mode_applied']:
-            print(f'[warning] lock mode not confirmed: source supports={supports}, container={applied}, expected={self.lock_mode}', flush=True)
-        self.save()
 
     def check_pg_diagnostics(self):
         """DB 잠금 대기 세션이 핵심 지표다. 수집기가 postgres-diagnostics를 못 모으면 측정 전에 멈춘다(TS-12)."""
@@ -334,8 +305,8 @@ class HoldContentionScenario(MixedScenario):
         meta = {'run_id': self.run_id, 'mode': 'burst' if self.args.burst else 'rate', 'burst': self.args.burst,
                 'wave_ms': WAVE_MS, 'rate': self.args.rate, 'duration': self.args.duration,
                 'vus': self.args.vus, 'max_vus': self.args.max_vus, 'password': PASSWORD, 'schedule_id': sid,
-                'hot_seats': hot, 'hold_ms': self.args.hold_ms, 'lock_mode': self.lock_mode,
-                'lock_busy_message': LOCK_BUSY_MESSAGE, 'hot_enabled': self.hot_enabled, 'hot_users': self.args.users,
+                'hot_seats': hot, 'hold_ms': self.args.hold_ms,
+                'hot_enabled': self.hot_enabled, 'hot_users': self.args.users,
                 'base_rate': self.args.base_rate, 'base_users': self.args.base_users, 'base_seats': base,
                 'base_vus': self.args.base_vus, 'base_max_vus': self.args.base_max_vus}
         users = [{'email': e, 'user_id': u} for e, u in self.accounts]
@@ -419,12 +390,11 @@ class HoldContentionScenario(MixedScenario):
         attempts = value('hold_attempts')
         counts = {o: value('hold_'+o) for o in OUTCOMES}
         expected = self.args.rate*self.args.duration if self.hot_enabled else 0
-        conflicts = counts['taken']+counts['lock_busy']+counts['purchase_limit']
+        conflicts = counts['taken']+counts['purchase_limit']
         self.report['measurements'] = {
             'expected_attempts': expected, 'attempts': attempts, 'dropped_iterations': value('dropped_iterations'),
             'outcomes': counts,
             'ratio_409': conflicts/attempts if attempts else None,
-            'ratio_lock_busy': counts['lock_busy']/attempts if attempts else None,
             'ratio_taken': counts['taken']/attempts if attempts else None,
             'hold_duration_ms': trend('hold_duration'),
             'hold_duration_ms_by_outcome': {o: trend('hold_duration_'+o) for o in OUTCOMES if trend('hold_duration_'+o)},
@@ -450,8 +420,6 @@ class HoldContentionScenario(MixedScenario):
         # 같은 사용자가 앞 선점을 쥔 채 다시 뽑혔다(200 또는 PURCHASE_LIMIT). 지연이 users/rate초를 넘은 것이라 --users를 늘린다
         checks['no_user_overlap'] = counts['existing'] == 0 and counts['purchase_limit'] == 0
         checks['all_released'] = value('release_failed') == 0 and all(r.get('released') for r in self.report['journeys'])
-        # wait 모드에는 NOWAIT 잠금 실패가 없어야 한다. 있으면 모드가 섞였거나 lock_timeout이 걸린 것이다
-        checks['lock_busy_matches_mode'] = counts['lock_busy'] == 0 if self.lock_mode == 'wait' else True
         self.verify_db()
         self.finish_foreign()
 

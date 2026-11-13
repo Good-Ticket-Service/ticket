@@ -31,7 +31,5 @@ INTEGRATION_CORE_CPUS=2-3
 INTEGRATION_DATA_CPUS=4-5
 INTEGRATION_LOAD_CPUS=6-7
 ALERT_MOCK_MODE=ok
-# 좌석 선점 잠금 방식 wait|nowait(#313). 바꾸면 compose.py up -d로 reservation을 다시 만들고 모드마다 예열한다
-INTEGRATION_SEAT_LOCK_MODE=wait
-# 좌석 선점 유지 시간(#248). 코드 기본값과 같은 10m. 두 값 모두 설정이 없는 빌드에서는 무시된다
+# 좌석 선점 유지 시간(#248). 코드 기본값과 같은 10m. 설정이 없는 빌드에서는 무시된다
 INTEGRATION_SEAT_HOLD_DURATION=10m

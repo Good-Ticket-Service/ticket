@@ -18,8 +18,8 @@ const base = __ENV.BASE_URL;
 
 const HOLD = 'POST /api/seats/schedules/{id}/holds';
 const RELEASE = 'DELETE /api/seats/schedules/{id}/holds/{reservationId}';
-// 선점 결과. 409 SEAT_ALREADY_TAKEN은 메시지로 나눈다. NOWAIT 잠금 실패는 코드는 같고 메시지만 다르다(#313 결정)
-const OUTCOMES = ['created', 'existing', 'taken', 'lock_busy', 'purchase_limit', 'error'];
+// 선점 결과. scenario5.py OUTCOMES와 같다
+const OUTCOMES = ['created', 'existing', 'taken', 'purchase_limit', 'error'];
 const attempts = new Counter('hold_attempts');
 const counts = Object.fromEntries(OUTCOMES.map(o => [o, new Counter('hold_' + o)]));
 const durations = Object.fromEntries(OUTCOMES.map(o => [o, new Trend('hold_duration_' + o, true)]));
@@ -58,7 +58,7 @@ export const options = {
   setupTimeout: '30m',
   // 측정 끝에 쥐고 있는 좌석도 해제까지 마치게 한다(gracefulStop·maxDuration 여유). 끊긴 반복은 DB 대조에서 짝 없는 예약으로 드러난다
   scenarios: Object.assign(HOT ? {hold: hotScenario} : {}, BASE ? {base: baseScenario} : {}),
-  tags: {test_id: meta.run_id, lock_mode: meta.lock_mode},
+  tags: {test_id: meta.run_id},
   discardResponseBodies: false,
   systemTags: ['status', 'method', 'name', 'scenario', 'expected_response', 'error', 'error_code'],
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(95)', 'p(99)'],
@@ -70,7 +70,7 @@ export const options = {
 function classify(status, body) {
   if (status === 201) return 'created';
   if (status === 200) return 'existing';
-  if (status === 409 && body.code === 'SEAT_ALREADY_TAKEN') return body.message === meta.lock_busy_message ? 'lock_busy' : 'taken';
+  if (status === 409 && body.code === 'SEAT_ALREADY_TAKEN') return 'taken';
   if (status === 409 && body.code === 'PURCHASE_LIMIT_EXCEEDED') return 'purchase_limit';
   return 'error';
 }
