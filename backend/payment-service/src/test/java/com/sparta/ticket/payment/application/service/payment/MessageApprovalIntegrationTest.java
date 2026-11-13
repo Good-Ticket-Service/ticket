@@ -459,4 +459,54 @@ class MessageApprovalIntegrationTest extends PaymentIntegrationTest {
         for (int count = 0; count < 100 && recovery.expireOne(excluded); count++) {}
         assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.FAILED);
     }
+
+    @Test
+    void acceptedIsCalledOnceRightAfterClaimCommitAndPgIsCalledEvenIfOwnershipIsLost() {
+        var payment = ready(PgProvider.TOSS);
+        var command = command(payment);
+        var owner = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var statusAtAccept = new java.util.concurrent.atomic.AtomicReference<PaymentStatus>();
+        var accepted = new java.util.concurrent.atomic.AtomicInteger();
+        pg.approveReturns(request -> {
+            assertThat(accepted.get()).isEqualTo(1);
+            return new PgResult.Approved(request.transactionId(), request.amount(), LocalDateTime.now(paymentClock));
+        });
+
+        var outcome = service.advance(new MessageApprovalAttempt(command), owner::get, () -> {
+            accepted.incrementAndGet();
+            // Note: claim TX가 커밋된 뒤라 다른 TX에서 IN_PROGRESS가 보여야 한다.
+            statusAtAccept.set(tx.execute(status -> load(payment).getStatus()));
+            owner.set(false);
+        });
+
+        assertThat(outcome).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(accepted.get()).isEqualTo(1);
+        assertThat(statusAtAccept.get()).isEqualTo(PaymentStatus.IN_PROGRESS);
+        assertThat(pg.approveCalls()).isEqualTo(1);
+        assertThat(load(payment).getStatus()).isEqualTo(PaymentStatus.DONE);
+        assertThat(results(payment)).isEqualTo(1);
+    }
+
+    @Test
+    void acceptedIsNotCalledWhenNothingIsClaimed() {
+        var waiting = ready(PgProvider.TOSS);
+        var accepted = new java.util.concurrent.atomic.AtomicInteger();
+        pg.approvalAllowed(false);
+        assertThat(service.advance(new MessageApprovalAttempt(command(waiting)), () -> true, accepted::incrementAndGet))
+                .isEqualTo(MessageApprovalService.Outcome.RETRY);
+        pg.approvalAllowed(true);
+
+        var done = ready(PgProvider.TOSS);
+        assertThat(service.advance(command(done), () -> true)).isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+        assertThat(service.advance(new MessageApprovalAttempt(command(done)), () -> true, accepted::incrementAndGet))
+                .isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+
+        var expired = ready(PgProvider.TOSS);
+        var expiredCommand = command(expired);
+        paymentClock.advance(Duration.ofMinutes(5));
+        assertThat(service.advance(new MessageApprovalAttempt(expiredCommand), () -> true, accepted::incrementAndGet))
+                .isEqualTo(MessageApprovalService.Outcome.COMPLETE);
+
+        assertThat(accepted.get()).isZero();
+    }
 }

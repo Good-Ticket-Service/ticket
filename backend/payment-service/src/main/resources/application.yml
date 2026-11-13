@@ -59,6 +59,8 @@ payment:
       retry-delay: 200ms
       max-infrastructure-retries: 4
       max-message-bytes: 8192
+      # #417: claim 커밋 직후 acknowledge(느린 PG가 다른 PG의 Partition 진행을 막지 않게 함). false면 PG 결과 저장 뒤 acknowledge
+      acknowledge-on-claim: true
 
   pg:
     enabled: true

@@ -182,6 +182,9 @@ def main():
                         help="승인 소비 설정. 예: concurrency=6 max-poll-records=32 workers=64 per-provider=32 max-in-flight=192")
     parser.add_argument("--suffix", default="", help="같은 label 안의 변형 이름")
     parser.add_argument("--bulkhead", type=int, help="PG별 Bulkhead 상한(기본: 운영값 200)")
+    parser.add_argument("--toss-fault", help='TOSS 승인 FakePG 장애 JSON. 예: {"failRate":1}. 주면 --toss-ms 대신 쓴다')
+    parser.add_argument("--allow-unfinished", action="store_true",
+                        help="TOSS 결제가 DONE이 되지 않는 장애 시나리오. 모든 메시지 acknowledge만 기다린다")
     parser.add_argument("--fakepg-db", choices=["shared", "separate"], default="shared",
                         help="FakePG DB 위치. shared=결제 DB와 같은 인스턴스(기존), separate=별도 인스턴스(M6)")
     parser.add_argument("--check", action="store_true", help="환경 B 적용·검증만 한다")
@@ -231,10 +234,12 @@ def main():
             samplers += "|jdbc:postgresql://127.0.0.1:15464/postgres"
         wait.java_args(argfile, ["-Xms128m", "-Xmx1g", f"-XX:ActiveProcessorCount={CPUS}", "-Dfile.encoding=UTF-8",
                                  f"-Dcap.waitSampling={samplers}",
+                                 *([f"-Dcap.tossFault={args.toss_fault}"] if args.toss_fault else []),
+                                 *(["-Dcap.allowUnfinished=true"] if args.allow_unfinished else []),
                                  "-cp", classpath, MAIN, database, output, rate, count, args.toss, args.toss_ms,
                                  args.kakao_ms, args.pool, args.drain, *overrides])
         print(f"{args.label}/{name}: {rate}건/초 × {args.seconds}초 = {count}건, TOSS {args.toss}%, "
-              f"PG {args.toss_ms}/{args.kakao_ms}ms, 풀 {args.pool}, {overrides} 시작", flush=True)
+              f"PG {args.toss_ms}/{args.kakao_ms}ms, TOSS 장애 {args.toss_fault}, 풀 {args.pool}, {overrides} 시작", flush=True)
         run_env = dict(environment(args.fakepg_db), fakePgAffinity=set_affinity(env["fakePg"]["pid"], PG_AFFINITY))
         resource = {"before": bench.resources(), "environment": run_env}
         affinity = None

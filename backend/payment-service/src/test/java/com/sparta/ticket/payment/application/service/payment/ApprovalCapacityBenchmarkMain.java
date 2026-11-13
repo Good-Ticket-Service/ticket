@@ -53,9 +53,23 @@ public final class ApprovalCapacityBenchmarkMain {
             "operation_pause",
             "invalid",
             "dlt_sent",
-            "dlt_failed");
+            "dlt_failed",
+            "claim_acknowledged",
+            "claim_ack_failure",
+            "finished_after_ack",
+            "post_ack_failure",
+            "worker_queue_full",
+            "dropped_without_ownership",
+            "admit_failure",
+            "forwarded",
+            "forward_failed");
     private static final ObjectMapper JSON =
             new ObjectMapper().findAndRegisterModules().disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+    /** #417 P0: TOSS 장애 시나리오(즉시 실패·응답 없음)는 TOSS 결제가 DONE이 되지 않는다. 그때는 acknowledge 완료만 기다린다. */
+    private static final boolean ALLOW_UNFINISHED = Boolean.getBoolean("cap.allowUnfinished");
+
+    private static volatile com.sparta.ticket.payment.infrastructure.pg.PgCircuitBreakers breakers;
 
     private ApprovalCapacityBenchmarkMain() {}
 
@@ -172,7 +186,12 @@ public final class ApprovalCapacityBenchmarkMain {
                                 "maxInFlight", properties.getMaxInFlight(),
                                 "retryDelayMillis", properties.getRetryDelay().toMillis()));
                 var admin = new FakePgAdmin(pgUrl);
-                admin.fault("TOSS", "CONFIRM", "{\"latencyMs\":" + tossLatency + "}");
+                String tossFault = System.getProperty("cap.tossFault", "{\"latencyMs\":" + tossLatency + "}");
+                admin.fault("TOSS", "CONFIRM", tossFault);
+                report.put("tossFault", tossFault);
+                report.put("allowUnfinished", ALLOW_UNFINISHED);
+                breakers = context.getBeanProvider(com.sparta.ticket.payment.infrastructure.pg.PgCircuitBreakers.class)
+                        .getIfAvailable();
                 admin.fault("KAKAO", "CONFIRM", "{\"latencyMs\":" + kakaoLatency + "}");
                 var registry = context.getBean(KafkaListenerEndpointRegistry.class);
                 long assignmentLimit = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
@@ -211,8 +230,14 @@ public final class ApprovalCapacityBenchmarkMain {
                                 "SELECT coalesce(sum(amount),0) FROM p_payments WHERE order_id LIKE ? AND status='DONE'",
                                 Long.class,
                                 prefix + "-m%"));
-                if (!Long.valueOf(count).equals(report.get("outbox"))
-                        || !Long.valueOf(count).equals(report.get("jobs")))
+                report.put(
+                        "finalStatesByProvider",
+                        jdbc.queryForList(
+                                "SELECT pg_provider provider,status,count(*) n FROM p_payments WHERE order_id LIKE ? GROUP BY 1,2 ORDER BY 1,2",
+                                prefix + "-m%"));
+                if (!ALLOW_UNFINISHED
+                        && (!Long.valueOf(count).equals(report.get("outbox"))
+                                || !Long.valueOf(count).equals(report.get("jobs"))))
                     throw new IllegalStateException("승인 후 영속 인계 건수가 다르다");
             }
             report.put("success", true);
@@ -293,6 +318,7 @@ public final class ApprovalCapacityBenchmarkMain {
             throws Exception {
         var report = new LinkedHashMap<String, Object>();
         var before = counters(meters);
+        double mainCompletedBefore = laneCounter(meters, "main", "completed");
         var timersBefore = timers(meters);
         var os = (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
         long cpuBefore = os.getProcessCpuTime();
@@ -332,9 +358,11 @@ public final class ApprovalCapacityBenchmarkMain {
                 timeline.add(point(jdbc, meters, before, prefix, started));
                 nextPoint += TimeUnit.SECONDS.toNanos(1);
             }
-            if (states.getOrDefault("DONE", 0L) == inputs.size()
-                    && counter(meters, "completed") - before.get("completed") == inputs.size()) break;
-            if (counter(meters, "invalid") > before.get("invalid") || states.getOrDefault("FAILED", 0L) > 0)
+            // Note: #417 B에서 넘긴 레코드는 원본·retry 레인이 각각 completed로 센다. 완료 기준은 원본 레인의 ACK 수다.
+            boolean acknowledged = laneCounter(meters, "main", "completed") - mainCompletedBefore == inputs.size();
+            if (acknowledged && (ALLOW_UNFINISHED || states.getOrDefault("DONE", 0L) == inputs.size())) break;
+            if (counter(meters, "invalid") > before.get("invalid")
+                    || (!ALLOW_UNFINISHED && states.getOrDefault("FAILED", 0L) > 0))
                 throw new IllegalStateException("유효한 승인 입력이 아니거나 최종 실패가 발생했다");
             if (System.nanoTime() > drainLimit) {
                 report.put("timeline", timeline);
@@ -352,13 +380,14 @@ public final class ApprovalCapacityBenchmarkMain {
                 result -> {
                     Map<String, Long> values = new LinkedHashMap<>();
                     while (result.next())
-                        values.put(
-                                result.getString(1),
-                                result.getTimestamp(2)
-                                        .toLocalDateTime()
-                                        .atZone(SEOUL)
-                                        .toInstant()
-                                        .toEpochMilli());
+                        if (result.getTimestamp(2) != null)
+                            values.put(
+                                    result.getString(1),
+                                    result.getTimestamp(2)
+                                            .toLocalDateTime()
+                                            .atZone(SEOUL)
+                                            .toInstant()
+                                            .toEpochMilli());
                     return values;
                 },
                 prefix + "-%");
@@ -366,6 +395,8 @@ public final class ApprovalCapacityBenchmarkMain {
         var byProvider = new LinkedHashMap<String, List<Long>>();
         var byPartition = new LinkedHashMap<Integer, Map<String, List<Long>>>();
         for (var input : inputs) {
+            // Note: 승인되지 않은 결제(실패·결과 불명)는 승인 지연에서 뺀다. 상태 분포는 finalStatesByProvider로 남긴다.
+            if (!approved.containsKey(input.order)) continue;
             long latency = approved.get(input.order) - input.sentEpochMillis;
             all.add(latency);
             byProvider
@@ -392,6 +423,14 @@ public final class ApprovalCapacityBenchmarkMain {
         report.put("maxDispatchDelayMillis", maxDispatchNanos / 1e6);
         report.put("states", states);
         report.put("outcomes", delta(meters, before));
+        var lanes = new LinkedHashMap<String, Object>();
+        for (String laneName : List.of("main", "retry-toss", "retry-kakao")) {
+            var values = new LinkedHashMap<String, Double>();
+            for (String outcome : List.of("received", "completed", "local_wait", "forwarded", "claim_acknowledged"))
+                values.put(outcome, laneCounter(meters, laneName, outcome));
+            lanes.put(laneName, values);
+        }
+        report.put("outcomesByLaneCumulative", lanes);
         report.put("processCpuSeconds", (os.getProcessCpuTime() - cpuBefore) / 1e9);
         report.put("threadCountEnd", ManagementFactory.getThreadMXBean().getThreadCount());
         report.put("threadCountPeak", ManagementFactory.getThreadMXBean().getPeakThreadCount());
@@ -416,6 +455,21 @@ public final class ApprovalCapacityBenchmarkMain {
         point.put("hikariActive", gauge(meters, "hikaricp.connections.active"));
         point.put("hikariPending", gauge(meters, "hikaricp.connections.pending"));
         point.put("threads", ManagementFactory.getThreadMXBean().getThreadCount());
+        point.put("retryTossPending", laneGauge(meters, "payment.confirm.pending", "retry-toss"));
+        point.put("retryKakaoPending", laneGauge(meters, "payment.confirm.pending", "retry-kakao"));
+        point.put("forwarded", counter(meters, "forwarded"));
+        var current = breakers;
+        if (current != null) {
+            for (String provider : List.of("TOSS", "KAKAO")) {
+                try {
+                    var breaker = current.get(provider);
+                    if (breaker != null)
+                        point.put("circuit" + provider, breaker.getState().name());
+                } catch (RuntimeException ignored) {
+                    // Note: 관측 실패는 측정 결과에 영향을 주지 않는다.
+                }
+            }
+        }
         return point;
     }
 
@@ -606,14 +660,35 @@ public final class ApprovalCapacityBenchmarkMain {
         return values;
     }
 
+    /** #417 B: 레인(main·retry-toss·retry-kakao)마다 카운터가 따로라 합계로 센다. */
     private static double counter(MeterRegistry meters, String outcome) {
-        var counter =
-                meters.find("payment.confirm.records").tag("outcome", outcome).counter();
-        return counter == null ? 0 : counter.count();
+        return meters.find("payment.confirm.records").tag("outcome", outcome).counters().stream()
+                .mapToDouble(io.micrometer.core.instrument.Counter::count)
+                .sum();
     }
 
+    /** 레인 태그가 없는 버전(#417 E만 적용)에서는 원본 레인 하나뿐이므로 태그 없는 카운터를 main으로 읽는다. */
+    private static double laneCounter(MeterRegistry meters, String lane, String outcome) {
+        var counter = meters.find("payment.confirm.records")
+                .tag("outcome", outcome)
+                .tag("lane", lane)
+                .counter();
+        if (counter != null) return counter.count();
+        boolean laneTagged = meters.find("payment.confirm.records").counters().stream()
+                .anyMatch(each -> each.getId().getTag("lane") != null);
+        return !laneTagged && "main".equals(lane) ? counter(meters, outcome) : 0;
+    }
+
+    /** 승인 레인 게이지는 원본 레인(main) 값을 읽는다. 레인 태그가 없는 게이지(Hikari 등)는 그대로 읽는다. */
     private static double gauge(MeterRegistry meters, String name) {
+        var main = meters.find(name).tag("lane", "main").gauge();
+        if (main != null) return main.value();
         var gauge = meters.find(name).gauge();
+        return gauge == null ? -1 : gauge.value();
+    }
+
+    private static double laneGauge(MeterRegistry meters, String name, String lane) {
+        var gauge = meters.find(name).tag("lane", lane).gauge();
         return gauge == null ? -1 : gauge.value();
     }
 
@@ -632,12 +707,21 @@ public final class ApprovalCapacityBenchmarkMain {
      * 결제라 이번 회차에서 PAYMENT_NOT_FOUND 재시도 소진으로 파티션을 멈춘다(#396 15.7). 건너뛴 건수를 결과에 남긴다.
      */
     private static long skipStaleRecords() throws Exception {
+        long skipped = skipStaleRecords(GROUP, TOPIC);
+        // Note: retry Topic은 첫 기동 때 만들어진다. 아직 없으면 건너뛴다.
+        skipped += skipStaleRecords("payment-confirm-retry-toss", "payment.confirm.retry.toss");
+        skipped += skipStaleRecords("payment-confirm-retry-kakao", "payment.confirm.retry.kakao");
+        return skipped;
+    }
+
+    private static long skipStaleRecords(String group, String topic) throws Exception {
         try (var admin = Admin.create(Map.of("bootstrap.servers", BROKER))) {
+            if (!admin.listTopics().names().get(5, TimeUnit.SECONDS).contains(topic)) return 0;
             var request = new LinkedHashMap<TopicPartition, OffsetSpec>();
             for (int partition = 0; partition < 12; partition++)
-                request.put(new TopicPartition(TOPIC, partition), OffsetSpec.latest());
+                request.put(new TopicPartition(topic, partition), OffsetSpec.latest());
             var ends = admin.listOffsets(request).all().get(5, TimeUnit.SECONDS);
-            var committed = admin.listConsumerGroupOffsets(GROUP)
+            var committed = admin.listConsumerGroupOffsets(group)
                     .partitionsToOffsetAndMetadata()
                     .get(5, TimeUnit.SECONDS);
             long skipped = 0;
@@ -651,7 +735,7 @@ public final class ApprovalCapacityBenchmarkMain {
                                 entry.getValue().offset()));
             }
             if (skipped > 0)
-                admin.alterConsumerGroupOffsets(GROUP, target).all().get(10, TimeUnit.SECONDS);
+                admin.alterConsumerGroupOffsets(group, target).all().get(10, TimeUnit.SECONDS);
             return skipped;
         }
     }
