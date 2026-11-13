@@ -438,8 +438,8 @@
 - confirm: 지난 시도의 결과가 늦게 와도 현재 시도에 반영하지 않는다. 실패는 무시한다. 성공도 예매는 환불하지 않고 지표와 경고 로그만 남긴다. 결제가 FAILED로 정한 orderId를 DONE으로 바꾸지 않고 늦은 승인을 AUTO_VOID로 돌려주기 때문이다(#319, architecture 9절).
 - confirm: pgAuthToken은 PAYMENT_IN_PROGRESS 동안만 예매에 남는다. CONFIRMED·HOLD·EXPIRED·CANCELED로 바뀌면 지운다. (원본 복원: reservation/orchestration.md:176, reservation/tables.md:90, 담당 확인 필요)
 - confirm(메시지 승인, #318 합의, 구현 전): HOLD, 만료 전, order_id 일치일 때 PAYMENT_IN_PROGRESS와 승인 요청 메시지(`payment.confirm.requested`)를 한 트랜잭션에 커밋하고, 결제를 기다리지 않고 200 PAYMENT_IN_PROGRESS를 준다. 결과는 `payment.result`로 받아 위 규칙대로 반영한다.
-- confirm(메시지 승인): 결제를 부르지 않으므로 결제 대기 한도가 차서 나던 503은 없다. DB 장애 같은 다른 503은 남는다. 400·409는 동기 승인과 같다.
-- confirm(메시지 승인): 예매는 pgAuthToken을 예약에 남기지 않는다. 승인을 다시 보내지 않기 때문이다. 인증값은 Outbox 행에만 있고 발행한 뒤 지운다.
+- confirm(메시지 승인): 결제를 부르지 않으므로 결제 대기 한도가 차서 나던 503은 없다. DB 장애 같은 다른 503은 남는다. 400·409는 동기 승인과 같다. 단 승인 요청이 Kafka로 나가지 못해 동기 승인으로 돌린 동안(#404)은 응답과 오류가 동기 승인과 같다(결제 대기 한도 503 포함).
+- confirm(메시지 승인): 예매는 pgAuthToken을 예약에 남기지 않는다. Kafka 장애 때의 대체 승인(#422)도 Outbox 행의 값을 그대로 보내기 때문이다. 인증값은 Outbox 행에만 있고 발행한 뒤 지운다. 대체 승인을 보낸 행도 Kafka가 돌아와 발행할 때까지 남는다.
 - 단건 조회(#318 합의, 구현 전): 예약이 PAYMENT_IN_PROGRESS이면 다음 조회까지 기다릴 초를 `Retry-After` 헤더로 준다. 결제 중 예약이 많으면 서버가 늘린다. 결과가 정해지면 헤더가 없다.
 - 확정 불가 환불: 지금 시도의 성공을 좌석 때문에 확정하지 못하면 결과 확인 스레드가 같은 orderId로 refund(orderId, CONFIRM_FAILED)를 요청한다. 접수 판정은 cancel과 같다. 받으면 PAYMENT_IN_PROGRESS→CANCELED로 끝내고 쿠폰을 돌려준다. 좌석은 이미 이 예매의 것이 아니므로 바꾸지 않는다. 클라이언트는 GET으로 CANCELED를 본다. (#155)
 - 결과 확인: 결제 조회가 404이면 예매는 알림을 남기고 PAYMENT_IN_PROGRESS를 그대로 둔다. (원본 복원: reservation/orchestration.md:242, 담당 확인 필요)
@@ -582,7 +582,7 @@
 - 환불은 전액. READY→FAILED(ABANDONED), FAILED는 NOT_REQUIRED(환불 행 없음); IN_PROGRESS는 WAITING, DONE은 REQUESTED 후 PG 취소, CANCELED는 기존 환불. 접수와 PG 취소 완료는 다르다.
 - 기존 환불 행이 있으면 최초 사유와 상태를 먼저 재현한다. NOT_REQUIRED의 refundAmount는 0이다.
 
-승인의 메시지 대체 승인(#422 합의, 결제 구현됨)
+승인의 메시지 대체 승인(#422 합의, 결제·예매 구현됨)
 
 Kafka가 멈춰 예매가 Outbox에 남은 승인 요청(`payment.confirm.requested`)을 HTTP `confirm`으로 보내는 경우다(#403). `confirmBefore`가 있으면 대체 승인, 없으면 지금 동기 승인 그대로다. 기존 동기 승인 요청의 동작은 바뀌지 않는다.
 
