@@ -85,6 +85,17 @@ class VenueSeatsTests(unittest.TestCase):
         self.assertEqual({1000}, set(counts.values()))
         self.assertEqual(20000, len({(s['section'], s['rowLabel'], s['seatNumber']) for s in seats}))
 
+    def test_smaller_sections_make_more_sections(self):
+        seats = scenario1.venue_seats(20000, 'sections', 250)
+        self.assertEqual({'section': 'A', 'rowLabel': '10', 'seatNumber': 25}, seats[249])
+        self.assertEqual({'section': 'B', 'rowLabel': '1', 'seatNumber': 1}, seats[250])
+        self.assertEqual(80, len({s['section'] for s in seats}))
+        self.assertEqual('CB', seats[-1]['section'])
+
+    def test_section_seats_must_be_row_multiple(self):
+        with self.assertRaises(Failure):
+            scenario1.venue_seats(100, 'sections', 30)
+
     def test_section_names_continue_after_z(self):
         self.assertEqual(['A', 'Z', 'AA', 'AB'], [scenario1.section_name(i) for i in (0, 25, 26, 27)])
 
@@ -95,6 +106,7 @@ class VenueSeatsTests(unittest.TestCase):
     def test_register_uses_venue_layout(self):
         obj = object.__new__(Scenario)
         obj.venue_layout = 'sections'
+        obj.section_seats = 1000
         obj.request = Mock(side_effect=[{'venueVersion': v} for v in range(2, 12)])
         obj.register_seats(VENUE, GRADE, 6000, 1, 'token')
         bodies = [c.args[2]['seats'] for c in obj.request.call_args_list]

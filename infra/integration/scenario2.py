@@ -16,7 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD, VENUE_LAYOUTS
+from scenario1 import Scenario, Failure, require, KST, ROOT, PASSWORD, VENUE_LAYOUTS, DEFAULT_SECTION_SEATS, SECTION_SEATS_PER_ROW
 import foreign
 import layout_probe
 
@@ -64,6 +64,9 @@ def option_error(a):
     if a.layout_body=='skip' and a.seat_api not in ('split','zone'):return '--layout-body skip needs --seat-api split or zone'
     if a.seat_api=='zone' and a.venue_layout!='sections':return '--seat-api zone needs --venue-layout sections'
     if a.seat_api!='zone' and (a.zone_visits!=1 or a.status_reads is not None):return '--zone-visits/--status-reads need --seat-api zone'
+    if a.section_seats!=DEFAULT_SECTION_SEATS and a.venue_layout!='sections':return '--section-seats needs --venue-layout sections'
+    if not (SECTION_SEATS_PER_ROW<=a.section_seats<=5000 and a.section_seats%SECTION_SEATS_PER_ROW==0):
+        return f'section-seats {SECTION_SEATS_PER_ROW}..5000, multiple of {SECTION_SEATS_PER_ROW}'
     if not 1<=a.zone_visits<=20:return 'zone-visits 1..20'
     if a.status_reads is not None and not 1<=a.status_reads<=20:return 'status-reads 1..20'
     return None
@@ -93,13 +96,15 @@ class MixedScenario(Scenario):
         self.args=args
         # 공연장 좌석 배치(#397). scenario3·4는 이 옵션이 없어 기존 배치(A구역 1열)로 둔다
         self.venue_layout=getattr(args,'venue_layout','single')
+        self.section_seats=getattr(args,'section_seats',DEFAULT_SECTION_SEATS)
         # arrival executor의 경계 시각 차이를 위한 두 계정 여유. 좌석은 매번 같은 인자로 고정한다.
         buyers=math.ceil(args.rate*args.duration/10)+2 if buyer_count is None else buyer_count
         require(args.seats>=buyers,f'Need at least {buyers} seats. Keep --seats identical when comparing rates.')
         super().__init__(buyers,180,scenario=scenario,allow_foreign=getattr(args,'allow_foreign',False))
         self.report.update(workload={'rate_journeys_per_second':args.rate,'duration_seconds':args.duration,
             'warmup_seconds':args.warmup,'mix_percent':{'browse':70,'seat':20,'booking':10},
-            'seat_count':args.seats,'venue_layout':self.venue_layout,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
+            'seat_count':args.seats,'venue_layout':self.venue_layout,
+            'section_seats':self.section_seats if self.venue_layout=='sections' else None,'viewer_account_pool':args.viewers,'preallocated_vus':args.vus,'max_vus':args.max_vus,
             'think_seconds':[.3,1.0],'seat_reads_per_viewer':[3,5],
             'booking_seat_selection':'disjoint assigned seats; no intentional seat competition',
             # scenario3·4는 이 옵션이 없을 수 있어 legacy로 둔다
@@ -425,7 +430,9 @@ if __name__=='__main__':
     p.add_argument('--status-reads',type=int,
                    help='zone only: status reads per visited section; default same as split (seat 3..5, booking 1)')
     p.add_argument('--venue-layout',choices=VENUE_LAYOUTS,default='single',
-                   help='single: all seats in section A row 1 (as before); sections: 25 seats/row, 1,000 seats/section A, B, ... (#397)')
+                   help='single: all seats in section A row 1 (as before); sections: 25 seats/row, --section-seats per section A, B, ... (#397)')
+    p.add_argument('--section-seats',type=int,default=DEFAULT_SECTION_SEATS,
+                   help='sections only: seats per section, multiple of 25 (default 1000 = #287 browser fixture)')
     p.add_argument('--allow-foreign',action='store_true',help=foreign.ALLOW_HELP)
     p.add_argument('--layout-body',choices=['parse','skip'],default='parse',
                    help='skip: k6 does not keep the layout body (split or zone, #287 boundary)')

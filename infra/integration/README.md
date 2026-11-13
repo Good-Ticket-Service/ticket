@@ -125,7 +125,7 @@ python infra/integration/scenario2.py --rate 250 --duration 60 --seats 20000 --v
 python infra/integration/scenario2.py --rate 250 --duration 60 --seats 20000 --venue-layout sections --seat-api zone --zone-visits 2 --status-reads 3
 ```
 
-- `--venue-layout sections`: 좌석을 A구역 1열이 아니라 한 열 25석, 구역당 40열(1,000석)로 구역 A, B, ...에 등록한다. 20,000석이면 구역 20개다. 다른 `--seat-api`와도 쓸 수 있다.
+- `--venue-layout sections`: 좌석을 A구역 1열이 아니라 한 열 25석, 구역당 `--section-seats`석(기본 1,000석 = 40열, #287 브라우저 실측과 같은 배치)으로 구역 A, B, ...에 등록한다. 20,000석이면 구역 20개, `--section-seats 250`이면 80개다. 다른 `--seat-api`와도 쓸 수 있다.
 - `--seat-api zone`(`--venue-layout sections` 필요): 좌석 탐색·예매가 구역 목록(`/sections`) → 구역 layout(`?section=`) → 구역 status로 조회한다.
   - 좌석 탐색은 여정 순서대로 첫 구역을 돌려 구역마다 고르게 나눈다. 예매는 다른 구역을 먼저 보고 마지막에 배정 좌석의 구역에서 선택 가능한지 확인한 뒤 선점한다.
   - 구역 목록의 이름·좌석 수·순서와 구매자의 구역 안 비트 위치는 측정 전에 Python이 기존 좌석 조회로 계산해 `input.json`에 넣는다.

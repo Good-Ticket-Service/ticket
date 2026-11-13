@@ -202,7 +202,7 @@ class PrepareZoneTests(unittest.TestCase):
 class OptionErrorTests(unittest.TestCase):
     """좌석 조회 옵션 조합(#287 skip, #397 zone)."""
     def args(self, **kw):
-        base = dict(seat_api='legacy', layout_body='parse', venue_layout='single', zone_visits=1, status_reads=None)
+        base = dict(seat_api='legacy', layout_body='parse', venue_layout='single', section_seats=1000, zone_visits=1, status_reads=None)
         return Namespace(**{**base, **kw})
 
     def test_defaults_and_valid_zone_pass(self):
@@ -219,6 +219,11 @@ class OptionErrorTests(unittest.TestCase):
 
     def test_skip_needs_split_or_zone(self):
         self.assertIn('skip', option_error(self.args(layout_body='skip')))
+
+    def test_section_seats_need_sections_and_row_multiple(self):
+        self.assertIn('needs --venue-layout sections', option_error(self.args(section_seats=250)))
+        self.assertIsNone(option_error(self.args(venue_layout='sections', section_seats=250)))
+        self.assertIn('multiple of 25', option_error(self.args(venue_layout='sections', section_seats=260)))
 
     def test_ranges(self):
         zone = dict(seat_api='zone', venue_layout='sections')
