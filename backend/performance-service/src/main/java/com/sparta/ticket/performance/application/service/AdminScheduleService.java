@@ -18,6 +18,7 @@ public class AdminScheduleService {
 
     private final ScheduleStore scheduleStore;
     private final PerformanceStore performanceStore;
+    private final ScheduleListCacheInvalidator listCacheInvalidator;
 
     /**
      * 회차의 신규 판매를 멈추거나 다시 연다. 이미 잡힌 HOLD와 진행 중인 결제에는 영향이 없다(판매 검증이 신규 선점에만 쓰인다).
@@ -39,6 +40,7 @@ public class AdminScheduleService {
 
         if (schedule.changeSalesSuspension(suspended, reason)) {
             schedule = scheduleStore.saveAndFlush(schedule);
+            listCacheInvalidator.evictAfterCommit(schedule.getPerformanceId());
         }
         return SalesSuspension.of(schedule);
     }

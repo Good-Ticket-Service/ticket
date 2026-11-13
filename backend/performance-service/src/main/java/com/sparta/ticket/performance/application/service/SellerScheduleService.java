@@ -7,6 +7,7 @@ import com.sparta.ticket.performance.application.dto.SellerScheduleDetail;
 import com.sparta.ticket.performance.application.dto.SellerScheduleRow;
 import com.sparta.ticket.performance.application.port.PerformanceStore;
 import com.sparta.ticket.performance.application.port.PublicPerformanceDetailCache;
+import com.sparta.ticket.performance.application.port.PublicScheduleListCache;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
 import com.sparta.ticket.performance.application.port.SellerScheduleReader;
 import com.sparta.ticket.performance.domain.performance.Performance;
@@ -39,6 +40,7 @@ public class SellerScheduleService {
     private final SellerScheduleReader reader;
     private final SeatSetupDispatcher seatSetupDispatcher;
     private final PublicPerformanceDetailCache detailCache;
+    private final PublicScheduleListCache listCache;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -48,6 +50,7 @@ public class SellerScheduleService {
         // 새 회차가 공개 상세의 기간(period)을 바꿀 수 있어 커밋 직후에 지운다(이슈 #398). 좌석 호출의 지연·실패가
         // 삭제를 늦추지 않게 좌석 준비보다 먼저 한다. 롤백되면 예외로 여기까지 오지 않아 지우지 않는다
         detailCache.evict(performanceId);
+        listCache.evict(performanceId);
         seatSetupDispatcher.dispatch(List.of(schedule.id()));
         return schedule;
     }

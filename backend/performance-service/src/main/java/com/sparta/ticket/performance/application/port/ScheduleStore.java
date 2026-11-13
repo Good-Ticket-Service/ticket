@@ -36,6 +36,8 @@ public interface ScheduleStore {
     /**
      * 회차의 좌석 준비 필드만 저장한다. 회차 version은 올리지 않는다(Schedule의 Note). 잠근 회차를 도메인 메서드로 바꾼 뒤 부른다.
      * Note: 이 회차는 이 트랜잭션에서 더 이상 Entity 변경 감지 대상이 아니다. 저장한 뒤에는 같은 객체를 다시 바꾸지 않는다.
+     * Note: 활성 트랜잭션과 트랜잭션 동기화가 필요하다. 없으면 IllegalStateException이다.
+     * 커밋 뒤 부모 공연의 회차 목록 캐시를 지우며, 같은 트랜잭션의 같은 공연은 한 번만 지운다. 롤백하면 지우지 않는다.
      */
     void saveSeatSetup(Schedule schedule);
 }

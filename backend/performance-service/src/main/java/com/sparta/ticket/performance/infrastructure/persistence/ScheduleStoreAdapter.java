@@ -2,6 +2,7 @@ package com.sparta.ticket.performance.infrastructure.persistence;
 
 import com.sparta.ticket.performance.application.dto.PerformancePeriod;
 import com.sparta.ticket.performance.application.port.ScheduleStore;
+import com.sparta.ticket.performance.application.service.ScheduleListCacheInvalidator;
 import com.sparta.ticket.performance.domain.performance.OperationStatus;
 import com.sparta.ticket.performance.domain.schedule.Schedule;
 import com.sparta.ticket.performance.domain.schedule.SeatSetupStatus;
@@ -27,6 +28,7 @@ public class ScheduleStoreAdapter implements ScheduleStore {
     private final ScheduleJpaRepository scheduleRepository;
     private final EntityManager entityManager;
     private final AuditorAware<String> auditorAware;
+    private final ScheduleListCacheInvalidator listCacheInvalidator;
 
     @Override
     public Schedule save(Schedule schedule) {
@@ -96,5 +98,6 @@ public class ScheduleStoreAdapter implements ScheduleStore {
                 schedule.getSeatSetupRecoveryNextAt(),
                 LocalDateTime.now(),
                 auditorAware.getCurrentAuditor().orElse(SYSTEM));
+        listCacheInvalidator.evictAfterCommit(schedule.getPerformanceId());
     }
 }
