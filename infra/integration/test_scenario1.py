@@ -115,3 +115,33 @@ class VenueSeatsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class DbErrorTests(unittest.TestCase):
+    """읽기 전용 DB 검사가 실패하면 psql 오류 내용을 결과 폴더에 남긴다(#397 측정에서 원인을 알 수 없었음)."""
+    def scenario(self, folder):
+        obj = object.__new__(Scenario)
+        obj.cmd, obj.env, obj.out = ['docker', 'compose'], {'POSTGRES_USER': 'ticket'}, folder
+        return obj
+
+    def test_failure_saves_stderr_and_puts_first_line_in_error(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            obj = self.scenario(Path(d))
+            failed = Mock(returncode=3, stdout='', stderr='ERROR:  canceling statement due to statement timeout\nCONTEXT: x\n')
+            with patch.object(scenario1.subprocess, 'run', return_value=failed):
+                with self.assertRaises(Failure) as e:
+                    obj.db('SELECT 1')
+            self.assertIn('canceling statement due to statement timeout', str(e.exception))
+            saved = (Path(d)/'db-error.txt').read_text(encoding='utf-8')
+            self.assertIn('exit=3', saved)
+            self.assertIn('CONTEXT: x', saved)
+
+    def test_success_writes_nothing(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            obj = self.scenario(Path(d))
+            with patch.object(scenario1.subprocess, 'run', return_value=Mock(returncode=0, stdout='[1]', stderr='')):
+                self.assertEqual(obj.db('SELECT 1'), [1])
+            self.assertFalse((Path(d)/'db-error.txt').exists())
