@@ -38,7 +38,10 @@ export function ageRatingLabel(code: string | null | undefined): string {
   return /^\d+$/.test(code) ? `${code}세 이상` : code;
 }
 
-export function ageGuidanceLabel(guidance: string | null | undefined, rating: string | null | undefined): string {
+export function ageGuidanceLabel(
+  guidance: string | null | undefined,
+  rating: string | null | undefined,
+): string {
   return guidance?.trim() || ageRatingLabel(rating);
 }
 
@@ -95,3 +98,13 @@ export const recoveryModeLabel = (code: string) => withCode(RECOVERY_MODE, code)
 export const pgObservationLabel = (code: string) => withCode(PG_OBSERVATION, code);
 export const payoutStatusLabel = (code: string) => withCode(PAYOUT_STATUS, code);
 export const payoutAttentionLabel = (code: string) => withCode(PAYOUT_ATTENTION, code);
+
+export const refundGuidanceLabel = (code: string) =>
+  ({
+    TERMINAL_NO_OPERATION: '처리가 종료되어 추가 복구가 필요하지 않습니다.',
+    WAITING_FOR_PAYMENT_RESULT: '결제 결과를 확인한 뒤 환불을 진행합니다.',
+    INSPECT_ROOT_CAUSE_RESUME_READ_ONLY_OR_VALIDATED_RETRY:
+      '원인을 확인한 뒤 조회 전용 재개 또는 검증된 재시도를 요청하세요.',
+    READ_ONLY_CHECK_ROOT_CAUSE_AND_KEY_WINDOW: '조회 전용 상태입니다. 원인과 취소 가능 기간을 확인하세요.',
+    AUTOMATIC_RECOVERY_RUNNING: '자동 복구가 진행 중입니다.',
+  })[code] ?? code;

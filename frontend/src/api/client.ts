@@ -36,12 +36,16 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  cache?: RequestCache;
+  signal?: AbortSignal;
 }
 
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const token = getToken();
   try {
     return await fetch(path, {
+      cache: options.cache,
+      signal: options.signal,
       method: options.method ?? 'GET',
       headers: {
         ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -53,6 +57,22 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR', '서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
   }
+}
+
+/** 조건부 조회의 304는 이전 본문을 재사용한다. 인증 헤더는 일반 API와 똑같이 보낸다. */
+export async function conditionalApi<T>(
+  path: string,
+  previous: { data: T; etag: string | null } | undefined,
+  options: RequestOptions = {},
+): Promise<{ data: T; etag: string | null }> {
+  const response = await send(path, {
+    ...options,
+    headers: { ...options.headers, ...(previous?.etag ? { 'If-None-Match': previous.etag } : {}) },
+  });
+  if (response.status === 304 && previous) return previous;
+  if (!response.ok) throw await toError(response);
+  const body = await response.json();
+  return { data: body.data as T, etag: response.headers.get('ETag') };
 }
 
 async function toError(response: Response): Promise<ApiError> {
@@ -77,8 +97,22 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   return body.data as T;
 }
 
+/** 결제 결과 폴링은 서버가 지정한 Retry-After 간격을 따른다. */
+export async function apiWithRetryAfter<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<{ data: T; retryAfter: string | null }> {
+  const response = await send(path, options);
+  if (!response.ok) throw await toError(response);
+  const body = await response.json();
+  return { data: body.data as T, retryAfter: response.headers.get('Retry-After') };
+}
+
 /** 관리용 단건 조회. 응답의 ETag를 다음 명령의 If-Match에 그대로 쓴다. */
-export async function apiWithEtag<T>(path: string, options: RequestOptions = {}): Promise<{ data: T; etag: string | null }> {
+export async function apiWithEtag<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<{ data: T; etag: string | null }> {
   const response = await send(path, options);
   if (!response.ok) throw await toError(response);
   const body = await response.json();
@@ -117,7 +151,7 @@ const MESSAGES: Record<string, string> = {
   DUPLICATE_EMAIL: '이미 가입한 이메일이에요.',
   QUEUE_TOKEN_INVALID: '입장 시간이 끝났어요. 다시 줄을 서 주세요.',
   NOT_IN_QUEUE: '대기열에서 빠졌어요. 다시 줄을 서 주세요.',
-  SERVICE_UNAVAILABLE: '요청이 몰리고 있어요. 잠시 뒤 다시 시도해 주세요.',
+  SERVICE_UNAVAILABLE: '서비스를 일시적으로 이용할 수 없어요. 잠시 뒤 다시 시도해 주세요.',
   VERSION_CONFLICT: '그사이 다른 곳에서 바뀌었어요. 최신 버전을 확인한 뒤 다시 시도해 주세요.',
   PRECONDITION_REQUIRED: '버전(If-Match)을 알 수 없어요. 버전을 입력해 주세요.',
   FORBIDDEN: '이 계정으로는 할 수 없는 요청이에요.',

@@ -1,41 +1,71 @@
-/**
- * 대기열을 통과하면 받는 입장 토큰. 공연마다 하나이고, Gateway가 좌석 조회·선점에서 X-Queue-Token으로 검사한다.
- * 토큰이 로그인한 회원에게 묶여 있어 탭을 닫거나 로그아웃하면 버린다.
- */
-const PREFIX = 'ticket.entryToken.';
+import type { WaitingRoom } from '../api/types';
+import { parseTime } from './format';
 
+const PREFIX = 'ticket.entryToken.';
+const ROOM_PREFIX = `${PREFIX}v2.room.`;
 interface Entry {
   token: string;
   expiresAt: string;
+  scopes: string[];
 }
 
-export function saveEntryToken(performanceId: string | number, token: string, expiresAt: string): void {
+/** 서버 room의 scope를 함께 저장한다. 토큰 서명·회원·실제 접근 권한은 Gateway가 검증한다. */
+export function saveEntryToken(
+  room: Pick<WaitingRoom, 'roomId' | 'scopes'>,
+  token: string,
+  expiresAt: string,
+): void {
   try {
-    sessionStorage.setItem(PREFIX + performanceId, JSON.stringify({ token, expiresAt } satisfies Entry));
+    sessionStorage.setItem(
+      ROOM_PREFIX + room.roomId,
+      JSON.stringify({ token, expiresAt, scopes: room.scopes } satisfies Entry),
+    );
   } catch {
-    // 저장하지 못하면 좌석 화면에서 403을 받고 대기열로 돌아간다.
+    /* 저장 실패 시 Gateway 응답으로 재진입한다. */
   }
 }
 
-/** 만료 전 토큰만 돌려준다. 만료된 토큰을 보내면 Gateway가 어차피 거절하므로 미리 버린다. */
-export function entryToken(performanceId: string | number): string | null {
+export function entryToken(scheduleId: string | number): string | null {
   try {
-    const raw = sessionStorage.getItem(PREFIX + performanceId);
-    if (!raw) return null;
-    const entry = JSON.parse(raw) as Entry;
-    if (Date.parse(entry.expiresAt) > Date.now()) return entry.token;
-    sessionStorage.removeItem(PREFIX + performanceId);
-    return null;
+    for (const key of Object.keys(sessionStorage).filter((value) => value.startsWith(ROOM_PREFIX))) {
+      try {
+        const entry = JSON.parse(sessionStorage.getItem(key) ?? 'null') as Entry | null;
+        if (
+          !entry ||
+          !Array.isArray(entry.scopes) ||
+          !Number.isFinite(parseTime(entry.expiresAt).getTime()) ||
+          parseTime(entry.expiresAt).getTime() <= Date.now()
+        ) {
+          sessionStorage.removeItem(key);
+          continue;
+        }
+        if (entry.scopes.includes(`schedule:${scheduleId}`) && typeof entry.token === 'string')
+          return entry.token;
+      } catch {
+        sessionStorage.removeItem(key);
+      }
+    }
   } catch {
-    return null;
+    /* 저장소가 차단되면 토큰 없이 접근하고 Gateway 결과를 따른다. */
   }
+  return null;
 }
 
-export function clearEntryToken(performanceId: string | number): void {
+/** 잘못된 토큰은 같은 room의 다른 scope에도 재사용하지 않는다. */
+export function clearEntryToken(scheduleId: string | number): void {
   try {
-    sessionStorage.removeItem(PREFIX + performanceId);
+    Object.keys(sessionStorage)
+      .filter((key) => key.startsWith(ROOM_PREFIX))
+      .forEach((key) => {
+        try {
+          const entry = JSON.parse(sessionStorage.getItem(key) ?? 'null') as Entry | null;
+          if (!entry || entry.scopes.includes(`schedule:${scheduleId}`)) sessionStorage.removeItem(key);
+        } catch {
+          sessionStorage.removeItem(key);
+        }
+      });
   } catch {
-    // 지우지 못해도 만료 시각이 지나면 쓰지 않는다.
+    /* Gateway가 만료·권한을 최종 검사한다. */
   }
 }
 
@@ -45,6 +75,6 @@ export function clearEntryTokens(): void {
       .filter((key) => key.startsWith(PREFIX))
       .forEach((key) => sessionStorage.removeItem(key));
   } catch {
-    // 지우지 못해도 다른 회원의 토큰은 Gateway가 거절한다.
+    /* 저장소가 차단돼도 서버 검사는 유지된다. */
   }
 }

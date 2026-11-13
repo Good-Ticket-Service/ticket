@@ -7,7 +7,7 @@
 
 ## 회원 — user-service
 
-상태: 가입·판매자 가입·로그인·본인 조회·내부 조회는 구현됨. 수정·탈퇴는 초안(구현 전).
+상태: 가입·판매자 가입·로그인·본인 조회·수정·내부 조회는 구현됨. 탈퇴는 초안(구현 전).
 
 공개 가입·로그인 외에는 본인 JWT. B=본문, Q=쿼리, R=응답.
 
@@ -17,13 +17,16 @@
 | POST /api/auth/seller/signup | 201 | Signup | SignupResult(role=SELLER) | 409 DUPLICATE_EMAIL |
 | POST /api/auth/login | 200 | email:string, password:string | accessToken:string, tokenType:string=Bearer, expiresIn:int=3600 | 401 LOGIN_FAILED |
 | GET /api/users/me | 200 | 없음 | User | 404 USER_NOT_FOUND |
-| PATCH /api/users/me | 200 | name:string, phone:string(선택/null 정책 미정) | User | 미정; 구현 전 |
+| PATCH /api/users/me | 200 | name:string?, phone:string? | User | 404 USER_NOT_FOUND |
 | DELETE /api/users/me | 200(기존 예시 기준) | 없음 | userId:long, status:WITHDRAWN, withdrawnAt:datetime | 미정; 구현 전 |
 | GET /internal/users/{userId} | 200 | 없음 | userId:long, email:string, role:string | 내부 호출, 조회 멱등;404 USER_NOT_FOUND(없음·논리 삭제·비ACTIVE). ACTIVE 검증은 #88 브랜치 구현 |
 
 - Signup = `{email:string(이메일), password:string(8~15자·대소문자/숫자/특수문자), name:string(공백 불가), phone:string(01[016789]-숫자3~4-숫자4)}`. 역할은 서버 고정. 탈퇴 이메일도 중복 거절.
 - SignupResult = `{userId:long,email:string,name:string,role:string,status:string}`.
 - User = `{userId:long,email:string,name:string,phone:string,role:string,status:string,createdAt:datetime,updatedAt:datetime}`.
+- 본인 수정은 이름·전화번호 중 바꿀 필드만 보낸다. 생략하거나 null인 필드는 유지한다.
+- 두 필드가 모두 생략/null이면 400 VALIDATION_ERROR다.
+- 수정 이름은 최대 50자이며 공백만 보낼 수 없다. 전화번호는 가입과 같은 형식이다.
 
 ## 공연 — performance-service
 

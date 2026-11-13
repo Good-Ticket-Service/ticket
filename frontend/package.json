@@ -7,7 +7,17 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test:performance-metadata": "node --test tests/performance-metadata.test.mjs",
-    "preview": "vite preview"
+    "test:performance-calendar": "node --test tests/performance-calendar.test.mjs",
+    "test:queue-seats": "node --test tests/queue-seats.test.mjs",
+    "test:checkout-coupons": "node --test tests/checkout-coupons.test.mjs",
+    "preview": "vite preview",
+    "test:bookings": "node --test tests/bookings.test.mjs",
+    "test:account": "node --test tests/account.test.mjs",
+    "test:seller-performances": "node --test tests/seller-performances.test.mjs",
+    "test:settlements": "node --test tests/settlements.test.mjs",
+    "test:admin-management": "node --test tests/admin-management.test.mjs",
+    "test:admin-coupons": "node --test tests/admin-coupons.test.mjs",
+    "test:operations": "node --test tests/operations.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.62.7",

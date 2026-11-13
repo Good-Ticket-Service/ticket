@@ -1,109 +1,115 @@
 import { useMutation } from '@tanstack/react-query';
-import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { type FormEvent, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { VenueResult } from '../../api/manageTypes';
-import { ErrorNotice, Title } from '../../components/Common';
-import { Field, Panel } from '../../components/Form';
+import { ErrorNotice } from '../../components/Common';
+import { AdminVenueList } from '../../components/AdminVenueList';
 import { useLocalRecords } from '../../lib/localRecords';
-
-/** 공연장 조회 API가 없어, 만든 공연장의 version과 등급을 이 브라우저에 기억한다. */
-export interface VenueRecord {
-  id: number;
-  name: string;
-  region: string;
-  version: number;
-  grades: { id: number; name: string }[];
-  seatCount: number;
-}
-
-export const VENUE_RECORDS = 'ticket.admin.venues';
+import { VENUE_RECORDS, type VenueRecord } from '../../lib/adminManagement';
 
 export function AdminVenuesPage() {
-  const navigate = useNavigate();
-  const venues = useLocalRecords<VenueRecord>(VENUE_RECORDS);
-  const [form, setForm] = useState({ name: '', address: '', region: '' });
-  const [openId, setOpenId] = useState('');
+  const navigate = useNavigate(),
+    venues = useLocalRecords<VenueRecord>(VENUE_RECORDS);
+  const [form, setForm] = useState({ name: '', address: '', region: '' }),
+    [openId, setOpenId] = useState('');
   const create = useMutation({
     mutationFn: () => api<VenueResult>('/api/admin/venues', { method: 'POST', body: form }),
     onSuccess: (venue) => {
-      venues.save({ id: venue.id, name: venue.name, region: venue.region, version: venue.version, grades: [], seatCount: 0 });
+      venues.save({ ...venue, grades: [], seatCount: 0, versionKnown: true });
       navigate(`/admin/venues/${venue.id}`);
     },
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate();
+    if (!create.isPending) create.mutate();
   };
-  const bind = (name: keyof typeof form, max: number) => ({
-    id: `venue-${name}`,
-    className: 'input',
-    required: true,
-    maxLength: max,
-    value: form[name],
-    onChange: (e: { target: { value: string } }) => setForm({ ...form, [name]: e.target.value }),
-  });
   return (
-    <main className="content medium stack" style={{ gap: 24 }}>
-      <Title en="Venues" ko="공연장" />
-      <Panel title="공연장 만들기" note="만든 뒤 등급과 좌석을 이어서 등록해요. 판매자는 공연을 만들 때 공연장 ID와 등급 ID를 입력해요.">
-        <form className="stack" onSubmit={submit}>
-          {create.isError && <ErrorNotice error={create.error} />}
-          <div className="form-grid">
-            <Field id="venue-name" label="이름">
-              <input {...bind('name', 100)} />
-            </Field>
-            <Field id="venue-address" label="주소">
-              <input {...bind('address', 255)} />
-            </Field>
-            <Field id="venue-region" label="지역" hint="예: 서울">
-              <input {...bind('region', 20)} />
-            </Field>
-          </div>
-          <button className="btn btn-primary" disabled={create.isPending}>
-            공연장 만들기
-          </button>
-        </form>
-      </Panel>
-      <Panel title="이 브라우저에서 만든 공연장" note="공연장 목록 API가 없어 여기서 만든 것만 기억해요. 지우기는 이 기억만 지우고 서버의 공연장은 그대로예요.">
-        {venues.records.length === 0 && <p className="muted">아직 없어요.</p>}
-        {venues.records.map((venue) => (
-          <div key={venue.id} className="item-row">
-            <Link to={`/admin/venues/${venue.id}`} className="item">
-              <span>
-                <span className="name">{venue.name}</span>
-                <br />
-                <span className="sub num">
-                  ID {venue.id} · {venue.region} · 등급 {venue.grades.length}개 · 좌석 {venue.seatCount}석
-                </span>
-              </span>
-              <span className="pill num">v{venue.version}</span>
-            </Link>
-            <button type="button" className="chip" aria-label={`${venue.name} 기록 지우기`} onClick={() => venues.remove(venue.id)}>
-              지우기
-            </button>
-          </div>
-        ))}
-        <form
-          className="actions"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (openId) navigate(`/admin/venues/${openId}`);
-          }}
-        >
-          <input
-            className="input"
-            style={{ flex: '1 1 160px', width: 'auto' }}
-            type="number"
-            min={1}
-            placeholder="다른 곳에서 만든 공연장 ID"
-            aria-label="공연장 ID"
-            value={openId}
-            onChange={(e) => setOpenId(e.target.value)}
-          />
-          <button className="btn btn-ghost">ID로 열기</button>
-        </form>
-      </Panel>
+    <main className="content seller-page admin-page stack">
+      <header className="seller-page-heading">
+        <div>
+          <h1 className="section-marker">공연장 관리</h1>
+          <p>공연장·좌석 등급·물리 좌석을 등록하고 관리하세요.</p>
+        </div>
+      </header>
+      <div className="admin-venue-layout">
+        <AdminVenueList records={venues.records} />
+        <div className="stack">
+          <section className="panel stack admin-accent-panel">
+            <h2 className="panel-title">새 공연장 등록</h2>
+            <p className="account-hint">
+              등록 후 등급과 좌석을 설정합니다. 판매자에게 공연장·등급 ID를 전달할 수 있어요.
+            </p>
+            <form className="stack" onSubmit={submit}>
+              <fieldset className="seller-fieldset stack" disabled={create.isPending}>
+                {create.isError && <ErrorNotice error={create.error} />}
+                {(
+                  [
+                    { key: 'name', label: '공연장명', max: 100 },
+                    { key: 'region', label: '지역', max: 20 },
+                    { key: 'address', label: '주소', max: 255 },
+                  ] as const
+                ).map((field) => (
+                  <div className="field" key={field.key}>
+                    <label htmlFor={`venue-${field.key}`}>{field.label}</label>
+                    <input
+                      id={`venue-${field.key}`}
+                      className="input"
+                      required
+                      pattern=".*\S.*"
+                      maxLength={field.max}
+                      value={form[field.key]}
+                      onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
+                    />
+                  </div>
+                ))}
+                <button className="btn btn-primary">{create.isPending ? '등록 중' : '공연장 등록'}</button>
+              </fieldset>
+            </form>
+          </section>
+          <section className="panel stack">
+            <h2 className="panel-title">공연장 ID로 열기</h2>
+            <form
+              className="actions"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (/^[1-9]\d*$/.test(openId) && Number.isSafeInteger(Number(openId)))
+                  navigate(`/admin/venues/${openId}`);
+              }}
+            >
+              <input
+                className="input"
+                style={{ flex: 1, minWidth: 0 }}
+                aria-label="공연장 ID"
+                type="number"
+                min={1}
+                max={Number.MAX_SAFE_INTEGER}
+                required
+                value={openId}
+                onChange={(e) => setOpenId(e.target.value)}
+              />
+              <button className="btn btn-ghost">열기</button>
+            </form>
+          </section>
+          <details className="seller-direct-open">
+            <summary>브라우저 기록 정리</summary>
+            <p className="account-hint">서버의 공연장은 삭제하지 않고 이 브라우저의 기록만 지웁니다.</p>
+            {venues.records.map((venue) => (
+              <div className="seller-record-cleanup" key={venue.id}>
+                <span>{venue.name}</span>
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => venues.remove(venue.id)}
+                  aria-label={`${venue.name} 기록 지우기`}
+                >
+                  기록 지우기
+                </button>
+              </div>
+            ))}
+          </details>
+        </div>
+      </div>
     </main>
   );
 }
