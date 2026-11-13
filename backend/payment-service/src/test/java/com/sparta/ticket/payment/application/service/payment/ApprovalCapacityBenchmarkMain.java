@@ -71,9 +71,11 @@ public final class ApprovalCapacityBenchmarkMain {
         int pool = Integer.parseInt(args[7]);
         int drainSeconds = Integer.parseInt(args[8]);
         List<String> overrides = List.of(args).subList(9, args.length);
-        if (!overrides.stream().allMatch(value -> value.startsWith("--payment.messaging.confirm.")))
-            throw new IllegalArgumentException("승인 소비 설정만 덮어쓸 수 있다");
-        if (rate < 1 || rate > 1000 || count < rate || count > 30000 || tossPercent < 0 || tossPercent > 100)
+        if (!overrides.stream()
+                .allMatch(value ->
+                        value.startsWith("--payment.messaging.confirm.") || value.startsWith("--pg.bulkhead.")))
+            throw new IllegalArgumentException("승인 소비·PG Bulkhead 설정만 덮어쓸 수 있다");
+        if (rate < 1 || rate > 1000 || count < rate || count > 100000 || tossPercent < 0 || tossPercent > 100)
             throw new IllegalArgumentException("측정 범위를 벗어났다");
         String pgUrl = "http://127.0.0.1:18077";
         var report = new LinkedHashMap<String, Object>();
@@ -90,6 +92,7 @@ public final class ApprovalCapacityBenchmarkMain {
         report.put("scope", "Kafka 승인 요청 수신부터 PG HTTP와 결과 DB/Outbox 저장까지. 발행기는 켜 두고 원장·집계 제외");
         try {
             checkGroupUnused();
+            report.put("staleRecordsSkipped", skipStaleRecords());
             var options = new ArrayList<>(List.of(
                     "--spring.profiles.active=measurement",
                     "--spring.cloud.config.enabled=false",
@@ -129,7 +132,28 @@ public final class ApprovalCapacityBenchmarkMain {
                     "payment.settlement.consumer-recovery.observation")) options.add("--" + name + ".enabled=false");
             options.add("--payment.settlement.consumer-recovery.replay-enabled=false");
             options.add("--payment.settlement.consumer-recovery.observation-enabled=false");
+            // Note: 측정 JVM은 config-repo를 읽지 않는다. 운영 PG 보호 설정(config-repo/payment-service.yml)을 명시한다.
+            // 코드 기본값은 Bulkhead·서킷 모두 꺼짐이라, 이 값이 없으면 운영과 다른 조건이 된다(#396 15.3).
+            var production = new LinkedHashMap<String, String>();
+            production.put("pg.bulkhead.enabled", "true");
+            production.put("pg.bulkhead.toss-max-concurrent", "200");
+            production.put("pg.bulkhead.kakao-max-concurrent", "200");
+            production.put("pg.bulkhead.max-wait", "50ms");
+            production.put("pg.circuit-breaker.enabled", "true");
+            production.put("pg.circuit-breaker.failure-rate-percent", "50");
+            production.put("pg.circuit-breaker.slow-call-duration", "5s");
+            production.put("pg.circuit-breaker.slow-call-rate-percent", "80");
+            production.put("pg.circuit-breaker.window-size", "50");
+            production.put("pg.circuit-breaker.minimum-calls", "20");
+            production.put("pg.circuit-breaker.open-duration", "10s");
+            production.put("pg.circuit-breaker.half-open-calls", "5");
+            production.put("pg.circuit-breaker.half-open-max-wait", "30s");
+            production.put("pg.connect-timeout", "2s");
+            production.put("pg.read-timeout", "10s");
+            for (String override : overrides) production.remove(override.substring(2, override.indexOf('=')));
+            production.forEach((key, value) -> options.add("--" + key + "=" + value));
             options.addAll(overrides);
+            report.put("pgProtection", production);
             var app = new SpringApplication(PaymentServiceApplication.class, ApprovalWaitProbe.class);
             app.setWebApplicationType(WebApplicationType.NONE);
             try (var context = app.run(options.toArray(String[]::new));
@@ -202,6 +226,11 @@ public final class ApprovalCapacityBenchmarkMain {
         }
     }
 
+    /**
+     * 결제 준비를 8개 스레드로 나눠 만든다. 순서(인덱스)는 유지한다.
+     * Note: 측정용 선점 만료는 지금 + 60분이다. 10분이면 준비가 길어진 회차(7만 건, 약 12분)에서 앞쪽 건의 선점이 끝나
+     * confirmBefore가 선점 만료 + 5분을 넘고, 결제가 PAYMENT_ORDER_CONFLICT로 거부한다(#396 15.7). 예매는 선점이 유효할 때만 보낸다.
+     */
     private static List<Input> prepare(
             PaymentService service,
             JdbcTemplate jdbc,
@@ -209,36 +238,48 @@ public final class ApprovalCapacityBenchmarkMain {
             Clock clock,
             String prefix,
             int count,
-            int tossPercent) {
-        var inputs = new ArrayList<Input>();
+            int tossPercent)
+            throws Exception {
         long base = Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000_000L) + 1_000_000;
-        for (int i = 0; i < count; i++) {
-            String order = prefix + "-" + i;
-            long reservation = base + i;
-            PgProvider provider = (i % 100) < tossPercent ? PgProvider.TOSS : PgProvider.KAKAO;
-            service.checkout(new CheckoutCommand(
-                    order,
-                    reservation,
-                    1L,
-                    396L,
-                    1L,
-                    396L,
-                    provider,
-                    10000,
-                    1000,
-                    LocalDateTime.now(clock).plusMinutes(10),
-                    LocalDateTime.now(clock).plusDays(1)));
-            String token;
-            if (provider == PgProvider.TOSS) token = admin.tossCheckout(order, 9000);
-            else {
-                String tid = jdbc.queryForObject(
-                        "SELECT pg_transaction_id FROM p_payments WHERE order_id=?", String.class, order);
-                if (tid == null) throw new IllegalStateException("KAKAO 준비 거래가 없다: " + order);
-                token = admin.kakaoUserApprove(tid);
+        var inputs = new Input[count];
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            var futures = new ArrayList<java.util.concurrent.Future<?>>();
+            for (int i = 0; i < count; i++) {
+                int index = i;
+                futures.add(pool.submit(() -> {
+                    String order = prefix + "-" + index;
+                    long reservation = base + index;
+                    PgProvider provider = (index % 100) < tossPercent ? PgProvider.TOSS : PgProvider.KAKAO;
+                    service.checkout(new CheckoutCommand(
+                            order,
+                            reservation,
+                            1L,
+                            396L,
+                            1L,
+                            396L,
+                            provider,
+                            10000,
+                            1000,
+                            LocalDateTime.now(clock).plusMinutes(60),
+                            LocalDateTime.now(clock).plusDays(1)));
+                    String token;
+                    if (provider == PgProvider.TOSS) token = admin.tossCheckout(order, 9000);
+                    else {
+                        String tid = jdbc.queryForObject(
+                                "SELECT pg_transaction_id FROM p_payments WHERE order_id=?", String.class, order);
+                        if (tid == null) throw new IllegalStateException("KAKAO 준비 거래가 없다: " + order);
+                        token = admin.kakaoUserApprove(tid);
+                    }
+                    inputs[index] = new Input(order, reservation, provider, token, clock);
+                    return null;
+                }));
             }
-            inputs.add(new Input(order, reservation, provider, token, clock));
+            for (var future : futures) future.get();
+        } finally {
+            pool.shutdownNow();
         }
-        return inputs;
+        return List.of(inputs);
     }
 
     private static Map<String, Object> run(
@@ -252,9 +293,11 @@ public final class ApprovalCapacityBenchmarkMain {
             throws Exception {
         var report = new LinkedHashMap<String, Object>();
         var before = counters(meters);
+        var timersBefore = timers(meters);
         var os = (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
         long cpuBefore = os.getProcessCpuTime();
         if (measuring) ApprovalWaitProbe.start();
+        var sampler = measuring ? WaitSampler.start(System.getProperty("cap.waitSampling", "")) : null;
         long started = System.nanoTime();
         long maxDispatchNanos = 0;
         var timeline = new ArrayList<Map<String, Object>>();
@@ -303,6 +346,7 @@ public final class ApprovalCapacityBenchmarkMain {
             Thread.sleep(100);
         } while (true);
         if (measuring) report.put("jdbc", ApprovalWaitProbe.finish());
+        if (sampler != null) report.put("waitEvents", sampler.finish());
         Map<String, Long> approved = jdbc.query(
                 "SELECT order_id,approved_at FROM p_payments WHERE order_id LIKE ?",
                 result -> {
@@ -352,6 +396,7 @@ public final class ApprovalCapacityBenchmarkMain {
         report.put("threadCountEnd", ManagementFactory.getThreadMXBean().getThreadCount());
         report.put("threadCountPeak", ManagementFactory.getThreadMXBean().getPeakThreadCount());
         report.put("hikari", hikari(meters));
+        report.put("pgTimers", timerDelta(timersBefore, timers(meters)));
         report.put("timeline", timeline);
         return report;
     }
@@ -403,6 +448,116 @@ public final class ApprovalCapacityBenchmarkMain {
         if (timeout != null) report.put("timeouts", timeout.count());
         report.put("max", gauge(meters, "hikaricp.connections.max"));
         return report;
+    }
+
+    /** PG HTTP 호출·Bulkhead 대기 타이머를 이름+태그별 (건수, 누적 ns)로 모은다. #396 M0 분해용. */
+    private static Map<String, double[]> timers(MeterRegistry meters) {
+        var values = new LinkedHashMap<String, double[]>();
+        for (var timer : meters.getMeters()) {
+            String name = timer.getId().getName();
+            if (!(timer instanceof io.micrometer.core.instrument.Timer t)
+                    || !(name.equals("payment.pg.http.duration") || name.equals("payment.pg.bulkhead.wait"))) continue;
+            String key = name + timer.getId().getTags();
+            values.put(key, new double[] {t.count(), t.totalTime(TimeUnit.NANOSECONDS), t.max(TimeUnit.MILLISECONDS)});
+        }
+        return values;
+    }
+
+    private static Map<String, Object> timerDelta(Map<String, double[]> before, Map<String, double[]> after) {
+        var report = new LinkedHashMap<String, Object>();
+        after.forEach((key, value) -> {
+            double[] base = before.getOrDefault(key, new double[] {0, 0, 0});
+            double count = value[0] - base[0];
+            if (count <= 0) return;
+            report.put(
+                    key,
+                    Map.of("count", count, "meanMillis", (value[1] - base[1]) / count / 1e6, "maxMillis", value[2]));
+        });
+        return report;
+    }
+
+    /**
+     * #396 M6. 측정 창 동안 500ms마다 pg_stat_activity의 활성 세션을 DB·대기 종류별로 센다(관리 계정, 자기 세션 제외).
+     * 대기 없음은 CPU로 센다. 표본 수 ÷ 표본 횟수 = 그 대기에 있던 평균 세션 수다.
+     */
+    private static final class WaitSampler extends Thread {
+        private final List<String> urls;
+        private final Map<String, Map<String, Long>> counts = new java.util.concurrent.ConcurrentHashMap<>();
+        private final Map<String, Long> samples = new java.util.concurrent.ConcurrentHashMap<>();
+        private volatile boolean stop;
+
+        private WaitSampler(List<String> urls) {
+            super("cap-wait-sampler");
+            setDaemon(true);
+            this.urls = urls;
+        }
+
+        static WaitSampler start(String spec) {
+            if (spec == null || spec.isBlank()) return null;
+            var sampler = new WaitSampler(List.of(spec.split(java.util.regex.Pattern.quote("|"))));
+            sampler.start();
+            return sampler;
+        }
+
+        @Override
+        public void run() {
+            var connections = new java.util.LinkedHashMap<String, java.sql.Connection>();
+            try {
+                for (String url : urls)
+                    connections.put(
+                            url, java.sql.DriverManager.getConnection(url, "sk363_admin", "sk363_local_fixture"));
+                while (!stop) {
+                    for (var entry : connections.entrySet()) {
+                        try (var statement = entry.getValue().createStatement();
+                                var rows = statement.executeQuery("""
+                                        SELECT coalesce(datname,'-'),coalesce(wait_event_type,'CPU'),coalesce(wait_event,'running'),count(*)
+                                        FROM pg_stat_activity WHERE state='active' AND pid<>pg_backend_pid()
+                                          AND backend_type='client backend' GROUP BY 1,2,3
+                                        """)) {
+                            var bucket = counts.computeIfAbsent(
+                                    entry.getKey(), key -> new java.util.concurrent.ConcurrentHashMap<>());
+                            while (rows.next())
+                                bucket.merge(
+                                        rows.getString(1).replaceAll("_[0-9a-f]{8}$", "") + "/" + rows.getString(2)
+                                                + "/" + rows.getString(3),
+                                        rows.getLong(4),
+                                        Long::sum);
+                            samples.merge(entry.getKey(), 1L, Long::sum);
+                        }
+                    }
+                    Thread.sleep(500);
+                }
+            } catch (Exception exception) {
+                samples.put("error:" + exception.getClass().getSimpleName(), -1L);
+            } finally {
+                connections.values().forEach(connection -> {
+                    try {
+                        connection.close();
+                    } catch (Exception ignored) {
+                        // Note: 측정 표본 연결 정리 실패는 결과에 영향이 없다.
+                    }
+                });
+            }
+        }
+
+        Map<String, Object> finish() throws InterruptedException {
+            stop = true;
+            join(5000);
+            var report = new LinkedHashMap<String, Object>();
+            counts.forEach((url, bucket) -> {
+                long n = samples.getOrDefault(url, 1L);
+                var averages = new LinkedHashMap<String, Object>();
+                bucket.entrySet().stream()
+                        .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                        .forEach(entry ->
+                                averages.put(entry.getKey(), Math.round(entry.getValue() * 100.0 / n) / 100.0));
+                report.put(
+                        url.replaceAll(".*:([0-9]+)/.*", "$1"),
+                        Map.of("samples", n, "averageActiveSessions", averages));
+            });
+            samples.keySet().stream().filter(key -> key.startsWith("error:")).forEach(key -> report.put(key, true));
+            return report;
+        }
     }
 
     private static Map<String, Object> lag() throws Exception {
@@ -470,6 +625,35 @@ public final class ApprovalCapacityBenchmarkMain {
         props.put("acks", "all");
         props.put("enable.idempotence", "true");
         return new KafkaProducer<>(props);
+    }
+
+    /**
+     * 전용 측정 브로커의 승인 그룹 offset을 토픽 끝으로 옮긴다. 이전 회차가 운영 정지로 ACK하지 못한 레코드는 다른 DB 복제본의
+     * 결제라 이번 회차에서 PAYMENT_NOT_FOUND 재시도 소진으로 파티션을 멈춘다(#396 15.7). 건너뛴 건수를 결과에 남긴다.
+     */
+    private static long skipStaleRecords() throws Exception {
+        try (var admin = Admin.create(Map.of("bootstrap.servers", BROKER))) {
+            var request = new LinkedHashMap<TopicPartition, OffsetSpec>();
+            for (int partition = 0; partition < 12; partition++)
+                request.put(new TopicPartition(TOPIC, partition), OffsetSpec.latest());
+            var ends = admin.listOffsets(request).all().get(5, TimeUnit.SECONDS);
+            var committed = admin.listConsumerGroupOffsets(GROUP)
+                    .partitionsToOffsetAndMetadata()
+                    .get(5, TimeUnit.SECONDS);
+            long skipped = 0;
+            var target = new LinkedHashMap<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata>();
+            for (var entry : ends.entrySet()) {
+                var current = committed.get(entry.getKey());
+                skipped += entry.getValue().offset() - (current == null ? 0 : current.offset());
+                target.put(
+                        entry.getKey(),
+                        new org.apache.kafka.clients.consumer.OffsetAndMetadata(
+                                entry.getValue().offset()));
+            }
+            if (skipped > 0)
+                admin.alterConsumerGroupOffsets(GROUP, target).all().get(10, TimeUnit.SECONDS);
+            return skipped;
+        }
     }
 
     private static void checkGroupUnused() throws Exception {
