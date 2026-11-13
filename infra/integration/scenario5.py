@@ -2,9 +2,13 @@
 
 python infra/integration/scenario5.py --burst 250 --duration 60 --hot-seats 1
 python infra/integration/scenario5.py --rate 250 --duration 60 --hot-seats 10
+python infra/integration/scenario5.py --burst 250 --hot-seats 1 --base-rate 250 --seats 2000
+python infra/integration/scenario5.py --rate 0 --base-rate 250 --seats 2000
 --burst N은 매 초 정각에 N명이 동시에 선점한다(오픈 순간의 몰림). --rate는 초당 rate회를 고르게 보낸다.
 고른 부하는 같은 좌석 잠금이 거의 겹치지 않아(1석 250/s도 잠금 대기 0) 잠금 방식 비교에는 burst를 쓴다.
 조회·결제는 하지 않는다. 회차마다 새 공연·회차·계정을 준비한다.
+--base-rate R은 인기 좌석과 별도로 다른 좌석 선점을 초당 R회 고르게 함께 보낸다(#390). 인기 좌석 경쟁이 다른 좌석 선점을
+늦추는지 본다. 매번 다른 좌석·다른 사용자라 서로 경쟁하지 않는다. --rate 0이면 인기 좌석 부하 없이 다른 좌석 선점만 보낸다(기준).
 잠금 방식(wait|nowait)은 compose-inputs.example의 INTEGRATION_SEAT_LOCK_MODE로 바꾸고 compose.py up -d로 reservation을 다시 만든다.
 """
 import argparse
@@ -56,6 +60,30 @@ SERVER_QUERIES = {
                             f'/sum(rate(hikaricp_connections_acquire_seconds_count{{{RESERVATION}}}[30s]))'),
     'hold_http_max': f'max(http_server_requests_seconds_max{{{RESERVATION},method="POST",uri=~".*/holds"}})',
 }
+
+# 다른 좌석 선점(--base-rate)의 좌석은 이 시간(초) 안에 다시 쓰지 않는다. 앞 선점이 해제(hold_ms 뒤)되기 전에 같은 좌석을
+# 다시 고르면 다른 좌석 선점끼리 경쟁해 taken이 나온다. hold_ms(기본 0.5초)와 응답 지연을 넉넉히 덮는 값이다
+BASE_SEAT_REUSE_SECONDS = 2
+
+def base_seat_shortage(base_rate, base_seats):
+    """다른 좌석 선점에 쓸 좌석이 모자라면 필요한 좌석 수를, 충분하면 None을 돌려준다."""
+    need = base_rate*BASE_SEAT_REUSE_SECONDS
+    return need if base_rate and base_seats < need else None
+
+def base_measurements(value, trend, base_rate, duration):
+    """다른 좌석 선점(--base-rate)의 k6 요약. 인기 좌석 지표와 따로 둔다."""
+    counts = {o: value('base_hold_'+o) for o in OUTCOMES}
+    return {'rate': base_rate, 'expected_attempts': base_rate*duration, 'attempts': value('base_hold_attempts'), 'outcomes': counts,
+            'hold_duration_ms': trend('base_hold_duration'),
+            'release_ok': value('base_release_ok'), 'release_failed': value('base_release_failed')}
+
+def base_checks(base, dropped):
+    """다른 좌석 선점이 의도대로 나갔는지. 측정 구간 밖 반복은 보내지 않으므로 시도 수는 1초 분량까지 차이를 허용한다."""
+    counts = base['outcomes']
+    return {'base_arrival_rate_achieved': dropped == 0 and base['attempts'] > 0 and abs(base['attempts']-base['expected_attempts']) <= base['rate'],
+            # 매번 다른 좌석·다른 사용자라 모두 201이어야 한다. 아니면 좌석이 모자라 서로 겹친 것이다(--seats를 늘린다)
+            'base_all_created': base['attempts'] > 0 and counts['created'] == base['attempts'],
+            'base_all_released': base['release_failed'] == 0 and base['release_ok'] == counts['created']}
 
 def classify(status, body):
     """k6 scenario5.js의 classify와 같은 규칙. 시험 실행 없이 분류를 확인하려고 Python에도 둔다."""
@@ -114,13 +142,18 @@ class HoldContentionScenario(MixedScenario):
 
     def __init__(self, args):
         self.args = args
-        Scenario.__init__(self, args.users, 180, scenario=5, allow_foreign=args.allow_foreign)
+        # 계정은 인기 좌석용(args.users) 뒤에 다른 좌석용(args.base_users)을 붙여 만든다. 두 부하가 같은 사용자를 쓰지 않는다
+        Scenario.__init__(self, args.users+args.base_users, 180, scenario=5, allow_foreign=args.allow_foreign)
+        self.hot_enabled = bool(args.burst or args.rate)
         self.lock_mode = self.env.get('INTEGRATION_SEAT_LOCK_MODE', 'wait')
         self.report.update(workload={'load_mode': 'burst' if args.burst else 'rate', 'burst': args.burst,
             'wave_ms': WAVE_MS if args.burst else None, 'attempts_per_second': args.rate, 'duration_seconds': args.duration,
             'hot_seats': args.hot_seats, 'seat_count': args.seats, 'users': args.users, 'hold_ms': args.hold_ms,
             'preallocated_vus': args.vus, 'max_vus': args.max_vus, 'seat_lock_mode': self.lock_mode,
+            'hot_load': self.hot_enabled, 'base_rate': args.base_rate, 'base_users': args.base_users,
+            'base_vus': args.base_vus, 'base_max_vus': args.base_max_vus,
             'seat_selection': 'attempt i -> users[i % users], hot_seats[i % hot_seats] (burst: i = wave*burst + slot); winners release after hold_ms',
+            'base_selection': 'base attempt j -> users[users + j % base_users], base_seats[j % base_seats] (all seats except hot and check seat); release after hold_ms',
             'authentication': 'accounts login in k6 setup; tokens reused during measurement'},
             limitations=['Hold and release only; no seat reads, no payment',
                 'Gateway path (Caddy -> Gateway -> reservation); sale validation calls performance-service',
@@ -249,13 +282,20 @@ class HoldContentionScenario(MixedScenario):
         require(len(available) == self.args.seats, 'Prepared seat count mismatch')
         hot = available[:self.args.hot_seats]
         self.report['fixtures']['hot_seat_ids'] = hot
+        # 다른 좌석 선점은 인기 좌석과 기능 확인 좌석(마지막)을 뺀 나머지를 돌려 쓴다
+        base = available[self.args.hot_seats:-1] if self.args.base_rate else []
+        shortage = base_seat_shortage(self.args.base_rate, len(base))
+        require(shortage is None, f'--base-rate needs at least {shortage} other seats; raise --seats')
+        self.report['fixtures']['base_seat_count'] = len(base)
         self.functional_check(sid, available[-1])
         self.stage = 'prepare'
         meta = {'run_id': self.run_id, 'mode': 'burst' if self.args.burst else 'rate', 'burst': self.args.burst,
                 'wave_ms': WAVE_MS, 'rate': self.args.rate, 'duration': self.args.duration,
                 'vus': self.args.vus, 'max_vus': self.args.max_vus, 'password': PASSWORD, 'schedule_id': sid,
                 'hot_seats': hot, 'hold_ms': self.args.hold_ms, 'lock_mode': self.lock_mode,
-                'lock_busy_message': LOCK_BUSY_MESSAGE}
+                'lock_busy_message': LOCK_BUSY_MESSAGE, 'hot_enabled': self.hot_enabled, 'hot_users': self.args.users,
+                'base_rate': self.args.base_rate, 'base_users': self.args.base_users, 'base_seats': base,
+                'base_vus': self.args.base_vus, 'base_max_vus': self.args.base_max_vus}
         users = [{'email': e, 'user_id': u} for e, u in self.accounts]
         # 공개 로컬 시험 비밀번호와 시험 ID만 저장. JWT는 k6 메모리에만 둔다
         (self.out/'input.json').write_text(json.dumps({'meta': meta, 'users': users}), encoding='utf-8')
@@ -308,7 +348,7 @@ class HoldContentionScenario(MixedScenario):
         def trend(name): return m.get(name, {}).get('values', {})
         attempts = value('hold_attempts')
         counts = {o: value('hold_'+o) for o in OUTCOMES}
-        expected = self.args.rate*self.args.duration
+        expected = self.args.rate*self.args.duration if self.hot_enabled else 0
         conflicts = counts['taken']+counts['lock_busy']+counts['purchase_limit']
         self.report['measurements'] = {
             'expected_attempts': expected, 'attempts': attempts, 'dropped_iterations': value('dropped_iterations'),
@@ -321,15 +361,20 @@ class HoldContentionScenario(MixedScenario):
             'release_duration_ms': trend('release_duration'),
             'release_ok': value('release_ok'), 'release_failed': value('release_failed')}
         checks = self.report['checks']
-        if self.args.burst:
+        if self.args.base_rate:
+            base = base_measurements(value, trend, self.args.base_rate, self.args.duration)
+            self.report['measurements']['base'] = base
+            checks.update(base_checks(base, value('dropped_iterations')))
+        if self.hot_enabled and self.args.burst:
             # wave마다 burst명이 모두 보냈고, 경계보다 크게 늦은 시도가 적어야 의도한 동시성이다
             late = value('burst_late')
             self.report['measurements'].update(burst_late=late, burst_late_ratio=late/attempts if attempts else None,
                                                burst_skew_ms=trend('burst_skew'))
             checks['arrival_rate_achieved'] = attempts == expected and attempts > 0 and late/attempts <= BURST_LATE_LIMIT
-        else:
+        elif self.hot_enabled:
             checks['arrival_rate_achieved'] = value('dropped_iterations') == 0 and abs(attempts-expected) <= 3
-        checks['measurement_windows_recorded'] = 'hold' in self.report.get('measurement_windows', {})
+        windows = self.report.get('measurement_windows', {})
+        checks['measurement_windows_recorded'] = ('hold' in windows or not self.hot_enabled) and ('base' in windows or not self.args.base_rate)
         checks['k6_thresholds'] = self.report['k6_exit_code'] == 0
         checks['no_unexpected_responses'] = counts['error'] == 0
         # 같은 사용자가 앞 선점을 쥔 채 다시 뽑혔다(200 또는 PURCHASE_LIMIT). 지연이 users/rate초를 넘은 것이라 --users를 늘린다
@@ -351,7 +396,10 @@ class HoldContentionScenario(MixedScenario):
             SELECT r.reservation_id,r.user_id,r.status,t.schedule_seat_id seat,
               extract(epoch FROM r.created_at) created,extract(epoch FROM r.updated_at) updated
             FROM reservation_schema.p_reservations r JOIN reservation_schema.p_tickets t ON t.reservation_id=r.reservation_id
-            WHERE r.schedule_id={sid} AND r.deleted_at IS NULL) x),
+            WHERE r.schedule_id={sid} AND r.deleted_at IS NULL AND t.schedule_seat_id IN ({ids})) x),
+          'base_statuses',(SELECT coalesce(json_object_agg(status,n),'{{}}') FROM (
+            SELECT r.status,count(*) n FROM reservation_schema.p_reservations r JOIN reservation_schema.p_tickets t ON t.reservation_id=r.reservation_id
+            WHERE r.schedule_id={sid} AND r.deleted_at IS NULL AND t.schedule_seat_id NOT IN ({ids}) GROUP BY r.status) x),
           'seats',(SELECT coalesce(json_agg(x),'[]') FROM (SELECT id,status,reservation_id FROM reservation_schema.p_schedule_seats
             WHERE schedule_id={sid} AND id IN ({ids})) x))""")
         (self.out/'seat-verification.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')
@@ -367,7 +415,14 @@ class HoldContentionScenario(MixedScenario):
         checks['no_overlap'] = not timeline['overlaps'] and not timeline['active_holds']
         checks['evidence_matches_db'] = won == db_hot
         # 모든 인기 좌석이 해제 뒤 다른 예약으로 다시 선점됐다(해제→재선점 경로)
-        checks['released_seats_reheld'] = all(n >= 2 for n in timeline['holds_per_seat'].values())
+        if self.hot_enabled:
+            checks['released_seats_reheld'] = all(n >= 2 for n in timeline['holds_per_seat'].values())
+        if self.args.base_rate:
+            # 다른 좌석 선점은 모두 해제돼야 하고, DB 예약 수가 k6가 받은 201 수와 같아야 한다
+            statuses = evidence['base_statuses']
+            self.report['seat_summary']['base_statuses'] = statuses
+            created = self.report['measurements']['base']['outcomes']['created']
+            checks['base_db_released'] = set(statuses) <= {'RELEASED'} and statuses.get('RELEASED', 0) == created
         checks['final_seats_available'] = all(seats.get(s, {}).get('status') == 'AVAILABLE' for s in hot)
         checks['functional_check_db'] = seats.get(check_seat, {}).get('status') == 'AVAILABLE' and \
             len(check_rows) == 2 and all(r['status'] == 'RELEASED' for r in check_rows)
@@ -465,6 +520,11 @@ if __name__ == '__main__':
     p.add_argument('--hold-ms', type=int, default=500, help='winner keeps the seat this long before releasing')
     p.add_argument('--vus', type=int, help='default max(50, rate*2)')
     p.add_argument('--max-vus', type=int, help='default max(500, vus, rate*4)')
+    p.add_argument('--base-rate', type=int, default=0,
+                   help='also send holds on other (non-hot) seats at this rate per second, evenly (#390); 0 = off')
+    p.add_argument('--base-users', type=int, help='accounts for --base-rate, default max(100, base-rate*5)')
+    p.add_argument('--base-vus', type=int, help='default max(50, base-rate*2)')
+    p.add_argument('--base-max-vus', type=int, help='default max(500, base-vus, base-rate*4)')
     p.add_argument('--allow-foreign', action='store_true', help=foreign.ALLOW_HELP)
     p.add_argument('--allow-missing-pg-diagnostics', action='store_true',
                    help='run even if the collector cannot read DB sessions (TS-12); checks.pg_diagnostics_up=false (FAIL)')
@@ -475,10 +535,17 @@ if __name__ == '__main__':
         # 초당 시도 수가 burst다. 사용자 기본값·기대 시도 수·출력이 rate를 쓴다. VU는 burst개(VU마다 wave당 1번)
         a.rate = a.burst
         a.vus = a.max_vus = a.burst
-    if a.users is None: a.users = max(100, a.rate*5)
+    if a.rate == 0 and not a.base_rate: p.error('--rate 0 needs --base-rate (other seats only)')
+    if a.base_users is None: a.base_users = max(100, a.base_rate*5) if a.base_rate else 0
+    if a.base_vus is None: a.base_vus = max(50, a.base_rate*2) if a.base_rate else 0
+    if a.base_max_vus is None: a.base_max_vus = max(500, a.base_vus, a.base_rate*4) if a.base_rate else 0
+    if a.base_rate and not (1 <= a.base_rate <= 1000 and 2 <= a.base_users <= 5000 and 1 <= a.base_vus <= a.base_max_vus <= 5000):
+        p.error('base-rate 1..1000, base-users 2..5000, 1<=base-vus<=base-max-vus<=5000')
+    # 인기 좌석 부하가 없으면(--rate 0) 인기 좌석용 계정은 쓰지 않는다. 기능 확인은 따로 만든 계정을 쓴다
+    if a.users is None: a.users = max(100, a.rate*5) if a.rate else 2
     if a.vus is None: a.vus = max(50, a.rate*2)
     if a.max_vus is None: a.max_vus = max(500, a.vus, a.rate*4)
-    if not (1 <= a.rate <= 1000 and 10 <= a.duration <= 600 and 1 <= a.hot_seats and a.hot_seats < a.seats <= 20000
+    if not ((1 <= a.rate <= 1000 or a.rate == 0) and 10 <= a.duration <= 600 and 1 <= a.hot_seats and a.hot_seats < a.seats <= 20000
             and 2 <= a.users <= 5000 and 0 <= a.hold_ms <= 10000 and 1 <= a.vus <= a.max_vus <= 5000):
         p.error('rate 1..1000, duration 10..600, 1<=hot-seats<seats<=20000, users 2..5000, hold-ms 0..10000, 1<=vus<=max-vus<=5000')
     raise SystemExit(HoldContentionScenario(a).execute())
