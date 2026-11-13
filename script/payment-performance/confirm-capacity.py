@@ -181,7 +181,7 @@ def main():
     parser.add_argument("--set", nargs="*", default=[],
                         help="승인 소비 설정. 예: concurrency=6 max-poll-records=32 workers=64 per-provider=32 max-in-flight=192")
     parser.add_argument("--suffix", default="", help="같은 label 안의 변형 이름")
-    parser.add_argument("--bulkhead", type=int, help="PG별 Bulkhead 상한(기본: 운영값 200)")
+    parser.add_argument("--bulkhead", type=int, help="PG별 Bulkhead 상한(기본: 운영값 250)")
     parser.add_argument("--toss-fault", help='TOSS 승인 FakePG 장애 JSON. 예: {"failRate":1}. 주면 --toss-ms 대신 쓴다')
     parser.add_argument("--allow-unfinished", action="store_true",
                         help="TOSS 결제가 DONE이 되지 않는 장애 시나리오. 모든 메시지 acknowledge만 기다린다")

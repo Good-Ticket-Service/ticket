@@ -150,8 +150,8 @@ public final class ApprovalCapacityBenchmarkMain {
             // 코드 기본값은 Bulkhead·서킷 모두 꺼짐이라, 이 값이 없으면 운영과 다른 조건이 된다(#396 15.3).
             var production = new LinkedHashMap<String, String>();
             production.put("pg.bulkhead.enabled", "true");
-            production.put("pg.bulkhead.toss-max-concurrent", "200");
-            production.put("pg.bulkhead.kakao-max-concurrent", "200");
+            production.put("pg.bulkhead.toss-max-concurrent", "250");
+            production.put("pg.bulkhead.kakao-max-concurrent", "250");
             production.put("pg.bulkhead.max-wait", "50ms");
             production.put("pg.circuit-breaker.enabled", "true");
             production.put("pg.circuit-breaker.failure-rate-percent", "50");
