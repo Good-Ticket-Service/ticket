@@ -5,6 +5,7 @@ import type { PageC, PerformanceSummary } from '../api/types';
 import { ErrorNotice, Loading } from '../components/Common';
 import { PerformanceCard } from '../components/PerformanceCard';
 import { GENRE_OPTIONS } from '../lib/genres';
+import { SALE_STATUS_OPTIONS, parseSaleStatuses, saleStatusParam, toggleSaleStatus } from '../lib/saleStatus';
 
 export function SearchPage() {
   const [search, setSearch] = useSearchParams();
@@ -16,6 +17,10 @@ export function SearchPage() {
   const params = new URLSearchParams({ page: String(page), size: '20', sort });
   if (keyword) params.set('keyword', keyword);
   if (genre) params.set('genre', genre);
+  // 판매 상태: 기본(판매중·판매예정)이면 보내지 않는다. 빈 status는 서버가 400으로 거절한다(이슈 #382).
+  const statuses = parseSaleStatuses(search.get('status'));
+  const statusParam = saleStatusParam(statuses);
+  if (statusParam) params.set('status', statusParam);
   const query = useQuery({
     queryKey: ['performances', params.toString()],
     queryFn: () => api<PageC<PerformanceSummary>>(`/api/performances?${params}`),
@@ -72,6 +77,23 @@ export function SearchPage() {
             </div>
           </fieldset>
           <p className="search-filter-hint">선택한 장르를 다시 누르면 해제돼요.</p>
+          <fieldset>
+            <legend>판매 상태</legend>
+            <div className="search-genre-options">
+              {SALE_STATUS_OPTIONS.map((item) => {
+                const selected = statuses.includes(item.value);
+                const onlyOne = selected && statuses.length === 1;
+                return (
+                  <button key={item.value} className="chip" type="button" aria-pressed={selected}
+                    disabled={onlyOne} title={onlyOne ? '판매 상태는 하나 이상 선택해야 해요.' : undefined}
+                    onClick={() => update('status', saleStatusParam(toggleSaleStatus(statuses, item.value)) ?? '')}>
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+          <p className="search-filter-hint">판매종료를 켜면 끝난 공연도 함께 보여요.</p>
         </aside>
         <section className="search-results" aria-label="공연 검색 결과" aria-busy={query.isFetching}>
           {query.isPending && <Loading />}
@@ -84,7 +106,7 @@ export function SearchPage() {
           {query.isSuccess && query.data.content.length === 0 && (
             <div className="home-empty">
               <h2>조건에 맞는 공연이 없어요.</h2>
-              <p>검색어를 바꾸거나 장르 필터를 초기화해 보세요.</p>
+              <p>검색어를 바꾸거나 장르·판매 상태 필터를 초기화해 보세요.</p>
               <button className="btn-link" type="button" onClick={clearFilters}>필터 초기화</button>
             </div>
           )}

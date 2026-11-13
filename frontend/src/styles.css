@@ -927,3 +927,17 @@ a.item:hover { background:var(--deep); }
 
 /* 밝은 바탕의 작은 글자는 같은 토마토 계열의 짙은 색으로 대비를 확보한다. */
 [data-theme='light'] .search-heading .eyebrow { color: #b83024; }
+
+/* 판매종료 표시(이슈 #382). 검색에서 판매종료를 켰을 때만 보인다. */
+.badge-ended {
+  display: inline-block;
+  white-space: nowrap;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  vertical-align: middle;
+  color: var(--muted);
+  border: 1px solid var(--muted);
+}
