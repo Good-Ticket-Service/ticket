@@ -2,6 +2,7 @@ package com.sparta.ticket.performance.support;
 
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
+import com.sparta.ticket.performance.application.port.PublicScheduleReader;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import javax.sql.DataSource;
@@ -41,7 +42,8 @@ import org.testcontainers.utility.DockerImageName;
             // 운영 설정(config-repo)은 테스트에서 읽지 않는다. Redis 정지 시험이 Lettuce 기본 60초를 기다리지 않게 운영 값을 넣고,
             // 건너뛰는 시간은 짧게 둬 정지 시험 뒤 다른 테스트가 캐시를 바로 다시 쓰게 한다
             "spring.data.redis.timeout=100ms",
-            "performance.detail-cache.open-duration=200ms"
+            "performance.detail-cache.open-duration=200ms",
+            "performance.schedule-list-cache.open-duration=200ms"
         })
 public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest {
 
@@ -75,6 +77,9 @@ public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest
      */
     @MockitoSpyBean
     protected PublicPerformanceReader publicPerformanceReader;
+
+    @MockitoSpyBean
+    protected PublicScheduleReader publicScheduleReader;
 
     @BeforeEach
     void resetClock() {
