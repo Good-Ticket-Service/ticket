@@ -853,3 +853,77 @@ a.item:hover { background:var(--deep); }
 /* 태블릿 헤더는 검색을 별도 행에 두어 개인 메뉴 공간을 확보한다. */
 @media(min-width:701px) and (max-width:1000px) { .topbar { flex-wrap:wrap; }.header-search { order:2; width:100%; }.account .account-name { display:none; }.account .account-short { display:inline; } }
 .account-name { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
+
+/* 검색 결과의 도구 모음은 양쪽 열 위에 두어 필터와 카드의 시작 높이를 맞춘다. */
+.search-content { padding-top: 40px; padding-bottom: 80px; }
+.search-heading { margin-bottom: 32px; }
+.search-heading > .btn-link { color: var(--muted); font-size: 13px; text-decoration: none; }
+.search-heading .eyebrow { margin: 24px 0 8px; color: var(--red); font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+.search-heading h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.4; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.search-heading > p:last-child { color: var(--muted); }
+.search-results-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.search-result-count { margin: 0; display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 15px; }
+.search-result-count strong { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 3px 10px; border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red); font-size: 21px; font-weight: 700; }
+.search-result-count > span { margin-left: -4px; }
+.search-sort { display: inline-flex; gap: 4px; flex: none; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.search-sort button { min-height: 36px; padding: 8px 16px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.search-sort button:hover { color: var(--text); }
+.search-sort button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+.search-sort button:focus-visible, .search-reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.search-layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 32px; align-items: start; }
+.search-filters { position: sticky; top: 24px; border: 1px solid var(--line); border-radius: 20px; padding: 24px; background: var(--surface); }
+.search-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.search-filter-heading h2 { display: flex; align-items: center; gap: 9px; font-size: 18px; margin: 0; }
+.search-filter-heading h2::before { content: ""; width: 4px; height: 17px; border-radius: 2px; background: var(--red); }
+.search-reset { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 6px 0 6px 6px; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.search-reset:hover { color: var(--text); }
+.search-reset svg { width: 15px; height: 15px; }
+.search-filters fieldset { border: 0; padding: 0; margin: 24px 0 0; min-width: 0; }
+.search-filters legend { padding: 0; font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+.search-genre-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.search-genre-options .chip { min-height: 38px; padding: 8px 12px; font-size: 12px; line-height: 1.4; border-color: var(--line); }
+.search-genre-options .chip:hover { color: var(--text); border-color: var(--muted); }
+.search-genre-options .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.search-filter-hint { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.7; color: var(--muted); }
+.search-results { min-width: 0; }
+.search-poster-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px 20px; }
+.search-poster-grid .performance-card { min-width: 0; }
+.search-poster-grid .performance-name { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 12px; line-height: 1.5; }
+.search-poster-grid .performance-name::after { content: "↗"; display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--lime); color: #211f28; font-size: 15px; line-height: 1; transition: transform .15s; }
+.search-poster-grid .performance-card:hover .performance-name::after { transform: translate(2px, -2px); }
+.search-poster-grid .performance-card:hover .performance-poster { border-color: var(--lime); }
+.search-poster-grid .performance-venue, .search-poster-grid .performance-period { line-height: 1.6; }
+.search-results > .home-empty, .search-results > .home-error { margin: 0; min-height: 320px; border: 1px solid var(--line); border-radius: 20px; }
+@media (max-width: 1100px) {
+  .search-layout { grid-template-columns: 216px minmax(0, 1fr); gap: 24px; }
+  .search-filters { padding: 20px; }
+  .search-poster-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 16px; }
+}
+@media (max-width: 760px) {
+  .search-content { padding-top: 24px; padding-bottom: 48px; }
+  .search-heading { margin-bottom: 24px; }
+  .search-heading .eyebrow { margin-top: 20px; }
+  .search-results-heading { gap: 12px; margin-bottom: 20px; padding-bottom: 16px; flex-wrap: wrap; }
+  .search-sort button { min-height: 36px; padding: 8px 12px; font-size: 12px; }
+  .search-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .search-filters { position: static; padding: 20px; }
+  .search-filter-heading { padding-bottom: 16px; }
+  .search-filters fieldset { margin-top: 16px; }
+  .search-filter-hint { margin-top: 16px; padding-top: 12px; }
+  .search-poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 16px; }
+}
+
+/* 연보라: 선택, 라임: 이동·검색, 토마토 레드: 검색 정보와 섹션 표시. */
+.header-search-results { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.header-search-results button { display: grid; place-items: center; width: 36px; height: 36px; margin-right: 5px; border-radius: 10px; background: var(--lime); color: #211f28; transition: filter .15s; }
+.header-search-results button:hover { filter: brightness(1.08); }
+.header-search-results button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.search-results .pager .chip:last-child:not(:disabled) { background: var(--lime); border-color: var(--lime); color: #211f28; font-weight: 700; }
+.search-results .pager .chip:last-child:not(:disabled):hover { filter: brightness(1.08); }
+@media (prefers-reduced-motion: reduce) {
+  .search-poster-grid .performance-name::after { transition: none; }
+  .search-poster-grid .performance-card:hover .performance-name::after { transform: none; }
+}
+
+/* 밝은 바탕의 작은 글자는 같은 토마토 계열의 짙은 색으로 대비를 확보한다. */
+[data-theme='light'] .search-heading .eyebrow { color: #b83024; }
