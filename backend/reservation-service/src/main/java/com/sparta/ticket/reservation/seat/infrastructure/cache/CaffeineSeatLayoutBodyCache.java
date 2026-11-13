@@ -27,6 +27,9 @@ import org.springframework.stereotype.Component;
  *
  * 무효화: 키에 configVersion이 들어 있어 좌석 준비로 버전이 바뀌면 새 키가 된다. 이전 버전은 읽히지 않다가 expireAfterAccess로 빠진다.
  *
+ * 구역(#397): 구역 layout은 키에 구역 이름을 더해 회차 전체 본문과 따로 둔다. 전체 본문에서 구역을 잘라 쓸 수는 없다. 구역 좌석은
+ * 회차 좌석 id 순서에서 흩어질 수 있고, gzip은 중간을 잘라 쓸 수 없기 때문이다. 키는 스냅샷에 있는 구역 이름으로만 생긴다(부르는 쪽 확인).
+ *
  * 동시 요청: 캐시에 없는 키는 한 요청만 만들고, 같은 키의 다른 요청은 그 결과를 기다린다(Caffeine get). 회차·버전마다 한 번이고
  * DB 없이 직렬화·압축만 하므로 기다림은 짧다. 각자 만들게 하면 예매 오픈 순간 동시 요청 수 × 약 3MB를 한꺼번에 할당한다.
  * 스냅샷 캐시(#311)처럼 1초마다 다시 만드는 값이 아니라서, 기다림이 반복되지 않는다.
@@ -44,6 +47,8 @@ public class CaffeineSeatLayoutBodyCache implements SeatLayoutBodyCache {
      * layout을 만들려면 그 회차의 스냅샷이 있어야 하고, 스냅샷 캐시는 좌석 합계 150,000석까지 둔다(CaffeineSelectableSeatCache).
      * 좌석 1개 layout 약 150B(#287 측정) × 150,000석 ≈ 22.5MB에 gzip(원본의 약 6%, 추정)을 더해도
      * 약 24MB라 동시에 쓰이는 회차는 모두 담긴다. 가장 작은 힙(-Xmx384m)의 약 8%다.
+     * 구역 본문(#397)도 이 상한을 함께 쓴다. 같은 회차의 전체 본문과 구역 본문이 모두 읽히면 최악 약 2배가 되지만, 큰 공연장은 구역 본문을,
+     * 작은 공연장은 전체 본문을 주로 써서 드물다. 넘치면 오래 안 읽힌 본문부터 빠지고 다음 요청이 다시 만든다(버전·구역마다 한 번).
      */
     static final long MAX_CACHED_BYTES = 32L * 1024 * 1024;
 
@@ -80,8 +85,8 @@ public class CaffeineSeatLayoutBodyCache implements SeatLayoutBodyCache {
     }
 
     @Override
-    public SeatLayoutBody get(SeatMapSnapshot snapshot, Function<SeatMapSnapshot, byte[]> render) {
-        Key key = new Key(snapshot.result().scheduleId(), snapshot.configVersion());
+    public SeatLayoutBody get(SeatMapSnapshot snapshot, String section, Function<SeatMapSnapshot, byte[]> render) {
+        Key key = new Key(snapshot.result().scheduleId(), snapshot.configVersion(), section);
         SeatLayoutBody body = cache.get(key, ignored -> SeatLayoutBody.identityOnly(render.apply(snapshot)));
         if (body.needsGzip()) {
             compressLater(key, body);
@@ -120,5 +125,6 @@ public class CaffeineSeatLayoutBodyCache implements SeatLayoutBodyCache {
         return cache.policy().eviction().orElseThrow().weightedSize().orElse(0L);
     }
 
-    private record Key(long scheduleId, long configVersion) {}
+    /** section이 null이면 회차 전체 본문이다. */
+    private record Key(long scheduleId, long configVersion, String section) {}
 }
