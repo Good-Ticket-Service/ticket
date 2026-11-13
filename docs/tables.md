@@ -203,7 +203,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - cancel_checked_at은 취소 확인 스케줄러가 마지막으로 환불을 다시 요청한 시각이다. 끝나지 않는 취소가 다음 차례의 앞자리를 막지 않게 한다.
 - refund_required_at은 결제 중인 지금 시도의 성공을 확정하지 못한 시각이다. 기록된 예약은 결과 확인 대상에서 빠지고 확정 불가 환불 대상이 된다(#155).
 - confirm_before는 메시지로 요청한 승인의 시한이다(접수 시각 + 5분). payment는 이 시각이 지나면 PG를 부르지 않으므로, 결과 확인은 이 뒤에만 조회하고 받지 못했다는 답을 실패로 본다. 동기 승인이면 NULL이고, 메시지 승인에서는 pg_auth_token을 남기지 않는다(#318, #321).
-- payment_checked_at은 결과 확인이 마지막으로 결제를 조회한 시각이다. refund_required_at이 있는 예약에서는 마지막으로 CONFIRM_FAILED 환불을 요청한 시각이다. 두 작업은 대상이 겹치지 않는다(#155).
+- payment_checked_at은 결과 확인이 마지막으로 결제를 조회한 시각이다. refund_required_at이 있는 예약에서는 마지막으로 CONFIRM_FAILED 환불을 요청한 시각이다. 두 작업은 대상이 겹치지 않는다(#155). 메시지 승인이 Kafka로 나가지 못해 대체 승인(#422)을 보내는 예약에서는 confirm_before 전까지 마지막으로 대체 승인이나 결제 조회를 보낸 시각이다(#404). 결과 확인은 confirm_before + 1분 뒤에만 보므로 겹치지 않는다.
 
 - user_coupon_id는 결제 준비에서 이 예약에 잡은 회원 쿠폰이고, discount_amount는 최소 결제 금액에 맞춰 자른 할인액이다. 쿠폰을 쓰지 않으면 둘 다 NULL이다(#125, #143).
 
@@ -263,7 +263,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | payload | TEXT NOT NULL |
 | created_at | TIMESTAMP NOT NULL |
 
-- 아직 보내지 않은 메시지다. 업무 상태를 바꾸는 트랜잭션에서 함께 쓰고, 발행기가 브로커의 응답을 받은 행만 지운다. 승인 요청(`payment.confirm.requested`)은 PG 인증값을 담으므로 보낸 행을 남기지 않는다(#318, #321).
+- 아직 보내지 않은 메시지다. 업무 상태를 바꾸는 트랜잭션에서 함께 쓰고, 발행기가 브로커의 응답을 받은 행만 지운다. 승인 요청(`payment.confirm.requested`)은 PG 인증값을 담으므로 보낸 행을 남기지 않는다(#318, #321). Kafka가 멈춘 동안 대체 승인(#404)은 행을 읽기만 하고 지우지 않는다.
 
 ### p_coupons — reservation-service/coupon.sql + A
 
