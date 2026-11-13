@@ -48,8 +48,9 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
-    private ResultActions list(String query) throws Exception {
-        return mockMvc.perform(get("/api/performances" + query));
+    private ResultActions listAll(String query) throws Exception {
+        // Note: 이 클래스의 기존 회귀 사례는 종료 공연도 포함한다. 기본 상태 정책은 StatusIntegrationTest에서 검증한다.
+        return mockMvc.perform(get("/api/performances" + query).param("status", "ON_SALE,UPCOMING,ENDED"));
     }
 
     @Nested
@@ -57,9 +58,10 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
     class Search {
 
         @Test
-        @DisplayName("공개되고 삭제·취소되지 않은 공연만 최근 공개 순으로 나온다(초안·삭제·취소·삭제된 공연장 제외)")
+        @DisplayName("전체 상태를 고르면 공개되고 삭제·취소되지 않은 공연만 최근 공개 순으로 나온다(초안·삭제·취소·삭제된 공연장 제외)")
         void listsOnlyPublishedActivePerformances() throws Exception {
-            list("").andExpect(status().isOk())
+            listAll("")
+                    .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value(200))
                     .andExpect(jsonPath("$.message").value("SUCCESS"))
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10)))
@@ -74,7 +76,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("항목은 명세 필드만 담고, 기간은 삭제·취소 회차를 뺀 활성 회차의 첫날·마지막 날이다")
         void itemShape() throws Exception {
-            list("?keyword=Alpha")
+            listAll("?keyword=Alpha")
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.content.length()").value(1))
                     .andExpect(jsonPath("$.data.content[0].id").value(10))
@@ -96,7 +98,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("활성 회차가 없는 공연은 period가 null이고, 포스터가 없으면 posterUrl이 null이다")
         void nullPeriodAndPoster() throws Exception {
-            list("?genre=SPORTS")
+            listAll("?genre=SPORTS")
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(13)))
                     .andExpect(jsonPath("$.data.content[0]", hasKey("period")))
@@ -108,7 +110,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("장르로 거른다")
         void filtersByGenre() throws Exception {
-            list("?genre=MUSICAL")
+            listAll("?genre=MUSICAL")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 10)))
                     .andExpect(jsonPath("$.data.totalElements").value(2));
         }
@@ -116,7 +118,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("공연장 지역으로 거른다")
         void filtersByRegion() throws Exception {
-            list("?region=부산")
+            listAll("?region=부산")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 11)))
                     .andExpect(jsonPath("$.data.totalElements").value(2));
         }
@@ -124,8 +126,9 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("검색어는 공연명 부분 일치이며 대소문자와 앞뒤 공백을 무시한다")
         void filtersByKeyword() throws Exception {
-            list("?keyword= gAmMa ").andExpect(jsonPath("$.data.content[*].id").value(contains(12)));
-            list("?keyword=뮤지컬").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 10)));
+            listAll("?keyword= gAmMa ")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12)));
+            listAll("?keyword=뮤지컬").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 10)));
         }
 
         @Test
@@ -142,64 +145,65 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("빈 검색어·지역은 필터를 적용하지 않는다")
         void blankFiltersAreIgnored() throws Exception {
             mockMvc.perform(get("/api/performances").param("keyword", "  ").param("region", ""))
-                    .andExpect(jsonPath("$.data.totalElements").value(5));
+                    .andExpect(jsonPath("$.data.totalElements").value(3));
         }
 
         @Test
         @DisplayName("기간 필터는 시작일(KST)이 [from, to]에 드는 활성 회차가 있는 공연이다")
         void filtersByScheduleDate() throws Exception {
-            list("?from=2026-12-01&to=2026-12-01")
+            listAll("?from=2026-12-01&to=2026-12-01")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
-            list("?from=2026-12-02&to=2026-12-02")
+            listAll("?from=2026-12-02&to=2026-12-02")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
-            list("?from=2026-12-15").andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11)));
-            list("?to=2026-10-31").andExpect(jsonPath("$.data.content[*].id").value(contains(14)));
+            listAll("?from=2026-12-15")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11)));
+            listAll("?to=2026-10-31").andExpect(jsonPath("$.data.content[*].id").value(contains(14)));
         }
 
         @Test
         @DisplayName("취소·삭제된 회차의 날짜로는 걸리지 않는다")
         void dateFilterIgnoresInactiveSchedules() throws Exception {
-            list("?from=2026-11-25&to=2026-11-25")
+            listAll("?from=2026-11-25&to=2026-11-25")
                     .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(0))
                     .andExpect(jsonPath("$.data.totalPages").value(0));
-            list("?from=2026-12-31&to=2026-12-31").andExpect(jsonPath("$.data.content", empty()));
+            listAll("?from=2026-12-31&to=2026-12-31").andExpect(jsonPath("$.data.content", empty()));
         }
 
         @Test
         @DisplayName("필터를 함께 쓰면 모두 만족하는 공연만 나온다")
         void combinesFilters() throws Exception {
-            list("?genre=MUSICAL&region=서울&from=2026-12-01&to=2026-12-31")
+            listAll("?genre=MUSICAL&region=서울&from=2026-12-01&to=2026-12-31")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
         }
 
         @Test
-        @DisplayName("BOOKING_OPEN_ASC는 마감 전 활성 회차의 가장 이른 오픈 순이고, 그런 회차가 없는 공연은 마지막이다")
+        @DisplayName("BOOKING_OPEN_ASC는 남은 활성 회차의 가장 이른 오픈 순이고, 그런 회차가 없는 공연은 마지막이다")
         void sortsByNextBookingOpen() throws Exception {
             // 10은 취소·삭제 회차의 오픈(10-02)이 가장 이르지만 활성 회차 기준(11-10)으로 정렬된다. 14(마감 지남)와 13(회차 없음)은 마지막이다.
-            list("?sort=BOOKING_OPEN_ASC")
+            listAll("?sort=BOOKING_OPEN_ASC")
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 10, 14, 13)))
                     .andExpect(jsonPath("$.data.sort").value("BOOKING_OPEN_ASC"));
         }
 
         @Test
-        @DisplayName("BOOKING_OPEN_ASC의 마감 판단은 현재 시각을 따른다")
+        @DisplayName("BOOKING_OPEN_ASC는 마감됐어도 시작 전인 회차를 정렬에 포함한다")
         void bookingOpenSortUsesCurrentTime() throws Exception {
-            // 12-02 18:30이면 10의 두 회차(12-01·12-02 18:00 마감)가 모두 마감돼 마지막 묶음(14, 13, 10, ID 역순)으로 간다.
+            // 10의 12-02 회차는 예매가 마감됐어도 19시 시작 전이라 정렬 키가 남는다.
             // 11(12-20 마감)과 12(2027-01-10 마감)는 아직 판매 중이다.
             clock.set(LocalDateTime.of(2026, 12, 2, 18, 30));
-            list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 14, 13, 10)));
+            listAll("?sort=BOOKING_OPEN_ASC")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 10, 14, 13)));
         }
 
         @Test
-        @DisplayName("BOOKING_OPEN_ASC에서 마감 시각과 현재 시각이 같은 회차는 마감으로 본다")
+        @DisplayName("BOOKING_OPEN_ASC에서 예매 마감 정각이어도 공연 시작 전이면 정렬 키가 남는다")
         void bookingCloseAtNowIsClosed() throws Exception {
-            // 11의 유일한 회차가 12-20 18:00에 마감된다. 10도 이미 마감이라 마지막 묶음(14, 13, 11, 10)에 들어간다.
+            // 11은 예매 마감 정각이지만 공연 시작 전이므로 12 다음이다. 종료 묶음은 14, 13, 10이다.
             clock.set(LocalDateTime.of(2026, 12, 20, 18, 0));
-            list("?sort=BOOKING_OPEN_ASC")
-                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 14, 13, 11, 10)));
+            listAll("?sort=BOOKING_OPEN_ASC")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11, 14, 13, 10)));
         }
 
         @Test
@@ -212,14 +216,15 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("삭제 회차만·취소 회차만 있는 공연도 목록과 건수에 들어가고 period는 null이며, 날짜 필터에는 걸리지 않는다")
         void performancesWithOnlyInactiveSchedules() throws Exception {
-            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10, 16, 15, 17)))
+            listAll("")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10, 16, 15, 17)))
                     .andExpect(jsonPath("$.data.totalElements").value(8));
-            list("?genre=PLAY&region=서울")
+            listAll("?genre=PLAY&region=서울")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 16, 15)))
                     .andExpect(jsonPath("$.data.content[1].period").value(nullValue()))
                     .andExpect(jsonPath("$.data.content[2].period").value(nullValue()))
                     .andExpect(jsonPath("$.data.totalElements").value(3));
-            list("?from=2026-12-10&to=2026-12-11")
+            listAll("?from=2026-12-10&to=2026-12-11")
                     .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(0));
             mockMvc.perform(get("/api/performances/15"))
@@ -237,24 +242,24 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("BOOKING_OPEN_ASC에서 오픈 시각이 같으면 ID 역순이다")
         void bookingOpenTieBreaksByIdDesc() throws Exception {
-            list("?sort=BOOKING_OPEN_ASC")
+            listAll("?sort=BOOKING_OPEN_ASC")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 17, 11, 10, 16, 15, 14, 13)));
         }
 
         @Test
         @DisplayName("page와 size로 나눠 주고 totalElements는 전체 건수다")
         void paginates() throws Exception {
-            list("?page=1&size=2")
+            listAll("?page=1&size=2")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 11)))
                     .andExpect(jsonPath("$.data.page").value(1))
                     .andExpect(jsonPath("$.data.size").value(2))
                     .andExpect(jsonPath("$.data.totalElements").value(5))
                     .andExpect(jsonPath("$.data.totalPages").value(3));
-            list("?page=5&size=2")
+            listAll("?page=5&size=2")
                     .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(5))
                     .andExpect(jsonPath("$.data.totalPages").value(3));
-            list("?size=100").andExpect(status().isOk());
+            listAll("?size=100").andExpect(status().isOk());
         }
 
         @Test
@@ -267,12 +272,13 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("한 페이지를 넘는 최근 공개 순 목록은 기본 20개씩 나뉘고, 뒤 페이지의 기간도 활성 회차 전체 기준이다")
         void paginatesLatestOverOnePage() throws Exception {
-            list("").andExpect(jsonPath("$.data.content[*].id")
+            listAll("")
+                    .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(
                                     14, 13, 12, 11, 10, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113,
                                     112, 111)))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
-            list("?page=1")
+            listAll("?page=1")
                     .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(110, 109, 108, 107, 106, 105, 104, 103, 102, 101)))
                     .andExpect(jsonPath("$.data.content[0].title").value("대량 공연 110"))
@@ -293,7 +299,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                 config = @SqlConfig(encoding = "UTF-8"))
         @DisplayName("BOOKING_OPEN_ASC는 페이지를 넘겨도 순서가 이어지고, 오픈할 회차가 없는 묶음과의 경계에서도 빠지거나 겹치지 않는다")
         void paginatesBookingOpenOverOnePage() throws Exception {
-            list("?sort=BOOKING_OPEN_ASC")
+            listAll("?sort=BOOKING_OPEN_ASC")
                     .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(
                                     12, 107, 101, 108, 102, 109, 103, 110, 104, 111, 105, 11, 112, 106, 10, 125, 124,
@@ -303,19 +309,19 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.content[2].period.from").value("2026-10-15"))
                     .andExpect(jsonPath("$.data.content[2].period.to").value("2027-01-05"))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
-            list("?sort=BOOKING_OPEN_ASC&page=1")
+            listAll("?sort=BOOKING_OPEN_ASC&page=1")
                     .andExpect(jsonPath("$.data.content[*].id")
                             .value(contains(120, 119, 118, 117, 116, 115, 114, 113, 14, 13)))
                     .andExpect(jsonPath("$.data.content[7].period.from").value("2026-10-15"))
                     .andExpect(jsonPath("$.data.content[7].period.to").value("2026-10-15"))
                     .andExpect(jsonPath("$.data.content[9].period").value(nullValue()));
-            list("?sort=BOOKING_OPEN_ASC&page=2")
+            listAll("?sort=BOOKING_OPEN_ASC&page=2")
                     .andExpect(jsonPath("$.data.content", empty()))
                     .andExpect(jsonPath("$.data.totalElements").value(30));
             // 7개씩이면 두 번째 페이지는 판매 예정 묶음 안, 세 번째 페이지는 두 묶음에 걸친다
-            list("?sort=BOOKING_OPEN_ASC&page=1&size=7")
+            listAll("?sort=BOOKING_OPEN_ASC&page=1&size=7")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(110, 104, 111, 105, 11, 112, 106)));
-            list("?sort=BOOKING_OPEN_ASC&page=2&size=7")
+            listAll("?sort=BOOKING_OPEN_ASC&page=2&size=7")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10, 125, 124, 123, 122, 121, 120)));
         }
 
@@ -324,7 +330,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         void bookingOpenPeriodIncludesClosedSchedules() throws Exception {
             // 12-01 18:30이면 10의 12-01 회차는 마감됐고 12-02 회차만 판매 중이다. 기간은 두 회차를 모두 본다.
             clock.set(LocalDateTime.of(2026, 12, 1, 18, 30));
-            list("?sort=BOOKING_OPEN_ASC&keyword=Alpha")
+            listAll("?sort=BOOKING_OPEN_ASC&keyword=Alpha")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10)))
                     .andExpect(jsonPath("$.data.content[0].period.from").value("2026-12-01"))
                     .andExpect(jsonPath("$.data.content[0].period.to").value("2026-12-02"));
@@ -348,19 +354,21 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .search(any(), any());
 
             // 삭제는 스냅숏 뒤에 커밋됐으므로 이 응답의 ID·기간·건수는 모두 삭제 전 시점이다
-            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10)))
+            listAll("")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10)))
                     .andExpect(jsonPath("$.data.content[4].period.from").value("2026-12-01"))
                     .andExpect(jsonPath("$.data.totalElements").value(5));
 
             reset(publicPerformanceReader);
-            list("").andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11)))
+            listAll("")
+                    .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11)))
                     .andExpect(jsonPath("$.data.totalElements").value(4));
         }
 
         @Test
         @DisplayName("from이 to보다 늦으면 400 INVALID_TIME_RANGE")
         void rejectsReversedDateRange() throws Exception {
-            list("?from=2026-12-02&to=2026-12-01")
+            listAll("?from=2026-12-02&to=2026-12-01")
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("INVALID_TIME_RANGE"))
                     .andExpect(jsonPath("$.path").value("/api/performances"));
@@ -372,7 +380,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             for (String query : new String[] {
                 "?page=-1", "?size=0", "?size=101", "?genre=OPERA", "?sort=PRICE", "?from=2026-13-01", "?to=12/01"
             }) {
-                list(query)
+                listAll(query)
                         .andExpect(status().isBadRequest())
                         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
             }
