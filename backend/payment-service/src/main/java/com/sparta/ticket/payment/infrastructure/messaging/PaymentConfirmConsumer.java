@@ -38,7 +38,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
-/** 성공한 DB 책임 인수·DLT 송신에만 ACK한다. 예외 Future의 자동 ACK 경로는 사용하지 않는다. */
+/**
+ * 성공한 DB 책임 인수(claim 커밋 또는 이미 처리됨)·DLT 송신에만 ACK한다. 예외 Future의 자동 ACK 경로는 사용하지 않는다.
+ * #417: claim 커밋 직후 ACK해, PG 응답을 기다리는 레코드가 Partition의 다음 poll을 막지 않게 한다.
+ */
 @Component
 @Slf4j
 @ConditionalOnProperty(name = "payment.messaging.confirm.enabled", havingValue = "true")
@@ -62,6 +65,9 @@ public class PaymentConfirmConsumer {
     // Note: 운영 정지는 정지한 시점의 소유 lease에만 유효하다. 재배정 뒤의 새 소유에는 적용하지 않는다.
     private final Map<TopicPartition, java.util.UUID> operationPaused = new ConcurrentHashMap<>();
     private volatile boolean closed;
+    /** claim 뒤 acknowledge했고 아직 PG·결과 저장이 끝나지 않은 작업 수(#417). pending에는 포함되지 않는다. */
+    private final java.util.concurrent.atomic.AtomicInteger acknowledgedInFlight =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     public PaymentConfirmConsumer(
             MessageApprovalService service,
@@ -89,7 +95,8 @@ public class PaymentConfirmConsumer {
                 properties.getWorkers(),
                 0,
                 TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(properties.getMaxInFlight()),
+                // Note: claim 뒤 acknowledge한 작업은 pending에서 빠진 채 worker를 쓴다(#417). 큐는 미완료 상한 + worker 수만큼 둔다.
+                new ArrayBlockingQueue<>(properties.getMaxInFlight() + properties.getWorkers()),
                 runnable -> {
                     var thread = new Thread(runnable, "payment-confirm-worker");
                     thread.setDaemon(true);
@@ -108,6 +115,7 @@ public class PaymentConfirmConsumer {
                 pending,
                 map -> map.values().stream().filter(work -> work.paused).count());
         meters.gauge("payment.confirm.workers", workers, ThreadPoolExecutor::getActiveCount);
+        meters.gauge("payment.confirm.acknowledged.inflight", acknowledgedInFlight);
         meters.gauge("payment.confirm.queue", workers, pool -> pool.getQueue().size());
         meters.gauge(
                 "payment.confirm.oldest.seconds",
@@ -167,7 +175,9 @@ public class PaymentConfirmConsumer {
         try {
             workers.execute(() -> execute(work));
         } catch (RejectedExecutionException exception) {
-            retry(work, true);
+            // Note: worker 큐가 찬 것은 처리 자원이 바쁜 것이지 인프라 실패가 아니다. 실패로 세면 재시도 소진으로 Partition이 정지된다.
+            count("worker_queue_full");
+            retry(work, false);
         }
     }
 
@@ -191,21 +201,32 @@ public class PaymentConfirmConsumer {
                 sendDeadLetter(work);
                 return;
             }
-            var outcome = service.advance(work.attempt, () -> active(work));
+            Runnable accepted = properties.isAcknowledgeOnClaim() ? () -> acknowledgeOnClaim(work) : () -> {};
+            var outcome = service.advance(work.attempt, () -> active(work), accepted);
+            // Note: claim 직후 acknowledge한 작업은 이미 pending에서 빠졌다. 결과는 DB·Recovery가 책임진다.
+            if (work.acknowledged) {
+                count("finished_after_ack");
+                return;
+            }
             if (outcome == MessageApprovalService.Outcome.COMPLETE) complete(work);
             else if (outcome == MessageApprovalService.Outcome.RETRY) {
                 count("local_wait");
                 retry(work, false);
             } else remove(work);
         } catch (CannotGetJdbcConnectionException | TransientDataAccessException exception) {
+            if (failedAfterAcknowledge(work, "db") || droppedWithoutOwnership(work)) return;
             count("db_retry");
             retry(work, true);
         } catch (BusinessException exception) {
+            if (failedAfterAcknowledge(work, "business") || droppedWithoutOwnership(work)) return;
             if ("PAYMENT_NOT_FOUND".equals(exception.getErrorCode().code())) retry(work, true);
             else pause(work, "MEANING_CONFLICT");
         } catch (RuntimeException exception) {
+            if (failedAfterAcknowledge(work, "unexpected") || droppedWithoutOwnership(work)) return;
             pause(work, "UNEXPECTED_FAILURE");
         } finally {
+            if (work.acknowledged && work.inFlightCounted.compareAndSet(true, false))
+                acknowledgedInFlight.decrementAndGet();
             work.running.set(false);
         }
     }
@@ -266,7 +287,39 @@ public class PaymentConfirmConsumer {
         return !closed && !work.paused && work.lease.active().get();
     }
 
+    /**
+     * claim 커밋 직후 acknowledge한다(#417). 이 레코드는 더 이상 Partition 진행을 붙잡지 않는다.
+     * acknowledge에 실패하면 표시하지 않고 계속 진행한다. 처리가 끝난 뒤 complete가 다시 시도한다.
+     */
+    private void acknowledgeOnClaim(Work work) {
+        try {
+            if (!active(work) || !work.lease.acknowledgeIfOwned(work.acknowledgment::acknowledge)) return;
+        } catch (RuntimeException exception) {
+            count("claim_ack_failure");
+            return;
+        }
+        work.acknowledged = true;
+        if (work.inFlightCounted.compareAndSet(false, true)) acknowledgedInFlight.incrementAndGet();
+        count("completed");
+        count("claim_acknowledged");
+        // Note: acknowledge가 끝난 뒤의 정리 실패는 acknowledge 실패로 세지 않는다. 대기열 넘기기는 작업마다 따로 처리한다.
+        remove(work);
+    }
+
+    /** acknowledge한 뒤의 실패는 재시도·정지하지 않는다. 결제는 IN_PROGRESS이고 Recovery가 PG를 조회해 끝낸다. */
+    private boolean failedAfterAcknowledge(Work work, String kind) {
+        if (!work.acknowledged) return false;
+        count("post_ack_failure");
+        log.warn(
+                "acknowledge 뒤 승인 처리 실패. Recovery가 결과를 정한다. partition={}, offset={}, kind={}",
+                work.record.partition(),
+                work.record.offset(),
+                kind);
+        return true;
+    }
+
     private void complete(Work work) {
+        if (work.acknowledged) return;
         try {
             if (active(work) && work.lease.acknowledgeIfOwned(work.acknowledgment::acknowledge)) count("completed");
             remove(work);
@@ -275,7 +328,19 @@ public class PaymentConfirmConsumer {
         }
     }
 
+    /**
+     * 소유권을 잃은 작업의 실패는 Partition을 정지시키지 않는다(#417 리뷰). claim 뒤에는 소유권과 무관하게 진행하므로,
+     * 그 사이 같은 Partition을 새 lease로 다시 받았을 수 있다. 새 소유자가 같은 레코드를 다시 받아 처리한다.
+     */
+    private boolean droppedWithoutOwnership(Work work) {
+        if (active(work)) return false;
+        count("dropped_without_ownership");
+        remove(work);
+        return true;
+    }
+
     private void pause(Work work, String reason) {
+        if (droppedWithoutOwnership(work)) return;
         var partition = new TopicPartition(work.record.topic(), work.record.partition());
         // Note: 다시 켜기와 같은 잠금 안에서 정지를 기록해야 상한 해소가 운영 정지를 덮어쓰지 않는다.
         synchronized (deferred) {
@@ -327,7 +392,17 @@ public class PaymentConfirmConsumer {
                 capacityPaused.clear();
             }
         }
-        admitted.forEach(this::submit);
+        for (var next : admitted) {
+            try {
+                submit(next);
+            } catch (RuntimeException exception) {
+                // Note: 넘기기에 실패한 작업을 대기열 앞에 되돌린다. 버리면 acknowledge되지 않은 offset이 남아 Partition이 멈춘다.
+                count("admit_failure");
+                synchronized (deferred) {
+                    deferred.addFirst(next);
+                }
+            }
+        }
     }
 
     /** 상한에 세는 진행 중 작업 수. 대기열과 운영 정지된 작업은 뺀다. 호출자는 deferred 잠금을 잡는다. */
@@ -400,6 +475,8 @@ public class PaymentConfirmConsumer {
         final long enteredNanos = System.nanoTime();
         volatile ScheduledFuture<?> retry;
         volatile boolean paused;
+        volatile boolean acknowledged;
+        final AtomicBoolean inFlightCounted = new AtomicBoolean();
         boolean poison;
         int failures;
         MessageApprovalAttempt attempt;

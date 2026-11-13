@@ -18,6 +18,11 @@ public class MessageApprovalProperties {
     private Duration retryDelay = Duration.ofMillis(200);
     private int maxInfrastructureRetries = 4;
     private int maxMessageBytes = 8192;
+    /**
+     * claim 커밋 직후 acknowledge한다(#417). 끄면 PG 결과 저장 뒤 acknowledge하는 이전 동작으로 돌아간다.
+     * 같은 조건 전후 비교와 운영 중 되돌리기에 쓴다.
+     */
+    private boolean acknowledgeOnClaim = true;
 
     public Duration readyGrace() {
         return enabled ? Duration.ofMinutes(6) : Duration.ZERO;

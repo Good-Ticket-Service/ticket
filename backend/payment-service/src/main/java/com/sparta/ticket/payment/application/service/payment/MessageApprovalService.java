@@ -52,6 +52,15 @@ public class MessageApprovalService {
     }
 
     public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner) {
+        return advance(attempt, owner, () -> {});
+    }
+
+    /**
+     * {@code accepted}는 claim 커밋 직후 한 번 호출된다(#417). 이때부터 결과 책임은 DB의 IN_PROGRESS와 조회 복구(Recovery)가 지므로
+     * 호출자는 메시지를 acknowledge할 수 있다. claim 뒤에는 소비권을 다시 보지 않고 PG까지 보낸다. 소비권을 잃었다고 보내지 않으면
+     * 결제가 IN_PROGRESS로 남아 Recovery의 NOT_APPROVED로 끝난다. 같은 주문의 PG 호출은 claim 행 잠금으로 한 번이다.
+     */
+    public Outcome advance(MessageApprovalAttempt attempt, BooleanSupplier owner, Runnable accepted) {
         if (!owner.getAsBoolean()) return Outcome.CANCELED;
         var command = attempt.command();
         var registration = attempt.registration(transactions, clock);
@@ -68,10 +77,9 @@ public class MessageApprovalService {
                 var claim = claimed.get();
                 if (claim.provider() != registration.provider())
                     throw new IllegalStateException("승인 실행권의 PG가 등록 정보와 다르다");
-                if (!owner.getAsBoolean()) return Outcome.CANCELED;
+                accepted.run();
                 if (!transactions.maySend(command)) return Outcome.COMPLETE;
                 // Note: DB 재검사와 실제 송신 사이의 시계 진행도 막는다. 이미 claim은 영속 복구 대상이다.
-                if (!owner.getAsBoolean()) return Outcome.CANCELED;
                 if (!LocalDateTime.now(clock).isBefore(command.confirmBefore())) {
                     transactions.maySend(command);
                     return Outcome.COMPLETE;

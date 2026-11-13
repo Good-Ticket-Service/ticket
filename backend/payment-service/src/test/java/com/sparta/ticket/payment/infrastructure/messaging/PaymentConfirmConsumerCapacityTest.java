@@ -47,6 +47,10 @@ class PaymentConfirmConsumerCapacityTest {
     private final Map<String, CountDownLatch> gates = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong calls = new java.util.concurrent.atomic.AtomicLong();
     private PaymentConfirmConsumer consumer;
+    private final PaymentConfirmOwnership ownership = new PaymentConfirmOwnership();
+
+    @SuppressWarnings("unchecked")
+    private final KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
 
     private PaymentConfirmConsumer consumer(int maxInFlight) {
         var properties = new MessageApprovalProperties();
@@ -57,11 +61,8 @@ class PaymentConfirmConsumerCapacityTest {
         properties.setPerProvider(2);
         properties.setMaxInFlight(maxInFlight);
         properties.setRetryDelay(Duration.ofMillis(10));
-        var ownership = new PaymentConfirmOwnership();
         ownership.onPartitionsAssigned(null, List.of(PARTITION, OTHER));
         when(registry.getListenerContainer(PaymentConfirmConsumer.ID)).thenReturn(container);
-        @SuppressWarnings("unchecked")
-        KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
         consumer = new PaymentConfirmConsumer(
                 service, properties, ownership, registry, kafka, mapper, meters, Clock.systemDefaultZone());
         return consumer;
@@ -101,7 +102,7 @@ class PaymentConfirmConsumerCapacityTest {
 
     /** 처리 순서(=받은 순서)별 문을 열 때까지 PG 대기처럼 막혀 있다가 완료한다. */
     private void blockUntilReleased() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class)))
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
                 .thenAnswer(call -> {
                     long order = calls.getAndIncrement();
                     gates.computeIfAbsent("order-" + order, key -> new CountDownLatch(1))
@@ -165,7 +166,7 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void operationPauseIsNotResumedByCapacityRecovery() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class)))
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
                 .thenThrow(new IllegalStateException("unexpected"));
         var subject = consumer(1);
         var first = mock(Acknowledgment.class);
@@ -183,7 +184,7 @@ class PaymentConfirmConsumerCapacityTest {
 
     @Test
     void operationPausedWorkDoesNotHoldCapacityForOtherPartitions() throws Exception {
-        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class)))
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
                 .thenThrow(new IllegalStateException("unexpected"))
                 .thenReturn(MessageApprovalService.Outcome.COMPLETE);
         var subject = consumer(1);
@@ -197,5 +198,126 @@ class PaymentConfirmConsumerCapacityTest {
         verify(other, timeout(5000)).acknowledge();
         verify(container, never()).pausePartition(OTHER);
         verify(stuck, never()).acknowledge();
+    }
+
+    @Test
+    void acknowledgesRightAfterClaimWithoutWaitingForPgAndNeverTwice() throws Exception {
+        var claimed = new CountDownLatch(1);
+        var pgDone = new CountDownLatch(1);
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+                .thenAnswer(call -> {
+                    Runnable accepted = call.getArgument(2);
+                    accepted.run();
+                    claimed.countDown();
+                    pgDone.await(10, TimeUnit.SECONDS);
+                    return MessageApprovalService.Outcome.COMPLETE;
+                });
+        var subject = consumer(4);
+        var ack = mock(Acknowledgment.class);
+
+        subject.receive(record(0), ack);
+
+        assertThat(claimed.await(5, TimeUnit.SECONDS)).isTrue();
+        verify(ack, timeout(2000)).acknowledge();
+        assertThat(count("claim_acknowledged")).isEqualTo(1);
+        pgDone.countDown();
+        await().atMost(Duration.ofSeconds(5)).until(() -> count("completed") == 1);
+        Thread.sleep(200);
+        verify(ack, org.mockito.Mockito.times(1)).acknowledge();
+        assertThat(count("completed")).isEqualTo(1);
+    }
+
+    @Test
+    void failureAfterAcknowledgeDoesNotPauseOrRetry() throws Exception {
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+                .thenAnswer(call -> {
+                    Runnable accepted = call.getArgument(2);
+                    accepted.run();
+                    throw new IllegalStateException("result save failed");
+                });
+        var subject = consumer(4);
+        var ack = mock(Acknowledgment.class);
+
+        subject.receive(record(0), ack);
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> count("post_ack_failure") == 1);
+        verify(ack).acknowledge();
+        verify(container, never()).pausePartition(PARTITION);
+        assertThat(count("operation_pause")).isZero();
+        verify(service, org.mockito.Mockito.times(1))
+                .advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class));
+    }
+
+    @Test
+    void acknowledgedClaimFreesCapacityForTheNextRecord() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var hold = new CountDownLatch(1);
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+                .thenAnswer(call -> {
+                    Runnable accepted = call.getArgument(2);
+                    accepted.run();
+                    if (calls.incrementAndGet() == 1) hold.await(10, TimeUnit.SECONDS);
+                    return MessageApprovalService.Outcome.COMPLETE;
+                });
+        var subject = consumer(1);
+        var first = mock(Acknowledgment.class);
+        var second = mock(Acknowledgment.class);
+
+        subject.receive(record(0), first);
+        verify(first, timeout(2000)).acknowledge();
+        subject.receive(record(1), second);
+
+        // Note: 첫 레코드는 PG 대기 중이지만 claim 뒤 acknowledge로 상한 자리를 비웠다. 두 번째는 대기 없이 처리된다.
+        verify(second, timeout(2000)).acknowledge();
+        verify(container, never()).pausePartition(PARTITION);
+        hold.countDown();
+    }
+
+    @Test
+    void blockedWorkersDoNotPauseThePartitionAndEveryRecordIsProcessed() throws Exception {
+        var release = new CountDownLatch(1);
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+                .thenAnswer(call -> {
+                    Runnable accepted = call.getArgument(2);
+                    accepted.run();
+                    release.await(10, TimeUnit.SECONDS);
+                    return MessageApprovalService.Outcome.COMPLETE;
+                });
+        var subject = consumer(1);
+        var acks = new java.util.ArrayList<Acknowledgment>();
+        for (int offset = 0; offset < 12; offset++) {
+            var ack = mock(Acknowledgment.class);
+            acks.add(ack);
+            subject.receive(record(offset), ack);
+        }
+
+        // Note: worker 4개가 모두 PG 대기로 막혀도 claim 뒤 acknowledge로 상한 자리가 비고, 남은 레코드는 대기열·worker 큐에서
+        // 기다린다. 큐 용량이 상한 + worker 수라 제출 거부나 재시도 소진으로 Partition이 정지되지 않는다.
+        verify(acks.get(3), timeout(5000)).acknowledge();
+        Thread.sleep(300);
+        assertThat(count("operation_pause")).isZero();
+        release.countDown();
+        for (var ack : acks) verify(ack, timeout(10000)).acknowledge();
+        // Note: 상한 때문의 일시 정지(capacity_pause)는 정상 동작이다. 운영 정지는 없어야 하고, 다 처리하면 다시 켜진다.
+        assertThat(count("operation_pause")).isZero();
+        verify(container, timeout(5000).atLeastOnce()).resumePartition(PARTITION);
+    }
+
+    @Test
+    void failureOfWorkThatLostOwnershipDoesNotPauseThePartition() throws Exception {
+        when(service.advance(any(MessageApprovalAttempt.class), any(BooleanSupplier.class), any(Runnable.class)))
+                .thenAnswer(call -> {
+                    ownership.onPartitionsRevokedBeforeCommit(null, List.of(PARTITION));
+                    throw new IllegalStateException("after rebalance");
+                });
+        var subject = consumer(4);
+        var ack = mock(Acknowledgment.class);
+
+        subject.receive(record(0), ack);
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> count("dropped_without_ownership") == 1);
+        verify(container, never()).pausePartition(PARTITION);
+        assertThat(count("operation_pause")).isZero();
+        verify(ack, never()).acknowledge();
     }
 }
