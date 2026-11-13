@@ -35,7 +35,7 @@ public class SeatSnapshotMetrics {
 
     private static Timer loadTimer(MeterRegistry meters, String result) {
         return Timer.builder("reservation.seat.snapshot.load")
-                .description("좌석 배치도 스냅샷을 만드는 데 걸린 시간(DB 연결 대기·조회·비트맵 계산 포함)")
+                .description("좌석 배치도 스냅샷을 만드는 데 걸린 시간(DB 연결 대기·조회·비트맵 계산·구역 나누기 포함)")
                 .tag("result", result)
                 .publishPercentileHistogram()
                 .register(meters);
