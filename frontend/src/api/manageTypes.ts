@@ -1,6 +1,7 @@
 /** 판매자·관리자 화면의 요청·응답. */
 
 import type { Genre } from '../lib/genres';
+import type { CouponDetail } from './types';
 export type { Genre } from '../lib/genres';
 export type AgeRating = 'ALL' | '12' | '15' | '19';
 
@@ -127,18 +128,20 @@ export type CouponIssueStatus = 'UPCOMING' | 'ISSUING' | 'ENDED';
 
 export interface CouponInput {
   name: string;
-  discountAmount: number;
+  category: 'GENERAL' | 'WELCOME';
+  genre?: string;
+  discountType: 'FIXED' | 'RATE';
+  discountAmount?: number;
+  discountRate?: number;
+  maxDiscountAmount?: number;
+  minBaseAmount?: number;
   totalQuantity: number;
   issueStartAt: string;
   issueEndAt: string;
   validDays: number;
 }
 
-export interface Coupon extends CouponInput {
-  couponId: number;
-  remainingQuantity: number;
-  issueStatus: CouponIssueStatus;
-}
+export type Coupon = Omit<CouponDetail, 'issuedByMe' | 'issueStatus'> & { issueStatus: CouponIssueStatus };
 
 export type RefundStatus = 'WAITING' | 'REQUESTED' | 'DONE' | 'FAILED' | 'SKIPPED';
 export type RefundRecoveryMode = 'ACTIVE' | 'SLOW' | 'VERIFY_ONLY' | 'PAUSED';

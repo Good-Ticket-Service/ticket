@@ -1,188 +1,466 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { api, ApiError, errorMessage, rawApi } from '../api/client';
-import type { Checkout, PageC, PgProvider, Reservation, UserCoupon } from '../api/types';
-import { ErrorNotice, Loading, Title } from '../components/Common';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { api, ApiError, errorMessage, getToken, rawApi } from '../api/client';
+import type { Checkout, PageC, PerformanceDetail, Reservation, UserCoupon } from '../api/types';
+import { ErrorNotice, Loading, Poster } from '../components/Common';
+import { useMe } from '../components/Layout';
+import {
+  CheckoutChangedError,
+  runPaymentAttempt,
+  type PaymentAuthorization,
+  type PreparedCheckout,
+} from '../lib/checkoutFlow';
+import { couponConditions, couponPreview, couponTitle } from '../lib/coupons';
 import { clock, formatDateTime, parseTime, won } from '../lib/format';
+import { genreLabel } from '../lib/genres';
 import { seatLabel } from '../lib/seatLabels';
 
-const MIN_PAYMENT = 100;
+export function CheckoutPage() {
+  const { reservationId } = useParams();
+  if (!reservationId || !/^[1-9]\d*$/.test(reservationId))
+    return (
+      <main className="content">
+        <p className="notice">올바른 예매를 선택해 주세요.</p>
+        <Link to="/reservations">내 예매</Link>
+      </main>
+    );
+  return <CheckoutView key={reservationId} reservationId={reservationId} />;
+}
 
-function useSecondsLeft(until: string | undefined): number | null {
-  const [now, setNow] = useState(Date.now());
+function CheckoutView({ reservationId }: { reservationId: string }) {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const me = useMe();
+  const actionLock = useRef(false);
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  return until ? Math.floor((parseTime(until).getTime() - now) / 1000) : null;
-}
-
-interface Authorized {
-  orderId: string;
-  pgAuthToken: string;
-}
-
-export function CheckoutPage() {
-  const { reservationId } = useParams();
-  const navigate = useNavigate();
-  const client = useQueryClient();
-  // undefined면 아직 고르지 않은 것이다. 이때는 예약에 잡힌 쿠폰을 유지한다.
-  // checkout은 쿠폰을 보내지 않으면 잡은 쿠폰을 빼므로, 다시 결제할 때도 잡힌 쿠폰을 그대로 보내야 한다.
   const [pickedCoupon, setPickedCoupon] = useState<number | null | undefined>(undefined);
-  const [provider] = useState<PgProvider>('TOSS');
-  // 503이면 예약은 HOLD 그대로라 같은 인증값으로 다시 승인한다. 결제창을 다시 열지 않게 들고 있는다.
-  const [authorized, setAuthorized] = useState<Authorized | null>(null);
+  const [prepared, setPrepared] = useState<PreparedCheckout | null>(null);
+  const [authorized, setAuthorized] = useState<PaymentAuthorization | null>(null);
+  const [priceNotice, setPriceNotice] = useState(false);
   const path = `/api/reservations/${reservationId}`;
-
-  const reservation = useQuery({ queryKey: ['reservation', reservationId], queryFn: () => api<Reservation>(path) });
-  const coupons = useQuery({
-    queryKey: ['coupons', 'me', 'ALL'],
-    queryFn: () => api<PageC<UserCoupon>>('/api/coupons/me?size=50'),
+  const reservation = useQuery({
+    queryKey: ['reservation', reservationId, getToken()],
+    queryFn: () => api<Reservation>(path),
+    refetchInterval: (query) => (query.state.data?.status === 'HOLD' ? 5000 : false),
   });
-  const secondsLeft = useSecondsLeft(reservation.data?.holdExpiresAt);
-  const couponId = pickedCoupon === undefined ? reservation.data?.userCouponId ?? null : pickedCoupon;
-
-  const confirm = async (auth: Authorized) => {
-    const result = await api<Reservation>(`${path}/payments/confirm`, { method: 'POST', body: auth });
-    setAuthorized(null);
-    return result;
+  const performance = useQuery({
+    queryKey: ['performance', String(reservation.data?.performanceId)],
+    enabled: reservation.data !== undefined,
+    queryFn: () => api<PerformanceDetail>(`/api/performances/${reservation.data!.performanceId}`),
+  });
+  const coupons = useInfiniteQuery({
+    queryKey: ['coupons', 'me', 'pages', 'ALL', getToken()],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api<PageC<UserCoupon>>(`/api/coupons/me?size=50&page=${pageParam}`),
+    getNextPageParam: (last) => (last.page + 1 < last.totalPages ? last.page + 1 : undefined),
+  });
+  const item = reservation.data;
+  const couponId = pickedCoupon === undefined ? (item?.userCouponId ?? null) : pickedCoupon;
+  const list = coupons.data?.pages.flatMap((page) => page.content) ?? [];
+  const choices = list.filter(
+    (coupon) =>
+      coupon.status === 'AVAILABLE' ||
+      coupon.status === 'RESERVED' ||
+      coupon.userCouponId === item?.userCouponId,
+  );
+  const coupon = choices.find((value) => value.userCouponId === couponId);
+  const preview =
+    coupon && item
+      ? couponPreview(coupon, item.totalPrice, now, performance.data?.genre, item.userCouponId)
+      : null;
+  const existing = couponId !== null && couponId === item?.userCouponId;
+  const discount =
+    couponId === null
+      ? 0
+      : existing && item?.discountAmount != null
+        ? item.discountAmount
+        : preview && !preview.reason
+          ? preview.discount
+          : null;
+  const expectedAmount = item && discount !== null ? item.totalPrice - discount : null;
+  const draft = prepared?.couponId === couponId ? prepared : null;
+  const amount = draft?.checkout.amount ?? expectedAmount;
+  const selectedUnavailable = couponId !== null && !existing && (!coupon || !!preview?.reason);
+  const readReservation = async () => {
+    const latest = await api<Reservation>(path);
+    client.setQueryData(['reservation', reservationId, getToken()], latest);
+    return latest;
   };
-
   const pay = useMutation({
-    mutationFn: async () => {
-      if (authorized) return confirm(authorized);
-      const checkout = await api<Checkout>(`${path}/payments/checkout`, {
-        method: 'POST',
-        body: { pgProvider: provider, ...(couponId === null ? {} : { userCouponId: couponId }) },
-      });
-      // 운영 결제창 자리다. 지금은 Fake PG의 인증 시뮬레이션으로 인증값을 받는다.
-      const { paymentKey } = await rawApi<{ paymentKey: string }>('/fake-pg/fake/toss/checkout', {
-        orderId: checkout.orderId,
-        amount: checkout.amount,
-      });
-      const auth = { orderId: checkout.orderId, pgAuthToken: paymentKey };
-      setAuthorized(auth);
-      return confirm(auth);
-    },
+    mutationFn: () =>
+      runPaymentAttempt(
+        { couponId, expectedAmount, prepared: draft, authorization: authorized },
+        {
+          reservation: readReservation,
+          prepare: (id) =>
+            api<Checkout>(`${path}/payments/checkout`, {
+              method: 'POST',
+              body: { pgProvider: 'TOSS', ...(id === null ? {} : { userCouponId: id }) },
+            }),
+          authorize: async (orderId, serverAmount) =>
+            (
+              await rawApi<{ paymentKey: string }>('/fake-pg/fake/toss/checkout', {
+                orderId,
+                amount: serverAmount,
+              })
+            ).paymentKey,
+          confirm: (auth) => api<Reservation>(`${path}/payments/confirm`, { method: 'POST', body: auth }),
+          onPrepared: (value) => {
+            setPrepared(value);
+            client.setQueryData<Reservation>(['reservation', reservationId, getToken()], (current) =>
+              current
+                ? {
+                    ...current,
+                    orderId: value.checkout.orderId,
+                    userCouponId: value.couponId,
+                    paymentAmount: value.checkout.amount,
+                    discountAmount: current.totalPrice - value.checkout.amount,
+                  }
+                : current,
+            );
+            client.invalidateQueries({ queryKey: ['coupons', 'me'] });
+          },
+          onAuthorized: setAuthorized,
+        },
+      ),
     onSuccess: (result) => {
-      client.setQueryData(['reservation', reservationId], result);
+      if (result.kind === 'prepared') {
+        setPriceNotice(true);
+        return;
+      }
+      setAuthorized(null);
+      setPrepared(null);
+      client.setQueryData(['reservation', reservationId, getToken()], result.value);
       client.invalidateQueries({ queryKey: ['coupons'] });
+      client.invalidateQueries({ queryKey: ['reservations'] });
       navigate(`/reservations/${reservationId}`, { replace: true });
     },
     onError: (error) => {
       const code = error instanceof ApiError ? error.code : '';
-      if (code === 'COUPON_NOT_AVAILABLE') setPickedCoupon(null);
-      if (code !== 'SERVICE_UNAVAILABLE') setAuthorized(null);
-      if (code === 'HOLD_EXPIRED' || code === 'ORDER_ID_MISMATCH' || code === 'CHECKOUT_CONFLICT') reservation.refetch();
+      const recoverable = error instanceof ApiError && (error.status === 0 || error.status >= 500);
+      if (!recoverable) {
+        setAuthorized(null);
+        setPrepared(null);
+      }
+      if (code === 'COUPON_NOT_AVAILABLE') {
+        setPickedCoupon(null);
+        client.invalidateQueries({ queryKey: ['coupons'] });
+      }
+      if (error instanceof CheckoutChangedError) setPickedCoupon(undefined);
+      reservation.refetch();
+    },
+    onSettled: () => {
+      actionLock.current = false;
     },
   });
-
   const release = useMutation({
     mutationFn: () =>
-      api(`/api/seats/schedules/${reservation.data?.scheduleId}/holds/${reservationId}`, { method: 'DELETE' }),
-    onSuccess: () => navigate(`/performances/${reservation.data?.performanceId}`, { replace: true }),
+      api(`/api/seats/schedules/${item!.scheduleId}/holds/${reservationId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['coupons'] });
+      client.invalidateQueries({ queryKey: ['reservations'] });
+      navigate(`/performances/${item!.performanceId}`, { replace: true });
+    },
+    onError: () => reservation.refetch(),
+    onSettled: () => {
+      actionLock.current = false;
+    },
   });
-
-  if (reservation.isPending) return <main className="content"><Loading /></main>;
-  if (reservation.isError) return <main className="content"><ErrorNotice error={reservation.error} /></main>;
-  const item = reservation.data;
-  if (item.status !== 'HOLD') return <Navigate to={`/reservations/${reservationId}`} replace />;
-
-  const expired = secondsLeft !== null && secondsLeft <= 0;
-  const urgent = secondsLeft !== null && secondsLeft <= 120;
-  // 이 예약에 이미 잡힌 쿠폰은 상태가 RESERVED라 함께 보여 준다.
-  const available = (coupons.data?.content ?? []).filter(
-    (c) => c.status === 'AVAILABLE' || c.userCouponId === item.userCouponId,
-  );
-  const coupon = available.find((c) => c.userCouponId === couponId);
-  // 실제 결제 금액은 checkout 응답이 정한다. 여기 값은 같은 규칙으로 계산한 미리보기다.
-  const discount = coupon ? Math.min(coupon.discountAmount, Math.max(0, item.totalPrice - MIN_PAYMENT)) : 0;
-  const amount = item.totalPrice - discount;
-  const payError = pay.isError ? pay.error : null;
-  const busy = payError instanceof ApiError && payError.code === 'SERVICE_UNAVAILABLE';
-
-  return (
-    <>
-      <div role="timer" aria-label="좌석 선점 남은 시간" className={urgent ? 'timerbar urgent' : 'timerbar'}>
-        <span>{urgent ? '곧 좌석이 풀려요' : '좌석을 잡아 두는 시간'}</span>
-        <span className="time num">{clock(secondsLeft ?? 0)}</span>
-      </div>
-      <main className="content medium">
-        <Title en="Checkout" ko="결제" />
-        <div className="split">
-          <section className="main stack" style={{ gap: 28 }}>
-            {busy && <p className="notice" role="alert">결제 요청이 몰리고 있어요. 좌석은 그대로 잡혀 있으니 잠시 뒤 다시 눌러 주세요.</p>}
-            {payError && !busy && <p className="notice" role="alert">{errorMessage(payError)}</p>}
-            {release.isError && <ErrorNotice error={release.error} />}
-            <fieldset>
-              <legend>쿠폰</legend>
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="coupon"
-                  checked={couponId === null}
-                  onChange={() => setPickedCoupon(null)}
-                />
-                <span>사용 안 함</span>
-              </label>
-              {available.map((c) => (
-                <label key={c.userCouponId} className="radio">
-                  <input
-                    type="radio"
-                    name="coupon"
-                    checked={couponId === c.userCouponId}
-                    onChange={() => setPickedCoupon(c.userCouponId)}
-                  />
-                  <span>
-                    {c.name} ({won(c.discountAmount)})<span className="sub num">{formatDateTime(c.expiresAt)}까지</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-            <fieldset>
-              <legend>결제 수단</legend>
-              <div className="pg-grid">
-                <button type="button" className="pg" aria-pressed="true">
-                  토스페이먼츠
-                </button>
-                <button type="button" className="pg" disabled>
-                  카카오페이 (준비 중)
-                </button>
-              </div>
-            </fieldset>
-          </section>
-          <aside className="side panel stack">
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em' }}>{item.performanceTitle}</div>
-              <div className="muted num" style={{ fontSize: 14 }}>
-                {formatDateTime(item.scheduleStartAt)}
-              </div>
-              <div style={{ marginTop: 4, fontWeight: 500 }}>{seatLabel(item.reservationId) ?? `좌석 ${item.tickets.length}장`}</div>
-            </div>
-            <dl className="rows num">
-              <div className="row">
-                <dt>티켓 가격</dt>
-                <dd>{won(item.totalPrice)}</dd>
-              </div>
-              <div className="row">
-                <dt>쿠폰 할인</dt>
-                <dd>{discount ? `-${won(discount)}` : '0원'}</dd>
-              </div>
-              <div className="row">
-                <dt>결제 금액</dt>
-                <dd className="total">{won(amount)}</dd>
-              </div>
-            </dl>
-            <button type="button" className="btn btn-primary" disabled={pay.isPending || expired} onClick={() => pay.mutate()}>
-              {expired ? '시간이 끝났어요' : pay.isPending ? '결제 중이에요' : `${won(amount)} 결제하기`}
-            </button>
-            <button type="button" className="btn-link" disabled={release.isPending || pay.isPending} onClick={() => release.mutate()}>
-              좌석 놓고 나가기
-            </button>
-          </aside>
-        </div>
+  if (reservation.isPending)
+    return (
+      <main className="content">
+        <Loading />
       </main>
-    </>
+    );
+  if (reservation.isError || !item)
+    return (
+      <main className="content">
+        <ErrorNotice error={reservation.error} />
+        <button type="button" className="btn btn-ghost" onClick={() => reservation.refetch()}>
+          예매 다시 확인
+        </button>
+      </main>
+    );
+  if (item.status !== 'HOLD') return <Navigate to={`/reservations/${reservationId}`} replace />;
+  const secondsLeft = Math.floor((parseTime(item.holdExpiresAt).getTime() - now) / 1000);
+  const expired = secondsLeft <= 0;
+  const busy = pay.isPending || release.isPending;
+  const freeze = busy || authorized !== null;
+  const actualDiscount = amount === null ? null : item.totalPrice - amount;
+  const changeCoupon = (value: string) => {
+    if (freeze) return;
+    setPickedCoupon(value === '' ? null : Number(value));
+    setPrepared(null);
+    setPriceNotice(false);
+    pay.reset();
+  };
+  const buttonText = pay.isPending
+    ? '결제 요청을 처리하고 있어요'
+    : authorized
+      ? '같은 요청으로 결제 상태 확인'
+      : expired
+        ? '선점 시간이 끝났어요'
+        : amount === null
+          ? '결제 금액 확인'
+          : `${won(amount)} 결제하기`;
+  return (
+    <main className="content checkout-content">
+      <ol className="booking-steps" aria-label="예매 진행 단계">
+        <li>
+          <span>1</span>좌석 선택
+        </li>
+        <li aria-current="step">
+          <span>2</span>주문·결제
+        </li>
+        <li>
+          <span>3</span>예매 완료
+        </li>
+      </ol>
+      <h1 className="section-marker checkout-heading">주문·결제</h1>
+      {pay.isError && (
+        <div className="checkout-alert" role="alert">
+          {authorized
+            ? '결제 결과를 아직 확인하지 못했어요. 같은 요청으로 상태를 확인해 주세요.'
+            : pay.error instanceof CheckoutChangedError
+              ? pay.error.message
+              : errorMessage(pay.error)}
+        </div>
+      )}
+      {release.isError && <ErrorNotice error={release.error} />}
+      <div className="checkout-layout">
+        <div className="checkout-main">
+          <section className="checkout-panel">
+            <h2>예매 상품</h2>
+            <div className="checkout-product">
+              <div className="checkout-poster">
+                <Poster src={performance.data?.posterUrl ?? null} />
+              </div>
+              <div>
+                {performance.data && (
+                  <span className="detail-genre">{genreLabel(performance.data.genre)}</span>
+                )}
+                <h3>{item.performanceTitle}</h3>
+                <p>{formatDateTime(item.scheduleStartAt)}</p>
+                {performance.data && <p>{performance.data.venue.name}</p>}
+                <p>{seatLabel(item.reservationId) ?? `좌석 ${item.tickets.length}장`}</p>
+                <p className="checkout-reference">예매 번호 {item.reservationId}</p>
+              </div>
+            </div>
+            {performance.isError && (
+              <div className="checkout-inline-error">
+                <p>공연 부가 정보를 불러오지 못했어요. 예매 상품·일정은 선점 내역을 기준으로 표시해요.</p>
+                <button type="button" className="booking-refresh" onClick={() => performance.refetch()}>
+                  공연 정보 다시 확인
+                </button>
+              </div>
+            )}
+          </section>
+          <section className="checkout-panel">
+            <h2>예매자 정보</h2>
+            {me.isPending ? (
+              <Loading />
+            ) : me.isError ? (
+              <ErrorNotice error={me.error} />
+            ) : (
+              <dl className="checkout-booker">
+                <div>
+                  <dt>이름</dt>
+                  <dd>{me.data?.name}</dd>
+                </div>
+                <div>
+                  <dt>이메일</dt>
+                  <dd>{me.data?.email}</dd>
+                </div>
+                <div>
+                  <dt>연락처</dt>
+                  <dd>{me.data?.phone}</dd>
+                </div>
+              </dl>
+            )}
+            <p className="checkout-caption">로그인한 회원 정보로 예매해요.</p>
+          </section>
+          <section className="checkout-panel checkout-coupons">
+            <h2>
+              <span className="coupon-mark" aria-hidden="true">
+                %
+              </span>{' '}
+              할인·쿠폰
+            </h2>
+            <label className="checkout-coupon-label" htmlFor="checkout-coupon">
+              쿠폰 선택
+            </label>
+            <select
+              id="checkout-coupon"
+              className="input"
+              value={couponId ?? ''}
+              disabled={freeze}
+              onChange={(event) => changeCoupon(event.target.value)}
+            >
+              <option value="">쿠폰 사용 안 함</option>
+              {existing && !coupon && (
+                <option value={couponId!}>
+                  기존 적용 쿠폰{item.discountAmount != null ? ` · ${won(item.discountAmount)} 할인` : ''}
+                </option>
+              )}
+              {choices.map((value) => {
+                const check = couponPreview(
+                  value,
+                  item.totalPrice,
+                  now,
+                  performance.data?.genre,
+                  item.userCouponId,
+                );
+                const current = value.userCouponId === item.userCouponId;
+                return (
+                  <option
+                    key={value.userCouponId}
+                    value={value.userCouponId}
+                    disabled={!current && !!check.reason}
+                  >
+                    {value.name ?? '쿠폰'} · {couponTitle(value)}
+                    {current ? ' · 현재 적용' : check.reason ? ` · ${check.reason}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            {coupon && (
+              <div className="checkout-coupon-terms">
+                <strong>{coupon.name ?? '선택 쿠폰'}</strong>
+                <p>{couponConditions(coupon).join(' · ')}</p>
+                <p>
+                  {existing
+                    ? '현재 예매에 적용된 쿠폰이에요.'
+                    : `${formatDateTime(coupon.expiresAt)}까지 사용 가능`}
+                </p>
+              </div>
+            )}
+            {coupons.isPending && <Loading />}
+            {coupons.isError && (
+              <div className="checkout-inline-error">
+                <ErrorNotice error={coupons.error} />
+                <button type="button" className="booking-refresh" onClick={() => coupons.refetch()}>
+                  보유 쿠폰 다시 불러오기
+                </button>
+              </div>
+            )}
+            {coupons.hasNextPage && (
+              <button
+                type="button"
+                className="booking-refresh"
+                disabled={coupons.isFetchingNextPage || freeze}
+                onClick={() => coupons.fetchNextPage()}
+              >
+                보유 쿠폰 더 불러오기
+              </button>
+            )}
+            {authorized && (
+              <p className="checkout-caption">진행 중인 결제의 쿠폰은 결과를 확인한 뒤 변경할 수 있어요.</p>
+            )}
+            <p className="checkout-caption">
+              쿠폰은 한 장만 사용해요. 조건과 할인액은 서버에서 최종 확인하며, 할인 후 결제액은 최소
+              100원이에요.
+            </p>
+            {!freeze && (
+              <Link className="checkout-wallet-link" to="/coupons">
+                쿠폰함 보기 ↗
+              </Link>
+            )}
+          </section>
+          <section className="checkout-panel">
+            <h2>결제 수단</h2>
+            <div className="pg-grid">
+              <button type="button" className="pg" aria-pressed="true">
+                토스페이먼츠
+              </button>
+              <button type="button" className="pg" disabled>
+                카카오페이 · 준비 중
+              </button>
+            </div>
+            <p className="checkout-caption">현재는 테스트 결제 환경이에요. 실제 요금이 청구되지 않아요.</p>
+          </section>
+        </div>
+        <aside className="checkout-summary" aria-labelledby="payment-heading">
+          <div className="checkout-summary-heading">
+            <h2 id="payment-heading">결제 정보</h2>
+            <div
+              role="timer"
+              aria-label="좌석 선점 남은 시간"
+              className={secondsLeft <= 120 ? 'checkout-countdown urgent' : 'checkout-countdown'}
+            >
+              {clock(Math.max(0, secondsLeft))}
+            </div>
+          </div>
+          <p className="checkout-caption">
+            {expired
+              ? '선점 시간이 끝났어요. 최신 예매 상태를 확인해 주세요.'
+              : '남은 시간 안에 결제를 완료해 주세요.'}
+          </p>
+          <dl className="checkout-totals">
+            <div>
+              <dt>티켓 금액 ({item.tickets.length}매)</dt>
+              <dd>{won(item.totalPrice)}</dd>
+            </div>
+            <div>
+              <dt>쿠폰 할인</dt>
+              <dd>
+                {actualDiscount === null
+                  ? '서버 확인 필요'
+                  : actualDiscount > 0
+                    ? `−${won(actualDiscount)}`
+                    : '0원'}
+              </dd>
+            </div>
+            <div className="checkout-grand-total">
+              <dt>{draft ? '확인된 결제 금액' : '예상 결제 금액'}</dt>
+              <dd>{amount === null ? '확인 필요' : won(amount)}</dd>
+            </div>
+          </dl>
+          {priceNotice && (
+            <p className="checkout-price-notice" role="status">
+              서버에서 확인한 금액으로 갱신했어요. 금액을 확인하고 결제해 주세요.
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            disabled={busy || (!authorized && (expired || selectedUnavailable))}
+            onClick={() => {
+              if (actionLock.current) return;
+              actionLock.current = true;
+              pay.mutate();
+            }}
+          >
+            {buttonText}
+          </button>
+          <button
+            type="button"
+            className="checkout-release"
+            disabled={busy || authorized !== null}
+            onClick={() => {
+              if (actionLock.current) return;
+              actionLock.current = true;
+              release.mutate();
+            }}
+          >
+            좌석 놓고 나가기
+          </button>
+          {expired && (
+            <Link className="btn btn-ghost btn-block" to={`/reservations/${reservationId}`}>
+              예매 상태 확인
+            </Link>
+          )}
+          <div className="checkout-payment-note">
+            <h3>예매·결제 안내</h3>
+            <p>결제 결과를 확인 중일 때에는 새 결제를 만들지 않고 같은 요청으로 확인해요.</p>
+            <p>좌석을 놓고 나가면 현재 선점이 해제돼요.</p>
+          </div>
+        </aside>
+      </div>
+    </main>
   );
 }

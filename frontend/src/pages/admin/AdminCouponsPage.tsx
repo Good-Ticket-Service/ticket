@@ -1,157 +1,198 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FormEvent, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api } from '../../api/client';
-import type { Coupon, CouponInput, CouponIssueStatus } from '../../api/manageTypes';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
+import { api, getToken } from '../../api/client';
+import type { Coupon, CouponIssueStatus } from '../../api/manageTypes';
 import type { PageC } from '../../api/types';
-import { ErrorNotice, Loading, Title } from '../../components/Common';
-import { Done, Field, Panel } from '../../components/Form';
-import { formatDateTime, seoulInputToLocal, toSeoulInput, won } from '../../lib/format';
-
-export const ISSUE_STATUS_LABEL: Record<CouponIssueStatus, string> = {
-  UPCOMING: '발급 예정',
-  ISSUING: '발급 중',
-  ENDED: '발급 종료',
-};
-
-const STATUSES: CouponIssueStatus[] = ['ISSUING', 'UPCOMING', 'ENDED'];
-
+import { ErrorNotice, Loading } from '../../components/Common';
+import { couponTitle, couponConditions } from '../../lib/coupons';
+import { ISSUE_STATUS_LABEL } from '../../lib/adminCoupons';
+import { formatDateTime } from '../../lib/format';
 export function AdminCouponsPage() {
-  const [status, setStatus] = useState<CouponIssueStatus>('ISSUING');
-  const [page, setPage] = useState(0);
-  const params = new URLSearchParams({ issueStatus: status, page: String(page), size: '10' });
-  const list = useQuery({
-    queryKey: ['admin-coupons', params.toString()],
-    queryFn: () => api<PageC<Coupon>>(`/api/coupons?${params}`),
+  const [params, setParams] = useSearchParams();
+  const category = params.get('category') === 'WELCOME' ? 'WELCOME' : 'GENERAL';
+  const status = (
+    ['UPCOMING', 'ISSUING', 'ENDED'].includes(params.get('issueStatus') ?? '')
+      ? params.get('issueStatus')
+      : 'ISSUING'
+  ) as CouponIssueStatus;
+  const sort = ['createdAt,DESC', 'issueStartAt,ASC', 'issueEndAt,ASC'].includes(params.get('sort') ?? '')
+    ? params.get('sort')!
+    : 'createdAt,DESC';
+  const raw = Number(params.get('page') ?? 0),
+    page = Number.isSafeInteger(raw) && raw >= 0 ? raw : 0;
+  const request = new URLSearchParams({
+    category,
+    issueStatus: status,
+    sort,
+    page: String(page),
+    size: '10',
   });
+  const query = useQuery({
+    queryKey: ['admin-coupons', getToken(), request.toString()],
+    queryFn: () => api<PageC<Coupon>>(`/api/coupons?${request}`),
+  });
+  const change = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    next.set(key, value);
+    if (key !== 'page') next.delete('page');
+    setParams(next, { preventScrollReset: true });
+  };
   return (
-    <main className="content medium stack" style={{ gap: 24 }}>
-      <Title en="Coupons" ko="쿠폰 관리" />
-      <CreateCoupon />
-      <section className="stack">
-        <div className="chips">
-          {STATUSES.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className="chip"
-              aria-pressed={status === value}
-              onClick={() => {
-                setStatus(value);
-                setPage(0);
-              }}
-            >
-              {ISSUE_STATUS_LABEL[value]}
-            </button>
-          ))}
+    <main className="content seller-page admin-page stack">
+      <header className="seller-page-heading">
+        <div>
+          <h1 className="section-marker">쿠폰 관리</h1>
+          <p>일반·웰컴 쿠폰의 할인 정책과 발급 상태를 관리하세요.</p>
         </div>
-        {list.isPending && <Loading />}
-        {list.isError && <ErrorNotice error={list.error} />}
-        {list.data?.content.length === 0 && <p className="empty">{ISSUE_STATUS_LABEL[status]} 쿠폰이 없어요.</p>}
-        {list.data?.content.map((coupon) => (
-          <Link key={coupon.couponId} to={`/admin/coupons/${coupon.couponId}`} className="item">
-            <span>
-              <span className="name">{coupon.name}</span>
-              <br />
-              <span className="sub num">
-                {won(coupon.discountAmount)} 할인 · 남은 수량 {coupon.remainingQuantity}/{coupon.totalQuantity} ·{' '}
-                {formatDateTime(coupon.issueStartAt)} ~ {formatDateTime(coupon.issueEndAt)}
-              </span>
-            </span>
-            <span className="pill">#{coupon.couponId}</span>
-          </Link>
+        <Link className="btn btn-primary" to="/admin/coupons/new">
+          ＋ 쿠폰 등록
+        </Link>
+      </header>
+      <nav className="settlement-tabs" aria-label="쿠폰 구분">
+        {[
+          { value: 'GENERAL', label: '일반 쿠폰' },
+          { value: 'WELCOME', label: '웰컴 쿠폰' },
+        ].map((tab) => (
+          <button
+            type="button"
+            key={tab.value}
+            aria-pressed={category === tab.value}
+            onClick={() => change('category', tab.value)}
+          >
+            {tab.label}
+          </button>
         ))}
-        {list.data && list.data.totalPages > 1 && (
-          <div className="pager">
-            <button type="button" className="chip" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              이전
-            </button>
-            <span className="num">
-              {page + 1} / {list.data.totalPages}
-            </span>
-            <button type="button" className="chip" disabled={page + 1 >= list.data.totalPages} onClick={() => setPage(page + 1)}>
-              다음
-            </button>
+      </nav>
+      <section className="panel stack">
+        <div className="admin-coupon-toolbar">
+          <div className="booking-filters" aria-label="발급 상태">
+            {(['ISSUING', 'UPCOMING', 'ENDED'] as const).map((value) => (
+              <button
+                type="button"
+                className="chip"
+                key={value}
+                aria-pressed={status === value}
+                onClick={() => change('issueStatus', value)}
+              >
+                {ISSUE_STATUS_LABEL[value]}
+              </button>
+            ))}
           </div>
+          <select
+            aria-label="쿠폰 정렬"
+            className="input"
+            value={sort}
+            onChange={(e) => change('sort', e.target.value)}
+          >
+            <option value="createdAt,DESC">최근 등록순</option>
+            <option value="issueStartAt,ASC">발급 시작순</option>
+            <option value="issueEndAt,ASC">발급 종료순</option>
+          </select>
+          <button type="button" className="chip" disabled={query.isFetching} onClick={() => query.refetch()}>
+            새로고침
+          </button>
+        </div>
+        {query.isPending && <Loading />}
+        {query.isError && <ErrorNotice error={query.error} />}
+        {query.isError && query.data && (
+          <p className="account-hint">마지막 조회 결과입니다. 최신 상태를 다시 확인해 주세요.</p>
+        )}
+        {query.data && (
+          <>
+            <p className="account-hint">총 {query.data.totalElements}개</p>
+            <div className="seller-table-scroll">
+              <table className="seller-table admin-coupon-table">
+                <thead>
+                  <tr>
+                    <th>쿠폰 · 할인 조건</th>
+                    <th>발급 기간</th>
+                    <th>남은 수량 / 총 수량</th>
+                    <th>상태</th>
+                    <th>관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {query.data.content.map((coupon) => (
+                    <tr key={coupon.couponId}>
+                      <td>
+                        <div className="admin-coupon-list-title">
+                          <span className="admin-coupon-symbol" aria-hidden="true">
+                            %
+                          </span>
+                          <div>
+                            <Link
+                              className="seller-performance-name"
+                              to={`/admin/coupons/${coupon.couponId}`}
+                              state={{ couponReturn: `/admin/coupons?${request}` }}
+                            >
+                              {coupon.name}
+                            </Link>
+                            <span className="seller-cell-meta">
+                              ID {coupon.couponId} · {couponTitle(coupon)}
+                            </span>
+                            <span className="seller-cell-meta">{couponConditions(coupon).join(' · ')}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {formatDateTime(coupon.issueStartAt)}
+                        <span className="seller-cell-meta">{formatDateTime(coupon.issueEndAt)}</span>
+                      </td>
+                      <td>
+                        {coupon.remainingQuantity.toLocaleString('ko-KR')} /{' '}
+                        {coupon.totalQuantity.toLocaleString('ko-KR')}
+                        <span className="seller-cell-meta">발급 후 {coupon.validDays}일</span>
+                      </td>
+                      <td>
+                        <span
+                          className={`seller-state ${coupon.issueStatus === 'ISSUING' ? 'ready' : 'draft'}`}
+                        >
+                          {ISSUE_STATUS_LABEL[coupon.issueStatus]}
+                        </span>
+                      </td>
+                      <td>
+                        <Link
+                          className="chip"
+                          to={`/admin/coupons/${coupon.couponId}`}
+                          state={{ couponReturn: `/admin/coupons?${request}` }}
+                        >
+                          관리 ›
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {query.data.content.length === 0 && (
+              <p className="seller-empty">{ISSUE_STATUS_LABEL[status]} 쿠폰이 없어요.</p>
+            )}
+            {query.data.totalPages > 1 && (
+              <nav className="pager" aria-label="쿠폰 페이지">
+                <button
+                  className="chip"
+                  type="button"
+                  disabled={page === 0 || query.isFetching}
+                  onClick={() => change('page', String(page - 1))}
+                >
+                  이전
+                </button>
+                <span>
+                  {page + 1} / {query.data.totalPages}
+                </span>
+                <button
+                  className="chip"
+                  type="button"
+                  disabled={page + 1 >= query.data.totalPages || query.isFetching}
+                  onClick={() => change('page', String(page + 1))}
+                >
+                  다음
+                </button>
+              </nav>
+            )}
+          </>
         )}
       </section>
     </main>
-  );
-}
-
-function CreateCoupon() {
-  const client = useQueryClient();
-  const [form, setForm] = useState({
-    name: '',
-    discountAmount: '3000',
-    totalQuantity: '100',
-    issueStartAt: toSeoulInput(undefined, 0),
-    issueEndAt: toSeoulInput(undefined, 7 * 24 * 60),
-    validDays: '30',
-  });
-  const create = useMutation({
-    mutationFn: () =>
-      api<Coupon>('/api/coupons', {
-        method: 'POST',
-        body: {
-          name: form.name,
-          discountAmount: Number(form.discountAmount),
-          totalQuantity: Number(form.totalQuantity),
-          issueStartAt: seoulInputToLocal(form.issueStartAt),
-          issueEndAt: seoulInputToLocal(form.issueEndAt),
-          validDays: Number(form.validDays),
-        } satisfies CouponInput,
-      }),
-    onSuccess: () => {
-      // 같은 쿠폰을 한 번 더 만들지 않도록 이름을 비운다. 나머지 값은 비슷한 쿠폰을 이어 만들 때 쓰게 둔다.
-      setForm((current) => ({ ...current, name: '' }));
-      client.invalidateQueries({ queryKey: ['admin-coupons'] });
-    },
-  });
-  const bind = (name: keyof typeof form) => ({
-    id: `coupon-${name}`,
-    className: 'input',
-    required: true,
-    value: form[name],
-    onChange: (e: { target: { value: string } }) => setForm({ ...form, [name]: e.target.value }),
-  });
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    create.mutate();
-  };
-  return (
-    <Panel title="쿠폰 만들기" note="시작 시각이 지금보다 앞이면 서버가 지금으로 맞춰 저장해요. 시각은 서울 기준이에요.">
-      <form className="stack" onSubmit={submit}>
-        {create.isError && <ErrorNotice error={create.error} />}
-        {create.isSuccess && (
-          <Done>
-            쿠폰 #{create.data.couponId}을 만들었어요. <Link to={`/admin/coupons/${create.data.couponId}`}>상세 보기</Link>
-          </Done>
-        )}
-        <div className="form-grid">
-          <Field id="coupon-name" label="이름 (1~100자)">
-            <input {...bind('name')} maxLength={100} />
-          </Field>
-          <Field id="coupon-discountAmount" label="할인 금액(원)">
-            <input {...bind('discountAmount')} type="number" min={1} />
-          </Field>
-          <Field id="coupon-totalQuantity" label="총 수량">
-            <input {...bind('totalQuantity')} type="number" min={1} />
-          </Field>
-          <Field id="coupon-validDays" label="유효 기간(일)" hint="발급받은 날부터 셉니다.">
-            <input {...bind('validDays')} type="number" min={1} />
-          </Field>
-          <Field id="coupon-issueStartAt" label="발급 시작">
-            <input {...bind('issueStartAt')} type="datetime-local" />
-          </Field>
-          <Field id="coupon-issueEndAt" label="발급 종료" hint="시작보다 뒤이고 지금보다 뒤여야 해요.">
-            <input {...bind('issueEndAt')} type="datetime-local" />
-          </Field>
-        </div>
-        <button className="btn btn-primary" disabled={create.isPending}>
-          쿠폰 만들기
-        </button>
-      </form>
-    </Panel>
   );
 }

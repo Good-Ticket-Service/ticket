@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { errorMessage } from '../api/client';
 import type { ReservationStatus } from '../api/types';
 
@@ -37,8 +38,9 @@ export function ErrorNotice({ error }: { error: unknown }) {
 
 /** 주소가 깨진 포스터는 지워서 아래의 그래픽이 보이게 한다. */
 export function Poster({ src }: { src: string | null }) {
-  if (!src) return null;
-  return <img src={src} alt="" onError={(event) => event.currentTarget.remove()} />;
+  const [failed, setFailed] = useState<string | null>(null);
+  if (!src || src === failed) return null;
+  return <img src={src} alt="" onError={() => setFailed(src)} />;
 }
 
 const ARTS = ['art-warm', 'art-truss', 'art-wood', 'art-steel'];

@@ -1,169 +1,291 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { api, ApiError, errorMessage, getToken } from '../../api/client';
 import type { Coupon, CouponInput } from '../../api/manageTypes';
-import { ErrorNotice, Loading, Title } from '../../components/Common';
-import { ConfirmDialog, Done, Facts, Field, Panel } from '../../components/Form';
-import { formatDateTime, seoulInputToLocal, toSeoulInput, won } from '../../lib/format';
-import { ISSUE_STATUS_LABEL } from './AdminCouponsPage';
-
-type Form = Record<keyof CouponInput, string>;
-
-function toForm(coupon: Coupon): Form {
-  return {
-    name: coupon.name,
-    discountAmount: String(coupon.discountAmount),
-    totalQuantity: String(coupon.totalQuantity),
-    issueStartAt: toSeoulInput(coupon.issueStartAt),
-    issueEndAt: toSeoulInput(coupon.issueEndAt),
-    validDays: String(coupon.validDays),
-  };
-}
-
-/** 수정은 바꿀 항목만 보낸다. 아무것도 보내지 않으면 서버가 400으로 거절한다. */
-function changes(form: Form, before: Form): Partial<CouponInput> {
-  const body: Partial<CouponInput> = {};
-  if (form.name !== before.name) body.name = form.name;
-  if (form.discountAmount !== before.discountAmount) body.discountAmount = Number(form.discountAmount);
-  if (form.totalQuantity !== before.totalQuantity) body.totalQuantity = Number(form.totalQuantity);
-  if (form.issueStartAt !== before.issueStartAt) body.issueStartAt = seoulInputToLocal(form.issueStartAt);
-  if (form.issueEndAt !== before.issueEndAt) body.issueEndAt = seoulInputToLocal(form.issueEndAt);
-  if (form.validDays !== before.validDays) body.validDays = Number(form.validDays);
-  return body;
-}
-
+import { ErrorNotice, Loading } from '../../components/Common';
+import { CouponPolicyFields } from '../../components/CouponPolicyFields';
+import { CouponPolicyPreview } from '../../components/CouponPolicyPreview';
+import { CouponActionDialog } from '../../components/CouponActionDialog';
+import {
+  couponStatus,
+  issuedCount,
+  ISSUE_STATUS_LABEL,
+  toCouponForm,
+  updateCouponBody,
+} from '../../lib/adminCoupons';
+import { couponTitle, couponConditions } from '../../lib/coupons';
+import { formatDateTime } from '../../lib/format';
 export function AdminCouponPage() {
   const { couponId } = useParams();
-  const navigate = useNavigate();
-  const client = useQueryClient();
-  const path = `/api/coupons/${couponId}`;
-  const coupon = useQuery({ queryKey: ['admin-coupon', couponId], queryFn: () => api<Coupon>(path) });
-  const [form, setForm] = useState<Form | null>(null);
-  const [asking, setAsking] = useState(false);
+  if (!couponId || !/^[1-9]\d*$/.test(couponId) || !Number.isSafeInteger(Number(couponId)))
+    return (
+      <main className="content seller-page">
+        <p className="notice">올바른 쿠폰 ID를 입력해 주세요.</p>
+        <Link to="/admin/coupons">쿠폰 목록</Link>
+      </main>
+    );
+  return <Detail key={couponId} id={couponId} />;
+}
+function Detail({ id }: { id: string }) {
+  const key = ['admin-coupon', getToken(), id];
+  const query = useQuery({ queryKey: key, queryFn: () => api<Coupon>(`/api/coupons/${id}`) });
+  if (query.isPending)
+    return (
+      <main className="content seller-page">
+        <Loading />
+      </main>
+    );
+  if (!query.data)
+    return (
+      <main className="content seller-page">
+        <ErrorNotice error={query.error} />
+        <button className="btn btn-ghost" onClick={() => query.refetch()}>
+          쿠폰 다시 조회
+        </button>
+      </main>
+    );
+  return (
+    <Editor
+      item={query.data}
+      refetch={query.refetch}
+      fetching={query.isFetching}
+      queryError={query.isError ? query.error : null}
+    />
+  );
+}
+function Editor({
+  item,
+  refetch,
+  fetching,
+  queryError,
+}: {
+  item: Coupon;
+  refetch: () => Promise<{ data?: Coupon }>;
+  fetching: boolean;
+  queryError: unknown;
+}) {
+  const client = useQueryClient(),
+    navigate = useNavigate(),
+    location = useLocation();
+  const key = ['admin-coupon', getToken(), String(item.couponId)],
+    path = `/api/coupons/${item.couponId}`;
+  const [before, setBefore] = useState(item),
+    [form, setForm] = useState(() => toCouponForm(item));
+  const [asking, setAsking] = useState<'close' | 'delete' | null>(null),
+    [now, setNow] = useState(Date.now),
+    [saved, setSaved] = useState(false);
+  const lock = useRef(false);
   useEffect(() => {
-    if (coupon.data) setForm(toForm(coupon.data));
-  }, [coupon.data]);
-
-  const refresh = (data: Coupon) => {
-    client.setQueryData(['admin-coupon', couponId], data);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const status = couponStatus(item, now),
+    issued = issuedCount(item);
+  const returnPath = location.state?.couponReturn;
+  const back =
+    typeof returnPath === 'string' && returnPath.startsWith('/admin/coupons?')
+      ? returnPath
+      : `/admin/coupons?category=${item.category}&issueStatus=${status}`;
+  const refresh = (result: Coupon) => {
+    client.setQueryData(key, result);
+    setBefore(result);
+    setForm(toCouponForm(result));
     client.invalidateQueries({ queryKey: ['admin-coupons'] });
+    client.invalidateQueries({ queryKey: ['coupons'] });
   };
   const update = useMutation({
     mutationFn: (body: Partial<CouponInput>) => api<Coupon>(path, { method: 'PATCH', body }),
-    onSuccess: refresh,
+    onSuccess: (result) => {
+      refresh(result);
+      setSaved(true);
+    },
+    onError: () => refetch(),
   });
-  const close = useMutation({ mutationFn: () => api<Coupon>(`${path}/close`, { method: 'POST' }), onSuccess: refresh });
-  const remove = useMutation({
-    mutationFn: () => api(path, { method: 'DELETE' }),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: ['admin-coupons'] });
-      navigate('/admin/coupons', { replace: true });
+  const action = useMutation({
+    mutationFn: async (kind: 'close' | 'delete') => {
+      const latest = await api<Coupon>(path);
+      client.setQueryData(key, latest);
+      if (kind === 'delete') {
+        if (issuedCount(latest) > 0)
+          throw new ApiError(409, 'COUPON_NOT_DELETABLE', '발급 이력이 있어 삭제할 수 없어요.');
+        await api(path, { method: 'DELETE' });
+        return { kind };
+      }
+      return { kind, result: await api<Coupon>(`${path}/close`, { method: 'POST' }) };
+    },
+    onSuccess: (result) => {
+      setAsking(null);
+      if (result.kind === 'delete') {
+        client.invalidateQueries({ queryKey: ['admin-coupons'] });
+        client.invalidateQueries({ queryKey: ['coupons'] });
+        navigate(back, { replace: true });
+      } else if (result.result) {
+        refresh(result.result);
+        setSaved(true);
+      }
+    },
+    onError: () => refetch(),
+    onSettled: () => {
+      lock.current = false;
     },
   });
-
-  if (coupon.isPending) return <main className="content narrow"><Loading /></main>;
-  if (coupon.isError) return <main className="content narrow"><ErrorNotice error={coupon.error} /></main>;
-  const item = coupon.data;
-  const before = toForm(item);
-  const body = form ? changes(form, before) : {};
+  let body: Partial<CouponInput> = {},
+    validation: string | null = null;
+  try {
+    body = updateCouponBody(form, before, item, now);
+  } catch (error) {
+    validation = (error as Error).message;
+  }
+  const busy = update.isPending || action.isPending;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    update.mutate(body);
+    if (!busy && !fetching && !queryError && !validation && Object.keys(body).length) {
+      setSaved(false);
+      update.mutate(body);
+    }
   };
-  const bind = (name: keyof Form) => ({
-    id: `edit-${name}`,
-    className: 'input',
-    required: true,
-    value: form?.[name] ?? '',
-    onChange: (e: { target: { value: string } }) => form && setForm({ ...form, [name]: e.target.value }),
-  });
-  const started = item.issueStatus !== 'UPCOMING';
-  const ended = item.issueStatus === 'ENDED';
+  const reload = async () => {
+    const latest = await refetch();
+    if (latest.data) {
+      setBefore(latest.data);
+      setForm(toCouponForm(latest.data));
+      setSaved(false);
+      update.reset();
+    }
+  };
   return (
-    <main className="content narrow stack" style={{ gap: 24 }}>
-      <Link to="/admin/coupons" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 쿠폰 목록
+    <main className="content seller-page admin-page stack">
+      <Link className="seller-back" to={back}>
+        ‹ 쿠폰 목록
       </Link>
-      <Title en="Coupon" ko={`쿠폰 #${item.couponId}`} />
-      <Panel title={item.name}>
-        <Facts
-          items={[
-            ['상태', ISSUE_STATUS_LABEL[item.issueStatus]],
-            ['할인 금액', won(item.discountAmount)],
-            ['남은 수량', `${item.remainingQuantity} / ${item.totalQuantity}`],
-            ['발급 기간', `${formatDateTime(item.issueStartAt)} ~ ${formatDateTime(item.issueEndAt)}`],
-            ['유효 기간', `${item.validDays}일`],
-          ]}
-        />
-      </Panel>
-      <Panel
-        title="수정"
-        note={
-          ended
-            ? '발급이 끝난 쿠폰은 이름만 바꿀 수 있어요.'
-            : started
-              ? '발급이 시작된 쿠폰은 이름, 발급 종료, 총 수량(발급한 수 이상)만 바꿀 수 있어요.'
-              : '바꾼 항목만 보내요.'
-        }
-      >
-        <form className="stack" onSubmit={submit}>
-          {update.isError && <ErrorNotice error={update.error} />}
-          {update.isSuccess && <Done>수정했어요.</Done>}
-          <div className="form-grid">
-            <Field id="edit-name" label="이름">
-              <input {...bind('name')} maxLength={100} />
-            </Field>
-            <Field id="edit-discountAmount" label="할인 금액(원)">
-              <input {...bind('discountAmount')} type="number" min={1} disabled={started} />
-            </Field>
-            <Field id="edit-totalQuantity" label="총 수량">
-              <input {...bind('totalQuantity')} type="number" min={1} disabled={ended} />
-            </Field>
-            <Field id="edit-validDays" label="유효 기간(일)">
-              <input {...bind('validDays')} type="number" min={1} disabled={started} />
-            </Field>
-            <Field id="edit-issueStartAt" label="발급 시작">
-              <input {...bind('issueStartAt')} type="datetime-local" disabled={started} />
-            </Field>
-            <Field id="edit-issueEndAt" label="발급 종료">
-              <input {...bind('issueEndAt')} type="datetime-local" disabled={ended} />
-            </Field>
-          </div>
-          <button className="btn btn-primary" disabled={update.isPending || Object.keys(body).length === 0}>
-            {Object.keys(body).length === 0 ? '바꾼 항목이 없어요' : `${Object.keys(body).length}개 항목 수정`}
-          </button>
-        </form>
-      </Panel>
-      <Panel title="발급 중단·삭제" note="삭제는 한 장도 발급하지 않은 쿠폰만 할 수 있어요.">
-        {close.isError && <ErrorNotice error={close.error} />}
-        {remove.isError && <ErrorNotice error={remove.error} />}
-        {close.isSuccess && <Done>발급을 중단했어요.</Done>}
-        <div className="actions">
-          <button type="button" className="btn btn-ghost" disabled={ended || close.isPending} onClick={() => close.mutate()}>
-            발급 중단
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={remove.isPending}
-            onClick={() => setAsking(true)}
-          >
-            삭제
-          </button>
+      <header className="seller-page-heading">
+        <div>
+          <h1 className="section-marker">쿠폰 정책</h1>
+          <p>
+            쿠폰 ID {item.couponId} · {item.category === 'WELCOME' ? '웰컴' : '일반'} 쿠폰
+          </p>
         </div>
-      </Panel>
+        <button className="btn btn-ghost" disabled={busy || fetching} onClick={reload}>
+          최신 정책 불러오기
+        </button>
+      </header>
+      {queryError != null && <ErrorNotice error={queryError} />}
+      <section className="panel stack admin-accent-panel">
+        <div className="settlement-panel-heading">
+          <div>
+            <span className={`seller-state ${status === 'ISSUING' ? 'ready' : 'draft'}`}>
+              {ISSUE_STATUS_LABEL[status]}
+            </span>
+            <h2 className="admin-coupon-name">{item.name}</h2>
+            <p className="account-hint">
+              {couponTitle(item)} · {couponConditions(item).join(' · ')}
+            </p>
+          </div>
+          <div className="admin-coupon-quantity">
+            <strong>{item.remainingQuantity.toLocaleString('ko-KR')}</strong>
+            <span> / {item.totalQuantity.toLocaleString('ko-KR')}장 남음</span>
+            <p>
+              발급 {issued.toLocaleString('ko-KR')}장 · 발급 후 {item.validDays}일
+            </p>
+          </div>
+        </div>
+        <p className="account-hint">
+          발급 기간 {formatDateTime(item.issueStartAt)} — {formatDateTime(item.issueEndAt)}
+        </p>
+      </section>
+      <div className="admin-coupon-layout">
+        <section className="panel stack">
+          <h2 className="panel-title">정책 수정</h2>
+          <p className="account-hint">
+            {status === 'UPCOMING'
+              ? '발급 전에는 정책을 수정할 수 있어요.'
+              : status === 'ISSUING'
+                ? '발급 시작 후 이름·종료 시각·총 수량만 수정할 수 있어요.'
+                : '발급이 끝난 쿠폰은 이름만 수정할 수 있어요.'}{' '}
+            총 수량과 삭제 가능 여부는 저장 시점에 서버가 다시 확인합니다.
+          </p>
+          <form className="stack" onSubmit={submit}>
+            {update.isError && <ErrorNotice error={update.error} />}{' '}
+            {saved && (
+              <p className="account-success" role="status">
+                쿠폰 정책을 반영했어요.
+              </p>
+            )}
+            <CouponPolicyFields
+              value={form}
+              onChange={(value) => {
+                setForm(value);
+                setSaved(false);
+              }}
+              status={status}
+              original={item}
+              disabled={busy || fetching || !!queryError}
+            />
+            {validation && (
+              <p className="notice" role="alert">
+                {validation}
+              </p>
+            )}
+            <button
+              className="btn btn-primary"
+              disabled={busy || fetching || !!queryError || !!validation || !Object.keys(body).length}
+            >
+              {update.isPending
+                ? '저장 중'
+                : Object.keys(body).length
+                  ? '변경사항 저장'
+                  : '변경한 항목이 없어요'}
+            </button>
+          </form>
+        </section>
+        <div className="stack">
+          <CouponPolicyPreview value={form} />
+          <section className="panel stack admin-coupon-actions">
+            <h2 className="panel-title">발급 운영</h2>
+            <p className="account-hint">
+              발급 중단은 이미 받은 쿠폰에 영향을 주지 않습니다. 발급 이력이 있는 쿠폰은 삭제할 수 없어요.
+            </p>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={busy || fetching || status === 'ENDED'}
+              onClick={() => {
+                action.reset();
+                setAsking('close');
+              }}
+            >
+              발급 중단
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={busy || fetching || issued > 0}
+              onClick={() => {
+                action.reset();
+                setAsking('delete');
+              }}
+            >
+              쿠폰 삭제
+            </button>
+            {issued > 0 && <p className="account-hint">발급 {issued}장 · 삭제 불가</p>}
+          </section>
+        </div>
+      </div>
       {asking && (
-        <ConfirmDialog
-          title={`쿠폰 #${item.couponId}을 삭제할까요?`}
-          body="삭제하면 되돌릴 수 없고 목록과 발급에서 빠져요. 한 장이라도 발급했으면 삭제되지 않아요."
-          confirmLabel="쿠폰 삭제하기"
-          busy={remove.isPending}
-          onConfirm={() => {
-            setAsking(false);
-            remove.mutate();
+        <CouponActionDialog
+          kind={asking}
+          name={item.name}
+          busy={action.isPending}
+          error={action.isError ? errorMessage(action.error) : null}
+          onDismiss={() => {
+            if (!action.isPending) setAsking(null);
           }}
-          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            if (lock.current) return;
+            lock.current = true;
+            action.mutate(asking);
+          }}
         />
       )}
     </main>

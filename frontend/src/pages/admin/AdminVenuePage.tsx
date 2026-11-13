@@ -1,75 +1,90 @@
+import { GlassVenueIcon } from '../../components/GlassVenueIcon';
 import { useMutation } from '@tanstack/react-query';
-import { FormEvent, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, ApiError, ifMatch } from '../../api/client';
-import type { GradesResult, SeatInput, SeatsResult } from '../../api/manageTypes';
-import { ErrorNotice, Title } from '../../components/Common';
-import { Done, Field, Panel, VersionOverride } from '../../components/Form';
+import type { GradesResult, SeatsResult } from '../../api/manageTypes';
+import { ErrorNotice } from '../../components/Common';
+import { VersionOverride } from '../../components/Form';
+import { AdminVenueList } from '../../components/AdminVenueList';
 import { useLocalRecords } from '../../lib/localRecords';
-import { VENUE_RECORDS, VenueRecord } from './AdminVenuesPage';
-
-/** "1-3"은 1,2,3, "A-C"는 A,B,C, "가,나"는 그대로 나눈다. */
-function expandRows(text: string): string[] {
-  const range = /^\s*(\w)\s*-\s*(\w)\s*$/.exec(text);
-  if (range) {
-    const [from, to] = [range[1], range[2]];
-    if (/\d/.test(from) && /\d/.test(to)) {
-      return Array.from({ length: Math.max(0, Number(to) - Number(from) + 1) }, (_, i) => String(Number(from) + i));
-    }
-    const start = from.charCodeAt(0);
-    return Array.from({ length: Math.max(0, to.charCodeAt(0) - start + 1) }, (_, i) => String.fromCharCode(start + i));
-  }
-  return text.split(',').map((row) => row.trim()).filter(Boolean);
-}
+import { VENUE_RECORDS, seatDraft, venueVersion, type VenueRecord } from '../../lib/adminManagement';
 
 export function AdminVenuePage() {
-  const venueId = Number(useParams().venueId);
-  const venues = useLocalRecords<VenueRecord>(VENUE_RECORDS);
-  // 다른 곳에서 만든 공연장은 version과 등급을 모르므로 직접 입력받는다.
-  const record = venues.find(venueId) ?? { id: venueId, name: `공연장 #${venueId}`, region: '', version: 0, grades: [], seatCount: 0 };
-  const known = venues.find(venueId) !== undefined;
-  const [version, setVersion] = useState('');
-  const currentVersion = version === '' ? record.version : Number(version);
-  const save = (next: Partial<VenueRecord>) => {
-    venues.save({ ...record, ...next });
-    setVersion('');
+  const { venueId } = useParams();
+  if (!venueId || !/^[1-9]\d*$/.test(venueId) || !Number.isSafeInteger(Number(venueId)))
+    return (
+      <main className="content seller-page">
+        <p className="notice">올바른 공연장 ID를 입력해 주세요.</p>
+        <Link to="/admin/venues">공연장 관리</Link>
+      </main>
+    );
+  return <Venue key={venueId} id={Number(venueId)} />;
+}
+function Venue({ id }: { id: number }) {
+  const venues = useLocalRecords<VenueRecord>(VENUE_RECORDS),
+    stored = venues.find(id);
+  const record: VenueRecord = stored ?? {
+    id,
+    name: `공연장 ID ${id}`,
+    region: '',
+    version: 0,
+    versionKnown: false,
+    grades: [],
+    seatCount: null,
   };
-
-  const [gradeNames, setGradeNames] = useState('VIP, R, S');
+  const [tab, setTab] = useState('info'),
+    [version, setVersion] = useState(''),
+    [gradeNames, setGradeNames] = useState('VIP, R, S'),
+    [validation, setValidation] = useState<string | null>(null);
+  const [seat, setSeat] = useState({ section: 'A', rows: '1-3', perRow: '10', gradeId: '' });
+  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
+  const currentVersion = venueVersion(stored, version);
+  const save = (next: Partial<VenueRecord>) => {
+    venues.save({ ...record, ...next, versionKnown: true });
+    setVersion('');
+    setCopied('idle');
+  };
   const grades = useMutation({
     mutationFn: () =>
-      api<GradesResult>(`/api/admin/venues/${venueId}/seat-grades`, {
+      api<GradesResult>(`/api/admin/venues/${id}/seat-grades`, {
         method: 'POST',
-        headers: ifMatch(currentVersion),
-        body: { grades: gradeNames.split(',').map((name) => ({ name: name.trim() })).filter((g) => g.name) },
+        headers: ifMatch(currentVersion!),
+        body: {
+          grades: gradeNames
+            .split(',')
+            .map((name) => ({ name: name.trim() }))
+            .filter((item) => item.name),
+        },
       }),
-    onSuccess: (result) => save({ version: result.venueVersion, grades: [...record.grades, ...result.grades] }),
+    onSuccess: (result) =>
+      save({ version: result.venueVersion, grades: [...record.grades, ...result.grades] }),
   });
-
-  const [seat, setSeat] = useState({ section: 'A', rows: '1-3', perRow: '10', gradeId: '' });
   const gradeId = Number(seat.gradeId || record.grades[0]?.id || 0);
-  const seats: SeatInput[] = expandRows(seat.rows).flatMap((rowLabel) =>
-    Array.from({ length: Number(seat.perRow) || 0 }, (_, i) => ({
-      section: seat.section,
-      rowLabel,
-      seatNumber: i + 1,
-      venueSeatGradeId: gradeId,
-    })),
+  const draft = useMemo(
+    () => seatDraft(seat.section, seat.rows, seat.perRow, gradeId),
+    [seat.section, seat.rows, seat.perRow, gradeId],
   );
-  const addSeats = useMutation({
+  const seats = useMutation({
     mutationFn: () =>
-      api<SeatsResult>(`/api/admin/venues/${venueId}/seats`, { method: 'POST', headers: ifMatch(currentVersion), body: { seats } }),
-    onSuccess: (result) => save({ version: result.venueVersion, seatCount: record.seatCount + result.createdCount }),
+      api<SeatsResult>(`/api/admin/venues/${id}/seats`, {
+        method: 'POST',
+        headers: ifMatch(currentVersion!),
+        body: { seats: draft.seats },
+      }),
+    onSuccess: (result) =>
+      save({
+        version: result.venueVersion,
+        seatCount: record.seatCount === null ? null : record.seatCount + result.createdCount,
+      }),
   });
-
-  // 판매자 등급 조회 API가 없어, 판매자가 가격을 넣을 때 필요한 ID를 한 번에 넘긴다.
-  const handoff = [
-    `공연장: ${record.name} (공연장 ID ${venueId})`,
-    `등급 ID: ${record.grades.map((grade) => `${grade.name} ${grade.id}`).join(', ')}`,
-    '공연을 만들 때 공연장 ID를, 가격을 넣을 때 좌석이 쓰는 등급의 ID를 모두 넣어 주세요.',
-  ].join('\n');
-  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
-  const copyHandoff = async () => {
+  const busy = grades.isPending || seats.isPending;
+  const conflict = [grades.error, seats.error].some(
+    (error) => error instanceof ApiError && error.code === 'VERSION_CONFLICT',
+  );
+  const versionReady = currentVersion !== null && (!conflict || version !== '');
+  const handoff = `공연장: ${record.name} (공연장 ID ${id})\n등급 ID: ${record.grades.map((grade) => `${grade.name} ${grade.id}`).join(', ')}\n공연 등록에는 공연장 ID를, 가격 설정에는 판매 좌석이 쓰는 모든 등급 ID를 입력해 주세요.`;
+  const copy = async () => {
     try {
       await navigator.clipboard.writeText(handoff);
       setCopied('done');
@@ -77,99 +92,253 @@ export function AdminVenuePage() {
       setCopied('failed');
     }
   };
-
   const submitGrades = (event: FormEvent) => {
     event.preventDefault();
+    if (busy || !versionReady) return;
+    const names = gradeNames
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!names.length || names.some((name) => name.length > 20) || new Set(names).size !== names.length) {
+      setValidation('등급 이름은 각각 1~20자로, 중복 없이 입력해 주세요.');
+      return;
+    }
+    setValidation(null);
     grades.mutate();
   };
-  const submitSeats = (event: FormEvent) => {
-    event.preventDefault();
-    addSeats.mutate();
-  };
   return (
-    <main className="content medium stack" style={{ gap: 24 }}>
-      <Link to="/admin/venues" className="navlink" style={{ paddingLeft: 0 }}>
-        ← 공연장
-      </Link>
-      <Title en="Venue" ko={record.name} />
-      <Panel
-        title={`공연장 ID ${venueId}`}
-        note="판매자에게 공연장 ID와 아래 등급 ID를 알려 주세요. 공연이 이 공연장을 쓰기 시작하면 등급·좌석을 더 넣을 수 없어요."
-      >
-        <VersionOverride
-          id="venue-version"
-          open={!known || [grades.error, addSeats.error].some((e) => e instanceof ApiError && e.code === 'VERSION_CONFLICT')}
-          current={known ? record.version : null}
-          value={version}
-          onChange={setVersion}
-        />
-        <div className="chips">
-          {record.grades.length === 0 && <span className="muted">등록한 등급이 없어요.</span>}
-          {record.grades.map((grade) => (
-            <span key={grade.id} className="pill num">
-              {grade.name} · 등급 ID {grade.id}
-            </span>
-          ))}
+    <main className="content seller-page admin-page stack">
+      <header className="seller-page-heading">
+        <div>
+          <h1 className="section-marker">공연장 관리</h1>
+          <p>기록된 정보와 현재 version을 확인하고 등급·좌석을 등록하세요.</p>
         </div>
-        {record.grades.length > 0 && (
-          <>
-            <button type="button" className="btn btn-ghost" onClick={copyHandoff}>
-              판매자에게 보낼 정보 복사
-            </button>
-            {copied === 'done' && <Done>복사했어요. 판매자에게 붙여 넣어 보내 주세요.</Done>}
-            {copied === 'failed' && (
-              <Field id="venue-handoff" label="복사하지 못했어요. 아래 글을 직접 복사해 주세요.">
-                <textarea id="venue-handoff" className="input mono" readOnly value={handoff} />
-              </Field>
-            )}
-          </>
-        )}
-      </Panel>
-      <Panel title="등급 등록" note="쉼표로 여러 개를 한 번에 넣어요. 같은 공연장에 이름이 같은 등급은 넣을 수 없어요.">
-        <form className="stack" onSubmit={submitGrades}>
-          {grades.isError && <ErrorNotice error={grades.error} />}
-          {grades.isSuccess && <Done>등급 {grades.data.grades.length}개를 넣었어요.</Done>}
-          <Field id="grade-names" label="등급 이름">
-            <input id="grade-names" className="input" required value={gradeNames} onChange={(e) => setGradeNames(e.target.value)} />
-          </Field>
-          <button className="btn btn-primary" disabled={grades.isPending}>
-            등급 등록
-          </button>
-        </form>
-      </Panel>
-      <Panel title="좌석 일괄 등록" note={`구역 하나에 열 범위 × 열마다 좌석 수만큼 만들어요. 지금 설정이면 ${seats.length}석이에요.`}>
-        <form className="stack" onSubmit={submitSeats}>
-          {addSeats.isError && <ErrorNotice error={addSeats.error} />}
-          {addSeats.isSuccess && <Done>좌석 {addSeats.data.createdCount}석을 만들었어요.</Done>}
-          <div className="form-grid">
-            <Field id="seat-section" label="구역">
-              <input id="seat-section" className="input" required maxLength={20} value={seat.section} onChange={(e) => setSeat({ ...seat, section: e.target.value })} />
-            </Field>
-            <Field id="seat-rows" label="열" hint="1-3, A-C 또는 쉼표로 나열">
-              <input id="seat-rows" className="input" required value={seat.rows} onChange={(e) => setSeat({ ...seat, rows: e.target.value })} />
-            </Field>
-            <Field id="seat-perRow" label="열마다 좌석 수">
-              <input id="seat-perRow" className="input" type="number" min={1} required value={seat.perRow} onChange={(e) => setSeat({ ...seat, perRow: e.target.value })} />
-            </Field>
-            <Field id="seat-grade" label="등급">
-              {record.grades.length > 0 ? (
-                <select id="seat-grade" className="input" value={seat.gradeId || record.grades[0].id} onChange={(e) => setSeat({ ...seat, gradeId: e.target.value })}>
-                  {record.grades.map((grade) => (
-                    <option key={grade.id} value={grade.id}>
-                      {grade.name} (ID {grade.id})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input id="seat-grade" className="input" type="number" min={1} required placeholder="등급 ID" value={seat.gradeId} onChange={(e) => setSeat({ ...seat, gradeId: e.target.value })} />
-              )}
-            </Field>
+        <Link className="btn btn-primary" to="/admin/venues">
+          ＋ 공연장 등록
+        </Link>
+      </header>
+      <div className="admin-venue-layout">
+        <AdminVenueList records={venues.records} selected={id} />
+        <section className="admin-venue-detail">
+          <div className="admin-venue-title">
+            <GlassVenueIcon />
+            <div>
+              <h2>{record.name}</h2>
+              <p>
+                {record.address ?? '주소 미확인'} · ID {id}
+              </p>
+            </div>
           </div>
-          <button className="btn btn-primary" disabled={addSeats.isPending || seats.length === 0 || !gradeId}>
-            좌석 {seats.length}석 등록
-          </button>
-        </form>
-      </Panel>
+          <nav className="settlement-tabs" aria-label="공연장 설정">
+            <button type="button" aria-pressed={tab === 'info'} onClick={() => setTab('info')}>
+              기본 정보
+            </button>
+            <button type="button" aria-pressed={tab === 'seats'} onClick={() => setTab('seats')}>
+              등급·좌석
+            </button>
+          </nav>
+          <div className="stack admin-detail-body">
+            <VersionOverride
+              id="venue-version"
+              open={!stored || conflict}
+              current={stored?.versionKnown === false ? null : (stored?.version ?? null)}
+              value={version}
+              onChange={setVersion}
+            />
+            {!versionReady && (
+              <p className="account-hint">
+                등록 작업 전에 현재 공연장 version을 입력해 주세요. 다른 관리자가 바꿨다면 최신 값을 확인해야
+                합니다.
+              </p>
+            )}
+            {tab === 'info' ? (
+              <>
+                <dl className="settlement-account-facts">
+                  <div>
+                    <dt>지역</dt>
+                    <dd>{record.region || '미확인'}</dd>
+                  </div>
+                  <div>
+                    <dt>기록된 좌석</dt>
+                    <dd>{record.seatCount === null ? '전체 수 미확인' : `${record.seatCount}석`}</dd>
+                  </div>
+                  <div>
+                    <dt>기록된 등급</dt>
+                    <dd>
+                      {record.grades.length
+                        ? record.grades.map((grade) => `${grade.name} (ID ${grade.id})`).join(' / ')
+                        : '등급 정보 없음'}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="account-hint">
+                  위 내용은 브라우저 기록입니다. 공연이 이 공연장을 사용하기 시작하면 등급과 좌석을 추가할 수
+                  없습니다.
+                </p>
+                {record.grades.length > 0 && (
+                  <>
+                    <button type="button" className="btn btn-ghost" onClick={copy}>
+                      {copied === 'done' ? '전달 정보 복사됨' : '판매자 전달 정보 복사'}
+                    </button>
+                    {copied === 'failed' && (
+                      <textarea className="input" aria-label="판매자 전달 정보" readOnly value={handoff} />
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <section className="stack">
+                  <h3 className="panel-title">좌석 등급 등록</h3>
+                  <p className="account-hint">
+                    등급 가격은 판매자가 공연별로 설정합니다. 이름은 쉼표로 구분해 주세요.
+                  </p>
+                  <div className="chips">
+                    {record.grades.map((grade) => (
+                      <span className="seller-state ready" key={grade.id}>
+                        {grade.name} · ID {grade.id}
+                      </span>
+                    ))}
+                  </div>
+                  <form className="stack" onSubmit={submitGrades}>
+                    <fieldset className="seller-fieldset stack" disabled={busy || !versionReady}>
+                      {grades.isError && <ErrorNotice error={grades.error} />}
+                      {validation && (
+                        <p className="notice" role="alert">
+                          {validation}
+                        </p>
+                      )}
+                      {grades.isSuccess && (
+                        <p role="status" className="account-success">
+                          등급 {grades.data.grades.length}개를 등록했어요.
+                        </p>
+                      )}
+                      <div className="field">
+                        <label htmlFor="grade-names">등급 이름</label>
+                        <input
+                          id="grade-names"
+                          className="input"
+                          required
+                          value={gradeNames}
+                          onChange={(event) => setGradeNames(event.target.value)}
+                        />
+                      </div>
+                      <button className="btn btn-primary">등급 등록</button>
+                    </fieldset>
+                  </form>
+                </section>
+                <section className="stack admin-seat-section">
+                  <h3 className="panel-title">좌석 일괄 등록</h3>
+                  <p className="account-hint">
+                    한 구역의 열 × 좌석 수를 등록합니다. 요청당 최대 5,000석입니다.
+                  </p>
+                  <form
+                    className="stack"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!busy && versionReady && !draft.error) seats.mutate();
+                    }}
+                  >
+                    <fieldset className="seller-fieldset stack" disabled={busy || !versionReady}>
+                      {seats.isError && <ErrorNotice error={seats.error} />}
+                      {seats.isSuccess && (
+                        <p className="account-success" role="status">
+                          좌석 {seats.data.createdCount}석을 등록했어요.
+                        </p>
+                      )}
+                      <div className="form-grid">
+                        <div className="field">
+                          <label htmlFor="seat-section">구역</label>
+                          <input
+                            id="seat-section"
+                            className="input"
+                            required
+                            maxLength={20}
+                            value={seat.section}
+                            onChange={(e) => setSeat({ ...seat, section: e.target.value })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="seat-rows">열</label>
+                          <input
+                            id="seat-rows"
+                            className="input"
+                            required
+                            placeholder="1-3, A-C 또는 가,나,다"
+                            value={seat.rows}
+                            onChange={(e) => setSeat({ ...seat, rows: e.target.value })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="seat-perRow">열마다 좌석 수</label>
+                          <input
+                            id="seat-perRow"
+                            className="input"
+                            type="number"
+                            min={1}
+                            max={5000}
+                            required
+                            value={seat.perRow}
+                            onChange={(e) => setSeat({ ...seat, perRow: e.target.value })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="seat-grade">등급 ID</label>
+                          {record.grades.length ? (
+                            <select
+                              id="seat-grade"
+                              className="input"
+                              value={seat.gradeId || record.grades[0].id}
+                              onChange={(e) => setSeat({ ...seat, gradeId: e.target.value })}
+                            >
+                              {record.grades.map((grade) => (
+                                <option key={grade.id} value={grade.id}>
+                                  {grade.name} · ID {grade.id}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              id="seat-grade"
+                              className="input"
+                              type="number"
+                              min={1}
+                              required
+                              value={seat.gradeId}
+                              onChange={(e) => setSeat({ ...seat, gradeId: e.target.value })}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      {draft.error ? (
+                        <p className="account-hint">{draft.error}</p>
+                      ) : (
+                        <div className="admin-seat-preview" aria-label="등록 예정 좌석 미리보기">
+                          <p>
+                            {seat.section}구역 · {draft.rows.length}열 · 총 {draft.total}석 등록 예정
+                          </p>
+                          {draft.rows.slice(0, 3).map((row) => (
+                            <div key={row}>
+                              <span>{row}열</span>
+                              {Array.from({ length: Math.min(Number(seat.perRow), 12) }, (_, i) => (
+                                <i key={i} aria-hidden="true" />
+                              ))}
+                            </div>
+                          ))}
+                          <small>처음 3열·열당 12석까지 표시한 등록 미리보기입니다.</small>
+                        </div>
+                      )}
+                      <button className="btn btn-primary" disabled={!!draft.error}>
+                        좌석 {draft.total}석 등록
+                      </button>
+                    </fieldset>
+                  </form>
+                </section>
+              </>
+            )}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

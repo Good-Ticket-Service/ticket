@@ -83,6 +83,27 @@ export interface Hold {
   basePrice: number;
 }
 
+export interface WaitingRoom {
+  roomId: number;
+  scopes: string[];
+  openAt: string;
+  closeAt: string;
+}
+
+export interface SeatLayout {
+  scheduleId: number;
+  configVersion: number;
+  seats: Omit<Seat, 'selectable'>[];
+}
+
+export interface SeatStatus {
+  scheduleId: number;
+  configVersion: number;
+  asOf: string;
+  seatCount: number;
+  selectableBitmap: string;
+}
+
 export type ReservationStatus =
   | 'HOLD'
   | 'PAYMENT_IN_PROGRESS'
@@ -133,10 +154,20 @@ export interface Checkout {
   checkoutUrl: string | null;
 }
 
-export interface CouponDetail {
+export interface CouponPolicy {
+  discountType: 'FIXED' | 'RATE';
+  discountAmount: number | null;
+  discountRate: number | null;
+  maxDiscountAmount: number | null;
+  minBaseAmount: number | null;
+}
+
+export interface CouponDetail extends CouponPolicy {
+  totalQuantity: number;
   couponId: number;
   name: string;
-  discountAmount: number;
+  category: 'GENERAL' | 'WELCOME';
+  genre: string | null;
   remainingQuantity: number;
   issueStartAt: string;
   issueEndAt: string;
@@ -145,11 +176,11 @@ export interface CouponDetail {
   issuedByMe: boolean;
 }
 
-export interface UserCoupon {
+export interface UserCoupon extends CouponPolicy {
   userCouponId: number;
   couponId: number;
-  name: string;
-  discountAmount: number;
+  name: string | null;
+  genre: string | null;
   status: string;
   issuedAt: string;
   expiresAt: string;
