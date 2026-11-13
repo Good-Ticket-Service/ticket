@@ -16,14 +16,17 @@ import com.sparta.ticket.reservation.seat.presentation.dto.RemainingSeatsRespons
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldRequest;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
+import com.sparta.ticket.reservation.seat.presentation.dto.SeatSectionsResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatStatusResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SelectableSeatsResponse;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +39,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
@@ -59,6 +63,12 @@ public class SeatController {
      * no-store를 붙여 저장되지 않고, 그러면 If-None-Match가 오지 않아 304가 생기지 않는다.
      */
     private static final CacheControl LAYOUT_CACHE = CacheControl.noCache().cachePrivate();
+
+    /** 좌석 section 값의 최대 길이(공연 서비스 좌석 등록·좌석 준비 계약과 같음). 빈 값이나 이보다 길면 400 VALIDATION_ERROR다. */
+    private static final int SECTION_MAX_LENGTH = 20;
+
+    private static final String SECTION_PARAM = "구역(좌석의 section 값, 1~20자). 없으면 회차 전체. /sections에서 받은 값을 URL 인코딩해 보내고,"
+            + " 대소문자·공백까지 정확히 일치해야 한다. 없는 구역은 404 SEAT_NOT_FOUND다(#397)";
 
     /**
      * 등급별로 남은 좌석 수를 준다. 로그인·입장 토큰 없이 부르는 공개 API다(Gateway whitelist).
@@ -105,8 +115,15 @@ public class SeatController {
                             mediaType = MediaType.APPLICATION_JSON_VALUE,
                             schema = @Schema(implementation = SeatLayoutResponse.Document.class)))
     @GetMapping("/layout")
-    public ResponseEntity<byte[]> getLayout(@PathVariable Long scheduleId, WebRequest request) {
-        SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId);
+    public ResponseEntity<byte[]> getLayout(
+            @PathVariable Long scheduleId,
+            @Parameter(description = SECTION_PARAM)
+                    @RequestParam(required = false)
+                    @Size(min = 1, max = SECTION_MAX_LENGTH)
+                    String section,
+            WebRequest request) {
+        // 없는 구역은 304 판단 전에 404로 끝낸다. 구역 이름은 스냅샷에서 찾은 것만 캐시 키가 된다
+        SeatMapSnapshot snapshot = selectableSeatSnapshotService.getSnapshot(scheduleId, section);
         // ETag 헤더는 checkNotModified가 200·304 모두 응답에 쓴다. ResponseEntity에 또 넣으면 304에서 두 줄이 된다
         if (request.checkNotModified("W/\"" + snapshot.configVersion() + "\"")) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
@@ -114,7 +131,7 @@ public class SeatController {
                     .varyBy(HttpHeaders.ACCEPT_ENCODING)
                     .build();
         }
-        SeatLayoutBody body = selectableSeatSnapshotService.getLayoutBody(snapshot, this::layoutBody);
+        SeatLayoutBody body = selectableSeatSnapshotService.getLayoutBody(snapshot, section, this::layoutBody);
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok()
                 .cacheControl(LAYOUT_CACHE)
                 .varyBy(HttpHeaders.ACCEPT_ENCODING)
@@ -150,10 +167,30 @@ public class SeatController {
             summary = "좌석 선택 가능 상태 조회",
             description = "layout 좌석 순서대로 선택 가능 여부를 비트맵(base64)으로 준다. 1초 안의 스냅샷일 수 있다(asOf).")
     @GetMapping("/status")
-    public ResponseEntity<ApiResponse<SeatStatusResponse>> getStatus(@PathVariable Long scheduleId) {
+    public ResponseEntity<ApiResponse<SeatStatusResponse>> getStatus(
+            @PathVariable Long scheduleId,
+            @Parameter(description = SECTION_PARAM)
+                    @RequestParam(required = false)
+                    @Size(min = 1, max = SECTION_MAX_LENGTH)
+                    String section) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(ApiResponse.ok(SeatStatusResponse.from(selectableSeatSnapshotService.getSnapshot(scheduleId))));
+                .body(ApiResponse.ok(
+                        SeatStatusResponse.from(selectableSeatSnapshotService.getSnapshot(scheduleId, section))));
+    }
+
+    /**
+     * 회차 구역 목록(#397). 구역별 좌석 수와 선택 가능 좌석 수를 준다. layout·status와 같은 스냅샷에서 만들고, 선택 가능 수가 1초마다
+     * 바뀌므로 status처럼 no-store다. 구역 선택 화면용이고, 고른 구역의 최신 상태는 status?section=으로 받는다.
+     */
+    @Operation(
+            summary = "좌석 구역 목록 조회",
+            description = "회차의 구역과 구역별 좌석 수·선택 가능 좌석 수를 준다. 구역 순서는 공연장 좌석 등록 순서다. 1초 안의 스냅샷일 수 있다(asOf).")
+    @GetMapping("/sections")
+    public ResponseEntity<ApiResponse<SeatSectionsResponse>> getSections(@PathVariable Long scheduleId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.ok(SeatSectionsResponse.from(selectableSeatSnapshotService.getSnapshot(scheduleId))));
     }
 
     /**
