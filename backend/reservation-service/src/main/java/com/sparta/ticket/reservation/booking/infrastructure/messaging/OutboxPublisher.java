@@ -36,6 +36,21 @@ public class OutboxPublisher {
     private final ReentrantLock turn = new ReentrantLock();
 
     /**
+     * 덜 찬 묶음이 나올 때까지 {@link #publish}를 되풀이하고, 보낸 수의 합을 돌려준다. 꽉 채워 보냈으면 더 남았을 수 있다.
+     * 브로커가 돌아온 직후처럼 많이 쌓였을 때 주기마다 한 묶음씩만 보내면, 맨 앞 행이 오래 남아 새 승인이 그만큼 더 동기로 간다.
+     * 하나라도 보내지 못하면 그 묶음이 덜 차므로 거기서 멈춘다.
+     */
+    public int publishAll(int batchSize, Duration sendTimeout) {
+        int total = 0;
+        int sent;
+        do {
+            sent = publish(batchSize, sendTimeout);
+            total += sent;
+        } while (sent == batchSize);
+        return total;
+    }
+
+    /**
      * 오래된 행부터 batchSize개를 보내고, 보낸 수를 돌려준다. 행을 잠근 트랜잭션 안에서 보내므로 다른 발행기는 이 행을 건너뛴다.
      * 하나라도 보내지 못하면 거기서 멈춘다. 브로커가 멈췄을 때 남은 행마다 보내기 대기를 되풀이하며 DB 연결을 오래 잡지 않기 위해서다.
      */

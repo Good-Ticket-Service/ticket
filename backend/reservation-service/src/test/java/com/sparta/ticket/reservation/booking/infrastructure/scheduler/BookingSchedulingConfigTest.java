@@ -86,7 +86,7 @@ class BookingSchedulingConfigTest {
                     .reconcile(Duration.ofMinutes(2), 20, Duration.ofMillis(40));
             verify(scheduleCancellationService, timeout(2_000).atLeastOnce())
                     .cleanUp(30, Duration.ofMinutes(1), Duration.ofMillis(40));
-            verify(outboxPublisher, timeout(2_000).atLeastOnce()).publish(100, Duration.ofSeconds(1));
+            verify(outboxPublisher, timeout(2_000).atLeastOnce()).publishAll(100, Duration.ofSeconds(1));
             verify(paymentBacklogService, timeout(2_000).atLeastOnce()).refresh();
         });
     }

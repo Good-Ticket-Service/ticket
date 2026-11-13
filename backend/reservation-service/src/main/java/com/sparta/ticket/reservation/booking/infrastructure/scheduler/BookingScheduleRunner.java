@@ -85,7 +85,7 @@ public class BookingScheduleRunner implements SmartLifecycle {
 
         Outbox outbox = properties.outbox();
         scheduler.scheduleWithFixedDelay(
-                () -> outboxPublisher.publish(outbox.batchSize(), outbox.sendTimeout()), outbox.interval());
+                () -> outboxPublisher.publishAll(outbox.batchSize(), outbox.sendTimeout()), outbox.interval());
 
         PaymentBacklog backlog = properties.paymentBacklog();
         // 집계도 전용 풀로 센다. 기본 풀이 꽉 찼을 때 폴링 간격의 기준이 멈추지 않게 하기 위해서다
