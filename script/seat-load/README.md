@@ -89,3 +89,34 @@ docker run --rm --user $(id -u):$(id -g) --network ticket_ticket-net -p 127.0.0.
 - 커밋, 장비(OS·CPU·메모리), 시나리오, VU 수, 지속 시간
 - API별 avg·p95, 처리량, 5xx 수, 201·409 건수
 - 측정 조건: reservation-service 직접 호출, 판매 검증 포함, 준비 운동 여부
+
+## 선점 처리량·연결 풀 단독 측정 (#434)
+
+`hold-pool.sh`는 위 k6 시나리오와 별개로, 예매 서비스만 떼어 선점 처리량을 잽니다. 연결 풀 크기나 부하 크기를 바꿔 가며 비교할 때 씁니다.
+
+- **구성**: Docker Compose 스택 없이 PostgreSQL·Kafka·Redis 컨테이너와 예매 서비스 JVM(`HoldBenchServerMain`), 부하 생성기 JVM(`HoldBenchLoadMain`)을 따로 띄웁니다. 코드는 `backend/reservation-service/src/bench/java`에 있습니다.
+- **설정**: 예매 서비스는 config-repo의 `application.yml`·`reservation-service.yml`을 그대로 읽습니다. 판매 검증만 5ms 뒤 허용하는 가짜로 바꿉니다. Gateway가 넣는 회원 헤더는 부하 생성기가 직접 넣습니다.
+- **CPU 고정**: 통합시험과 같게 예매 서비스 2코어(`SERVER_CPUS`, 기본 2-3), DB 2코어(`PG_CPUS`, 4-5), 부하 생성기(`LOAD_CPUS`, 6-9), Kafka·Redis(`SIDE_CPUS`, 10-11)로 나눕니다.
+- **부하**: 다른 좌석 선점을 초당 250건 고르게 보내면서, 매초 250명이 각자 다른 좌석을 동시에 선점합니다(#390 대조군과 같음). 성공하면 0.5초 뒤 해제합니다.
+- **순서**: 풀 크기마다 빈 스키마에서 예매 서비스를 새로 띄우고, 집계하지 않는 예열 회차(0) 뒤 `REPS`번 잽니다. 회차마다 새 좌석을 만들고, 예열 20초 뒤 60초를 집계합니다.
+
+```bash
+# 저장소 루트에서. 같은 PC에서 다른 Docker 측정·Gradle 작업을 함께 돌리지 않습니다
+POOLS="10 15 20" REPS=3 script/seat-load/hold-pool.sh
+
+# 짧은 확인, 부하 크기 바꾸기(초당 다른 좌석 L건 + burst L명)
+LOAD_JAVA_OPTS="-Dbench.warmup=10 -Dbench.measure=30 -Dbench.rate=200 -Dbench.burst=200" POOLS=10 REPS=3 script/seat-load/hold-pool.sh
+```
+
+결과는 `script/seat-load/out/hold-pool-<시각>/`에 남습니다(저장소 추적 제외).
+
+| 파일 | 내용 |
+| --- | --- |
+| `summary.csv` | 회차별 다른 좌석·burst 선점 p99, 늦게 보낸 비율, 연결 대기 최대, 서버·부하 생성기·DB CPU, DB 연결 최대 |
+| `pool-N-rep-K.json` | 회차 원본: 결과별 건수, 지연 분포, 1초 서버 표본, 초별 지연 |
+| `pool-N-rep-K-timeline.jsonl` | 0.2초 표본: 서버 CPU, 처리 중인 요청 수와 가장 오래된 요청, DB 세션 상태·대기 종류, autovacuum |
+| `pool-N-rep-K-dump-*.txt`, `-loaddump-*.txt` | 처리 중인 요청이 0.5초를 넘은 순간의 서버·부하 생성기 스레드 덤프(회차당 최대 5번) |
+| `postgres.log`, `pg-tables-*.txt` | autovacuum·checkpoint·잠금 대기 로그, 회차 뒤 테이블 크기와 autovacuum 시각 |
+
+- `PG_EXTRA_ARGS`(예: `-c synchronous_commit=off`)는 원인을 가르는 진단에만 쓰고 측정 결과에는 쓰지 않습니다.
+- 결과 해석과 처리 한도는 #434 댓글에 있습니다.
