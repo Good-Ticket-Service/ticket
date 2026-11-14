@@ -1,0 +1,83 @@
+# 서버(vm-data)용 Prometheus 수집 설정. deploy/compose.data.yml이 마운트한다.
+# infra/prometheus/prometheus.yml과 규칙·앱 수집이 같고, environment 라벨과 서버 자원(node·cadvisor)·데이터(postgres·redis·kafka·fake-pg) 수집만 더 있다.
+# 공통 부분을 바꾸면 다른 쪽도 맞춘다.
+# eureka-server·vm-edge·vm-core·vm-data는 compose의 extra_hosts가 각 서버 VPC IP로 풀어 준다.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+  # 경보를 환경별로 묶는 라벨. Slack 알림에 이 값이 붙는다.
+  external_labels:
+    environment: dev
+
+# payment 중복 제거 지표와 위험 경보(Task 11-B). 시험은 infra/prometheus/tests/에 있다.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Note: 서비스 주소를 직접 적지 않고 Eureka 등록 목록에서 찾는다. 인스턴스를 늘리거나 서비스를 추가해도 이 파일은 그대로다.
+  # Eureka에 등록하지 않는 config-server·eureka-server는 수집하지 않는다.
+  - job_name: spring-apps
+    metrics_path: /actuator/prometheus
+    eureka_sd_configs:
+      - server: http://eureka-server:8761/eureka
+        refresh_interval: 15s
+    relabel_configs:
+      # Eureka 앱 이름(USER-SERVICE)을 소문자 application 라벨로 붙인다. Grafana에서 서비스별로 나눠 볼 때 쓴다.
+      - source_labels: [__meta_eureka_app_name]
+        target_label: application
+        action: lowercase
+      - source_labels: [__meta_eureka_app_instance_id]
+        target_label: instance
+
+  # Alertmanager 자체 지표. Slack 전송 실패(alertmanager_notifications_failed_total)를 경보로 본다.
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels:
+          application: alertmanager
+
+  # 서버 전체 자원(node-exporter). 서버 사이 CPU·메모리·네트워크를 같은 시간축에서 비교한다.
+  - job_name: node
+    static_configs:
+      - targets: ["vm-edge:9100"]
+        labels: {server: vm-edge}
+      - targets: ["vm-core:9100"]
+        labels: {server: vm-core}
+      - targets: ["vm-data:9100"]
+        labels: {server: vm-data}
+
+  # vm-data 컨테이너별 자원(cAdvisor). cAdvisor가 10초마다 값을 갱신하므로 같은 주기로 긁는다.
+  - job_name: cadvisor
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels: {server: vm-data}
+
+  # DB·Redis·Kafka 내부 지표와 fake-pg. 로컬 통합시험(infra/integration/prometheus.yml)과 같은 job 이름이다.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels: {application: postgres}
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  - job_name: fake-pg
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["fake-pg:8090"]
+        labels: {application: fake-pg}

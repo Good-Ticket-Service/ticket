@@ -1,0 +1,18 @@
+# vm-edge의 유일한 인터넷 입구. DOMAIN의 인증서를 Let's Encrypt에서 자동으로 받고 갱신한다(80·443이 열려 있어야 한다).
+#
+# /api/* 만 Gateway로 넘긴다. Gateway에는 인증 없이 열린 /actuator/prometheus와 Swagger 경로가 있는데,
+# 여기서 넘기지 않으므로 인터넷에서는 닿지 않는다. Prometheus는 VPC 안에서 Gateway 8080을 직접 긁는다.
+# 나머지 경로는 프론트 빌드 결과를 내보낸다. 프론트가 /api/... 상대 경로로 부르므로 같은 도메인이면 CORS 설정이 필요 없다.
+{$DOMAIN} {
+	handle /api/* {
+		reverse_proxy localhost:8080
+	}
+
+	handle {
+		root * /srv/frontend
+		# 화면 경로(/bookings/1 등)는 파일이 없으므로 index.html을 내보내 프론트 라우터가 처리하게 한다
+		try_files {path} /index.html
+		encode zstd gzip
+		file_server
+	}
+}
