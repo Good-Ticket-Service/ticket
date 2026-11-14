@@ -159,10 +159,12 @@ class QueueTokenSecurityTest {
     }
 
     @Test
-    @DisplayName("좌석 layout·status도 보호 회차면 입장 토큰을 검사하고, 보호하지 않는 회차는 토큰 없이 통과한다(#289)")
-    void layoutAndStatusRequireEntryToken() throws Exception {
-        for (String path :
-                List.of("/api/seats/schedules/{scheduleId}/layout", "/api/seats/schedules/{scheduleId}/status")) {
+    @DisplayName("좌석 구역 목록·layout·status도 보호 회차면 입장 토큰을 검사하고, 보호하지 않는 회차는 토큰 없이 통과한다(#289, #444)")
+    void sectionsLayoutAndStatusRequireEntryToken() throws Exception {
+        for (String path : List.of(
+                "/api/seats/schedules/{scheduleId}/sections",
+                "/api/seats/schedules/{scheduleId}/layout",
+                "/api/seats/schedules/{scheduleId}/status")) {
             expectInvalid(client.get()
                     .uri(path, scheduleId)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + loginToken())
@@ -188,6 +190,7 @@ class QueueTokenSecurityTest {
     void headIsCheckedLikeGet() throws Exception {
         for (String path : List.of(
                 "/api/seats/schedules/{scheduleId}",
+                "/api/seats/schedules/{scheduleId}/sections",
                 "/api/seats/schedules/{scheduleId}/layout",
                 "/api/seats/schedules/{scheduleId}/status")) {
             client.head()
