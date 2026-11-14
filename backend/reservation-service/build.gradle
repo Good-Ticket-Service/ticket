@@ -32,3 +32,24 @@ dependencies {
     testImplementation 'org.testcontainers:kafka'
     testImplementation 'org.awaitility:awaitility'
 }
+
+// #434 좌석 선점 처리량 측정 실행기(src/bench/java). 테스트 클래스(@TestConfiguration 등)가 앱의 컴포넌트 스캔에 섞이지 않게
+// test가 아닌 별도 소스 세트로 둔다. 정규 build는 컴파일·검사만 하고 측정하지 않는다. 실행은 script/seat-load/hold-pool.sh
+sourceSets {
+    bench {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    benchImplementation.extendsFrom implementation
+    benchRuntimeOnly.extendsFrom runtimeOnly
+}
+
+tasks.register('holdBenchClasspath') {
+    dependsOn benchClasses
+    doLast {
+        layout.buildDirectory.file('hold-bench-classpath.txt').get().asFile.text = sourceSets.bench.runtimeClasspath.asPath
+    }
+}
