@@ -15,7 +15,7 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 /**
- * 좌석 조회(목록·layout·status)·선점 요청의 입장 토큰(X-Queue-Token)을 검사한다. 대기열이 보호하는 회차면, 대기열을 통과한 회원만 토큰의 scope에 든 회차의 좌석을 쓰게 한다
+ * 좌석 조회(목록·구역 목록·layout·status)·선점 요청의 입장 토큰(X-Queue-Token)을 검사한다. 대기열이 보호하는 회차면, 대기열을 통과한 회원만 토큰의 scope에 든 회차의 좌석을 쓰게 한다
  * (docs/api.md 좌석·대기열 절).
  * 순서: URL의 회차로 만든 schedule:{scheduleId}가 보호 중인가(ProtectedScopes) → 토큰 있음 → 서명·만료 → 토큰 회원 = 로그인 회원
  * → 그 scope가 토큰 scopes에 있음. 보호 중이 아니면(room이 없거나 closeAt이 지남) 토큰 없이 통과하고, 토큰 검사가 하나라도 틀리면
@@ -43,11 +43,12 @@ public class QueueTokenFilter implements WebFilter {
             seatQuery(HttpMethod.HEAD),
             ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/seats/schedules/{scheduleId}/holds"));
 
-    /** 좌석 조회 경로(목록·layout·status)를 주어진 메서드로 매칭한다. */
+    /** 좌석 조회 경로(목록·구역 목록·layout·status)를 주어진 메서드로 매칭한다. */
     private static ServerWebExchangeMatcher seatQuery(HttpMethod method) {
         return ServerWebExchangeMatchers.pathMatchers(
                 method,
                 "/api/seats/schedules/{scheduleId}",
+                "/api/seats/schedules/{scheduleId}/sections",
                 "/api/seats/schedules/{scheduleId}/layout",
                 "/api/seats/schedules/{scheduleId}/status");
     }
