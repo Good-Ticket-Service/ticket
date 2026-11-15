@@ -137,6 +137,10 @@ services:
     environment:
       <<: *env
       SERVER_PORT: "8085"
+      # 시연 시나리오(script/demo)에서 초당 입장 인원을 바꿀 때 쓴다. 없으면 config-repo 기본 10
+      QUEUE_ADMIT_PER_SECOND: ${DEMO_QUEUE_ADMIT_PER_SECOND:-10}
+      # 입장 후 유효(10분)한 동시 입장 인원 상한. 봇 수가 이보다 많으면 줄이 멈춘다. 없으면 기본 1000
+      QUEUE_MAX_ACTIVE: ${DEMO_QUEUE_MAX_ACTIVE:-1000}
       OTEL_SERVICE_NAME: waiting-room-service
       PYROSCOPE_APPLICATION_NAME: waiting-room-service
     volumes: [*agents]
