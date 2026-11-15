@@ -119,4 +119,33 @@ LOAD_JAVA_OPTS="-Dbench.warmup=10 -Dbench.measure=30 -Dbench.rate=200 -Dbench.bu
 | `postgres.log`, `pg-tables-*.txt` | autovacuum·checkpoint·잠금 대기 로그, 회차 뒤 테이블 크기와 autovacuum 시각 |
 
 - `PG_EXTRA_ARGS`(예: `-c synchronous_commit=off`)는 원인을 가르는 진단에만 쓰고 측정 결과에는 쓰지 않습니다.
+- `PG_DOCKER_ARGS`·`PG_MEM`(예: `PG_DOCKER_ARGS="--tmpfs /var/lib/postgresql/data:rw,size=6g" PG_MEM=8g`, DB 데이터를 메모리에 두기)도 진단에만 씁니다. tmpfs는 컨테이너 메모리 한도에 들어가므로 `PG_MEM`을 함께 올립니다.
+- `SERVER_JAVA_OPTS`는 예매 서비스 JVM 옵션입니다. `-Dbench.sale.delay.ms=10`으로 판매 검증 가짜 지연을 바꿉니다(기본 5ms).
+- `BENCH_CP_FILE`에 미리 만든 클래스패스 파일을 넘기면 작업 폴더를 빌드하지 않고 그 클래스패스로 잽니다.
+
+### 부하 단계 번갈아 재기
+
+`LEVELS`에 단계를 여러 개 주면 같은 서버에서 회차마다 순서를 돌려 가며 잽니다. 시간이 지나며 느려지는 영향을 단계마다 고르게 나누기 위해서입니다.
+
+```bash
+# 다른 좌석 초당 L건 + burst L명을 150·200·250으로 번갈아
+LEVELS="150 200 250" POOLS=10 REPS=3 script/seat-load/hold-pool.sh
+```
+
+### 모의 매진 (#447)
+
+`BENCH_MODE=sellout`이면 회차마다 25,000석(`SELLOUT_SEATS`)을 매진까지 팝니다. 사용자는 좌석 상태를 1초마다 조회하고, 1\~2초 고른 뒤 선점하고, 409면 상태를 바로 다시 받아 고르며, 같은 구역에서 3번 연달아 놓치면 빈 좌석이 있는 다른 구역으로 옮깁니다. 인기 구역 70%, 결제 포기 20%가 기본값이고 `-Dbench.hot.percent` 등으로 바꿉니다. 판매 시간 상한은 180초(`-Dbench.sellout.seconds`)입니다.
+
+`LEVELS`의 단계 형식은 `사용자수[x회차수][@초당입장]`입니다.
+
+- `2000`: 회차 1개, 안에 2,000명. 빈자리가 나는 즉시 다음 사람이 들어옵니다(입장 제한 없음).
+- `1000x3`: 회차 3개를 같은 서버에서 동시에, 회차마다 1,000명.
+- `2000@400`: 대기열(`admit.lua`)처럼 초당 400명만 들여보내고, 남는 입장분은 2초 분량까지만 쌓습니다. 앞 숫자는 안에 있을 수 있는 인원 상한입니다.
+
+```bash
+BENCH_MODE=sellout LEVELS="2000@300 2000@400" SERVER_JAVA_OPTS="-Dbench.sale.delay.ms=10" \
+    LOAD_JAVA_OPTS="-Dbench.sale.delay.ms=10" POOLS=10 REPS=3 script/seat-load/hold-pool.sh
+```
+
+결과는 `pool-10-M2000xK1-A400-rep-1.json`처럼 단계가 이름에 붙고, 회차별 요약은 `sellout-summary.csv`(판매 수, 매진 여부·시간, 1명당 시도 수, 선점 성공·409 p99, 가장 나쁜 10초 구간 p99, 멈춘 초 수, 좌석 조회 p99, 서버·DB CPU)에 남습니다.
 - 결과 해석과 처리 한도는 #434 댓글에 있습니다.
