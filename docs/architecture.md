@@ -110,6 +110,8 @@ sequenceDiagram
     U->>B: 결과 불명이면 예매 조회
 ```
 
+선점 위치가 REDIS(이슈 #449, 기본 꺼짐)면 1~3단계가 바뀐다. 선점은 Redis에만 기록하고 holdId를 돌려준다. 예약·티켓은 사용자가 결제하기를 누를 때 좌석이 `POST /api/seats/schedules/{scheduleId}/holds/{holdId}/reservation`에서 같은 트랜잭션으로 만들고 reservationId를 돌려준다. 그다음 결제 준비부터는 위 그림과 같다.
+
 준비 실패 상태를 성공 URL로 매핑하지 않는다. 준비 순서·오래된 요청 역전·HTTP200+FAILED 매핑은 14절에서 조율한다. 위 그림은 현행 동기 승인이다. 메시지 승인(#318 합의)에서는 예매가 PAYMENT_IN_PROGRESS와 승인 요청 메시지를 한 트랜잭션에 커밋하고 바로 답하며, 결과는 `payment.result`로 받는다(6절).
 
 ## 5. 예매 상태
@@ -131,6 +133,7 @@ stateDiagram-v2
 ```
 
 - HOLD는 좌석을 선점한 상태다. 준비는 상태를 바꾸지 않으며 실패 후 HOLD 복귀 때 쿠폰은 유지한다.
+- 선점 위치가 REDIS(이슈 #449)면 결제하기 전의 선점은 Redis에만 있고 예약이 없다. 예약은 결제하기 때 HOLD로 생기고, 만료 시각은 Redis 선점 때 정한 값이다. 그래서 결제하기 전에 떠난 선점은 EXPIRED·RELEASED 예약을 남기지 않는다.
 - PAYMENT_IN_PROGRESS는 선점 만료 정리 대상이 아니다.60초는 결제의 판정 기준이고 잡 지연·서버 중단 중 완료 시한 보장은 아니다(9절).
 - CONFIRMED는 좌석 판매·티켓 코드·쿠폰 사용이 함께 확정된 상태다. EXPIRED/RELEASED는 좌석·예약 쿠폰을 반환한다.
 - CANCELING은 외부 환불 전 저장하는 의도, CANCELED는 결제의 환불 요청 인수 상태다. PG 취소 완료와 같지 않다.
