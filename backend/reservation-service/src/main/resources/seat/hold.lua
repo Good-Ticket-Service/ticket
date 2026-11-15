@@ -1,5 +1,6 @@
 -- Redis 좌석 선점(#449). 확인과 기록을 한 번에 실행해, 같은 좌석·같은 회원의 동시 선점 중 하나만 기록되게 한다.
--- KEYS[1] 좌석 키(STRING = holdId), KEYS[2] 회원 키(STRING = holdId 또는 "CONVERTED:예약ID"), KEYS[3] 선점 키(HASH), KEYS[4] 선점 좌석 목록(ZSET)
+-- KEYS[1] 좌석 키(STRING = holdId), KEYS[2] 회원 키(STRING = holdId 또는 "CONVERTED:예약ID"), KEYS[3] 선점 키(HASH), KEYS[4] 선점 좌석 목록(ZSET),
+-- KEYS[5] 등급별 선점 좌석 목록(ZSET, 잔여석에서 뺀다)
 -- ARGV[1] holdId, ARGV[2] 좌석 ID, ARGV[3] 만료 시각(앱 시계 epoch ms, 목록 점수), ARGV[4] 키 수명(ms), ARGV[5] 앱 시계 현재 시각(epoch ms),
 -- ARGV[6] DB에서 이 좌석을 만료 전 HOLD로 잡고 있는 예약 ID(없으면 빈 문자열, 앱이 잠금 없이 읽은 값), ARGV[7..] 선점 HASH의 필드·값 쌍
 -- Note: 키 만료는 상대 시간(PX)으로 쓴다. 절대 시각(PXAT)은 Redis 시계로 해석되어, 두 시계가 다르면 키 수명이 앱 의도와 달라진다
@@ -36,10 +37,12 @@ redis.call('SET', KEYS[2], ARGV[1], 'PX', ttl)
 redis.call('HSET', KEYS[3], unpack(ARGV, 7))
 redis.call('PEXPIRE', KEYS[3], ttl)
 
--- 좌석 화면에 쓰는 목록. 점수(만료 시각)와 같은 앱 시계로 만료된 좌석을 치우고, 목록 키는 가장 늦은 만료보다 1분 뒤에 사라지게 한다
+-- 좌석 화면(전체 목록)과 잔여석(등급별 목록)에 쓰는 목록. 점수(만료 시각)와 같은 앱 시계로 만료된 좌석을 치우고, 목록 키는 가장 늦은 만료보다 1분 뒤에 사라지게 한다
 local nowMs = tonumber(ARGV[5])
-redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', nowMs)
-redis.call('ZADD', KEYS[4], ARGV[3], ARGV[2])
-local last = redis.call('ZRANGE', KEYS[4], -1, -1, 'WITHSCORES')
-redis.call('PEXPIRE', KEYS[4], math.max(1, tonumber(last[2]) - nowMs + 60000))
+for i = 4, 5 do
+    redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', nowMs)
+    redis.call('ZADD', KEYS[i], ARGV[3], ARGV[2])
+    local last = redis.call('ZRANGE', KEYS[i], -1, -1, 'WITHSCORES')
+    redis.call('PEXPIRE', KEYS[i], math.max(1, tonumber(last[2]) - nowMs + 60000))
+end
 return {'0', ARGV[1]}

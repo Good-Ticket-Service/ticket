@@ -244,6 +244,7 @@ stateDiagram-v2
 - 선택 가능(좌석 배치도) = 판매 가능 AVAILABLE + 만료됐고 예약이 PAYMENT_IN_PROGRESS가 아닌 HOLD. 만료 HOLD의 예약ID를 모아 findPaymentInProgress 한 번 호출, 다른 모듈 테이블 JOIN 안 함. 실제 재선점은 expireIfDue 조건부 변경으로 최종 방어.
 - 좌석 배치도는 회차별 판정 결과를 서버 메모리에 캐시한다(이슈 #270). 1초(설정값)가 지나면 기존 결과를 주면서 전용 스레드 2개가 뒤에서 다시 만들고, 5초(설정값)가 지나면 만료한다(이슈 #311). 요청 스레드가 로딩을 기다리며 회차 키 잠금에 묶이지 않게 하고, 다시 만들 때 쓰는 DB 연결 수를 전용 스레드 수로 묶는다. 캐시에서 답할 때는 트랜잭션과 DB 연결을 쓰지 않는다. 기존 조회와 layout·status(이슈 #271)는 같은 스냅샷에서 만든다. 늦은 결과는 409 SEAT_ALREADY_TAKEN 증가로만 나타나고, 이중 선점은 선점 API의 잠금과 재판정이 막는다.
 - 잔여석 = 판매 가능 AVAILABLE만 등급별로 센다. 만료됐지만 정리 전인 HOLD는 booking에 묻지 않고 제외한다(안내용, 좌석이 적게 보이는 쪽으로만 차이). 서버 메모리 캐시 TTL 3초(이슈 #241).
+- 선점 위치가 REDIS(이슈 #449, 기본 꺼짐)면 선점은 결제하기 전까지 Redis에만 있고 DB 좌석은 AVAILABLE이다. 좌석 배치도는 Redis 선점 좌석을 선택 불가로 덮고, 잔여석은 등급별 Redis 선점 수를 뺀다. 예약은 결제하기 때 위 선점 규칙(좌석 잠금·재판정·매수 제한)으로 만들고, 만료 시각은 Redis 선점 때 계산한 값을 그대로 쓴다.
 - SeatFacade.sell은 HOLD+reservation_id 일치, release도 reservation_id 일치. 갱신 행 수가 요청 수와 다르면 확정 성공으로 처리하지 않는다. 가격 재조회(priceSnapshot) 없음.
 - release 결과 RELEASED/EXPIRED/ALREADY_CLOSED만 좌석 반환. NOT_RELEASABLE은409, PAYMENT_IN_PROGRESS/CONFIRMED/CANCELING/CANCELED 좌석은 해제하지 않음.
 
