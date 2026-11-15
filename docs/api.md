@@ -357,7 +357,7 @@
 
 ## 좌석 — reservation-service / seat
 
-상태: 선택 가능 좌석 조회(#84), 좌석 배치·상태 조회(이슈 #271), 구역별 좌석 조회(이슈 #397), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
+상태: 선택 가능 좌석 조회(#84), 좌석 배치·상태 조회(이슈 #271), 구역별 좌석 조회(이슈 #397), 등급별 잔여석(이슈 #241), 좌석 선점(#148), 선점 해제(#166)는 구현됨(Gateway 라우트 #97). Redis 선점 저장소의 선점 조회·결제하기와 holdId 응답·해제는 이슈 #449에서 구현했고, 선점 위치 스위치(`reservation.seat.hold.mode`)는 기본 DB(꺼짐)다. 나머지 외부 API는 초안(구현 전). 외부 경로는 `/api/seats/**`다. `/api/schedules/{scheduleId}`는 공연 회차 단건이 쓰므로, 좌석은 맨 앞 리소스를 따로 두어 Gateway가 앞부분만 보고 서비스를 고르게 한다(2026-10-28 합의). #34 Facade 계약은 합의이며 별도 절의 구현 상태를 따른다.
 
 | Method URI | 권한 | 성공 | B | R | 추가 오류 |
 |---|---|---|---|---|---|
@@ -366,15 +366,29 @@
 | GET /api/seats/schedules/{scheduleId}/layout?section={section} | JWT+X-Queue-Token | 200; If-None-Match 일치 304 | 없음 | scheduleId:long,configVersion:long,seats:SeatLayoutSeat[] | 400 VALIDATION_ERROR(section 빈 값·20자 초과);403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(없는 구역 포함) |
 | GET /api/seats/schedules/{scheduleId}/status?section={section} | JWT+X-Queue-Token | 200 | 없음 | scheduleId:long,configVersion:long,asOf:datetime,seatCount:int,selectableBitmap:string(base64) | 400 VALIDATION_ERROR(section 빈 값·20자 초과);403 QUEUE_TOKEN_INVALID;404 SEAT_NOT_FOUND(없는 구역 포함) |
 | GET /api/seats/schedules/{scheduleId}/remaining | 공개 | 200 | 없음 | scheduleId:long,grades:[{venueSeatGradeId:long,gradeName:string,remaining:int}],asOf:datetime,cached:boolean | — |
-| POST /api/seats/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | reservationId:long,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int | 400 판매 거절 reasonCode;403 QUEUE_TOKEN_INVALID;403 FORBIDDEN(USER가 아님);404 SEAT_NOT_FOUND/SCHEDULE_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
-| DELETE /api/seats/schedules/{scheduleId}/holds/{reservationId} | 본인 JWT | 204 | 없음 | 없음 | 403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
+| POST /api/seats/schedules/{scheduleId}/holds | USER+X-Queue-Token | 201; 동일 유효 선점 200 | scheduleSeatId:long | SeatHold | 400 판매 거절 reasonCode;403 QUEUE_TOKEN_INVALID;403 FORBIDDEN(USER가 아님);404 SEAT_NOT_FOUND/SCHEDULE_NOT_FOUND;409 SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
+| GET /api/seats/schedules/{scheduleId}/holds/{holdId} | 본인 JWT | 200 | 없음 | SeatHoldView | 404 HOLD_NOT_FOUND(없음·만료·해제·남의 선점) |
+| POST /api/seats/schedules/{scheduleId}/holds/{holdId}/reservation | 본인 JWT | 201; 이미 바꾼 선점 200 | 없음 | SeatHold | 404 HOLD_NOT_FOUND/SEAT_NOT_FOUND;409 HOLD_EXPIRED/SEAT_ALREADY_TAKEN/PURCHASE_LIMIT_EXCEEDED/SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH;503 SERVICE_UNAVAILABLE |
+| DELETE /api/seats/schedules/{scheduleId}/holds/{holdIdOrReservationId} | 본인 JWT | 204 | 없음 | 없음 | 400 VALIDATION_ERROR(예약 ID도 holdId도 아님);403 FORBIDDEN;404 RESERVATION_NOT_FOUND;409 INVALID_STATUS_TRANSITION |
 
 - SelectableSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null,selectable:boolean}`. 다른 사용자의 예약 ID/만료 시각 제외.
 - SeatLayoutSeat = `{scheduleSeatId:long,venueSeatId:long,section:string,rowLabel:string,seatNumber:int,venueSeatGradeId:long,gradeName:string,basePrice:int|null}`. 선택 가능 여부는 넣지 않는다. (이슈 #271)
+- SeatHold = `{reservationId:long|null,scheduleSeatId:long,status:HOLD,holdExpiresAt:datetime,basePrice:int,holdId:string|null}`. 선점 위치가 REDIS면 선점 응답은 holdId가 있고 reservationId가 null이다. DB 방식 선점, 이미 예약으로 바꾼 좌석의 재요청, 결제하기 응답은 reservationId가 있고 holdId가 null이다. (이슈 #449)
+- SeatHoldView = `{holdId:string,scheduleId:long,scheduleSeatId:long,status:HELD|CONVERTING|CONVERTED,reservationId:long|null,holdExpiresAt:datetime,basePrice:int,performanceId:long,performanceTitle:string,genre:string,scheduleStartAt:datetime,gradeName:string}`. reservationId는 CONVERTED일 때만 있다. (이슈 #449)
 - SeatSection = `{section:string,seatCount:int,selectableCount:int}`. selectableCount는 같은 스냅샷의 status 판정으로 센 선택 가능 좌석 수다. (이슈 #397)
 - 선점 판매 거절은 sale-validations의 reasonCode를 외부 code로 반환: 기본 400, SEAT_NOT_SELLABLE/SEAT_CONFIG_VERSION_MISMATCH만 409. 삭제·미존재는 404. 연령 미달 오류는 미합의이며 architecture 14절을 따른다.
 
 - 선점 API도 입장 토큰이 없거나 만료되면 Gateway가 403 QUEUE_TOKEN_INVALID로 거절한다. (원본 복원: seat/api.md:124,191, 담당 확인 필요)
+
+Redis 선점 저장소 (이슈 #449)
+
+- 선점 위치가 REDIS면 선점은 Redis에만 두고 DB 예약을 만들지 않는다. 예약은 결제하기(`POST .../holds/{holdId}/reservation`) 때 만들고, 그 뒤 결제는 받은 reservationId로 예매 API를 그대로 쓴다.
+- 결제하기는 선점 때의 만료 시각과 판매 검증 결과로 예약을 만든다. 판매 검증을 다시 부르지 않는다. 좌석은 그때 잠그고 다시 판정한다.
+- 남은 선점 시간이 3초보다 적으면 결제하기는 409 HOLD_EXPIRED다.
+- 같은 선점의 결제하기를 다시 부르면 같은 예약을 200으로 준다. 동시에 여러 번 불러도 예약은 하나다.
+- 결제하기 처리 중인 선점의 해제는 409 INVALID_STATUS_TRANSITION이다. 이미 예약으로 바꾼 holdId를 해제하면 그 예약을 해제한다.
+- holdId 형식은 `h_` + 16진수 32자다. 형식이 다르면 조회·결제하기는 404 HOLD_NOT_FOUND다.
+- Redis에 연결하지 못하면 선점·조회·결제하기·holdId 해제는 503 SERVICE_UNAVAILABLE이다. DB 방식으로 자동으로 넘어가지 않는다.
 - 요청 좌석이 없거나 경로의 scheduleId 소속이 아니면 404 SEAT_NOT_FOUND다. (구현 #148)
 - 다른 회차 좌석을 404로 막는 이유는 다른 회차 좌석으로 판매 기간·매수 제한을 우회하지 못하게 하려는 것이다. (구현 #148)
 - 판매 검증이 허용이어도 좌석의 config_version·base_price가 검증 응답과 다르면 409 SEAT_CONFIG_VERSION_MISMATCH다. (구현 #148)
@@ -563,7 +577,7 @@
 
 - 입장 토큰은 HS256 JWT다. claim은 sub(회원 ID 문자열), roomId(long), scopes(string[], room의 scope), iat(입장 시각), exp(입장 만료)이다. 서명 키는 로그인 JWT와 다른 QUEUE_TOKEN_SECRET이다.
 - 만료는 입장 시각에 고정되고 TTL은 10분이다. 순번을 다시 조회해도 같은 토큰을 주고 만료가 늘지 않는다. 좌석 선점 여부에 따라 TTL을 늘리거나 없애지 않는다.
-- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId}, /sections, /layout, /status, 같은 경로의 HEAD 포함)와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다(layout·status #289, sections #444). HEAD는 서비스가 GET 핸들러로 자동 처리하므로 GET과 같이 검사한다. 선점 해제와 공개 잔여석(/remaining)은 검사하지 않는다.
+- 입장 토큰은 좌석 조회(GET /api/seats/schedules/{scheduleId}, /sections, /layout, /status, 같은 경로의 HEAD 포함)와 선점(POST /api/seats/schedules/{scheduleId}/holds)에만 적용한다(layout·status #289, sections #444). HEAD는 서비스가 GET 핸들러로 자동 처리하므로 GET과 같이 검사한다. 선점 해제와 공개 잔여석(/remaining)은 검사하지 않는다. Redis 선점의 조회(`GET .../holds/{holdId}`)와 결제하기(`POST .../holds/{holdId}/reservation`)도 해제처럼 검사하지 않는다(이슈 #449).
 - Gateway는 경로의 scheduleId를 숫자로 읽어 `schedule:{scheduleId}`를 만들고, 그 scope를 보호하는 room이 있을 때만 토큰을 검사한다. 보호하는 room이 없거나 closeAt이 지났으면 토큰 없이 통과한다. 오픈 전 room도 보호하므로 오픈 전에는 토큰이 없어 403이다.
 - 검사 순서는 토큰 있음 → 서명·만료 → 토큰 회원이 로그인 회원과 같은지 → 요청 scope가 토큰 scopes에 있는지다. 하나라도 틀리면 403 QUEUE_TOKEN_INVALID다.
 - Gateway는 보호 목록을 요청마다 묻지 않고 기동 즉시와 10초마다 내부 API로 받아 메모리에 둔다. 받지 못하면 마지막 목록을 계속 쓰고, 기동 뒤 한 번도 받지 못했으면 대기열 없이 통과시키지 않고 503 SERVICE_UNAVAILABLE이다.
