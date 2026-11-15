@@ -8,6 +8,7 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore.HoldState;
 import com.sparta.ticket.reservation.seat.application.port.StoredHold;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -40,7 +41,7 @@ class RedisSeatHoldStoreUnavailableTest {
         factory.afterPropertiesSet();
         StringRedisTemplate redis = new StringRedisTemplate(factory);
         redis.afterPropertiesSet();
-        store = new RedisSeatHoldStore(redis);
+        store = new RedisSeatHoldStore(redis, new SimpleMeterRegistry());
     }
 
     @AfterEach
