@@ -452,6 +452,37 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
+        @DisplayName("이전 선점의 완료·실패·해제가 늦게 와도, 그 사이 같은 좌석을 잡은 다른 회원의 목록 항목은 빼지 않는다(동시성 리뷰 4번)")
+        void keepsOtherHoldersEntry() {
+            for (String late : List.of("finish", "abort", "release")) {
+                long schedule = newSchedule();
+                StoredHold first = newHold(schedule, 1L, SEAT, inMinutes(10));
+                store.hold(first, null, Instant.now());
+                if (!late.equals("release")) {
+                    store.beginConvert(schedule, first.holdId(), 1L, Instant.now(), Duration.ofSeconds(3));
+                }
+                // 첫 선점의 좌석 키가 수명이 끝나 사라지고, 다른 회원이 같은 좌석을 잡았다
+                redis.delete(SeatHoldKeys.seat(schedule, SEAT));
+                StoredHold second = newHold(schedule, 2L, SEAT, inMinutes(10));
+                assertThat(store.hold(second, null, Instant.now()).outcome()).isEqualTo(HoldOutcome.CREATED);
+
+                switch (late) {
+                    case "finish" -> store.finishConvert(first, 77L, inMinutes(60), Instant.now());
+                    case "abort" -> store.abortConvert(first, true);
+                    default -> store.release(schedule, first.holdId(), 1L);
+                }
+
+                assertThat(redis.opsForValue().get(SeatHoldKeys.seat(schedule, SEAT)))
+                        .as(late)
+                        .isEqualTo(second.holdId());
+                assertThat(store.heldSeatIds(schedule, Instant.now())).as(late).containsExactly(SEAT);
+                assertThat(store.heldCountByGrade(schedule, List.of(GRADE), Instant.now()))
+                        .as(late)
+                        .containsEntry(GRADE, 1L);
+            }
+        }
+
+        @Test
         @DisplayName("해제·예약으로 바꾸기·바꾸기 실패(drop)는 두 목록에서 모두 뺀다")
         void removedFromBothLists() {
             long schedule = newSchedule();
