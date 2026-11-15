@@ -8,13 +8,18 @@ import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
 import com.sparta.ticket.reservation.seat.application.dto.SeatLayoutBody;
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
+import com.sparta.ticket.reservation.seat.application.hold.HoldIds;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldConversionService;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldQueryService;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
+import com.sparta.ticket.reservation.seat.application.release.RedisSeatReleaseService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
 import com.sparta.ticket.reservation.seat.application.remaining.RemainingSeatService;
 import com.sparta.ticket.reservation.seat.presentation.dto.RemainingSeatsResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldRequest;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldResponse;
+import com.sparta.ticket.reservation.seat.presentation.dto.SeatHoldViewResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatLayoutResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatSectionsResponse;
 import com.sparta.ticket.reservation.seat.presentation.dto.SeatStatusResponse;
@@ -28,6 +33,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -54,6 +60,9 @@ public class SeatController {
     private final SelectableSeatSnapshotService selectableSeatSnapshotService;
     private final SeatHoldService seatHoldService;
     private final SeatReleaseService seatReleaseService;
+    private final SeatHoldQueryService seatHoldQueryService;
+    private final SeatHoldConversionService seatHoldConversionService;
+    private final RedisSeatReleaseService redisSeatReleaseService;
     private final RemainingSeatService remainingSeatService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meters;
@@ -212,14 +221,60 @@ public class SeatController {
     }
 
     /**
-     * 결제 전 사용자가 선점한 좌석을 놓는다. 이미 풀렸거나 만료된 선점도 204라 같은 요청을 반복해도 된다.
-     * 결제 중·확정·취소된 예약이면 409 INVALID_STATUS_TRANSITION이다. 입장 토큰은 요구하지 않는다.
+     * Redis 선점 조회(#449). 결제 화면이 결제하기 전에 쓴다. Redis만 읽는다. 없거나(만료·해제) 남의 선점이면 404 HOLD_NOT_FOUND다.
+     * 입장 토큰은 요구하지 않는다(해제와 같다).
      */
-    @Operation(summary = "선점 해제", description = "결제 전 선점한 좌석을 놓고 예약을 RELEASED로 만든다. 이미 끝난 선점도 204다.")
-    @DeleteMapping("/holds/{reservationId}")
+    @Operation(summary = "선점 조회", description = "REDIS 모드의 선점(holdId)을 조회한다. 결제하기 전 결제 화면이 쓴다. 없거나 남의 선점이면 404다.")
+    @GetMapping("/holds/{holdId}")
+    public ApiResponse<SeatHoldViewResponse> getHold(
+            @CurrentUser UserContext user, @PathVariable Long scheduleId, @PathVariable String holdId) {
+        return ApiResponse.ok(SeatHoldViewResponse.from(seatHoldQueryService.get(user.userId(), scheduleId, holdId)));
+    }
+
+    /**
+     * 결제하기(#449). Redis 선점을 DB 예약으로 바꾸고 예약 ID를 돌려준다. 새로 만들면 201, 이미 바꾼 선점이면 같은 예약을 200으로 준다.
+     * 받은 예약 ID로 기존 결제 경로(/api/reservations/{reservationId}/payments/**)를 그대로 쓴다. 입장 토큰은 요구하지 않는다.
+     */
+    @Operation(
+            summary = "결제하기(선점을 예약으로 바꾸기)",
+            description = "REDIS 모드의 선점을 예약으로 바꾼다. 새로 만들면 201, 이미 바꾼 선점이면 같은 예약을 200으로 준다.")
+    @PostMapping("/holds/{holdId}/reservation")
+    public ResponseEntity<ApiResponse<SeatHoldResponse>> convert(
+            @CurrentUser UserContext user, @PathVariable Long scheduleId, @PathVariable String holdId) {
+        SeatHoldResult result = seatHoldConversionService.convert(user.userId(), scheduleId, holdId);
+        SeatHoldResponse body = SeatHoldResponse.from(result);
+        if (result.created()) {
+            return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created("예약을 만들었습니다.", body));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(body));
+    }
+
+    /**
+     * 결제 전 사용자가 선점한 좌석을 놓는다. 이미 풀렸거나 만료된 선점도 204라 같은 요청을 반복해도 된다.
+     * 경로 값이 예약 ID(숫자)면 예약을 해제하고, holdId("h_"로 시작, #449)면 Redis 선점을 지운다. 이미 예약으로 바꾼 holdId는 그 예약을 해제한다.
+     * 결제 중·확정·취소된 예약, 결제하기를 처리 중인 선점이면 409 INVALID_STATUS_TRANSITION이다. 입장 토큰은 요구하지 않는다.
+     */
+    @Operation(summary = "선점 해제", description = "결제 전 선점한 좌석을 놓는다. 경로 값은 예약 ID 또는 holdId다. 이미 끝난 선점도 204다.")
+    @DeleteMapping("/holds/{holdIdOrReservationId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void release(
-            @CurrentUser UserContext user, @PathVariable Long scheduleId, @PathVariable Long reservationId) {
-        seatReleaseService.release(user.userId(), scheduleId, reservationId);
+            @CurrentUser UserContext user, @PathVariable Long scheduleId, @PathVariable String holdIdOrReservationId) {
+        if (HoldIds.isHoldId(holdIdOrReservationId)) {
+            redisSeatReleaseService.release(user.userId(), scheduleId, holdIdOrReservationId);
+            return;
+        }
+        seatReleaseService.release(user.userId(), scheduleId, reservationId(holdIdOrReservationId));
+    }
+
+    /**
+     * 예약 ID 경로 값. 숫자가 아니면 경로 변수가 Long이던 때와 같이 타입 불일치 예외를 던진다. 공통 예외 처리가 Spring 표준 예외로 받아
+     * 같은 400 VALIDATION_ERROR 본문(errors 빈 목록 포함)을 만든다.
+     */
+    private static Long reservationId(String value) {
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new TypeMismatchException(value, Long.class, e);
+        }
     }
 }

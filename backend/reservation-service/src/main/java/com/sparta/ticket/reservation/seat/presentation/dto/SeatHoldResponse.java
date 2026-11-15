@@ -6,11 +6,17 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 좌석 선점 응답. status는 선점한 좌석의 상태라 항상 HOLD다.
+ * 좌석 선점 응답. status는 선점한 좌석의 상태라 항상 HOLD다. 결제하기(예약으로 바꾸기) 응답도 같은 형식이다.
+ * REDIS 모드(#449)에서 Redis에만 둔 선점이면 holdId가 있고 reservationId는 null이다. 예약이 있으면 holdId가 null이다.
  * holdExpiresAt은 예약과 좌석에 같은 값으로 저장한 만료 시각이며, 초 단위 {@code +09:00} 오프셋으로 내보낸다(좌석 API 공통).
  */
 public record SeatHoldResponse(
-        Long reservationId, Long scheduleSeatId, String status, OffsetDateTime holdExpiresAt, Integer basePrice) {
+        Long reservationId,
+        Long scheduleSeatId,
+        String status,
+        OffsetDateTime holdExpiresAt,
+        Integer basePrice,
+        String holdId) {
 
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
@@ -23,6 +29,7 @@ public record SeatHoldResponse(
                         .truncatedTo(ChronoUnit.SECONDS)
                         .atZone(SEOUL)
                         .toOffsetDateTime(),
-                result.basePrice());
+                result.basePrice(),
+                result.holdId());
     }
 }
