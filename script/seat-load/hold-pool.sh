@@ -155,7 +155,9 @@ if sellout:
                     'view_p99_ms', 'max_reads_per_s', 'max_holds_per_s',
                     'server_cpu_avg', 'server_cpu_p95', 'pg_cpu_cores', 'hikari_pending_max',
                     'converts', 'convert_failed', 'convert_p99_ms', 'worst_10s_convert_p99_ms', 'stalled_with_convert',
-                    'redis_hold_call_p99_ms', 'redis_hold_call_p999_ms'])
+                    'redis_hold_call_p99_ms', 'redis_hold_call_p999_ms',
+                    'redis_created', 'redis_released', 'redis_converted', 'redis_convert_rejected', 'redis_remaining',
+                    'redis_expired_calc'])
         for d in sellout:
             s = d['server']
             ws = d['windows_10s']
@@ -174,7 +176,9 @@ if sellout:
                         sum(co.values()), sum(v for k, v in co.items() if k not in ('created', 'existing')),
                         d.get('convert_ms', {}).get('p99'), worst('convert_ms'),
                         len(d.get('stalled_seconds_with_convert', [])),
-                        hold_call.get('p99_ms'), hold_call.get('p999_ms')])
+                        hold_call.get('p99_ms'), hold_call.get('p999_ms'),
+                        *[d.get('redis_flow', {}).get(k) for k in
+                          ('created', 'released', 'converted', 'convert_rejected', 'remaining', 'expired_calc')]])
     print('[bench] sellout summary', out/'sellout-summary.csv')
 for d in sorted(docs, key=lambda d: (d['pool'], d['workload']['base_rate'], d['rep'])):
     if d['rep'] == 0: continue

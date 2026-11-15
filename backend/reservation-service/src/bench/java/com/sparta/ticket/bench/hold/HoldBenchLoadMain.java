@@ -760,6 +760,9 @@ public final class HoldBenchLoadMain {
 
     static final int CONVERT_MAX_MS = Integer.getInteger("bench.convert.max", 15_000);
 
+    /** 측정 끝에 남은 Redis 선점 수를 읽을 Redis 컨테이너 이름(실행 스크립트의 hb-redis). */
+    static final String REDIS_CONTAINER = System.getProperty("bench.redisContainer", "hb-redis");
+
     /** 모의 매진 요청 한 건. kind는 hold·view(구역 상태)·sections(구역 목록)·release, t는 시작 기준 경과 시간(ns)이다. */
     record SelloutSample(int k, String kind, long t, double latencyMs, String outcome) {}
 
@@ -1160,7 +1163,9 @@ public final class HoldBenchLoadMain {
             }
         }
         report.put("stalled_seconds_with_convert", stalledWithConvert);
-        report.put("redis_metrics", redisMetrics(redisBefore, scrapeRedisMetrics()));
+        Map<String, Object> redis = redisMetrics(redisBefore, scrapeRedisMetrics());
+        report.put("redis_metrics", redis);
+        report.put("redis_flow", redisFlow(redis, scheduleIds));
         report.put("server", summarizeServer(t0, 0, endNanos));
         report.put("server_rows", new ArrayList<>(serverSamples));
         report.put("thread_dumps", dumps);
@@ -1332,6 +1337,58 @@ public final class HoldBenchLoadMain {
             }
         }
         return null;
+    }
+
+    /**
+     * Redis 선점 수 흐름(#449 예매 담당 리뷰 5번). 예매의 만료·해제 지표는 예약이 있어야 세므로 Redis 선점은 따로 센다.
+     * Redis 키가 수명이 끝나 사라지는 만료는 알려 오는 이벤트가 없어, 생성 − 해제 − 결제하기 성공 − 결제하기 실패로 지움 −
+     * 측정 끝에 남은 선점으로 계산한다. 남은 선점은 회차마다 Redis 좌석 목록(held)의 크기다. 결제하기 중이거나 결과를 모르는 선점도
+     * 목록에 남아 여기에 들어간다.
+     * Note: 회차 측정(최대 몇 분)이 선점 유지 시간(10분)보다 짧아 만료는 0에 가깝게 나온다. 만료 비교는 선점 시간을 줄인 별도 측정으로 한다.
+     */
+    static Map<String, Object> redisFlow(Map<String, Object> redis, List<Long> scheduleIds) {
+        @SuppressWarnings("unchecked")
+        Map<String, Double> counts = (Map<String, Double>) redis.getOrDefault("counts", Map.of());
+        long created = Math.round(counts.getOrDefault("hold/created", 0.0));
+        long released = Math.round(counts.getOrDefault("release/released", 0.0));
+        long converted = Math.round(counts.getOrDefault("convert/created", 0.0));
+        long rejected = Math.round(counts.getOrDefault("convert/rejected", 0.0));
+        Long remaining = 0L;
+        for (Long scheduleId : scheduleIds) {
+            Long size = zcard(REDIS_CONTAINER, "seathold:{s" + scheduleId + "}:held");
+            if (size == null) {
+                remaining = null;
+                break;
+            }
+            remaining += size;
+        }
+        Map<String, Object> flow = new LinkedHashMap<>();
+        flow.put("created", created);
+        flow.put("released", released);
+        flow.put("converted", converted);
+        flow.put("convert_rejected", rejected);
+        flow.put("remaining", remaining);
+        flow.put("expired_calc", remaining == null ? null : created - released - converted - rejected - remaining);
+        return flow;
+    }
+
+    /** Redis 컨테이너에서 ZCARD. 읽지 못하면 null. */
+    private static Long zcard(String container, String key) {
+        try {
+            Process process = new ProcessBuilder("docker", "exec", container, "redis-cli", "ZCARD", key)
+                    .redirectErrorStream(true)
+                    .start();
+            String out = new String(process.getInputStream().readAllBytes()).trim();
+            if (!process.waitFor(10, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                return null;
+            }
+            return Long.parseLong(out);
+        } catch (IOException | NumberFormatException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
     }
 
     /** 해제 경로 값. REDIS 모드에서 결제하기 전이면 holdId, 아니면 예약 id다. */
