@@ -343,6 +343,7 @@ Redis 선점 저장소 (이슈 #449)
 - 결제하기 처리 중인 선점의 해제는 409 INVALID_STATUS_TRANSITION이다. 이미 예약으로 바꾼 holdId를 해제하면 그 예약을 해제한다.
 - holdId 형식은 `h_` + 16진수 32자다. 형식이 다르면 조회·결제하기는 404 HOLD_NOT_FOUND다.
 - Redis에 연결하지 못하면 선점·조회·결제하기·holdId 해제는 503 SERVICE_UNAVAILABLE이다. DB 방식으로 자동으로 넘어가지 않는다.
+- 좌석 조회(목록·구역·layout·status)는 Redis로 잡힌 좌석을 선택 불가로 보여 주고, 잔여석은 등급별로 그 수를 뺀다. Redis를 읽지 못하면 두 조회는 오류 없이 DB 기준으로 답한다(표시용).
 - 요청 좌석이 없거나 경로의 scheduleId 소속이 아니면 404 SEAT_NOT_FOUND다. (구현 #148)
 - 다른 회차 좌석을 404로 막는 이유는 다른 회차 좌석으로 판매 기간·매수 제한을 우회하지 못하게 하려는 것이다. (구현 #148)
 - 판매 검증이 허용이어도 좌석의 config_version·base_price가 검증 응답과 다르면 409 SEAT_CONFIG_VERSION_MISMATCH다. (구현 #148)
