@@ -45,6 +45,9 @@ public class SeatHoldConversionService {
     private final Clock clock;
 
     public SeatHoldResult convert(Long userId, Long scheduleId, String holdId) {
+        if (!HoldIds.isHoldId(holdId)) {
+            throw new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND);
+        }
         Instant now = clock.instant();
 
         // 1. 바꾸기 시작
