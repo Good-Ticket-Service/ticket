@@ -27,6 +27,11 @@ SERVER_PORT=18083
 LOAD_JAVA_OPTS="${LOAD_JAVA_OPTS:-}"
 # 진단 전용 DB 설정(예: PG_EXTRA_ARGS="-c synchronous_commit=off"). 측정 결과에는 쓰지 않는다
 PG_EXTRA_ARGS="${PG_EXTRA_ARGS:-}"
+# 진단 전용 DB 컨테이너 옵션(예: 데이터를 메모리에 두기 PG_DOCKER_ARGS="--tmpfs /var/lib/postgresql/data:rw,size=6g" PG_MEM=8g).
+# tmpfs는 컨테이너 메모리 한도에 들어가므로 PG_MEM도 함께 올린다. 측정 결과에는 쓰지 않는다
+PG_DOCKER_ARGS="${PG_DOCKER_ARGS:-}"
+PG_MEM="${PG_MEM:-2g}"
+# 예매 서비스 JVM 옵션(예: SERVER_JAVA_OPTS="-Dbench.sale.delay.ms=10" 판매 검증 가짜 지연). 부하 생성기 LOAD_JAVA_OPTS에도 같은 값을 넣어 결과에 남긴다
 OUT="$ROOT/script/seat-load/out/hold-pool-$(date +%Y%m%d-%H%M%S)"
 PG=hb-pg
 SERVER_PID=
@@ -35,18 +40,24 @@ cleanup() {
     # 멈춤 진단(#434): autovacuum·checkpoint·잠금 대기 로그를 컨테이너를 지우기 전에 남긴다
     docker logs "$PG" >"$OUT/postgres.log" 2>&1 || true
     if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID"; wait "$SERVER_PID" 2>/dev/null || true; fi
-    docker rm -f hb-pg hb-redis hb-kafka >/dev/null 2>&1 || true
+    # 익명 볼륨까지 지운다(-v). 남기면 측정을 이어 할수록 Docker 디스크에 DB 볼륨이 쌓인다
+    docker rm -f -v hb-pg hb-redis hb-kafka >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 mkdir -p "$OUT"
 echo "[bench] 결과 폴더 $OUT"
 
-"$BACKEND/gradlew" -p "$BACKEND" -q :reservation-service:holdBenchClasspath
-CP="$(cat "$BACKEND/reservation-service/build/hold-bench-classpath.txt")"
+# BENCH_CP_FILE: 미리 만든 클래스패스 파일(다른 코드 버전으로 잴 때 넘긴다). 없으면 작업 폴더를 빌드한다
+if [[ -n "${BENCH_CP_FILE:-}" ]]; then
+    CP="$(cat "$BENCH_CP_FILE")"
+else
+    "$BACKEND/gradlew" -p "$BACKEND" -q :reservation-service:holdBenchClasspath
+    CP="$(cat "$BACKEND/reservation-service/build/hold-bench-classpath.txt")"
+fi
 
-docker rm -f hb-pg hb-redis hb-kafka >/dev/null 2>&1 || true
-docker run -d --name "$PG" --cpuset-cpus "$PG_CPUS" -m 2g -e POSTGRES_PASSWORD=bench -e POSTGRES_DB=ticket \
+docker rm -f -v hb-pg hb-redis hb-kafka >/dev/null 2>&1 || true
+docker run -d --name "$PG" --cpuset-cpus "$PG_CPUS" -m "$PG_MEM" $PG_DOCKER_ARGS -e POSTGRES_PASSWORD=bench -e POSTGRES_DB=ticket \
     -p "$PG_PORT:5432" postgres:16 -c shared_buffers=512MB \
     -c log_autovacuum_min_duration=0 -c log_checkpoints=on -c log_lock_waits=on -c deadlock_timeout=200ms \
     -c log_line_prefix='%m [%p] %u ' $PG_EXTRA_ARGS >/dev/null
@@ -79,7 +90,7 @@ for pool in $POOLS; do
         KAFKA_BOOTSTRAP_SERVERS="localhost:$KAFKA_PORT" SERVER_PORT="$SERVER_PORT" \
         SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE="$pool" \
         SERVER_TOMCAT_MBEANREGISTRY_ENABLED=true \
-        taskset -c "$SERVER_CPUS" java -Xms256m -Xmx1g -XX:ActiveProcessorCount=2 -cp "$CP" \
+        taskset -c "$SERVER_CPUS" java -Xms256m -Xmx1g -XX:ActiveProcessorCount=2 ${SERVER_JAVA_OPTS:-} -cp "$CP" \
         com.sparta.ticket.bench.hold.HoldBenchServerMain "$BACKEND" >"$OUT/server-pool-$pool.log" 2>&1 &
     SERVER_PID=$!
     up=
@@ -90,17 +101,36 @@ for pool in $POOLS; do
     done
     if [[ -z "$up" ]]; then echo "[bench] 기동 실패. $OUT/server-pool-$pool.log 확인" >&2; exit 1; fi
     # 회차 0은 예열이다. 새로 띄운 JVM은 회차 안의 예열 20초로 부족해 첫 회차 서버 CPU가 포화됐다(11/13 탐색 측정). 요약에서 뺀다
+    # LEVELS: 같은 서버에서 번갈아 잴 부하 단계 L(다른 좌석 초당 L건 + burst L명). 회차마다 순서를 돌려 시간에 따른 변화를
+    # 단계마다 고르게 나눈다(11/15: 이어서 잴수록 느려져 순서가 결과를 바꿨다). 없으면 LOAD_JAVA_OPTS 그대로 한 단계다
+    read -r -a levels <<<"${LEVELS:-default}"
     for rep in $(seq 0 "$REPS"); do
-        echo "[bench] 풀 $pool 회차 $rep 시작 $(date +%H:%M:%S)"
-        taskset -c "$LOAD_CPUS" java -Xmx1g $LOAD_JAVA_OPTS -cp "$CP" com.sparta.ticket.bench.hold.HoldBenchLoadMain \
-            "http://localhost:$SERVER_PORT" "jdbc:postgresql://localhost:$PG_PORT/ticket?currentSchema=reservation_schema" \
-            reservation_app reservation_local_pw "$OUT/pool-$pool-rep-$rep.json" "$pool" "$rep" "$SERVER_PID" "$PG"
-        # 회차 뒤 테이블 크기와 마지막 autovacuum·autoanalyze 시각(멈춤이 쌓인 데이터와 관계있는지 본다)
-        docker exec "$PG" psql -U postgres -d ticket -XAc \
-            "SELECT relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze, autovacuum_count, autoanalyze_count
-             FROM pg_stat_user_tables WHERE schemaname = 'reservation_schema' AND n_live_tup > 0 ORDER BY relname" \
-            >"$OUT/pg-tables-pool-$pool-rep-$rep.txt" 2>&1 || true
-        sleep 10
+        shift_by=$(( rep % ${#levels[@]} ))
+        for i in "${!levels[@]}"; do
+            L="${levels[$(( (i + shift_by) % ${#levels[@]} ))]}"
+            run_no=$(( ${run_no:-0} + 1 ))
+            if [[ "$L" == default ]]; then name="pool-$pool-rep-$rep"; opts=""
+            elif [[ "${BENCH_MODE:-mix}" == sellout ]]; then
+                # 모의 매진(#447): 단계 L은 "회차마다 안에 있는 사용자 수" 또는 "사용자 수x회차 수"(예: 1000x3)다.
+                # 회차마다 25,000석을 같은 서버에서 동시에 매진까지 판다
+                # 뒤에 "@초당 입장 인원"을 붙이면 대기열처럼 그 속도로만 들여보낸다(예: 2000@300). 앞 숫자는 안에 있을 수 있는 인원 상한이다
+                admit=0; [[ "$L" == *@* ]] && admit="${L##*@}"; L="${L%%@*}"
+                active="${L%%x*}"; schedules=1; [[ "$L" == *x* ]] && schedules="${L##*x}"
+                name="pool-$pool-M${active}xK${schedules}"; [[ "$admit" != 0 ]] && name="$name-A$admit"; name="$name-rep-$rep"
+                opts="-Dbench.mode=sellout -Dbench.active=$active -Dbench.schedules=$schedules -Dbench.admit=$admit -Dbench.seats=${SELLOUT_SEATS:-25000}"
+            else name="pool-$pool-L$L-rep-$rep"; opts="-Dbench.rate=$L -Dbench.burst=$L"; fi
+            echo "[bench] 풀 $pool $name 시작 $(date +%H:%M:%S)"
+            taskset -c "$LOAD_CPUS" java -Xmx1g $LOAD_JAVA_OPTS $opts -Dbench.run="$(( pool * 1000 + run_no ))" -cp "$CP" \
+                com.sparta.ticket.bench.hold.HoldBenchLoadMain \
+                "http://localhost:$SERVER_PORT" "jdbc:postgresql://localhost:$PG_PORT/ticket?currentSchema=reservation_schema" \
+                reservation_app reservation_local_pw "$OUT/$name.json" "$pool" "$rep" "$SERVER_PID" "$PG"
+            # 회차 뒤 테이블 크기와 마지막 autovacuum·autoanalyze 시각(멈춤이 쌓인 데이터와 관계있는지 본다)
+            docker exec "$PG" psql -U postgres -d ticket -XAc \
+                "SELECT relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze, autovacuum_count, autoanalyze_count
+                 FROM pg_stat_user_tables WHERE schemaname = 'reservation_schema' AND n_live_tup > 0 ORDER BY relname" \
+                >"$OUT/pg-tables-$name.txt" 2>&1 || true
+            sleep 10
+        done
     done
     kill "$SERVER_PID"; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=
 done
@@ -109,12 +139,38 @@ python3 - "$OUT" <<'PY'
 import csv, json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 rows = []
-for f in sorted(out.glob('pool-*-rep-*.json'), key=lambda p: [int(x) for x in p.stem.split('-')[1::2]]):
-    d = json.loads(f.read_text())
+all_docs = [json.loads(f.read_text()) for f in out.glob('pool-*-rep-*.json')]
+docs = [d for d in all_docs if d.get('mode') != 'sellout']
+sellout = sorted((d for d in all_docs if d.get('mode') == 'sellout' and d['rep'] != 0),
+                 key=lambda d: (d['workload'].get('schedules', 1), d['workload']['active_users'], d['rep']))
+if sellout:
+    with (out/'sellout-summary.csv').open('w', newline='') as fh:
+        w = csv.writer(fh)
+        w.writerow(['schedules', 'active_users', 'rep', 'sold', 'released', 'sold_out', 'sellout_seconds', 'attempts_per_success',
+                    'created_p99_ms', 'taken_p99_ms', 'worst_10s_created_p99_ms', 'worst_10s_taken_p99_ms', 'stalled_seconds',
+                    'view_p99_ms', 'max_reads_per_s', 'max_holds_per_s',
+                    'server_cpu_avg', 'server_cpu_p95', 'pg_cpu_cores', 'hikari_pending_max'])
+        for d in sellout:
+            s = d['server']
+            ws = d['windows_10s']
+            worst = lambda key: max((x[key].get('p99', 0) for x in ws if x[key].get('count')), default=None)
+            w.writerow([d['workload'].get('schedules', 1), d['workload']['active_users'], d['rep'], d['sold'], d.get('released'),
+                        d['sold_out'], d['sellout_seconds'], d['attempts_per_success'],
+                        d['created_ms'].get('p99'), d['taken_ms'].get('p99'), worst('created_ms'), worst('taken_ms'),
+                        len(d['stalled_seconds']), d.get('view_ms', {}).get('p99'),
+                        max((x.get('reads_per_s', 0) for x in ws), default=None),
+                        max((x.get('holds_per_s', x.get('attempts_per_s', 0)) for x in ws), default=None),
+                        s['server_cpu_200ms'].get('avg'), s['server_cpu_200ms'].get('p95'), s['pg_cpu_cores'],
+                        s['hikari_pending'].get('max')])
+    print('[bench] sellout summary', out/'sellout-summary.csv')
+for d in sorted(docs, key=lambda d: (d['pool'], d['workload']['base_rate'], d['rep'])):
     if d['rep'] == 0: continue
+    warm = d['workload']['warmup_seconds']
+    # 멈춤: 측정 구간에 다른 좌석 선점의 초당 최댓값이 0.5초를 넘은 초가 있음(#447 판단 기준)
+    stalled = any(r['base_max'] and r['base_max'] > 500 for r in d.get('per_second', [])[warm:])
     b, u, s = d['base'], d['burst'], d['server']
     g = lambda m, k: (m or {}).get(k)
-    rows.append({'pool': d['pool'], 'rep': d['rep'], 'finished': d['finished'],
+    rows.append({'pool': d['pool'], 'L': d['workload']['base_rate'], 'rep': d['rep'], 'finished': d['finished'], 'stalled': stalled,
                  'base_p50_ms': g(b['hold_ms'], 'p50'), 'base_p99_ms': g(b['hold_ms'], 'p99'), 'base_max_ms': g(b['hold_ms'], 'max'),
                  'base_attempts': b['attempts'], 'base_late_ratio': b['late_ratio'], 'base_outcomes': json.dumps(b['outcomes']),
                  'burst_p99_ms': g(u['hold_ms'], 'p99'), 'burst_late_ratio': u['late_ratio'], 'burst_outcomes': json.dumps(u['outcomes']),
