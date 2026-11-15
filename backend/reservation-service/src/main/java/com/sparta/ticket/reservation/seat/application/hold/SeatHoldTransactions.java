@@ -91,7 +91,8 @@ public class SeatHoldTransactions {
                             .filter(view -> view.userId().equals(userId) && view.state() == ReservationState.HOLD)
                             .isPresent();
             if (mine) {
-                return new SeatHoldResult(holderId, seat.getId(), seat.getHoldExpiresAt(), seat.getBasePrice(), false);
+                return new SeatHoldResult(
+                        holderId, seat.getId(), seat.getHoldExpiresAt(), seat.getBasePrice(), false, null);
             }
         }
 
@@ -161,7 +162,7 @@ public class SeatHoldTransactions {
         Long reservationId = bookingFacade.hold(
                 userId, holdTarget, List.of(new SeatLine(seat.getId(), seat.getBasePrice())), holdExpiresAt);
         seat.hold(reservationId, holdExpiresAt, now);
-        return new SeatHoldResult(reservationId, seat.getId(), holdExpiresAt, seat.getBasePrice(), true);
+        return new SeatHoldResult(reservationId, seat.getId(), holdExpiresAt, seat.getBasePrice(), true, null);
     }
 
     /**
