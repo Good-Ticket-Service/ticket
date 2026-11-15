@@ -746,11 +746,25 @@ public final class HoldBenchLoadMain {
      */
     static final int ADMIT_PER_SECOND = Integer.getInteger("bench.admit", 0);
 
+    /**
+     * 선점 위치(#449). DB 또는 REDIS를 주면 회차를 시작하기 전에 측정 서버의 스위치를 바꾼다. 비우면 서버 기동 설정 그대로다.
+     * 같은 서버에서 두 모드를 번갈아 재려고 스크립트가 단계마다 넘긴다.
+     */
+    static final String HOLD_MODE = System.getProperty("bench.holdMode", "");
+
+    /**
+     * REDIS 모드에서 선점 뒤 결제하기를 누르기까지(결제 화면에 머무는 시간). 짧을수록 DB 쓰기가 오픈 직후에 몰려 Redis 효과가 작게
+     * 나온다. 실제 사용자는 쿠폰·결제 수단을 고르느라 더 길 것으로 보아, 보수적으로 5\~15초로 둔다(가정).
+     */
+    static final int CONVERT_MIN_MS = Integer.getInteger("bench.convert.min", 5_000);
+
+    static final int CONVERT_MAX_MS = Integer.getInteger("bench.convert.max", 15_000);
+
     /** 모의 매진 요청 한 건. kind는 hold·view(구역 상태)·sections(구역 목록)·release, t는 시작 기준 경과 시간(ns)이다. */
     record SelloutSample(int k, String kind, long t, double latencyMs, String outcome) {}
 
-    /** 선점 결과와 성공한 경우의 예약 id. */
-    record HoldOutcome(String outcome, long reservationId) {}
+    /** 선점 결과와 성공한 경우의 예약 id(DB 방식) 또는 holdId(REDIS 모드, #449). */
+    record HoldOutcome(String outcome, long reservationId, String holdId) {}
 
     private final Queue<SelloutSample> selloutSamples = new ConcurrentLinkedQueue<>();
 
@@ -763,6 +777,9 @@ public final class HoldBenchLoadMain {
      *   2. 그 구역의 좌석 상태(status?section=)를 받는다. 처음 고르기 CHOOSE_MIN_MS\~CHOOSE_MAX_MS(기본 1\~2초) 뒤 빈 좌석을 무작위로
      *      골라 선점한다. 상태는 VIEW_REFRESH_MS(1초)마다 다시 받는다.
      *   3. 성공하면 결제로 넘어가 나간다. ABANDON_PERCENT%는 10\~30초 뒤 해제한다(결제 포기). 좌석이 다시 풀린다.
+     *      REDIS 모드(#449, 응답에 holdId가 있음)에서는 결제하는 사용자가 CONVERT_MIN_MS\~CONVERT_MAX_MS 뒤 결제하기를 누른다.
+     *      결제 포기는 절반이 결제하기 전에, 절반은 결제하기 뒤 10\~30초에 예약을 해제한다(결제창에서 포기). 결제하기 전에만 포기한다고
+     *      두면 DB에 쓰지 않는 사용자가 늘어 Redis 쪽이 유리하게 나온다.
      *   4. 409면 바로 상태를 다시 받고(프런트의 invalidateQueries), 1\~3초 뒤 다시 고른다. 구역에 빈 좌석이 없거나 같은 구역에서
      *      GIVE_UP_AFTER번 연달아 놓치면 인기 구역을 포기하고 1로 간다.
      * 회차마다 모든 구역에 빈 좌석이 없거나 SELLOUT_LIMIT_SECONDS가 지나면 끝낸다.
@@ -791,6 +808,7 @@ public final class HoldBenchLoadMain {
             }
         }
         int n = SCHEDULES;
+        Map<String, Double> redisBefore = scrapeRedisMetrics();
         long t0 = System.nanoTime();
         String prefix = output.toString().replaceFirst("\\.json$", "");
         Thread sampler =
@@ -815,6 +833,11 @@ public final class HoldBenchLoadMain {
         }
         long deadline = t0 + TimeUnit.SECONDS.toNanos(SELLOUT_LIMIT_SECONDS);
         java.util.concurrent.ScheduledExecutorService abandoner = Executors.newScheduledThreadPool(16);
+        // 해제·결제하기 요청은 예약 스레드가 아니라 여기서 보낸다. 예약 스레드(16개)에서 보내면 서버가 느릴 때 줄을 서 지연이 부풀려진다
+        ExecutorService actions = Executors.newCachedThreadPool();
+        if (!HOLD_MODE.isBlank()) {
+            setHoldMode(HOLD_MODE);
+        }
         ExecutorService users = Executors.newFixedThreadPool(ACTIVE * n);
         java.util.concurrent.Semaphore[] admits = new java.util.concurrent.Semaphore[n];
         for (int k = 0; k < n; k++) {
@@ -898,22 +921,65 @@ public final class HoldBenchLoadMain {
                                 if ("created".equals(result.outcome())) {
                                     sold[kk].incrementAndGet();
                                     lastSoldAt[kk].set(end - t0);
-                                    if (random.nextInt(100) < ABANDON_PERCENT) {
-                                        long uid = userId;
-                                        pendingReleases[kk].incrementAndGet();
-                                        abandoner.schedule(
-                                                () -> {
-                                                    try {
-                                                        if (releaseOnce(kk, sid, uid, result.reservationId(), t0)) {
-                                                            sold[kk].decrementAndGet();
-                                                            released[kk].incrementAndGet();
-                                                        }
-                                                    } finally {
-                                                        pendingReleases[kk].decrementAndGet();
-                                                    }
-                                                },
+                                    long uid = userId;
+                                    boolean abandon = random.nextInt(100) < ABANDON_PERCENT;
+                                    Runnable releaseLater = () -> {
+                                        if (releaseOnce(kk, sid, uid, idOf(result), t0)) {
+                                            sold[kk].decrementAndGet();
+                                            released[kk].incrementAndGet();
+                                        }
+                                    };
+                                    if (result.holdId() == null) {
+                                        // DB 방식: 예약이 이미 있다. 결제 포기만 해제한다
+                                        if (abandon) {
+                                            later(
+                                                    abandoner,
+                                                    actions,
+                                                    pendingReleases[kk],
+                                                    random.nextLong(10_000, 30_001),
+                                                    releaseLater);
+                                        }
+                                    } else if (abandon && random.nextBoolean()) {
+                                        // REDIS 모드, 결제하기 전에 포기
+                                        later(
+                                                abandoner,
+                                                actions,
+                                                pendingReleases[kk],
                                                 random.nextLong(10_000, 30_001),
-                                                TimeUnit.MILLISECONDS);
+                                                releaseLater);
+                                    } else {
+                                        // REDIS 모드, 결제하기. 포기하는 사용자는 결제하기 뒤 결제창에서 포기해 예약을 해제한다
+                                        later(
+                                                abandoner,
+                                                actions,
+                                                pendingReleases[kk],
+                                                random.nextLong(CONVERT_MIN_MS, CONVERT_MAX_MS + 1L),
+                                                () -> {
+                                                    long reservationId = convertOnce(kk, sid, uid, result.holdId(), t0);
+                                                    if (reservationId < 0) {
+                                                        // 결제하기에서 좌석을 잃었다(409·만료). 좌석은 다시 풀린다
+                                                        sold[kk].decrementAndGet();
+                                                        return;
+                                                    }
+                                                    if (abandon) {
+                                                        later(
+                                                                abandoner,
+                                                                actions,
+                                                                pendingReleases[kk],
+                                                                random.nextLong(10_000, 30_001),
+                                                                () -> {
+                                                                    if (releaseOnce(
+                                                                            kk,
+                                                                            sid,
+                                                                            uid,
+                                                                            Long.toString(reservationId),
+                                                                            t0)) {
+                                                                        sold[kk].decrementAndGet();
+                                                                        released[kk].incrementAndGet();
+                                                                    }
+                                                                });
+                                                    }
+                                                });
                                     }
                                     left = true;
                                     break;
@@ -944,6 +1010,7 @@ public final class HoldBenchLoadMain {
         boolean finished = users.awaitTermination(SELLOUT_LIMIT_SECONDS + 60L, TimeUnit.SECONDS);
         users.shutdownNow();
         abandoner.shutdownNow();
+        actions.shutdownNow();
         running.set(false);
         sampler.join(5_000);
 
@@ -963,6 +1030,9 @@ public final class HoldBenchLoadMain {
         workload.put("hot_percent", HOT_PERCENT);
         workload.put("abandon_percent", ABANDON_PERCENT);
         workload.put("abandon_after_ms", "10000-30000");
+        workload.put("hold_mode", HOLD_MODE.isBlank() ? null : HOLD_MODE);
+        workload.put("convert_after_ms", CONVERT_MIN_MS + "-" + CONVERT_MAX_MS);
+        workload.put("abandon_split", "REDIS: 절반은 결제하기 전, 절반은 결제하기 뒤 해제");
         workload.put("choose_ms", CHOOSE_MIN_MS + "-" + CHOOSE_MAX_MS);
         workload.put("retry_ms", "1000-3000");
         workload.put("view_refresh_ms", VIEW_REFRESH_MS);
@@ -1011,6 +1081,12 @@ public final class HoldBenchLoadMain {
         report.put("view_ms", distribution(latencies(all, "view", null, 0, endNanos)));
         report.put("sections_ms", distribution(latencies(all, "sections", null, 0, endNanos)));
         report.put("release_ms", distribution(latencies(all, "release", null, 0, endNanos)));
+        Map<String, Integer> convertOutcomes = new LinkedHashMap<>();
+        all.stream()
+                .filter(x -> "convert".equals(x.kind()))
+                .forEach(x -> convertOutcomes.merge(x.outcome(), 1, Integer::sum));
+        report.put("convert_outcomes", convertOutcomes);
+        report.put("convert_ms", distribution(latencies(all, "convert", null, 0, endNanos)));
         List<Map<String, Object>> windows = new ArrayList<>();
         for (long from = 0; from < endNanos; from += TimeUnit.SECONDS.toNanos(10)) {
             long to = from + TimeUnit.SECONDS.toNanos(10);
@@ -1035,6 +1111,9 @@ public final class HoldBenchLoadMain {
                                     .count()
                             / 10.0);
             w.put(
+                    "converts_per_s",
+                    in.stream().filter(x -> "convert".equals(x.kind())).count() / 10.0);
+            w.put(
                     "releases_per_s",
                     in.stream().filter(x -> "release".equals(x.kind())).count() / 10.0);
             w.put(
@@ -1047,6 +1126,7 @@ public final class HoldBenchLoadMain {
             w.put("created_ms", distribution(latencies(all, "hold", "created", from, to)));
             w.put("taken_ms", distribution(latencies(all, "hold", "taken", from, to)));
             w.put("view_ms", distribution(latencies(all, "view", null, from, to)));
+            w.put("convert_ms", distribution(latencies(all, "convert", null, from, to)));
             windows.add(w);
         }
         report.put("windows_10s", windows);
@@ -1065,6 +1145,22 @@ public final class HoldBenchLoadMain {
             }
         }
         report.put("stalled_seconds", stalledSeconds);
+        // REDIS 모드에서는 DB 쓰기가 결제하기로 옮겨 가므로, 선점이나 결제하기 응답이 0.5초를 넘은 초를 따로 센다(#449)
+        List<Long> stalledWithConvert = new ArrayList<>();
+        for (long sec = 0; sec * 1_000_000_000L < endNanos; sec++) {
+            long f = sec * 1_000_000_000L;
+            long to = f + 1_000_000_000L;
+            double max = all.stream()
+                    .filter(x -> ("hold".equals(x.kind()) || "convert".equals(x.kind())) && x.t() >= f && x.t() < to)
+                    .mapToDouble(SelloutSample::latencyMs)
+                    .max()
+                    .orElse(0);
+            if (max > 500) {
+                stalledWithConvert.add(sec);
+            }
+        }
+        report.put("stalled_seconds_with_convert", stalledWithConvert);
+        report.put("redis_metrics", redisMetrics(redisBefore, scrapeRedisMetrics()));
         report.put("server", summarizeServer(t0, 0, endNanos));
         report.put("server_rows", new ArrayList<>(serverSamples));
         report.put("thread_dumps", dumps);
@@ -1137,26 +1233,197 @@ public final class HoldBenchLoadMain {
         try {
             HttpResponse<String> response = http.send(hold, HttpResponse.BodyHandlers.ofString());
             JsonNode body = parse(response.body());
+            JsonNode holdId = body.path("data").path("holdId");
             return new HoldOutcome(
                     classify(response.statusCode(), body),
-                    body.path("data").path("reservationId").asLong(0));
+                    body.path("data").path("reservationId").asLong(0),
+                    holdId.isTextual() ? holdId.asText() : null);
         } catch (IOException e) {
-            return new HoldOutcome("error", 0);
+            return new HoldOutcome("error", 0, null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new HoldOutcome("error", 0);
+            return new HoldOutcome("error", 0, null);
         } finally {
             inFlight.remove(id);
         }
     }
 
-    /** 결제 포기: 선점을 해제한다. 성공하면 true. */
-    boolean releaseOnce(int k, long scheduleId, long userId, long reservationId, long t0) {
+    /** 서버의 Redis 선점 지표(#449) 줄만 읽는다. 키는 지표 이름과 라벨, 값은 누적값이다. 읽지 못하면 빈 맵이다. */
+    Map<String, Double> scrapeRedisMetrics() {
+        Map<String, Double> series = new LinkedHashMap<>();
+        try {
+            HttpResponse<String> response = http.send(
+                    HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
+                            .timeout(Duration.ofSeconds(10))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            for (String line : response.body().split("\n")) {
+                if (!line.startsWith("reservation_seat_hold_redis")) {
+                    continue;
+                }
+                int space = line.lastIndexOf(' ');
+                series.put(line.substring(0, space), Double.parseDouble(line.substring(space + 1)));
+            }
+        } catch (IOException | RuntimeException e) {
+            return series;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return series;
+    }
+
+    /**
+     * 회차 동안의 Redis 선점 지표(#449). 서버를 여러 회차가 함께 쓰므로 시작·끝 값의 차이로 계산한다.
+     * counts: 선점·해제·결제하기 결과별 수. calls: Redis 명령별 호출 수·평균·p50·p99(히스토그램 구간의 위 경계, ms).
+     */
+    static Map<String, Object> redisMetrics(Map<String, Double> before, Map<String, Double> after) {
+        java.util.regex.Pattern label = java.util.regex.Pattern.compile("(\\w+)=\"([^\"]*)\"");
+        Map<String, Double> counts = new java.util.TreeMap<>();
+        Map<String, java.util.TreeMap<Double, Double>> buckets = new java.util.TreeMap<>();
+        Map<String, double[]> countSum = new java.util.TreeMap<>();
+        for (Map.Entry<String, Double> entry : after.entrySet()) {
+            String key = entry.getKey();
+            double delta = entry.getValue() - before.getOrDefault(key, 0.0);
+            Map<String, String> labels = new LinkedHashMap<>();
+            java.util.regex.Matcher m = label.matcher(key);
+            while (m.find()) {
+                labels.put(m.group(1), m.group(2));
+            }
+            if (key.startsWith("reservation_seat_hold_redis_total")) {
+                counts.put(labels.get("operation") + "/" + labels.get("result"), delta);
+            } else if (key.startsWith("reservation_seat_hold_redis_call_seconds_bucket")) {
+                String le = labels.get("le");
+                double bound = "+Inf".equals(le) ? Double.POSITIVE_INFINITY : Double.parseDouble(le);
+                buckets.computeIfAbsent(labels.get("command"), c -> new java.util.TreeMap<>())
+                        .put(bound, delta);
+            } else if (key.startsWith("reservation_seat_hold_redis_call_seconds_count")) {
+                countSum.computeIfAbsent(labels.get("command"), c -> new double[2])[0] = delta;
+            } else if (key.startsWith("reservation_seat_hold_redis_call_seconds_sum")) {
+                countSum.computeIfAbsent(labels.get("command"), c -> new double[2])[1] = delta;
+            }
+        }
+        Map<String, Object> calls = new LinkedHashMap<>();
+        for (Map.Entry<String, double[]> entry : countSum.entrySet()) {
+            double n = entry.getValue()[0];
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("count", (long) n);
+            row.put("mean_ms", n == 0 ? null : entry.getValue()[1] * 1000 / n);
+            java.util.TreeMap<Double, Double> cumulative =
+                    buckets.getOrDefault(entry.getKey(), new java.util.TreeMap<>());
+            row.put("p50_ms", quantileMs(cumulative, n, 0.50));
+            row.put("p99_ms", quantileMs(cumulative, n, 0.99));
+            row.put("p999_ms", quantileMs(cumulative, n, 0.999));
+            calls.put(entry.getKey(), row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("counts", counts);
+        out.put("calls", calls);
+        return out;
+    }
+
+    /** 누적 히스토그램 구간에서 q 분위가 들어가는 구간의 위 경계(ms). 구간 안의 위치는 모르므로 위쪽으로 잡는다. */
+    private static Double quantileMs(java.util.TreeMap<Double, Double> cumulative, double total, double q) {
+        if (total <= 0) {
+            return null;
+        }
+        for (Map.Entry<Double, Double> bucket : cumulative.entrySet()) {
+            if (bucket.getValue() >= q * total) {
+                return bucket.getKey() * 1000;
+            }
+        }
+        return null;
+    }
+
+    /** 해제 경로 값. REDIS 모드에서 결제하기 전이면 holdId, 아니면 예약 id다. */
+    private static String idOf(HoldOutcome result) {
+        return result.holdId() != null ? result.holdId() : Long.toString(result.reservationId());
+    }
+
+    /** delayMillis 뒤 actions에서 task를 실행한다. 실행이 끝날 때까지 pending에 세어 매진 판정을 미룬다. */
+    private static void later(
+            java.util.concurrent.ScheduledExecutorService scheduler,
+            ExecutorService actions,
+            AtomicInteger pending,
+            long delayMillis,
+            Runnable task) {
+        pending.incrementAndGet();
+        try {
+            scheduler.schedule(
+                    () -> actions.execute(() -> {
+                        try {
+                            task.run();
+                        } finally {
+                            pending.decrementAndGet();
+                        }
+                    }),
+                    delayMillis,
+                    TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 측정이 끝나 실행기가 닫혔다
+            pending.decrementAndGet();
+        }
+    }
+
+    /** 측정 서버의 선점 위치 스위치를 바꾼다(#449). 실패하면 측정을 멈춘다. 모드가 섞인 결과는 쓸 수 없다. */
+    void setHoldMode(String mode) {
+        try {
+            HttpResponse<String> response = http.send(
+                    request("/bench/hold-mode?mode=" + mode, 0)
+                            .POST(HttpRequest.BodyPublishers.noBody())
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IllegalStateException("선점 위치를 바꾸지 못했다: " + response.statusCode() + " " + response.body());
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("선점 위치를 바꾸지 못했다", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("선점 위치를 바꾸지 못했다", e);
+        }
+    }
+
+    /**
+     * 결제하기(#449): Redis 선점을 예약으로 바꾼다. 성공하면 예약 id, 실패하면 -1이다. 결과는 created(201)·existing(200)·
+     * 409 코드(소문자)·error로 남긴다.
+     */
+    long convertOnce(int k, long scheduleId, long userId, String holdId, long t0) {
+        long start = System.nanoTime();
+        String outcome;
+        long reservationId = -1;
+        try {
+            HttpResponse<String> response = http.send(
+                    request("/api/seats/schedules/" + scheduleId + "/holds/" + holdId + "/reservation", userId)
+                            .POST(HttpRequest.BodyPublishers.noBody())
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonNode body = parse(response.body());
+            int status = response.statusCode();
+            if (status == 201 || status == 200) {
+                outcome = status == 201 ? "created" : "existing";
+                reservationId = body.path("data").path("reservationId").asLong(-1);
+            } else {
+                outcome = status == 409
+                        ? body.path("code").asText("conflict").toLowerCase(java.util.Locale.ROOT)
+                        : "error";
+            }
+        } catch (IOException e) {
+            outcome = "error";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            outcome = "error";
+        }
+        selloutSamples.add(new SelloutSample(k, "convert", start - t0, (System.nanoTime() - start) / 1e6, outcome));
+        return reservationId;
+    }
+
+    /** 결제 포기: 선점을 해제한다. id는 예약 id 또는 holdId다. 성공하면 true. */
+    boolean releaseOnce(int k, long scheduleId, long userId, String id, long t0) {
         long start = System.nanoTime();
         boolean ok;
         try {
             HttpResponse<String> response = http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/holds/" + reservationId, userId)
+                    request("/api/seats/schedules/" + scheduleId + "/holds/" + id, userId)
                             .DELETE()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());

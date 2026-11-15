@@ -147,5 +147,19 @@ BENCH_MODE=sellout LEVELS="2000@300 2000@400" SERVER_JAVA_OPTS="-Dbench.sale.del
     LOAD_JAVA_OPTS="-Dbench.sale.delay.ms=10" POOLS=10 REPS=3 script/seat-load/hold-pool.sh
 ```
 
+#### 선점 위치 번갈아 재기 (#449)
+
+단계 맨 뒤에 `:DB` 또는 `:REDIS`를 붙이면 그 회차를 시작하기 전에 측정 서버의 선점 위치 스위치를 바꿉니다. 모드마다 서버를 다시 띄우면 JVM 예열 상태가 달라지므로, 같은 서버에서 회차마다 순서를 돌려 가며 잽니다. 스위치를 바꾸는 엔드포인트(`/bench/hold-mode`)는 측정 서버(`HoldBenchServerMain`)에만 있습니다.
+
+```bash
+BENCH_MODE=sellout LEVELS="1000x3:DB 1000x3:REDIS" SERVER_JAVA_OPTS="-Dbench.sale.delay.ms=10" \
+    LOAD_JAVA_OPTS="-Dbench.sale.delay.ms=10" POOLS=10 REPS=3 script/seat-load/hold-pool.sh
+```
+
+- REDIS 모드에서 결제하는 사용자는 선점 뒤 5\~15초(`-Dbench.convert.min`·`-Dbench.convert.max`, ms)에 결제하기를 누릅니다. 짧을수록 DB 쓰기가 오픈 직후에 몰려 Redis 효과가 작게 나오는 보수적인 가정입니다.
+- 결제 포기(기본 20%)는 REDIS 모드에서 절반이 결제하기 전에, 절반은 결제하기 뒤 10\~30초에 예약을 해제합니다. DB 모드는 지금처럼 선점 뒤 10\~30초에 해제합니다.
+- 결제 준비·승인은 두 모드 모두 재지 않습니다. 결제하기 뒤에는 두 모드가 같은 경로이기 때문입니다.
+- 결과에 결제하기 응답(`convert_ms`, `convert_outcomes`), 선점이나 결제하기 응답이 0.5초를 넘은 초(`stalled_seconds_with_convert`), 서버의 Redis 선점 지표(`redis_metrics`: 결과별 수, 명령별 Redis 호출 시간 p50·p99·p999)가 더해집니다. Redis 지표는 회차 시작·끝의 차이입니다.
+
 결과는 `pool-10-M2000xK1-A400-rep-1.json`처럼 단계가 이름에 붙고, 회차별 요약은 `sellout-summary.csv`(판매 수, 매진 여부·시간, 1명당 시도 수, 선점 성공·409 p99, 가장 나쁜 10초 구간 p99, 멈춘 초 수, 좌석 조회 p99, 서버·DB CPU)에 남습니다.
 - 결과 해석과 처리 한도는 #434 댓글에 있습니다.

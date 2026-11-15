@@ -114,10 +114,13 @@ for pool in $POOLS; do
                 # 모의 매진(#447): 단계 L은 "회차마다 안에 있는 사용자 수" 또는 "사용자 수x회차 수"(예: 1000x3)다.
                 # 회차마다 25,000석을 같은 서버에서 동시에 매진까지 판다
                 # 뒤에 "@초당 입장 인원"을 붙이면 대기열처럼 그 속도로만 들여보낸다(예: 2000@300). 앞 숫자는 안에 있을 수 있는 인원 상한이다
+                # 맨 뒤에 ":DB" 또는 ":REDIS"를 붙이면 그 회차의 선점 위치를 바꿔 잰다(#449, 예: 1000x3:REDIS). 같은 서버에서 번갈아 잰다
+                hold_mode=""; [[ "$L" == *:* ]] && hold_mode="${L##*:}"; L="${L%%:*}"
                 admit=0; [[ "$L" == *@* ]] && admit="${L##*@}"; L="${L%%@*}"
                 active="${L%%x*}"; schedules=1; [[ "$L" == *x* ]] && schedules="${L##*x}"
-                name="pool-$pool-M${active}xK${schedules}"; [[ "$admit" != 0 ]] && name="$name-A$admit"; name="$name-rep-$rep"
-                opts="-Dbench.mode=sellout -Dbench.active=$active -Dbench.schedules=$schedules -Dbench.admit=$admit -Dbench.seats=${SELLOUT_SEATS:-25000}"
+                name="pool-$pool-M${active}xK${schedules}"; [[ "$admit" != 0 ]] && name="$name-A$admit"
+                [[ -n "$hold_mode" ]] && name="$name-$hold_mode"; name="$name-rep-$rep"
+                opts="-Dbench.mode=sellout -Dbench.active=$active -Dbench.schedules=$schedules -Dbench.admit=$admit -Dbench.seats=${SELLOUT_SEATS:-25000} -Dbench.holdMode=$hold_mode"
             else name="pool-$pool-L$L-rep-$rep"; opts="-Dbench.rate=$L -Dbench.burst=$L"; fi
             echo "[bench] 풀 $pool $name 시작 $(date +%H:%M:%S)"
             taskset -c "$LOAD_CPUS" java -Xmx1g $LOAD_JAVA_OPTS $opts -Dbench.run="$(( pool * 1000 + run_no ))" -cp "$CP" \
@@ -142,26 +145,36 @@ rows = []
 all_docs = [json.loads(f.read_text()) for f in out.glob('pool-*-rep-*.json')]
 docs = [d for d in all_docs if d.get('mode') != 'sellout']
 sellout = sorted((d for d in all_docs if d.get('mode') == 'sellout' and d['rep'] != 0),
-                 key=lambda d: (d['workload'].get('schedules', 1), d['workload']['active_users'], d['rep']))
+                 key=lambda d: (d['workload'].get('schedules', 1), d['workload']['active_users'],
+                                d['workload'].get('hold_mode') or '', d['rep']))
 if sellout:
     with (out/'sellout-summary.csv').open('w', newline='') as fh:
         w = csv.writer(fh)
-        w.writerow(['schedules', 'active_users', 'rep', 'sold', 'released', 'sold_out', 'sellout_seconds', 'attempts_per_success',
+        w.writerow(['schedules', 'active_users', 'hold_mode', 'rep', 'sold', 'released', 'sold_out', 'sellout_seconds', 'attempts_per_success',
                     'created_p99_ms', 'taken_p99_ms', 'worst_10s_created_p99_ms', 'worst_10s_taken_p99_ms', 'stalled_seconds',
                     'view_p99_ms', 'max_reads_per_s', 'max_holds_per_s',
-                    'server_cpu_avg', 'server_cpu_p95', 'pg_cpu_cores', 'hikari_pending_max'])
+                    'server_cpu_avg', 'server_cpu_p95', 'pg_cpu_cores', 'hikari_pending_max',
+                    'converts', 'convert_failed', 'convert_p99_ms', 'worst_10s_convert_p99_ms', 'stalled_with_convert',
+                    'redis_hold_call_p99_ms', 'redis_hold_call_p999_ms'])
         for d in sellout:
             s = d['server']
             ws = d['windows_10s']
-            worst = lambda key: max((x[key].get('p99', 0) for x in ws if x[key].get('count')), default=None)
-            w.writerow([d['workload'].get('schedules', 1), d['workload']['active_users'], d['rep'], d['sold'], d.get('released'),
+            worst = lambda key: max((x.get(key, {}).get('p99', 0) for x in ws if x.get(key, {}).get('count')), default=None)
+            co = d.get('convert_outcomes', {})
+            hold_call = d.get('redis_metrics', {}).get('calls', {}).get('hold', {})
+            w.writerow([d['workload'].get('schedules', 1), d['workload']['active_users'], d['workload'].get('hold_mode'),
+                        d['rep'], d['sold'], d.get('released'),
                         d['sold_out'], d['sellout_seconds'], d['attempts_per_success'],
                         d['created_ms'].get('p99'), d['taken_ms'].get('p99'), worst('created_ms'), worst('taken_ms'),
                         len(d['stalled_seconds']), d.get('view_ms', {}).get('p99'),
                         max((x.get('reads_per_s', 0) for x in ws), default=None),
                         max((x.get('holds_per_s', x.get('attempts_per_s', 0)) for x in ws), default=None),
                         s['server_cpu_200ms'].get('avg'), s['server_cpu_200ms'].get('p95'), s['pg_cpu_cores'],
-                        s['hikari_pending'].get('max')])
+                        s['hikari_pending'].get('max'),
+                        sum(co.values()), sum(v for k, v in co.items() if k not in ('created', 'existing')),
+                        d.get('convert_ms', {}).get('p99'), worst('convert_ms'),
+                        len(d.get('stalled_seconds_with_convert', [])),
+                        hold_call.get('p99_ms'), hold_call.get('p999_ms')])
     print('[bench] sellout summary', out/'sellout-summary.csv')
 for d in sorted(docs, key=lambda d: (d['pool'], d['workload']['base_rate'], d['rep'])):
     if d['rep'] == 0: continue

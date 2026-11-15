@@ -1,6 +1,9 @@
 package com.sparta.ticket.bench.hold;
 
 import com.sparta.ticket.reservation.ReservationServiceApplication;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldModeSwitch;
+import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
@@ -13,6 +16,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * #434 좌석 선점 처리량 측정용 예매 서비스 기동기. 운영 설정(config-repo의 application.yml·reservation-service.yml)을 파일로 읽고,
@@ -42,7 +48,11 @@ public final class HoldBenchServerMain {
                 "file:" + sql.resolve("booking.sql"),
                 "file:" + sql.resolve("seat.sql"),
                 "file:" + sql.resolve("coupon.sql"));
-        SpringApplication app = new SpringApplication(ReservationServiceApplication.class, BenchSaleValidation.class);
+        SpringApplication app = new SpringApplication(
+                ReservationServiceApplication.class,
+                BenchSaleValidation.class,
+                BenchHoldMode.class,
+                BenchHoldModeController.class);
         app.setAdditionalProfiles("bench");
         app.run(
                 "--spring.cloud.config.enabled=false",
@@ -81,6 +91,56 @@ public final class HoldBenchServerMain {
                         "MUSICAL",
                         seats);
             };
+        }
+    }
+
+    /**
+     * 선점 위치 스위치(#449)를 측정 중에 바꿀 수 있게 한다. 운영 스위치는 기동 때 정해져, 모드마다 서버를 다시 띄우면 JVM 예열 상태가
+     * 달라 두 모드 비교가 흔들린다. 같은 서버에서 회차마다 모드를 바꿔 번갈아 잰다. 기본값은 기동 설정(reservation.seat.hold.mode)이다.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class BenchHoldMode {
+
+        @Bean
+        @Primary
+        BenchHoldModeSwitch benchHoldModeSwitch(SeatHoldProperties properties) {
+            return new BenchHoldModeSwitch(properties);
+        }
+    }
+
+    static class BenchHoldModeSwitch extends SeatHoldModeSwitch {
+
+        private volatile SeatHoldMode mode;
+
+        BenchHoldModeSwitch(SeatHoldProperties properties) {
+            super(properties);
+            this.mode = properties.mode();
+        }
+
+        @Override
+        public SeatHoldMode current() {
+            return mode;
+        }
+
+        void set(SeatHoldMode mode) {
+            this.mode = mode;
+        }
+    }
+
+    /** 부하 생성기가 회차를 시작하기 전에 부른다. 측정 서버에만 있다. */
+    @RestController
+    static class BenchHoldModeController {
+
+        private final BenchHoldModeSwitch modeSwitch;
+
+        BenchHoldModeController(BenchHoldModeSwitch modeSwitch) {
+            this.modeSwitch = modeSwitch;
+        }
+
+        @PostMapping("/bench/hold-mode")
+        String set(@RequestParam SeatHoldMode mode) {
+            modeSwitch.set(mode);
+            return mode.name();
         }
     }
 }
