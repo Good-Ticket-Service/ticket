@@ -4,6 +4,8 @@ import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.application.port.StoredHold;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,14 +18,16 @@ import org.springframework.stereotype.Service;
 public class SeatHoldQueryService {
 
     private final SeatHoldStore store;
+    private final Clock clock;
 
     /** 없거나(만료·해제) 남의 선점이면 404 HOLD_NOT_FOUND다. 남의 선점인지 드러내지 않는다. */
-    public StoredHold get(Long userId, Long scheduleId, String holdId) {
+    public SeatHoldView get(Long userId, Long scheduleId, String holdId) {
         if (!HoldIds.isHoldId(holdId)) {
             throw new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND);
         }
-        return store.find(scheduleId, holdId)
-                .filter(hold -> hold.userId().equals(userId))
+        StoredHold hold = store.find(scheduleId, holdId)
+                .filter(found -> found.userId().equals(userId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND));
+        return new SeatHoldView(hold, LocalDateTime.ofInstant(hold.expiresAt(), clock.getZone()));
     }
 }
