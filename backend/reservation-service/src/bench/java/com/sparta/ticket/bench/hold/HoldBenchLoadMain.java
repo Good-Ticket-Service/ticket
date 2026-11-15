@@ -18,6 +18,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +28,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.regex.Matcher;
@@ -38,6 +42,7 @@ import java.util.regex.Pattern;
  *
  * - 다른 좌석 선점(base): 초당 {@link #RATE}건을 고르게 보낸다. 매번 다른 좌석·다른 사용자이고, 성공하면 {@link #HOLD_MS} 뒤 해제한다.
  * - 경합 없는 burst: 매초 정각에 {@link #BURST}명이 각자 다른 좌석을 동시에 선점하고, 성공하면 같은 시간 뒤 해제한다.
+ * - 좌석 상태 조회: 시작 전 한 번과 측정 동안 1초마다 한 번. 화면을 보는 사용자 몫이고, 좌석 배치도 스냅샷을 캐시에 유지한다(#447).
  * 처음 {@link #WARMUP_SECONDS}초는 예열이고, 그 뒤 {@link #MEASURE_SECONDS}초 동안 보낸 요청만 집계한다.
  *
  * 부하와 함께 서버 CPU(0.2초, /proc), 예매 서비스 Hikari·Tomcat·GC(1초, /actuator/prometheus), DB 연결 수(1초), DB CPU(1초, 컨테이너
@@ -50,7 +55,19 @@ public final class HoldBenchLoadMain {
     // 한도 확인 실행에서만 -Dbench.rate·-Dbench.burst로 바꾼다. 기본은 #390 대조군과 같은 250·250
     static final int RATE = Integer.getInteger("bench.rate", 250);
     static final int BURST = Integer.getInteger("bench.burst", 250);
-    static final int SEATS = 2000;
+    // 모의 매진(#447)은 -Dbench.seats=25000으로 키운다
+    static final int SEATS = Integer.getInteger("bench.seats", 2000);
+    /** mix: 다른 좌석 고른 부하 + 경합 없는 burst(#434). sellout: 모의 매진(#447). */
+    static final String MODE = System.getProperty("bench.mode", "mix");
+    /** 모의 매진에서 안에 동시에 있는 사용자 수(대기열 max-active에 해당). */
+    static final int ACTIVE = Integer.getInteger("bench.active", 1000);
+    /** 모의 매진 상한 시간. 이 안에 매진되지 않으면 그대로 끝낸다. */
+    static final int SELLOUT_LIMIT_SECONDS = Integer.getInteger("bench.sellout.seconds", 180);
+    /** 모의 매진에서 처음 좌석을 고르는 시간(ms, 무작위 범위). 미리 구역을 정해 두고 빠르게 누르는 사용자를 가정한다. */
+    static final int CHOOSE_MIN_MS = Integer.getInteger("bench.choose.min", 1_000);
+
+    static final int CHOOSE_MAX_MS = Integer.getInteger("bench.choose.max", 2_000);
+
     static final int USERS_PER_LOAD = 1250;
     static final long HOLD_MS = 500;
     // 짧은 확인 실행에서만 -Dbench.warmup·-Dbench.measure로 줄인다(스크립트의 LOAD_JAVA_OPTS)
@@ -101,15 +118,32 @@ public final class HoldBenchLoadMain {
         String pgContainer = args[8];
 
         HoldBenchLoadMain load = new HoldBenchLoadMain(baseUrl);
-        long scheduleId = 900_000L + pool * 100L + rep;
+        // 같은 서버에서 부하 단계를 번갈아 잴 때 회차·사용자가 겹치지 않게 실행 번호를 받는다(-Dbench.run, 스크립트가 넘김)
+        long run = Long.getLong("bench.run", pool * 100L + rep);
+        long scheduleId = 900_000L + run;
         List<Long> seats;
         try (Connection db = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)) {
-            seats = seed(db, scheduleId);
+            seats = seed(db, scheduleId, "sellout".equals(MODE) ? SECTION_SEATS : 0);
         }
         List<Long> burstSeats = seats.subList(0, BURST);
         List<Long> baseSeats = seats.subList(BURST, seats.size());
         // 사용자는 회차마다 다른 범위를 쓴다. 같은 회차 안에서는 burst와 다른 좌석 선점이 사용자를 나눠 쓴다
-        long userBase = (pool * 100L + rep) * 10_000L;
+        long userBase = run * 1_000_000L;
+        if ("sellout".equals(MODE)) {
+            load.runSellout(
+                    output,
+                    pool,
+                    rep,
+                    scheduleId,
+                    seats,
+                    userBase,
+                    serverPid,
+                    jdbcUrl,
+                    jdbcUser,
+                    jdbcPassword,
+                    pgContainer);
+            System.exit(0);
+        }
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("pool", pool);
@@ -135,9 +169,20 @@ public final class HoldBenchLoadMain {
 
         long t0 = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
         int totalSeconds = WARMUP_SECONDS + MEASURE_SECONDS;
+        // 좌석 화면을 보는 사용자 몫으로 좌석 상태를 미리 한 번 받고, 측정 동안 1초마다 받는다(#447). 실제로는 화면을 본 뒤 선점하므로
+        // 좌석 배치도 스냅샷이 캐시에 있다. 조회가 없으면 스냅샷이 만들어지지 않아 선점이 늘 DB에서 처음 읽기를 한다
+        load.readStatus(scheduleId, userBase + 1);
         String prefix = output.toString().replaceFirst("\\.json$", "");
         Thread sampler = new Thread(
                 () -> load.sampleServer(t0, serverPid, jdbcUrl, jdbcUser, jdbcPassword, pgContainer, prefix));
+        Thread viewer = new Thread(() -> {
+            while (load.running.get()) {
+                load.readStatus(scheduleId, userBase + 1);
+                LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(1));
+            }
+        });
+        viewer.setDaemon(true);
+        viewer.start();
         sampler.setDaemon(true);
         sampler.start();
 
@@ -177,6 +222,14 @@ public final class HoldBenchLoadMain {
         report.put("server", load.summarizeServer(t0, measureFrom, measureTo));
         report.put("per_second", load.perSecond(totalSeconds));
         report.put("thread_dumps", load.dumps);
+        // 처음 좌석 읽기 경로의 회차 끝 누적값(서버를 띄운 뒤의 합). 회차 사이 차이로 이 회차 몫을 본다
+        load.serverSamples.stream()
+                .reduce((first, second) -> second)
+                .ifPresent(last -> report.put(
+                        "first_read",
+                        Map.of(
+                                "snapshot", last.getOrDefault("first_read_snapshot", 0.0),
+                                "db", last.getOrDefault("first_read_db", 0.0))));
         // 1초 서버 표본 원본. 멈춘 초의 서버 쪽 처리 시간·연결 대기를 타임라인과 맞춰 본다
         report.put("server_rows", new ArrayList<>(load.serverSamples));
         Files.createDirectories(output.getParent());
@@ -186,15 +239,20 @@ public final class HoldBenchLoadMain {
     }
 
     /** 새 회차 좌석을 만들고 id를 좌석 번호 순으로 돌려준다. 컬럼 값은 seat.sql 제약을 따른다. */
-    static List<Long> seed(Connection db, long scheduleId) throws SQLException {
+    static List<Long> seed(Connection db, long scheduleId, int sectionSeats) throws SQLException {
         try (PreparedStatement insert = db.prepareStatement(
                 "INSERT INTO p_schedule_seats (schedule_id, venue_seat_id, venue_seat_grade_id, grade_name, base_price,"
                         + " section, row_label, seat_number, is_sellable, status, config_version,"
                         + " created_at, created_by, updated_at, updated_by)"
-                        + " SELECT ?, g, 7, 'VIP', 150000, 'A', 'R' || ((g - 1) / 25 + 1), (g - 1) % 25 + 1, true,"
+                        + " SELECT ?, g, 7, 'VIP', 150000,"
+                        + " CASE WHEN ? > 0 THEN 'S' || lpad(((g - 1) / ? + 1)::text, 2, '0') ELSE 'A' END,"
+                        + " 'R' || ((g - 1) / 25 + 1), (g - 1) % 25 + 1, true,"
                         + " 'AVAILABLE', 1, now(), 'bench', now(), 'bench' FROM generate_series(1, ?) g")) {
             insert.setLong(1, scheduleId);
-            insert.setInt(2, SEATS);
+            // 구역: sectionSeats석씩 S01, S02, …(모의 매진). 0이면 한 구역 A(다른 좌석·burst 부하)
+            insert.setInt(2, sectionSeats);
+            insert.setInt(3, Math.max(sectionSeats, 1));
+            insert.setInt(4, SEATS);
             insert.executeUpdate();
         }
         List<Long> ids = new ArrayList<>();
@@ -261,6 +319,21 @@ public final class HoldBenchLoadMain {
             return;
         }
         samples.add(new Sample(load, "release", intended, (System.nanoTime() - releaseSent) / 1e6, 0, releaseOutcome));
+    }
+
+    /** 좌석 상태 조회 한 번. 실패해도 선점 측정은 이어 간다. */
+    void readStatus(long scheduleId, long userId) {
+        try {
+            http.send(
+                    request("/api/seats/schedules/" + scheduleId + "/status", userId)
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.discarding());
+        } catch (IOException e) {
+            System.err.println("[bench] status read failed: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** Gateway가 인증 뒤 넣는 사용자 헤더를 직접 넣는다(common-core UserHeaders). */
@@ -472,6 +545,12 @@ public final class HoldBenchLoadMain {
                         if (main) row.put("hikari_acquire_max_ms", value * 1000);
                     }
                     case "tomcat_threads_busy_threads" -> row.put("tomcat_busy", value);
+                    case "reservation_seat_hold_first_read_total" -> {
+                        // 선점의 처음 좌석 읽기 경로 누적(#447). 스냅샷 경로가 실제로 쓰였는지 본다
+                        row.put(
+                                labels.contains("source=\"snapshot\"") ? "first_read_snapshot" : "first_read_db",
+                                value);
+                    }
                     case "http_server_requests_seconds_max" -> {
                         // 서버가 직접 잰 선점 요청 처리 시간(구간 최댓값). 생성기에서 본 지연과 비교한다
                         if (labels.contains("method=\"POST\"") && labels.contains("/holds")) {
@@ -639,5 +718,518 @@ public final class HoldBenchLoadMain {
     static double percentile(List<Double> sorted, double q) {
         int index = (int) Math.ceil(q * sorted.size()) - 1;
         return sorted.get(Math.max(0, Math.min(sorted.size() - 1, index)));
+    }
+
+    // ---------- 모의 매진(#447) ----------
+
+    /** 모의 매진에서 동시에 여는 회차 수. 회차마다 좌석 SEATS석, 사용자 ACTIVE명이다. */
+    static final int SCHEDULES = Integer.getInteger("bench.schedules", 1);
+    /** 구역 하나의 좌석 수. 25,000석이면 S01\~S25 25개 구역이다. */
+    static final int SECTION_SEATS = Integer.getInteger("bench.section.seats", 1_000);
+    /** 앞쪽 인기 구역 수(S01부터). */
+    static final int HOT_SECTIONS = Integer.getInteger("bench.hot.sections", 5);
+    /** 인기 구역에 빈 좌석이 보이는 동안 거기서 고르는 사용자 비율(%). 인기 구역이 다 팔리면 다른 구역으로 간다. */
+    static final int HOT_PERCENT = Integer.getInteger("bench.hot.percent", 70);
+    /** 선점에 성공한 뒤 결제를 포기하고 해제하는 비율(%). 가정이다. */
+    static final int ABANDON_PERCENT = Integer.getInteger("bench.abandon.percent", 20);
+    /**
+     * 좌석 화면의 상태 자동 갱신 간격. 스냅샷이 최대 1초마다 갱신되므로 1초가 의미 있는 가장 짧은 간격이다. 프런트 SeatsPage(3초)보다
+     * 가혹하게 둔다(조회 부하가 가장 큼). 409를 받으면 바로 다시 받는다.
+     */
+    static final long VIEW_REFRESH_MS = Long.getLong("bench.view.refresh.ms", 1_000);
+    /** 같은 구역에서 409를 이만큼 연달아 받으면 인기 구역을 포기하고 빈 좌석이 있는 아무 구역에서 다시 고른다. */
+    static final int GIVE_UP_AFTER = Integer.getInteger("bench.give.up.after", 3);
+
+    /**
+     * 대기열 입장 속도(회차마다 초당 입장 인원). 0이면 빈자리가 나는 즉시 다음 사람이 들어온다(입장 제한 없는 최악의 경우).
+     * 대기열(admit.lua)처럼 1초마다 1초 분량을 들여보내고, 못 쓴 입장분은 2초 분량까지만 쌓는다. 안에 있는 인원 상한은 ACTIVE다.
+     */
+    static final int ADMIT_PER_SECOND = Integer.getInteger("bench.admit", 0);
+
+    /** 모의 매진 요청 한 건. kind는 hold·view(구역 상태)·sections(구역 목록)·release, t는 시작 기준 경과 시간(ns)이다. */
+    record SelloutSample(int k, String kind, long t, double latencyMs, String outcome) {}
+
+    /** 선점 결과와 성공한 경우의 예약 id. */
+    record HoldOutcome(String outcome, long reservationId) {}
+
+    private final Queue<SelloutSample> selloutSamples = new ConcurrentLinkedQueue<>();
+
+    /**
+     * 처음부터 매진까지 실제로 팔아 본다. 회차 SCHEDULES개를 같은 서버에서 동시에 열고, 회차마다 안에 ACTIVE명이 있다.
+     * 한 명이 선점에 성공해 나가면 다음 사람이 바로 들어온다(대기열 입장 속도 제한이 없는 최악의 경우).
+     *
+     * 사용자 한 명의 흐름(프런트 SeatsPage를 따름):
+     *   1. 구역 목록(sections)을 받고 구역을 고른다. HOT_PERCENT%는 앞쪽 인기 구역에 빈 좌석이 있는 동안만 거기서 고른다.
+     *   2. 그 구역의 좌석 상태(status?section=)를 받는다. 처음 고르기 CHOOSE_MIN_MS\~CHOOSE_MAX_MS(기본 1\~2초) 뒤 빈 좌석을 무작위로
+     *      골라 선점한다. 상태는 VIEW_REFRESH_MS(1초)마다 다시 받는다.
+     *   3. 성공하면 결제로 넘어가 나간다. ABANDON_PERCENT%는 10\~30초 뒤 해제한다(결제 포기). 좌석이 다시 풀린다.
+     *   4. 409면 바로 상태를 다시 받고(프런트의 invalidateQueries), 1\~3초 뒤 다시 고른다. 구역에 빈 좌석이 없거나 같은 구역에서
+     *      GIVE_UP_AFTER번 연달아 놓치면 인기 구역을 포기하고 1로 간다.
+     * 회차마다 모든 구역에 빈 좌석이 없거나 SELLOUT_LIMIT_SECONDS가 지나면 끝낸다.
+     */
+    void runSellout(
+            Path output,
+            int pool,
+            int rep,
+            long scheduleId,
+            List<Long> seats,
+            long userBase,
+            long serverPid,
+            String jdbcUrl,
+            String jdbcUser,
+            String jdbcPassword,
+            String pgContainer)
+            throws Exception {
+        // 첫 회차는 main이 만들었다. 나머지 회차를 더 만든다(회차 id는 첫 회차 뒤로 이어 붙인다)
+        List<Long> scheduleIds = new ArrayList<>(List.of(scheduleId));
+        List<List<Long>> seatLists = new ArrayList<>(List.of(seats));
+        try (Connection db = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)) {
+            for (int k = 1; k < SCHEDULES; k++) {
+                long id = scheduleId + k * 100_000_000L;
+                scheduleIds.add(id);
+                seatLists.add(seed(db, id, SECTION_SEATS));
+            }
+        }
+        int n = SCHEDULES;
+        long t0 = System.nanoTime();
+        String prefix = output.toString().replaceFirst("\\.json$", "");
+        Thread sampler =
+                new Thread(() -> sampleServer(t0, serverPid, jdbcUrl, jdbcUser, jdbcPassword, pgContainer, prefix));
+        sampler.setDaemon(true);
+        sampler.start();
+
+        AtomicInteger[] sold = new AtomicInteger[n];
+        AtomicInteger[] released = new AtomicInteger[n];
+        AtomicLong[] lastSoldAt = new AtomicLong[n];
+        AtomicLong[] nextUser = new AtomicLong[n];
+        AtomicBoolean[] soldOut = new AtomicBoolean[n];
+        // 해제 예정(결제 포기)인 선점 수. 0이 아니면 빈 좌석이 없어 보여도 곧 다시 풀리므로 매진으로 보지 않는다
+        AtomicInteger[] pendingReleases = new AtomicInteger[n];
+        for (int k = 0; k < n; k++) {
+            sold[k] = new AtomicInteger();
+            released[k] = new AtomicInteger();
+            lastSoldAt[k] = new AtomicLong();
+            nextUser[k] = new AtomicLong(userBase + 1 + k * 200_000L);
+            soldOut[k] = new AtomicBoolean();
+            pendingReleases[k] = new AtomicInteger();
+        }
+        long deadline = t0 + TimeUnit.SECONDS.toNanos(SELLOUT_LIMIT_SECONDS);
+        java.util.concurrent.ScheduledExecutorService abandoner = Executors.newScheduledThreadPool(16);
+        ExecutorService users = Executors.newFixedThreadPool(ACTIVE * n);
+        java.util.concurrent.Semaphore[] admits = new java.util.concurrent.Semaphore[n];
+        for (int k = 0; k < n; k++) {
+            admits[k] = new java.util.concurrent.Semaphore(0);
+        }
+        if (ADMIT_PER_SECOND > 0) {
+            abandoner.scheduleAtFixedRate(
+                    () -> {
+                        for (java.util.concurrent.Semaphore admit : admits) {
+                            admit.release(Math.max(
+                                    0, Math.min(ADMIT_PER_SECOND, 2 * ADMIT_PER_SECOND - admit.availablePermits())));
+                        }
+                    },
+                    0,
+                    1,
+                    TimeUnit.SECONDS);
+        }
+        for (int k = 0; k < n; k++) {
+            int kk = k;
+            long sid = scheduleIds.get(k);
+            List<Long> seatIds = seatLists.get(k);
+            for (int i = 0; i < ACTIVE; i++) {
+                users.execute(() -> {
+                    ThreadLocalRandom random = ThreadLocalRandom.current();
+                    while (System.nanoTime() < deadline && !soldOut[kk].get()) {
+                        if (ADMIT_PER_SECOND > 0) {
+                            try {
+                                if (!admits[kk].tryAcquire(200, TimeUnit.MILLISECONDS)) {
+                                    continue;
+                                }
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
+                        }
+                        long userId = nextUser[kk].getAndIncrement();
+                        boolean hotFan = random.nextInt(100) < HOT_PERCENT;
+                        int misses = 0;
+                        boolean left = false;
+                        while (!left && System.nanoTime() < deadline) {
+                            int[] counts = readSections(kk, sid, userId, t0);
+                            if (counts == null) {
+                                pause(1_000);
+                                continue;
+                            }
+                            int section = pickSection(counts, hotFan, random);
+                            if (section < 0) {
+                                if (pendingReleases[kk].get() == 0) {
+                                    soldOut[kk].set(true);
+                                    return;
+                                }
+                                pause(1_000);
+                                continue;
+                            }
+                            long[] viewedAt = {System.nanoTime()};
+                            int[] view = readSectionView(kk, sid, userId, section, t0);
+                            // 좌석을 고르는 동안에도 화면은 VIEW_REFRESH_MS마다 상태를 다시 받는다
+                            view = watch(
+                                    kk,
+                                    sid,
+                                    userId,
+                                    section,
+                                    t0,
+                                    random.nextLong(CHOOSE_MIN_MS, CHOOSE_MAX_MS + 1L),
+                                    view,
+                                    viewedAt);
+                            while (System.nanoTime() < deadline) {
+                                if (System.nanoTime() - viewedAt[0] > TimeUnit.MILLISECONDS.toNanos(VIEW_REFRESH_MS)) {
+                                    view = readSectionView(kk, sid, userId, section, t0);
+                                    viewedAt[0] = System.nanoTime();
+                                }
+                                if (view == null || view.length == 0) {
+                                    break;
+                                }
+                                long seatId = seatIds.get(view[random.nextInt(view.length)]);
+                                long start = System.nanoTime();
+                                HoldOutcome result = holdOnce(sid, userId, seatId);
+                                long end = System.nanoTime();
+                                selloutSamples.add(new SelloutSample(
+                                        kk, "hold", start - t0, (end - start) / 1e6, result.outcome()));
+                                if ("created".equals(result.outcome())) {
+                                    sold[kk].incrementAndGet();
+                                    lastSoldAt[kk].set(end - t0);
+                                    if (random.nextInt(100) < ABANDON_PERCENT) {
+                                        long uid = userId;
+                                        pendingReleases[kk].incrementAndGet();
+                                        abandoner.schedule(
+                                                () -> {
+                                                    try {
+                                                        if (releaseOnce(kk, sid, uid, result.reservationId(), t0)) {
+                                                            sold[kk].decrementAndGet();
+                                                            released[kk].incrementAndGet();
+                                                        }
+                                                    } finally {
+                                                        pendingReleases[kk].decrementAndGet();
+                                                    }
+                                                },
+                                                random.nextLong(10_000, 30_001),
+                                                TimeUnit.MILLISECONDS);
+                                    }
+                                    left = true;
+                                    break;
+                                }
+                                if (!"taken".equals(result.outcome())) {
+                                    left = true;
+                                    break;
+                                }
+                                if (++misses >= GIVE_UP_AFTER) {
+                                    // 같은 구역에서 계속 놓치면 다른 구역으로 옮긴다(인기 구역도 포기)
+                                    hotFan = false;
+                                    misses = 0;
+                                    pause(random.nextLong(1_000, 3_001));
+                                    break;
+                                }
+                                // 프런트는 409에서 좌석 상태를 바로 다시 받는다. 다시 고르는 동안에도 화면은 계속 갱신된다
+                                view = readSectionView(kk, sid, userId, section, t0);
+                                viewedAt[0] = System.nanoTime();
+                                view = watch(
+                                        kk, sid, userId, section, t0, random.nextLong(1_000, 3_001), view, viewedAt);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        users.shutdown();
+        boolean finished = users.awaitTermination(SELLOUT_LIMIT_SECONDS + 60L, TimeUnit.SECONDS);
+        users.shutdownNow();
+        abandoner.shutdownNow();
+        running.set(false);
+        sampler.join(5_000);
+
+        long endNanos = System.nanoTime() - t0;
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("mode", "sellout");
+        report.put("pool", pool);
+        report.put("rep", rep);
+        report.put("schedule_ids", scheduleIds);
+        Map<String, Object> workload = new LinkedHashMap<>();
+        workload.put("seats", SEATS);
+        workload.put("schedules", n);
+        workload.put("active_users", ACTIVE);
+        workload.put("admit_per_second", ADMIT_PER_SECOND);
+        workload.put("section_seats", SECTION_SEATS);
+        workload.put("hot_sections", HOT_SECTIONS);
+        workload.put("hot_percent", HOT_PERCENT);
+        workload.put("abandon_percent", ABANDON_PERCENT);
+        workload.put("abandon_after_ms", "10000-30000");
+        workload.put("choose_ms", CHOOSE_MIN_MS + "-" + CHOOSE_MAX_MS);
+        workload.put("retry_ms", "1000-3000");
+        workload.put("view_refresh_ms", VIEW_REFRESH_MS);
+        workload.put("limit_seconds", SELLOUT_LIMIT_SECONDS);
+        workload.put("sale_validation_delay_ms", HoldBenchServerMain.SALE_VALIDATION_DELAY.toMillis());
+        report.put("workload", workload);
+        report.put("finished", finished);
+        int soldTotal = 0;
+        int releasedTotal = 0;
+        boolean allSoldOut = true;
+        double slowest = 0;
+        List<Map<String, Object>> perSchedule = new ArrayList<>();
+        for (int k = 0; k < n; k++) {
+            int s = sold[k].get();
+            soldTotal += s;
+            releasedTotal += released[k].get();
+            boolean out = soldOut[k].get();
+            allSoldOut &= out;
+            if (out) {
+                slowest = Math.max(slowest, lastSoldAt[k].get() / 1e9);
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("schedule_id", scheduleIds.get(k));
+            row.put("sold", s);
+            row.put("released", released[k].get());
+            row.put("sold_out", out);
+            row.put("sellout_seconds", out ? lastSoldAt[k].get() / 1e9 : null);
+            perSchedule.add(row);
+        }
+        report.put("per_schedule", perSchedule);
+        report.put("sold", soldTotal);
+        report.put("released", releasedTotal);
+        // 매진: 회차마다 구역 목록에 빈 좌석이 하나도 없음을 본 시점. 마지막 성공 시각을 매진 시간으로 둔다
+        report.put("sold_out", allSoldOut);
+        report.put("sellout_seconds", allSoldOut ? slowest : null);
+        List<SelloutSample> all = new ArrayList<>(selloutSamples);
+        List<SelloutSample> holds =
+                all.stream().filter(x -> "hold".equals(x.kind())).toList();
+        Map<String, Integer> outcomes = new LinkedHashMap<>();
+        holds.forEach(x -> outcomes.merge(x.outcome(), 1, Integer::sum));
+        report.put("outcomes", outcomes);
+        int created = outcomes.getOrDefault("created", 0);
+        report.put("attempts_per_success", created == 0 ? null : (double) holds.size() / created);
+        report.put("created_ms", distribution(latencies(all, "hold", "created", 0, endNanos)));
+        report.put("taken_ms", distribution(latencies(all, "hold", "taken", 0, endNanos)));
+        report.put("view_ms", distribution(latencies(all, "view", null, 0, endNanos)));
+        report.put("sections_ms", distribution(latencies(all, "sections", null, 0, endNanos)));
+        report.put("release_ms", distribution(latencies(all, "release", null, 0, endNanos)));
+        List<Map<String, Object>> windows = new ArrayList<>();
+        for (long from = 0; from < endNanos; from += TimeUnit.SECONDS.toNanos(10)) {
+            long to = from + TimeUnit.SECONDS.toNanos(10);
+            long f = from;
+            List<SelloutSample> in =
+                    all.stream().filter(x -> x.t() >= f && x.t() < to).toList();
+            Map<String, Object> w = new LinkedHashMap<>();
+            w.put("from_s", from / 1_000_000_000L);
+            w.put(
+                    "holds_per_s",
+                    in.stream().filter(x -> "hold".equals(x.kind())).count() / 10.0);
+            w.put(
+                    "created_per_s",
+                    in.stream().filter(x -> "created".equals(x.outcome())).count() / 10.0);
+            w.put(
+                    "taken_per_s",
+                    in.stream().filter(x -> "taken".equals(x.outcome())).count() / 10.0);
+            w.put(
+                    "reads_per_s",
+                    in.stream()
+                                    .filter(x -> "view".equals(x.kind()) || "sections".equals(x.kind()))
+                                    .count()
+                            / 10.0);
+            w.put(
+                    "releases_per_s",
+                    in.stream().filter(x -> "release".equals(x.kind())).count() / 10.0);
+            w.put(
+                    "other",
+                    in.stream()
+                            .filter(x -> "hold".equals(x.kind())
+                                    && !"created".equals(x.outcome())
+                                    && !"taken".equals(x.outcome()))
+                            .count());
+            w.put("created_ms", distribution(latencies(all, "hold", "created", from, to)));
+            w.put("taken_ms", distribution(latencies(all, "hold", "taken", from, to)));
+            w.put("view_ms", distribution(latencies(all, "view", null, from, to)));
+            windows.add(w);
+        }
+        report.put("windows_10s", windows);
+        // 멈춤: 선점 응답(성공·409)의 초당 최댓값이 0.5초를 넘은 초(#447 판단 기준)
+        List<Long> stalledSeconds = new ArrayList<>();
+        for (long sec = 0; sec * 1_000_000_000L < endNanos; sec++) {
+            long f = sec * 1_000_000_000L;
+            long to = f + 1_000_000_000L;
+            double max = holds.stream()
+                    .filter(x -> x.t() >= f && x.t() < to)
+                    .mapToDouble(SelloutSample::latencyMs)
+                    .max()
+                    .orElse(0);
+            if (max > 500) {
+                stalledSeconds.add(sec);
+            }
+        }
+        report.put("stalled_seconds", stalledSeconds);
+        report.put("server", summarizeServer(t0, 0, endNanos));
+        report.put("server_rows", new ArrayList<>(serverSamples));
+        report.put("thread_dumps", dumps);
+        Files.createDirectories(output.getParent());
+        JSON.writeValue(output.toFile(), report);
+        System.out.println("[bench] wrote " + output + " sold " + soldTotal + "/" + (SEATS * n) + ", released "
+                + releasedTotal + ", sold out " + allSoldOut);
+    }
+
+    /**
+     * millis 동안 화면을 보고 있는 사용자. VIEW_REFRESH_MS마다 구역 상태를 다시 받아 마지막 값을 돌려준다(프런트 refetchInterval).
+     * viewedAt[0]은 마지막으로 받은 시각이고, 받을 때마다 고친다.
+     */
+    int[] watch(int k, long scheduleId, long userId, int section, long t0, long millis, int[] view, long[] viewedAt) {
+        long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis);
+        long refresh = TimeUnit.MILLISECONDS.toNanos(VIEW_REFRESH_MS);
+        int[] latest = view;
+        while (true) {
+            long now = System.nanoTime();
+            long next = viewedAt[0] + refresh;
+            if (next >= until) {
+                LockSupport.parkNanos(until - now);
+                return latest;
+            }
+            LockSupport.parkNanos(next - now);
+            int[] fresh = readSectionView(k, scheduleId, userId, section, t0);
+            viewedAt[0] = System.nanoTime();
+            if (fresh != null) {
+                latest = fresh;
+            }
+        }
+    }
+
+    /** 인기 구역 팬은 앞쪽 HOT_SECTIONS개 중 빈 좌석이 있는 구역을, 아니면(또는 인기 구역이 다 팔리면) 빈 좌석이 있는 아무 구역을 고른다. */
+    static int pickSection(int[] counts, boolean hotFan, ThreadLocalRandom random) {
+        List<Integer> hot = new ArrayList<>();
+        List<Integer> any = new ArrayList<>();
+        for (int i = 0; i < counts.length; i++) {
+            if (counts[i] > 0) {
+                any.add(i);
+                if (i < HOT_SECTIONS) {
+                    hot.add(i);
+                }
+            }
+        }
+        List<Integer> from = hotFan && !hot.isEmpty() ? hot : any;
+        return from.isEmpty() ? -1 : from.get(random.nextInt(from.size()));
+    }
+
+    private static List<Double> latencies(List<SelloutSample> all, String kind, String outcome, long from, long to) {
+        return all.stream()
+                .filter(x -> kind.equals(x.kind()) && (outcome == null || outcome.equals(x.outcome())))
+                .filter(x -> x.t() >= from && x.t() < to)
+                .map(SelloutSample::latencyMs)
+                .toList();
+    }
+
+    private static void pause(long millis) {
+        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(millis));
+    }
+
+    /** 선점 한 번. 성공해도 바로 해제하지 않는다(결제로 넘어간 사용자). */
+    HoldOutcome holdOnce(long scheduleId, long userId, long seatId) {
+        HttpRequest hold = request("/api/seats/schedules/" + scheduleId + "/holds", userId)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"scheduleSeatId\":" + seatId + "}"))
+                .build();
+        long id = requestSeq.incrementAndGet();
+        inFlight.put(id, System.nanoTime());
+        try {
+            HttpResponse<String> response = http.send(hold, HttpResponse.BodyHandlers.ofString());
+            JsonNode body = parse(response.body());
+            return new HoldOutcome(
+                    classify(response.statusCode(), body),
+                    body.path("data").path("reservationId").asLong(0));
+        } catch (IOException e) {
+            return new HoldOutcome("error", 0);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new HoldOutcome("error", 0);
+        } finally {
+            inFlight.remove(id);
+        }
+    }
+
+    /** 결제 포기: 선점을 해제한다. 성공하면 true. */
+    boolean releaseOnce(int k, long scheduleId, long userId, long reservationId, long t0) {
+        long start = System.nanoTime();
+        boolean ok;
+        try {
+            HttpResponse<String> response = http.send(
+                    request("/api/seats/schedules/" + scheduleId + "/holds/" + reservationId, userId)
+                            .DELETE()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            ok = response.statusCode() == 204;
+        } catch (IOException e) {
+            ok = false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            ok = false;
+        }
+        selloutSamples.add(new SelloutSample(
+                k, "release", start - t0, (System.nanoTime() - start) / 1e6, ok ? "released" : "release_failed"));
+        return ok;
+    }
+
+    /** 구역 목록을 받아 구역 순서(S01부터)대로 선택 가능 좌석 수를 돌려준다. 실패하면 null. */
+    int[] readSections(int k, long scheduleId, long userId, long t0) {
+        long start = System.nanoTime();
+        try {
+            HttpResponse<String> response = http.send(
+                    request("/api/seats/schedules/" + scheduleId + "/sections", userId)
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonNode sections = parse(response.body()).path("data").path("sections");
+            int[] counts = new int[SEATS / SECTION_SEATS];
+            for (JsonNode section : sections) {
+                int index =
+                        Integer.parseInt(section.path("section").asText("S0").substring(1)) - 1;
+                if (index >= 0 && index < counts.length) {
+                    counts[index] = section.path("selectableCount").asInt(0);
+                }
+            }
+            selloutSamples.add(new SelloutSample(k, "sections", start - t0, (System.nanoTime() - start) / 1e6, "ok"));
+            return sections.isEmpty() ? null : counts;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /**
+     * 구역 하나의 좌석 상태를 받아 비어 보이는 좌석의 회차 전체 순번 목록으로 바꾼다. i번째 비트가 그 구역의 i번째 좌석(좌석 id 순)이고
+     * 바이트 안 낮은 비트부터다. 구역 s의 i번째 좌석은 회차 전체에서 s × SECTION_SEATS + i번째다. 실패하면 null.
+     */
+    int[] readSectionView(int k, long scheduleId, long userId, int section, long t0) {
+        long start = System.nanoTime();
+        try {
+            String name = String.format("S%02d", section + 1);
+            HttpResponse<String> response = http.send(
+                    request("/api/seats/schedules/" + scheduleId + "/status?section=" + name, userId)
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            String bitmap =
+                    parse(response.body()).path("data").path("selectableBitmap").asText("");
+            byte[] bits = Base64.getDecoder().decode(bitmap);
+            int[] free = new int[SECTION_SEATS];
+            int count = 0;
+            for (int i = 0; i < SECTION_SEATS && i / 8 < bits.length; i++) {
+                if ((bits[i / 8] & (1 << (i % 8))) != 0) {
+                    free[count++] = section * SECTION_SEATS + i;
+                }
+            }
+            selloutSamples.add(new SelloutSample(k, "view", start - t0, (System.nanoTime() - start) / 1e6, "ok"));
+            return Arrays.copyOf(free, count);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
     }
 }

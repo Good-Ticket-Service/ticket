@@ -27,7 +27,8 @@ import org.springframework.context.annotation.Primary;
  */
 public final class HoldBenchServerMain {
 
-    static final Duration SALE_VALIDATION_DELAY = Duration.ofMillis(5);
+    // 측정마다 -Dbench.sale.delay.ms로 바꾼다(모의 매진은 10ms: #390 판매 검증 서버 쪽 p99 5\~12ms의 위쪽)
+    static final Duration SALE_VALIDATION_DELAY = Duration.ofMillis(Integer.getInteger("bench.sale.delay.ms", 5));
 
     private HoldBenchServerMain() {}
 
