@@ -1101,12 +1101,19 @@ public final class HoldBenchLoadMain {
             w.put(
                     "holds_per_s",
                     in.stream().filter(x -> "hold".equals(x.kind())).count() / 10.0);
+            // 선점 표본만 센다. 결제하기(#449)도 결과가 created라 종류로 거르지 않으면 REDIS 모드에서 두 번 센다
             w.put(
                     "created_per_s",
-                    in.stream().filter(x -> "created".equals(x.outcome())).count() / 10.0);
+                    in.stream()
+                                    .filter(x -> "hold".equals(x.kind()) && "created".equals(x.outcome()))
+                                    .count()
+                            / 10.0);
             w.put(
                     "taken_per_s",
-                    in.stream().filter(x -> "taken".equals(x.outcome())).count() / 10.0);
+                    in.stream()
+                                    .filter(x -> "hold".equals(x.kind()) && "taken".equals(x.outcome()))
+                                    .count()
+                            / 10.0);
             w.put(
                     "reads_per_s",
                     in.stream()
