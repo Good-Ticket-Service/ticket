@@ -101,6 +101,8 @@ public interface SeatHoldStore {
         /** 이미 바꿨다. reservationId가 있다. */
         CONVERTED,
         EXPIRED,
-        STARTED
+        STARTED,
+        /** 이미 바꾸는 중인데 남은 시간이 minRemain보다 적다. 앞선 요청이 DB에 커밋했는지는 DB로 확인한다. */
+        CONVERTING_EXPIRING
     }
 }
