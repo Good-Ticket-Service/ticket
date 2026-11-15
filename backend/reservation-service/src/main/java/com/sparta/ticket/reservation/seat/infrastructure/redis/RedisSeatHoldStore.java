@@ -48,7 +48,12 @@ public class RedisSeatHoldStore implements SeatHoldStore {
 
     /** hold.lua 반환 코드 순서와 같다. */
     private static final HoldOutcome[] HOLD_OUTCOMES = {
-        HoldOutcome.CREATED, HoldOutcome.EXISTING, HoldOutcome.CONVERTED_USER, HoldOutcome.TAKEN, HoldOutcome.LIMIT
+        HoldOutcome.CREATED,
+        HoldOutcome.EXISTING,
+        HoldOutcome.CONVERTED_USER,
+        HoldOutcome.TAKEN,
+        HoldOutcome.LIMIT,
+        HoldOutcome.MINE_IN_DB
     };
 
     /** release.lua 반환 코드 순서와 같다. */
@@ -78,13 +83,14 @@ public class RedisSeatHoldStore implements SeatHoldStore {
     }
 
     @Override
-    public HoldAttempt hold(StoredHold hold, Instant now) {
+    public HoldAttempt hold(StoredHold hold, Long heldInDbBy, Instant now) {
         List<String> args = new ArrayList<>();
         args.add(hold.holdId());
         args.add(String.valueOf(hold.scheduleSeatId()));
         args.add(String.valueOf(hold.expiresAt().toEpochMilli()));
         args.add(String.valueOf(ttlMillis(hold.expiresAt(), now)));
         args.add(String.valueOf(now.toEpochMilli()));
+        args.add(heldInDbBy == null ? "" : String.valueOf(heldInDbBy));
         toHash(hold).forEach((field, value) -> {
             args.add(field);
             args.add(value);
@@ -96,7 +102,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
         HoldOutcome outcome = HOLD_OUTCOMES[code(result)];
         return switch (outcome) {
             case CREATED, EXISTING -> new HoldAttempt(outcome, result.get(1), null);
-            case CONVERTED_USER -> new HoldAttempt(outcome, null, Long.valueOf(result.get(1)));
+            case CONVERTED_USER, MINE_IN_DB -> new HoldAttempt(outcome, null, Long.valueOf(result.get(1)));
             default -> new HoldAttempt(outcome, null, null);
         };
     }

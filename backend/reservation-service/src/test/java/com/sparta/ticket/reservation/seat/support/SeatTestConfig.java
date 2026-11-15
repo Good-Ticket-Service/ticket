@@ -35,6 +35,13 @@ public class SeatTestConfig {
         return new MutableSeatHoldDuration(properties);
     }
 
+    /** 선점 저장 위치. 기본은 설정값(DB)이고, REDIS 모드 테스트가 바꾼 뒤 되돌린다(#449). */
+    @Bean
+    @Primary
+    public MutableSeatHoldModeSwitch mutableSeatHoldModeSwitch(SeatHoldProperties properties) {
+        return new MutableSeatHoldModeSwitch(properties);
+    }
+
     /** 좌석 배치도 캐시의 refresh·정리 작업. 테스트가 runPending()을 부를 때 실행된다(#311). */
     @Bean
     public DeferredTasks seatSnapshotRefreshTasks() {
