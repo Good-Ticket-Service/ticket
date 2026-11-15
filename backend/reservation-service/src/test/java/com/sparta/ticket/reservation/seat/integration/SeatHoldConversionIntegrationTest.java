@@ -18,6 +18,7 @@ import com.sparta.ticket.reservation.seat.support.MutableSeatHoldModeSwitch;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -328,6 +329,7 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
         double released = counter("release", "released");
         double convertCreated = counter("convert", "created");
         double convertExisting = counter("convert", "already_converted");
+        long holdCalls = redisCalls("hold");
 
         String first = seatHoldService.hold(USER, SCHEDULE, seatId).holdId();
         redisSeatReleaseService.release(USER, SCHEDULE, first);
@@ -339,6 +341,15 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
         assertThat(counter("release", "released") - released).isEqualTo(1);
         assertThat(counter("convert", "created") - convertCreated).isEqualTo(1);
         assertThat(counter("convert", "already_converted") - convertExisting).isEqualTo(1);
+        // Redis 호출 시간도 호출마다 남긴다(hold.lua 2번)
+        assertThat(redisCalls("hold") - holdCalls).isEqualTo(2);
+    }
+
+    private long redisCalls(String command) {
+        Timer timer = meters.find("reservation.seat.hold.redis.call")
+                .tag("command", command)
+                .timer();
+        return timer == null ? 0 : timer.count();
     }
 
     private double counter(String operation, String result) {
