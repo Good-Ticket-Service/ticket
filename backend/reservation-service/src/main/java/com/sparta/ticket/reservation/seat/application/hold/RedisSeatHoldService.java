@@ -41,6 +41,7 @@ public class RedisSeatHoldService {
     private final SeatHoldStore store;
     private final SeatHoldDuration holdDuration;
     private final RedisHoldDbReads dbReads;
+    private final RedisSeatHoldMetrics metrics;
     private final Clock clock;
 
     SeatHoldResult hold(Long userId, Long scheduleId, ScheduleSeat seat, SaleValidation validation) {
@@ -57,6 +58,7 @@ public class RedisSeatHoldService {
             throw new BusinessException(ReservationErrorCode.SEAT_CONFIG_VERSION_MISMATCH);
         }
         if (seat.getStatus() == SeatStatus.SOLD) {
+            metrics.hold("taken_in_db");
             throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
         }
         // 만료된 HOLD는 그 예약이 결제 중이 아니면 비어 있는 것으로 본다(정리 전인 만료 선점). 결제 중인 예약은 선점 만료 뒤에도 좌석을
@@ -66,6 +68,7 @@ public class RedisSeatHoldService {
             if (!seat.isHoldExpiredAt(nowLocal)) {
                 heldInDbBy = seat.getReservationId();
             } else if (dbReads.paymentInProgress(seat.getReservationId())) {
+                metrics.hold("taken_in_db");
                 throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
             }
         }
@@ -76,6 +79,7 @@ public class RedisSeatHoldService {
                 newHoldId(), scheduleId, userId, seat.getId(), validation, expiresAt, HoldState.HELD, null);
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             HoldAttempt result = store.hold(hold, heldInDbBy, now);
+            metrics.hold(RedisSeatHoldMetrics.tag(result.outcome()));
             switch (result.outcome()) {
                 case CREATED:
                     return redisResult(result.holdId(), seat, expiresAt, true);
