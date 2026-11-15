@@ -17,10 +17,15 @@ SET search_path TO reservation_schema;
 \i /integration-sql/reservation-service/seat.sql
 \i /integration-sql/reservation-service/coupon.sql
 RESET ROLE;
+-- 기본 Compose의 infra/postgres/init.sh도 결제 schema.sql을 적용한다(ed1301d0). 두 번 적용하면 p_payments 중복으로
+-- 초기화가 실패하므로 이미 있으면 건너뛴다
+SELECT to_regclass('payment_schema.p_payments') IS NULL AS need_payment \gset
+\if :need_payment
 SET ROLE payment_app;
 SET search_path TO payment_schema;
 \i /integration-sql/payment-service/schema.sql
 RESET ROLE;
+\endif
 SET ROLE fake_pg_app;
 SET search_path TO fake_pg_schema;
 \i /integration-sql/fake-pg/schema.sql
