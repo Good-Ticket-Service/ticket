@@ -191,6 +191,34 @@ class RedisSeatHoldIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("결제 중인 예약의 좌석은 선점 만료 시각이 지나도 Redis에 기록하지 않고 409다(예매 담당 리뷰 1번)")
+    void paymentInProgressAfterExpiry() {
+        Long seatId = seat();
+        Long paying = dbHold(OTHER_USER, seatId);
+        jdbcTemplate.update(
+                "UPDATE p_reservations SET status = 'PAYMENT_IN_PROGRESS' WHERE reservation_id = ?", paying);
+        clock.advance(Duration.ofMinutes(11));
+
+        assertThat(errorCode(() -> seatHoldService.hold(USER, SCHEDULE, seatId)))
+                .isEqualTo("SEAT_ALREADY_TAKEN");
+        assertThat(redis.hasKey("seathold:{s" + SCHEDULE + "}:seat:" + seatId)).isFalse();
+        assertThat(redis.hasKey("seathold:{s" + SCHEDULE + "}:user:" + USER)).isFalse();
+    }
+
+    @Test
+    @DisplayName("결제 중이 아닌 만료 HOLD 좌석은 정리 전이어도 Redis로 다시 잡을 수 있다")
+    void expiredHoldNotPaying() {
+        Long seatId = seat();
+        dbHold(OTHER_USER, seatId);
+        clock.advance(Duration.ofMinutes(11));
+
+        SeatHoldResult result = seatHoldService.hold(USER, SCHEDULE, seatId);
+
+        assertThat(result.created()).isTrue();
+        assertThat(result.holdId()).isNotNull();
+    }
+
+    @Test
     @DisplayName("이미 예약으로 바꾼 좌석을 그 회원이 다시 누르면 그 예약을 200으로 돌려준다")
     void convertedSeatReturnsReservation() {
         Long seatId = seat();
