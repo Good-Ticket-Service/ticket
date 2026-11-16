@@ -1,6 +1,6 @@
-<p align="center"><img src="docs/images/logo.png" width="120" alt="Safe Ticket 로고"></p>
+# Safe Ticket
 
-<h1 align="center">Safe Ticket</h1>
+<p align="center"><img src="docs/images/main.png" width="900" alt="Safe Ticket 메인 페이지, 좌석 선택, 주문·결제 화면"></p>
 
 > 인기 공연 오픈 순간의 트래픽을 대기열로 줄이고, 좌석이 두 번 팔리지 않게 막고, 결제 결과를 모를 때도 예매를 끝까지 정리하는 공연 티켓 예매 서비스입니다.
 
