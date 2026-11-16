@@ -34,7 +34,6 @@ class PaymentConfirmPropertiesTest {
                     "reservation.booking.payment-confirm.grace=1m",
                     "reservation.booking.payment-confirm.fallback.enabled=true",
                     "reservation.booking.payment-confirm.fallback.unsent-after=5s",
-                    "reservation.booking.payment-confirm.fallback.drain.enabled=true",
                     "reservation.booking.payment-confirm.fallback.drain.concurrency=3",
                     "reservation.booking.payment-confirm.fallback.drain.resend-after=2s",
                     "reservation.booking.payment-confirm.fallback.drain.max-backoff=30s");
@@ -49,7 +48,6 @@ class PaymentConfirmPropertiesTest {
             assertThat(properties.grace()).isEqualTo(Duration.ofMinutes(1));
             assertThat(properties.fallbackEnabled()).isTrue();
             assertThat(properties.unsentAfter()).isEqualTo(Duration.ofSeconds(5));
-            assertThat(properties.drain().enabled()).isTrue();
             assertThat(properties.drain().concurrency()).isEqualTo(3);
             assertThat(properties.drain().resendAfter()).isEqualTo(Duration.ofSeconds(2));
             assertThat(properties.drain().maxBackoff()).isEqualTo(Duration.ofSeconds(30));
@@ -69,7 +67,6 @@ class PaymentConfirmPropertiesTest {
         assertThat(properties.fallbackEnabled()).isTrue();
         assertThat(properties.unsentAfter()).isGreaterThanOrEqualTo(Duration.ofSeconds(1));
         assertThat(properties.unsentAfter()).isLessThan(properties.window());
-        assertThat(properties.drain().enabled()).isFalse();
         assertThat(properties.drain().concurrency()).isBetween(1, 4);
         assertThat(properties.drain().resendAfter()).isGreaterThanOrEqualTo(Duration.ofSeconds(1));
         assertThat(properties.drain().maxBackoff())

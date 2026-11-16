@@ -38,7 +38,6 @@ public record PaymentConfirmProperties(
      * @param maxBackoff payment가 돌려보낼 때 쉬는 시간의 상한
      */
     public record Drain(
-            boolean enabled,
             @Min(1) @Max(4) int concurrency,
             @NotNull @DurationMin(seconds = 1) Duration resendAfter,
             @NotNull Duration maxBackoff)

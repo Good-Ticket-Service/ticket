@@ -32,7 +32,6 @@ class StrandedConfirmDrainTest {
     @DisplayName("고른 뒤 보내기 전에 시한이 지나면 보내지 않는다")
     void doesNotSendAfterDeadlinePassedSinceClaim() {
         settings.useMessage();
-        settings.enableDrain();
         router.update(Optional.of(START.minus(SwitchableConfirmSettings.UNSENT_AFTER)), START);
         PaymentConfirmRequest request = new PaymentConfirmRequest("order-1", 1L, 10_000, "pk", START.plusSeconds(1));
         StrandedConfirms stranded = new StrandedConfirms() {

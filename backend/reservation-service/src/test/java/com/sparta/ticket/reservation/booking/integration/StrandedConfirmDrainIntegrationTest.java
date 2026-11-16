@@ -104,9 +104,8 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM p_booking_outbox", Integer.class);
     }
 
-    /** 승인 요청 하나를 메시지로 남기고, 맨 앞 요청이 기준 시간을 기다리게 해 새 승인을 동기로 돌린다. 대신 보내기는 켠다. */
+    /** 승인 요청 하나를 메시지로 남기고, 맨 앞 요청이 기준 시간을 기다리게 해 새 승인을 동기로 돌린다. */
     private Attempt strandedWhileFallingBack() {
-        confirmSettings.enableDrain();
         Attempt stranded = requestedByMessage();
         refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
         return stranded;
@@ -126,7 +125,6 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     @Test
     @DisplayName("승인 요청이 나가지 못하는 동안 Outbox에 남은 요청을 HTTP로 대신 보내 확정하고, 행은 발행기 몫으로 남긴다")
     void drainsStrandedRequestOverHttp() {
-        confirmSettings.enableDrain();
         Attempt stranded = requestedByMessage();
         refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
         substitute.answers(stranded.orderId(), new Settled(ConfirmOutcome.succeeded()));
@@ -163,8 +161,9 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
-    @DisplayName("대신 보내기를 끄면 동기로 돌리는 중이어도 묶인 요청을 보내지 않는다")
-    void sendsNothingWhenDisabled() {
+    @DisplayName("동기로 돌리는 기능을 끄면 승인 요청이 나가지 못해도 묶인 요청을 대신 보내지 않는다")
+    void sendsNothingWhenFallbackDisabled() {
+        confirmSettings.disableFallback();
         requestedByMessage();
         refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER);
 
@@ -176,7 +175,6 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     @Test
     @DisplayName("승인 요청이 브로커로 나가고 있으면 Outbox에 남은 요청은 발행기 몫이라 대신 보내지 않는다")
     void sendsNothingWhileRequestsLeave() {
-        confirmSettings.enableDrain();
         requestedByMessage();
         refreshAfter(SwitchableConfirmSettings.UNSENT_AFTER.minusSeconds(1));
 
@@ -188,7 +186,6 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     @Test
     @DisplayName("시한이 이른 요청부터 보내고, 승인 요청이 아닌 Outbox 행은 건너뛴다")
     void sendsEarliestDeadlineFirst() {
-        confirmSettings.enableDrain();
         jdbcTemplate.update(
                 "INSERT INTO p_booking_outbox (topic, message_key, payload, created_at) VALUES (?, ?, ?, ?)",
                 "other.topic",
@@ -210,7 +207,6 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     @Test
     @DisplayName("시한이 지난 요청은 보내지 않는다")
     void neverSendsPastDeadline() {
-        confirmSettings.enableDrain();
         Attempt expired = requestedByMessage();
         refreshAfter(SwitchableConfirmSettings.WINDOW);
 
@@ -401,7 +397,6 @@ class StrandedConfirmDrainIntegrationTest extends BookingIntegrationTest {
     @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     @DisplayName("작업자 둘이 동시에 보내도 묶인 요청을 하나씩 한 번만 보낸다")
     void concurrentDrainersSendEachOnce() throws Exception {
-        confirmSettings.enableDrain();
         List<String> orderIds = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
             Attempt attempt = requestedByMessage();

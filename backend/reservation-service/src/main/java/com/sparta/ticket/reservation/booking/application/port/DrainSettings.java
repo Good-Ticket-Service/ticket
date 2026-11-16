@@ -5,9 +5,6 @@ import java.time.Duration;
 /** Outbox에 묶인 승인 요청을 HTTP로 대신 보내는 작업자의 설정. */
 public interface DrainSettings {
 
-    /** 끄면 묶인 요청은 브로커가 돌아오거나 결과 확인이 시한 뒤 끝낼 때까지 기다린다. */
-    boolean enabled();
-
     /** 인스턴스 하나가 동시에 payment로 보내는 요청 수. 작업자 스레드 수다. */
     int concurrency();
 

@@ -45,6 +45,7 @@ class BookingSchedulingConfigTest {
     private final ScheduleCancellationService scheduleCancellationService = mock(ScheduleCancellationService.class);
     private final OutboxPublisher outboxPublisher = mock(OutboxPublisher.class);
     private final PaymentBacklogService paymentBacklogService = mock(PaymentBacklogService.class);
+    private final StrandedConfirmDrain drain = mock(StrandedConfirmDrain.class);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
@@ -56,6 +57,8 @@ class BookingSchedulingConfigTest {
             .withBean(ScheduleCancellationService.class, () -> scheduleCancellationService)
             .withBean(OutboxPublisher.class, () -> outboxPublisher)
             .withBean(PaymentBacklogService.class, () -> paymentBacklogService)
+            .withBean(StrandedConfirmDrain.class, () -> drain)
+            .withBean(PaymentConfirmSettings.class, SwitchableConfirmSettings::new)
             .withPropertyValues(
                     "reservation.booking.scheduler.hold-expiry.interval=50ms",
                     "reservation.booking.scheduler.hold-expiry.batch-size=100",
@@ -194,6 +197,7 @@ class BookingSchedulingConfigTest {
         runner.withPropertyValues("reservation.booking.scheduler.enabled=false").run(context -> {
             assertThat(context).doesNotHaveBean(BookingScheduleRunner.class);
             assertThat(context).doesNotHaveBean(OutboxPublishWaker.class);
+            assertThat(context).doesNotHaveBean(StrandedConfirmDrainWorkers.class);
         });
     }
 
@@ -209,15 +213,8 @@ class BookingSchedulingConfigTest {
     }
 
     @Test
-    @DisplayName("대신 보내기 스위치를 켜지 않으면 작업자 스레드를 띄우지 않는다")
-    void noDrainWorkersByDefault() {
-        runner.run(context -> assertThat(context).doesNotHaveBean(StrandedConfirmDrainWorkers.class));
-    }
-
-    @Test
-    @DisplayName("대신 보내기 스위치를 켜면 concurrency개 스레드가 sendNext를 되풀이하고, 컨텍스트가 닫히면 멈춘다")
+    @DisplayName("스케줄러가 뜨면 대신 보내는 작업자 concurrency개가 sendNext를 되풀이하고, 컨텍스트가 닫히면 멈춘다")
     void drainWorkersRunUntilContextCloses() {
-        StrandedConfirmDrain drain = mock(StrandedConfirmDrain.class);
         Set<String> threads = ConcurrentHashMap.newKeySet();
         doAnswer(invocation -> {
                     threads.add(Thread.currentThread().getName());
@@ -226,14 +223,11 @@ class BookingSchedulingConfigTest {
                 })
                 .when(drain)
                 .sendNext();
-        runner.withBean(StrandedConfirmDrain.class, () -> drain)
-                .withBean(PaymentConfirmSettings.class, SwitchableConfirmSettings::new)
-                .withPropertyValues("reservation.booking.payment-confirm.fallback.drain.enabled=true")
-                .run(context -> {
-                    assertThat(context).hasSingleBean(StrandedConfirmDrainWorkers.class);
-                    verify(drain, timeout(2_000).atLeast(4)).sendNext();
-                    assertThat(threads).hasSize(SwitchableConfirmSettings.DRAIN_CONCURRENCY);
-                });
+        runner.run(context -> {
+            assertThat(context).hasSingleBean(StrandedConfirmDrainWorkers.class);
+            verify(drain, timeout(2_000).atLeast(4)).sendNext();
+            assertThat(threads).hasSize(SwitchableConfirmSettings.DRAIN_CONCURRENCY);
+        });
         clearInvocations(drain);
         verify(drain, after(300).never()).sendNext();
     }
@@ -241,11 +235,7 @@ class BookingSchedulingConfigTest {
     @Test
     @DisplayName("sendNext가 실패해도 작업자는 멈추지 않고 다시 부른다")
     void drainWorkerSurvivesFailure() {
-        StrandedConfirmDrain drain = mock(StrandedConfirmDrain.class);
         when(drain.sendNext()).thenThrow(new IllegalStateException("db down")).thenReturn(false);
-        runner.withBean(StrandedConfirmDrain.class, () -> drain)
-                .withBean(PaymentConfirmSettings.class, SwitchableConfirmSettings::new)
-                .withPropertyValues("reservation.booking.payment-confirm.fallback.drain.enabled=true")
-                .run(context -> verify(drain, timeout(2_000).atLeast(3)).sendNext());
+        runner.run(context -> verify(drain, timeout(2_000).atLeast(3)).sendNext());
     }
 }
