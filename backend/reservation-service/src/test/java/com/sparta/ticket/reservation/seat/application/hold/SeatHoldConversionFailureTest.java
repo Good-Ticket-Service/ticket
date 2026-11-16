@@ -82,7 +82,8 @@ class SeatHoldConversionFailureTest {
                 Clock.fixed(NOW, SEOUL),
                 new RedisSeatHoldMetrics(new SimpleMeterRegistry()),
                 mock(RedisHoldDbReads.class),
-                new HoldStages(new SimpleMeterRegistry(), modeSwitch));
+                new HoldStages(new SimpleMeterRegistry(), modeSwitch),
+                modeSwitch);
     }
 
     @Test

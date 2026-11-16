@@ -3,10 +3,12 @@ package com.sparta.ticket.reservation.seat.infrastructure.persistence;
 import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.domain.SeatOccupant;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -23,6 +25,11 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
+
+    @Override
+    @Query("SELECT new com.sparta.ticket.reservation.seat.domain.SeatOccupant(s.scheduleId, s.status, s.reservationId)"
+            + " FROM ScheduleSeat s WHERE s.id = :id")
+    Optional<SeatOccupant> findOccupant(@Param("id") Long id);
 
     /** 회차별 조회는 ix_p_schedule_seats_selectable(schedule_id, is_sellable, status)의 앞 컬럼을 탄다. */
     @Override

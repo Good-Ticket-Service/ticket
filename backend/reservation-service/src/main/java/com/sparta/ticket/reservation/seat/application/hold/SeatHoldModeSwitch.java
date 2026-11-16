@@ -19,4 +19,11 @@ public class SeatHoldModeSwitch {
     public SeatHoldMode current() {
         return mode;
     }
+
+    /**
+     * 결제하기의 좌석 읽기를 예약 트랜잭션 안에서 projection으로 할지(#449 후속 1-C 실험). 운영은 끈다. 측정 서버만 바꾼다.
+     */
+    public boolean convertInOneTransaction() {
+        return false;
+    }
 }

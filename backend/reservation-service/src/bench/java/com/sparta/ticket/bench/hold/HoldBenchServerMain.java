@@ -166,6 +166,7 @@ public final class HoldBenchServerMain {
     static class BenchHoldModeSwitch extends SeatHoldModeSwitch {
 
         private volatile SeatHoldMode mode;
+        private volatile boolean convertInOneTransaction;
 
         BenchHoldModeSwitch(SeatHoldProperties properties) {
             super(properties);
@@ -177,8 +178,14 @@ public final class HoldBenchServerMain {
             return mode;
         }
 
-        void set(SeatHoldMode mode) {
+        @Override
+        public boolean convertInOneTransaction() {
+            return convertInOneTransaction;
+        }
+
+        void set(SeatHoldMode mode, boolean convertInOneTransaction) {
             this.mode = mode;
+            this.convertInOneTransaction = convertInOneTransaction;
         }
     }
 
@@ -192,10 +199,12 @@ public final class HoldBenchServerMain {
             this.modeSwitch = modeSwitch;
         }
 
+        /** mode는 DB, REDIS, REDIS1C(REDIS + 결제하기 한 트랜잭션, #449 후속 1-C)다. */
         @PostMapping("/bench/hold-mode")
-        String set(@RequestParam SeatHoldMode mode) {
-            modeSwitch.set(mode);
-            return mode.name();
+        String set(@RequestParam String mode) {
+            boolean oneTx = mode.endsWith("1C");
+            modeSwitch.set(SeatHoldMode.valueOf(oneTx ? mode.substring(0, mode.length() - 2) : mode), oneTx);
+            return mode;
         }
     }
 }

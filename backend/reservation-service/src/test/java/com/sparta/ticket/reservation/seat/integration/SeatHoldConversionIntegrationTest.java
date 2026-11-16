@@ -77,7 +77,7 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
     private FakeSaleValidationPort saleValidation;
 
     @Autowired
-    private MutableSeatHoldModeSwitch modeSwitch;
+    protected MutableSeatHoldModeSwitch modeSwitch;
 
     @Autowired
     private MutableClock clock;

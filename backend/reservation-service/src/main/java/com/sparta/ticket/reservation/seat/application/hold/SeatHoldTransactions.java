@@ -11,6 +11,7 @@ import com.sparta.ticket.reservation.seat.application.SeatChangeStamps;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.domain.SeatOccupant;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -71,6 +72,23 @@ public class SeatHoldTransactions {
             SeatHoldTarget target,
             SaleValidation validation,
             LocalDateTime holdExpiresAt) {
+        return doHold(userId, scheduleId, target, validation, holdExpiresAt);
+    }
+
+    /**
+     * 1-C 실험(#449 후속): 결제하기의 좌석 읽기를 이 트랜잭션 안에서 해 DB 연결을 한 번만 얻는다. 잠그기 전에는 좌석 Entity가 아니라
+     * 회차·상태·점유 예약만 projection으로 읽는다. Entity를 먼저 읽으면 영속성 컨텍스트에 남아 잠근 뒤의 최신 값을 받지 못한다.
+     * 이 회차 좌석이 아니거나 없으면 404 SEAT_NOT_FOUND다(트랜잭션 밖에서 읽던 때와 같다).
+     */
+    @Transactional
+    public SeatHoldResult holdUntilReadingSeat(
+            Long userId, Long scheduleId, Long scheduleSeatId, SaleValidation validation, LocalDateTime holdExpiresAt) {
+        SeatOccupant occupant = stages.time(
+                        "convert", "seat_read", () -> scheduleSeatRepository.findOccupant(scheduleSeatId))
+                .filter(found -> found.scheduleId().equals(scheduleId))
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
+        SeatHoldTarget target = new SeatHoldTarget(
+                scheduleSeatId, occupant.status() == SeatStatus.HOLD ? occupant.reservationId() : null);
         return doHold(userId, scheduleId, target, validation, holdExpiresAt);
     }
 

@@ -21,11 +21,24 @@ public class MutableSeatHoldModeSwitch extends SeatHoldModeSwitch {
         return mode;
     }
 
+    private volatile boolean convertInOneTransaction;
+
     public void set(SeatHoldMode mode) {
         this.mode = mode;
     }
 
+    /** 1-C 실험 경로(#449 후속)를 켠다. reset()이 끈다. */
+    public void setConvertInOneTransaction(boolean on) {
+        this.convertInOneTransaction = on;
+    }
+
+    @Override
+    public boolean convertInOneTransaction() {
+        return convertInOneTransaction;
+    }
+
     public void reset() {
         this.mode = configured;
+        this.convertInOneTransaction = false;
     }
 }

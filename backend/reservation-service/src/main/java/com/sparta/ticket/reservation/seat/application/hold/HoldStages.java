@@ -73,7 +73,8 @@ public class HoldStages {
     }
 
     private Timer timer(String name, String flow, String stage) {
-        String mode = modeSwitch.current().name();
+        // 1-C 실험 경로는 모드 라벨을 따로 둔다(REDIS1C)
+        String mode = modeSwitch.current().name() + (modeSwitch.convertInOneTransaction() ? "1C" : "");
         return timers.computeIfAbsent(
                 name + "|" + flow + "|" + stage + "|" + mode,
                 key -> Timer.builder(name)
