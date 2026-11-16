@@ -3,6 +3,8 @@ package com.sparta.ticket.reservation.seat.presentation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.ticket.common.auth.CurrentUser;
+import com.sparta.ticket.common.auth.RequireRole;
+import com.sparta.ticket.common.auth.Role;
 import com.sparta.ticket.common.auth.UserContext;
 import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.reservation.seat.application.SelectableSeatSnapshotService;
@@ -196,11 +198,13 @@ public class SeatController {
     /**
      * 좌석 1장을 10분 동안 선점하고 예약을 HOLD로 만든다. 새로 만들면 201, 같은 회원·같은 좌석의 유효한 선점이 이미 있으면
      * 그 예약을 200으로 돌려준다. 응답 본문 형식은 같고 ApiResponse의 status만 다르다. 상태 코드가 결과에 따라 달라 ResponseEntity로 돌려준다.
+     * Gateway는 로그인과 입장 토큰만 확인하므로 역할은 여기서 확인한다. USER가 아닌 SELLER·MASTER는 403 FORBIDDEN이다(#455).
      */
     @Operation(
             summary = "좌석 선점",
             description = "좌석 1장을 10분 동안 선점하고 예약을 HOLD로 만든다. 같은 좌석의 유효한 선점을 다시 요청하면 기존 예약을 200으로 준다.")
     @PostMapping("/holds")
+    @RequireRole(Role.USER)
     public ResponseEntity<ApiResponse<SeatHoldResponse>> hold(
             @CurrentUser UserContext user, @PathVariable Long scheduleId, @Valid @RequestBody SeatHoldRequest request) {
         SeatHoldResult result = seatHoldService.hold(user.userId(), scheduleId, request.scheduleSeatId());
