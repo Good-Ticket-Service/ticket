@@ -41,24 +41,30 @@ public class SeatHoldService {
     private final SeatHoldTransactions transactions;
     private final SeatHoldModeSwitch modeSwitch;
     private final RedisSeatHoldService redisHolds;
+    private final HoldStages stages;
 
     public SeatHoldResult hold(Long userId, Long scheduleId, Long scheduleSeatId) {
+        return stages.time("hold", "total", () -> doHold(userId, scheduleId, scheduleSeatId));
+    }
+
+    private SeatHoldResult doHold(Long userId, Long scheduleId, Long scheduleSeatId) {
         // 1. 경로의 회차 좌석인지 확인한다. 다른 회차 좌석을 받으면 그 회차의 판매 기간·매수 제한을 우회할 수 있다
-        ScheduleSeat seat = scheduleSeatRepository
-                .findById(scheduleSeatId)
+        ScheduleSeat seat = stages.time("hold", "seat_read", () -> scheduleSeatRepository.findById(scheduleSeatId))
                 .filter(found -> found.getScheduleId().equals(scheduleId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
 
         // 2. 판매 검증. 좌석 1장이고 구성 버전은 DB CHECK로 1 이상이라, 공연이 400으로 막는 빈 목록·중복·버전 0은 생기지 않는다
-        SaleValidation validation =
-                saleValidationPort.validate(scheduleId, seat.getConfigVersion(), List.of(seat.getVenueSeatId()));
+        SaleValidation validation = stages.time(
+                "hold",
+                "sale_validation",
+                () -> saleValidationPort.validate(scheduleId, seat.getConfigVersion(), List.of(seat.getVenueSeatId())));
         if (!validation.allowed()) {
             throw rejected(validation.reasonCode());
         }
 
         // REDIS 모드(#449)는 여기서 Redis에만 기록하고 DB 트랜잭션을 열지 않는다
         if (modeSwitch.current() == SeatHoldMode.REDIS) {
-            return redisHolds.hold(userId, scheduleId, seat, validation);
+            return stages.time("hold", "redis_hold", () -> redisHolds.hold(userId, scheduleId, seat, validation));
         }
 
         // 3. 읽은 시점의 점유 예약을 넘긴다. 잠근 뒤 만료됐으면 그 예약의 좌석 전체를 정리해야 해서 함께 잠그기 위해서다
@@ -66,7 +72,7 @@ public class SeatHoldService {
         SeatHoldTarget target =
                 new SeatHoldTarget(seat.getId(), seat.getStatus() == SeatStatus.HOLD ? seat.getReservationId() : null);
         try {
-            return transactions.hold(userId, scheduleId, target, validation);
+            return stages.time("hold", "db_tx", () -> transactions.hold(userId, scheduleId, target, validation));
         } catch (DataIntegrityViolationException e) {
             // 4. 동시에 들어온 같은 회원의 다른 좌석 선점이 먼저 커밋됐다. 다른 무결성 오류는 예상하지 못한 것이라 그대로 던진다
             if (violates(e, ACTIVE_RESERVATION_CONSTRAINT)) {

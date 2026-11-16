@@ -47,8 +47,13 @@ public class SeatHoldConversionService {
     private final Clock clock;
     private final RedisSeatHoldMetrics metrics;
     private final RedisHoldDbReads dbReads;
+    private final HoldStages stages;
 
     public SeatHoldResult convert(Long userId, Long scheduleId, String holdId) {
+        return stages.time("convert", "total", () -> doConvert(userId, scheduleId, holdId));
+    }
+
+    private SeatHoldResult doConvert(Long userId, Long scheduleId, String holdId) {
         if (!HoldIds.isHoldId(holdId)) {
             metrics.convert("not_found");
             throw new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND);
@@ -56,7 +61,8 @@ public class SeatHoldConversionService {
         Instant now = clock.instant();
 
         // 1. 바꾸기 시작
-        ConvertStart start = store.beginConvert(scheduleId, holdId, userId, now, MIN_REMAIN);
+        ConvertStart start =
+                stages.time("convert", "begin", () -> store.beginConvert(scheduleId, holdId, userId, now, MIN_REMAIN));
         switch (start.outcome()) {
             case NOT_FOUND, FORBIDDEN:
                 // 남의 선점인지 드러내지 않는다. holdId는 추측할 수 없는 값이다
@@ -75,12 +81,12 @@ public class SeatHoldConversionService {
             default:
                 throw new IllegalStateException("알 수 없는 바꾸기 결과: " + start.outcome());
         }
-        StoredHold hold = store.find(scheduleId, holdId)
+        StoredHold hold = stages.time("convert", "find", () -> store.find(scheduleId, holdId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND));
 
         // 2. 함께 잠글 옛 예약
-        ScheduleSeat seat = scheduleSeatRepository
-                .findById(hold.scheduleSeatId())
+        ScheduleSeat seat = stages.time(
+                        "convert", "seat_read", () -> scheduleSeatRepository.findById(hold.scheduleSeatId()))
                 .filter(found -> found.getScheduleId().equals(scheduleId))
                 .orElse(null);
         if (seat == null) {
@@ -95,7 +101,10 @@ public class SeatHoldConversionService {
         // 3. 예약 만들기
         SeatHoldResult result;
         try {
-            result = transactions.holdUntil(userId, scheduleId, target, hold.validation(), holdExpiresAt);
+            result = stages.time(
+                    "convert",
+                    "db_tx",
+                    () -> transactions.holdUntil(userId, scheduleId, target, hold.validation(), holdExpiresAt));
         } catch (BusinessException e) {
             // 좌석이 이미 잡힘·매수 제한·판매 불가·구성 불일치·만료. 다시 시도해도 같으므로 선점을 지운다
             metrics.convert("rejected");
@@ -126,7 +135,11 @@ public class SeatHoldConversionService {
 
         // 4. 완료 기록. DB는 이미 커밋했으므로 Redis가 실패해도 예약을 돌려준다. 남은 키는 선점 만료 때 사라진다
         try {
-            store.finishConvert(hold, result.reservationId(), userKeyExpiresAt(hold), now);
+            SeatHoldResult done = result;
+            stages.run(
+                    "convert",
+                    "finish",
+                    () -> store.finishConvert(hold, done.reservationId(), userKeyExpiresAt(hold), now));
         } catch (BusinessException e) {
             log.warn(
                     "예약으로 바꾼 뒤 Redis 완료 기록에 실패했다. 키는 선점 만료 때 사라진다. holdId={}, reservationId={}",

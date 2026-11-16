@@ -1,6 +1,7 @@
 package com.sparta.ticket.bench.hold;
 
 import com.sparta.ticket.reservation.ReservationServiceApplication;
+import com.sparta.ticket.reservation.seat.application.hold.HoldStages;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldModeSwitch;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties;
@@ -8,14 +9,19 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.locks.LockSupport;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,7 +58,8 @@ public final class HoldBenchServerMain {
                 ReservationServiceApplication.class,
                 BenchSaleValidation.class,
                 BenchHoldMode.class,
-                BenchHoldModeController.class);
+                BenchHoldModeController.class,
+                BenchConnectionWait.class);
         app.setAdditionalProfiles("bench");
         app.run(
                 "--spring.cloud.config.enabled=false",
@@ -64,6 +71,54 @@ public final class HoldBenchServerMain {
                 "--spring.sql.init.schema-locations=" + schema,
                 "--logging.level.root=WARN",
                 "--logging.level.org.springframework.boot.web.embedded.tomcat=INFO");
+    }
+
+    /**
+     * 기본 DataSource를 감싸 DB 연결을 얻는 시간을 선점·결제하기 단계별로 남긴다(HoldStages, #449 후속 측정). Hikari의 연결 대기 지표는
+     * 풀 전체 값이라 어느 단계가 기다렸는지 알 수 없다. 연결 풀 자체는 그대로 두고 연결을 꺼내는 호출만 잰다.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class BenchConnectionWait {
+
+        @Bean
+        static BeanPostProcessor benchConnectionWaitPostProcessor() {
+            return new BeanPostProcessor() {
+                @Override
+                public Object postProcessAfterInitialization(Object bean, String beanName) {
+                    if ("dataSource".equals(beanName) && bean instanceof DataSource dataSource) {
+                        return new TimedDataSource(dataSource);
+                    }
+                    return bean;
+                }
+            };
+        }
+    }
+
+    static final class TimedDataSource extends DelegatingDataSource {
+
+        TimedDataSource(DataSource target) {
+            super(target);
+        }
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            long start = System.nanoTime();
+            try {
+                return super.getConnection();
+            } finally {
+                HoldStages.connectionWait(System.nanoTime() - start);
+            }
+        }
+
+        @Override
+        public Connection getConnection(String username, String password) throws SQLException {
+            long start = System.nanoTime();
+            try {
+                return super.getConnection(username, password);
+            } finally {
+                HoldStages.connectionWait(System.nanoTime() - start);
+            }
+        }
     }
 
     /** 공연 서비스 판매 검증 대신 쓰는 가짜. 지연 뒤 요청 좌석을 모두 허용한다. */

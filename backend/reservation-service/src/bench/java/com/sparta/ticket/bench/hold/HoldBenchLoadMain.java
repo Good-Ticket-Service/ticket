@@ -558,6 +558,12 @@ public final class HoldBenchLoadMain {
                         }
                     }
                     case "jvm_gc_pause_seconds_sum" -> gc += value;
+                    case "reservation_seat_hold_stage_seconds_sum" ->
+                        // 단계별 누적 시간(#449 후속). 초마다 차이를 보면 멈춘 초에 어느 단계가 시간을 썼는지 안다
+                        // 모드도 키에 넣는다. 같은 서버에서 두 모드를 번갈아 재므로, 빼면 같은 단계의 DB·REDIS 값이 서로 덮어쓴다
+                        row.put("stage_s:" + stageKey(labels), value);
+                    case "reservation_seat_hold_conn_wait_seconds_sum" ->
+                        row.put("conn_wait_s:" + stageKey(labels), value);
                     default -> {}
                 }
             }
@@ -769,6 +775,73 @@ public final class HoldBenchLoadMain {
     /** 선점 결과와 성공한 경우의 예약 id(DB 방식) 또는 holdId(REDIS 모드, #449). */
     record HoldOutcome(String outcome, long reservationId, String holdId) {}
 
+    /**
+     * 성공·업무 거절이 아닌 요청 한 건(#449 후속). error 하나로 세면 서버 오류인지, 응답을 못 받은 것인지 나눌 수 없다.
+     * 회원·holdId는 이 파일(prefix-errors.jsonl)과 결과의 errors에만 남긴다. at은 System.nanoTime 값이다.
+     */
+    record ErrorDetail(
+            long at,
+            String kind,
+            String category,
+            int status,
+            String code,
+            String exception,
+            long scheduleId,
+            long userId,
+            String id,
+            double latencyMs) {}
+
+    private final Queue<ErrorDetail> errors = new ConcurrentLinkedQueue<>();
+
+    /** 응답을 받지 못한 요청의 종류. 정해진 값만 쓴다. */
+    static String failureOf(Exception e) {
+        if (e instanceof java.net.http.HttpConnectTimeoutException) return "connect_timeout";
+        if (e instanceof java.net.http.HttpTimeoutException) return "timeout";
+        if (e instanceof java.net.ConnectException) return "connect_refused";
+        if (e instanceof InterruptedException) return "interrupted";
+        return "io_error";
+    }
+
+    /** 응답은 받았지만 성공·업무 거절이 아닌 상태 코드의 종류. */
+    static String statusCategory(int status) {
+        if (status >= 500) return "server_error";
+        if (status >= 400) return "client_error";
+        return "unexpected_status";
+    }
+
+    private void recordError(
+            long sent,
+            String kind,
+            String category,
+            int status,
+            JsonNode body,
+            Exception e,
+            long scheduleId,
+            long userId,
+            String id) {
+        String code = body == null ? null : body.path("code").asText(null);
+        errors.add(new ErrorDetail(
+                sent,
+                kind,
+                category,
+                status,
+                code,
+                e == null ? null : e.getClass().getName() + ": " + e.getMessage(),
+                scheduleId,
+                userId,
+                id,
+                (System.nanoTime() - sent) / 1e6));
+    }
+
+    private static String stageKey(String labels) {
+        return label(labels, "flow") + "/" + label(labels, "stage") + "/" + label(labels, "mode");
+    }
+
+    private static String label(String labels, String name) {
+        Matcher m = java.util.regex.Pattern.compile(name + "=\"([^\"]*)\"").matcher(labels);
+        return m.find() ? m.group(1) : "-";
+    }
+
     private final Queue<SelloutSample> selloutSamples = new ConcurrentLinkedQueue<>();
 
     /**
@@ -812,6 +885,9 @@ public final class HoldBenchLoadMain {
         }
         int n = SCHEDULES;
         Map<String, Double> redisBefore = scrapeRedisMetrics();
+        Map<String, Double> stageBefore =
+                scrapeMetrics("reservation_seat_hold_stage", "reservation_seat_hold_conn_wait");
+        errors.clear();
         long t0 = System.nanoTime();
         String prefix = output.toString().replaceFirst("\\.json$", "");
         Thread sampler =
@@ -1173,6 +1249,11 @@ public final class HoldBenchLoadMain {
         Map<String, Object> redis = redisMetrics(redisBefore, scrapeRedisMetrics());
         report.put("redis_metrics", redis);
         report.put("redis_flow", redisFlow(redis, scheduleIds));
+        report.put(
+                "stages",
+                stageMetrics(
+                        stageBefore, scrapeMetrics("reservation_seat_hold_stage", "reservation_seat_hold_conn_wait")));
+        report.put("errors", errorReport(t0, jdbcUrl, jdbcUser, jdbcPassword, prefix));
         report.put("server", summarizeServer(t0, 0, endNanos));
         report.put("server_rows", new ArrayList<>(serverSamples));
         report.put("thread_dumps", dumps);
@@ -1241,23 +1322,160 @@ public final class HoldBenchLoadMain {
                 .POST(HttpRequest.BodyPublishers.ofString("{\"scheduleSeatId\":" + seatId + "}"))
                 .build();
         long id = requestSeq.incrementAndGet();
-        inFlight.put(id, System.nanoTime());
+        long sent = System.nanoTime();
+        inFlight.put(id, sent);
         try {
             HttpResponse<String> response = http.send(hold, HttpResponse.BodyHandlers.ofString());
             JsonNode body = parse(response.body());
             JsonNode holdId = body.path("data").path("holdId");
+            String outcome = classify(response.statusCode(), body);
+            if ("error".equals(outcome)) {
+                int status = response.statusCode();
+                String category =
+                        status == 409 || status == 400 || status == 404 ? "business_reject" : statusCategory(status);
+                recordError(sent, "hold", category, status, body, null, scheduleId, userId, Long.toString(seatId));
+            }
             return new HoldOutcome(
-                    classify(response.statusCode(), body),
+                    outcome,
                     body.path("data").path("reservationId").asLong(0),
                     holdId.isTextual() ? holdId.asText() : null);
         } catch (IOException e) {
+            recordError(sent, "hold", failureOf(e), 0, null, e, scheduleId, userId, Long.toString(seatId));
             return new HoldOutcome("error", 0, null);
         } catch (InterruptedException e) {
+            recordError(sent, "hold", failureOf(e), 0, null, e, scheduleId, userId, Long.toString(seatId));
             Thread.currentThread().interrupt();
             return new HoldOutcome("error", 0, null);
         } finally {
             inFlight.remove(id);
         }
+    }
+
+    /** 이름이 prefixes 중 하나로 시작하는 지표 줄만 읽는다. 키는 지표 이름과 라벨, 값은 누적값이다. 읽지 못하면 빈 맵이다. */
+    Map<String, Double> scrapeMetrics(String... prefixes) {
+        Map<String, Double> series = new LinkedHashMap<>();
+        try {
+            HttpResponse<String> response = http.send(
+                    HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
+                            .timeout(Duration.ofSeconds(10))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            for (String line : response.body().split("\n")) {
+                if (java.util.Arrays.stream(prefixes).noneMatch(line::startsWith)) {
+                    continue;
+                }
+                int space = line.lastIndexOf(' ');
+                series.put(line.substring(0, space), Double.parseDouble(line.substring(space + 1)));
+            }
+        } catch (IOException | RuntimeException e) {
+            return series;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return series;
+    }
+
+    /**
+     * 회차 동안의 단계별 시간과 DB 연결 대기(#449 후속, 서버 HoldStages). 키는 "stage|conn_wait:흐름/단계/모드"이고 값은 수·합계(초)·
+     * 평균·p50·p99·p999(ms)다. 합계로 단계가 전체 시간에서 차지한 몫을 본다.
+     */
+    static Map<String, Object> stageMetrics(Map<String, Double> before, Map<String, Double> after) {
+        java.util.regex.Pattern label = java.util.regex.Pattern.compile("(\\w+)=\"([^\"]*)\"");
+        Map<String, java.util.TreeMap<Double, Double>> buckets = new java.util.TreeMap<>();
+        Map<String, double[]> countSum = new java.util.TreeMap<>();
+        for (Map.Entry<String, Double> entry : after.entrySet()) {
+            String key = entry.getKey();
+            double delta = entry.getValue() - before.getOrDefault(key, 0.0);
+            Map<String, String> labels = new LinkedHashMap<>();
+            java.util.regex.Matcher m = label.matcher(key);
+            while (m.find()) {
+                labels.put(m.group(1), m.group(2));
+            }
+            String family = key.startsWith("reservation_seat_hold_conn_wait") ? "conn_wait" : "stage";
+            String name = family + ":" + labels.get("flow") + "/" + labels.get("stage") + "/" + labels.get("mode");
+            if (key.contains("_seconds_bucket")) {
+                String le = labels.get("le");
+                double bound = "+Inf".equals(le) ? Double.POSITIVE_INFINITY : Double.parseDouble(le);
+                buckets.computeIfAbsent(name, c -> new java.util.TreeMap<>()).put(bound, delta);
+            } else if (key.contains("_seconds_count")) {
+                countSum.computeIfAbsent(name, c -> new double[2])[0] = delta;
+            } else if (key.contains("_seconds_sum")) {
+                countSum.computeIfAbsent(name, c -> new double[2])[1] = delta;
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, double[]> entry : countSum.entrySet()) {
+            double n = entry.getValue()[0];
+            if (n == 0) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("count", (long) n);
+            row.put("sum_s", entry.getValue()[1]);
+            row.put("mean_ms", entry.getValue()[1] * 1000 / n);
+            java.util.TreeMap<Double, Double> cumulative =
+                    buckets.getOrDefault(entry.getKey(), new java.util.TreeMap<>());
+            row.put("p50_ms", quantileMs(cumulative, n, 0.50));
+            row.put("p99_ms", quantileMs(cumulative, n, 0.99));
+            row.put("p999_ms", quantileMs(cumulative, n, 0.999));
+            out.put(entry.getKey(), row);
+        }
+        return out;
+    }
+
+    /**
+     * 성공·업무 거절이 아닌 요청(#449 후속). 종류별 수를 세고, 한 건씩 prefix-errors.jsonl에 남긴다. 결제하기·선점 오류는 측정이 끝난
+     * 뒤 그 회원·회차의 예약 상태를 DB에서 읽어 붙인다. 측정 끝의 상태라 오류 직후 상태와 다를 수 있다(뒤이은 해제·만료).
+     */
+    Map<String, Object> errorReport(long t0, String jdbcUrl, String jdbcUser, String jdbcPassword, String prefix)
+            throws IOException {
+        List<ErrorDetail> list = new ArrayList<>(errors);
+        Map<String, Integer> kinds = new java.util.TreeMap<>();
+        list.forEach(e -> kinds.merge(e.kind() + "/" + e.category(), 1, Integer::sum));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try (Connection db = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
+                PreparedStatement query = db.prepareStatement("SELECT reservation_id, status FROM p_reservations"
+                        + " WHERE user_id = ? AND schedule_id = ? ORDER BY reservation_id");
+                BufferedWriter out = Files.newBufferedWriter(Path.of(prefix + "-errors.jsonl"))) {
+            for (ErrorDetail e : list) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("t_s", (e.at() - t0) / 1e9);
+                row.put("kind", e.kind());
+                row.put("category", e.category());
+                row.put("status", e.status());
+                row.put("code", e.code());
+                row.put("exception", e.exception());
+                row.put("latency_ms", e.latencyMs());
+                row.put("schedule_id", e.scheduleId());
+                row.put("user_id", e.userId());
+                row.put("id", e.id());
+                if (!"business_reject".equals(e.category())) {
+                    query.setLong(1, e.userId());
+                    query.setLong(2, e.scheduleId());
+                    List<String> reservations = new ArrayList<>();
+                    try (java.sql.ResultSet rs = query.executeQuery()) {
+                        while (rs.next()) {
+                            reservations.add(rs.getLong(1) + ":" + rs.getString(2));
+                        }
+                    }
+                    row.put("reservations_at_end", reservations);
+                }
+                // JSON Lines: 한 건을 한 줄에 쓴다(JSON은 들여쓰기 출력이라 따로 끈다)
+                out.write(JSON.writer()
+                        .without(SerializationFeature.INDENT_OUTPUT)
+                        .writeValueAsString(row));
+                out.newLine();
+                if (rows.size() < 200) {
+                    rows.add(row);
+                }
+            }
+        } catch (java.sql.SQLException e) {
+            kinds.put("reconcile_failed", 1);
+        }
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("counts", kinds);
+        report.put("first", rows);
+        return report;
     }
 
     /** 서버의 Redis 선점 지표(#449) 줄만 읽는다. 키는 지표 이름과 라벨, 값은 누적값이다. 읽지 못하면 빈 맵이다. */
@@ -1470,12 +1688,18 @@ public final class HoldBenchLoadMain {
                 outcome = status == 409
                         ? body.path("code").asText("conflict").toLowerCase(java.util.Locale.ROOT)
                         : "error";
+                if (status != 409) {
+                    recordError(
+                            start, "convert", statusCategory(status), status, body, null, scheduleId, userId, holdId);
+                }
             }
         } catch (IOException e) {
             outcome = "error";
+            recordError(start, "convert", failureOf(e), 0, null, e, scheduleId, userId, holdId);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             outcome = "error";
+            recordError(start, "convert", failureOf(e), 0, null, e, scheduleId, userId, holdId);
         }
         selloutSamples.add(new SelloutSample(k, "convert", start - t0, (System.nanoTime() - start) / 1e6, outcome));
         return reservationId;
@@ -1492,11 +1716,19 @@ public final class HoldBenchLoadMain {
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
             ok = response.statusCode() == 204;
+            if (!ok) {
+                int status = response.statusCode();
+                String category =
+                        status == 409 || status == 404 || status == 403 ? "business_reject" : statusCategory(status);
+                recordError(start, "release", category, status, parse(response.body()), null, scheduleId, userId, id);
+            }
         } catch (IOException e) {
             ok = false;
+            recordError(start, "release", failureOf(e), 0, null, e, scheduleId, userId, id);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             ok = false;
+            recordError(start, "release", failureOf(e), 0, null, e, scheduleId, userId, id);
         }
         selloutSamples.add(new SelloutSample(
                 k, "release", start - t0, (System.nanoTime() - start) / 1e6, ok ? "released" : "release_failed"));

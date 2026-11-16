@@ -73,13 +73,16 @@ class SeatHoldConversionFailureTest {
         when(store.beginConvert(eq(SCHEDULE), eq(hold.holdId()), eq(USER), any(), any()))
                 .thenReturn(new ConvertStart(ConvertOutcome.STARTED, null));
         when(store.find(SCHEDULE, hold.holdId())).thenReturn(Optional.of(hold));
+        SeatHoldModeSwitch modeSwitch = mock(SeatHoldModeSwitch.class);
+        when(modeSwitch.current()).thenReturn(SeatHoldMode.REDIS);
         service = new SeatHoldConversionService(
                 store,
                 seats,
                 transactions,
                 Clock.fixed(NOW, SEOUL),
                 new RedisSeatHoldMetrics(new SimpleMeterRegistry()),
-                mock(RedisHoldDbReads.class));
+                mock(RedisHoldDbReads.class),
+                new HoldStages(new SimpleMeterRegistry(), modeSwitch));
     }
 
     @Test

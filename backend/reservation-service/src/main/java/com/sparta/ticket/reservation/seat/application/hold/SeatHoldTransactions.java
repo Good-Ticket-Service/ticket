@@ -52,6 +52,7 @@ public class SeatHoldTransactions {
     private final BookingFacade bookingFacade;
     private final SeatChangeStamps changeStamps;
     private final SeatHoldDuration holdDuration;
+    private final HoldStages stages;
 
     @Transactional
     public SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldTarget target, SaleValidation validation) {
@@ -93,8 +94,11 @@ public class SeatHoldTransactions {
 
         // 2. 한 번에 id 오름차순으로 잠근다. 이 트랜잭션에서 처음 읽는 좌석이라 결과가 DB의 최신 값이다.
         //    앞선 트랜잭션이 잡고 있으면 끝날 때까지 기다린다. NOWAIT와 비교해 기다리는 쪽으로 정했다(#313, #390)
-        Map<Long, ScheduleSeat> locked = scheduleSeatRepository.findAllByIdsForUpdate(lockIds).stream()
-                .collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
+        // 잠금 대기를 따로 본다(#449 후속 측정). 선점·결제하기 중 어느 쪽인지는 바깥 단계로 정한다
+        String flow = fixedExpiresAt == null ? "hold" : "convert";
+        Map<Long, ScheduleSeat> locked =
+                stages.time(flow, "lock", () -> scheduleSeatRepository.findAllByIdsForUpdate(lockIds)).stream()
+                        .collect(Collectors.toMap(ScheduleSeat::getId, Function.identity()));
         ScheduleSeat seat = locked.get(target.scheduleSeatId());
         if (seat == null) {
             // 1단계 조회 뒤 좌석이 논리 삭제됐다
