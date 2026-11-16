@@ -1,5 +1,15 @@
 server:
   port: 8085
+  # 오픈 순간 동시 연결을 받는 Tomcat 설정(#457). 기본값은 동시 5만 명 측정 조건과 맞지 않는다
+  tomcat:
+    # 동시에 열어 둘 수 있는 연결 수. 기본 8,192는 동시 5만 명 목표보다 작다
+    max-connections: 60000
+    # 연결 수락 대기 줄. 기본 100이면 동시 1만 명 진입에 넘침 6,277건·연결 최대 3.4초, 4096이면 넘침 0·0.7초(EC2 측정).
+    # 서버 OS 상한(net.core.somaxconn) 4096을 넘기면 OS 값까지만 쓰인다
+    accept-count: 4096
+    # 오픈 전에 맺은 연결을 몰림 때 이어 쓴다. 기본(60초·요청 100회)이면 그 연결이 오픈 전에 끊기거나 100번째 요청에서 닫힌다
+    keep-alive-timeout: 120s
+    max-keep-alive-requests: -1
 
 # 대기열. 켜고 끄는 설정은 없다. 관리자가 room을 만들면 그 scope만 대기열을 거친다(room이 없으면 대기열 없음)
 # 데이터는 Redis에만 둔다(연결은 application.yml의 spring.data.redis). DB는 쓰지 않는다
