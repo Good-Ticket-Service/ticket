@@ -25,6 +25,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -97,10 +99,15 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
     }
 
     private ResultActions hold(Long user, Long scheduleId, Long seatId) throws Exception {
+        return hold(user, "USER", scheduleId, seatId);
+    }
+
+    /** Gateway가 인증 결과로 넣는 역할 헤더를 직접 넣는다. 입장 토큰은 Gateway만 검사하므로 넣지 않는다. */
+    private ResultActions hold(Long user, String role, Long scheduleId, Long seatId) throws Exception {
         return mockMvc.perform(post("/api/seats/schedules/{scheduleId}/holds", scheduleId)
                 .header(UserHeaders.USER_ID, user.toString())
                 .header(UserHeaders.USERNAME, "user" + user)
-                .header(UserHeaders.ROLE, "USER")
+                .header(UserHeaders.ROLE, role)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"scheduleSeatId\": " + seatId + "}"));
     }
@@ -335,6 +342,22 @@ class SeatHoldApiIntegrationTest extends ReservationIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PURCHASE_LIMIT_EXCEEDED"));
         assertThat(seatRow(second)).containsEntry("status", "AVAILABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SELLER", "MASTER"})
+    @DisplayName("USER가 아니면 403 FORBIDDEN이고 좌석은 AVAILABLE로 남으며 예약을 만들지 않는다")
+    void rejectsNonUser(String role) throws Exception {
+        Long seatId = seat(SCHEDULE, true);
+
+        hold(USER, role, SCHEDULE, seatId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(seatRow(seatId)).containsEntry("status", "AVAILABLE");
+        assertThat(reservationOnSeat(seatId)).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM p_reservations", Integer.class))
+                .isZero();
     }
 
     @Test
