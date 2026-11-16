@@ -1088,8 +1088,14 @@ public final class HoldBenchLoadMain {
         users.shutdown();
         boolean finished = users.awaitTermination(SELLOUT_LIMIT_SECONDS + 60L, TimeUnit.SECONDS);
         users.shutdownNow();
+        // 아직 시작하지 않은 예약 작업(결제하기·해제)은 보내지 않고 버린다. 이미 보낸 요청은 끝날 때까지 기다린다.
+        // 끊으면 서버는 처리를 끝냈는데 도구는 응답을 못 받아 오류로 센다(#449 후속: 종료 때 결제하기 interrupted 3건, 예약은 HOLD)
         abandoner.shutdownNow();
-        actions.shutdownNow();
+        abandoner.awaitTermination(5, TimeUnit.SECONDS);
+        actions.shutdown();
+        // 요청 제한 시간(65초)보다 길게 기다린다
+        boolean drained = actions.awaitTermination(70, TimeUnit.SECONDS);
+        int cutAtEnd = drained ? 0 : actions.shutdownNow().size();
         running.set(false);
         sampler.join(5_000);
 
@@ -1099,6 +1105,9 @@ public final class HoldBenchLoadMain {
         report.put("pool", pool);
         report.put("rep", rep);
         report.put("schedule_ids", scheduleIds);
+        // 종료 때 70초 안에 끝나지 않아 끊은 작업 수(대기 중이던 작업 수, 실행 중이던 것은 errors의 interrupted로 남는다)
+        report.put("drained_at_end", drained);
+        report.put("cut_at_end", cutAtEnd);
         Map<String, Object> workload = new LinkedHashMap<>();
         workload.put("seats", SEATS);
         workload.put("schedules", n);
