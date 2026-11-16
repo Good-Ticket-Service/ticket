@@ -71,14 +71,11 @@ public class BookingSchedulingConfig {
     }
 
     /**
-     * Outbox에 남은 승인 요청을 HTTP로 대신 보내는 작업자. 스위치를 켠 인스턴스에서만 스레드를 띄운다. 스케줄러를 끄는
-     * 통합 테스트에서는 없고, 테스트가 StrandedConfirmDrain.sendNext를 직접 부른다.
+     * Outbox에 남은 승인 요청을 HTTP로 대신 보내는 작업자. 따로 끄는 스위치 없이 늘 띄우고, 승인을 동기로 돌리는 동안에만 일한다.
+     * 그 밖에는 메모리에 있는 라우터 값만 읽고 쉰다. 스케줄러를 끄는 통합 테스트에서는 없고, 테스트가 StrandedConfirmDrain.sendNext를
+     * 직접 부른다.
      */
     @Bean
-    @ConditionalOnProperty(
-            prefix = "reservation.booking.payment-confirm.fallback.drain",
-            name = "enabled",
-            havingValue = "true")
     public StrandedConfirmDrainWorkers strandedConfirmDrainWorkers(
             StrandedConfirmDrain drain, PaymentConfirmSettings confirmSettings) {
         DrainSettings settings = confirmSettings.drain();

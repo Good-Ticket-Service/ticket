@@ -57,7 +57,7 @@ public class StrandedConfirmDrain {
     public boolean sendNext() {
         DrainSettings drain = settings.drain();
         // 메시지로 돌아왔으면 남은 행은 발행기가 보낸다. 라우터는 메모리 값만 읽으므로 작업자가 자주 물어도 비용이 없다
-        if (!drain.enabled() || confirmRouter.route() != ConfirmRoute.SYNC_FALLBACK) {
+        if (confirmRouter.route() != ConfirmRoute.SYNC_FALLBACK) {
             return false;
         }
         LocalDateTime now = changeStamps.now();
