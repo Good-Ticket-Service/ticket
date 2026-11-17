@@ -46,14 +46,18 @@ export function HomeHero({ items }: { items: PerformanceSummary[] }) {
             aria-label="이전 공연 소개"
             onClick={() => setIndex((selected + items.length - 1) % items.length)}
           >
-            ‹
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 6-6 6 6 6" />
+            </svg>
           </button>
           <button
             type="button"
             aria-label="다음 공연 소개"
             onClick={() => setIndex((selected + 1) % items.length)}
           >
-            ›
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" />
+            </svg>
           </button>
         </div>
       )}
