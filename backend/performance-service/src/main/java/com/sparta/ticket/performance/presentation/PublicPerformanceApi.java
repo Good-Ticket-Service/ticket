@@ -8,9 +8,9 @@ import com.sparta.ticket.performance.application.service.PublicPerformanceServic
 import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
+import com.sparta.ticket.performance.presentation.support.KeywordParameter;
 import com.sparta.ticket.performance.presentation.support.PerformanceStatusParameter;
 import com.sparta.ticket.performance.presentation.support.RegionParameter;
-import com.sparta.ticket.performance.presentation.support.RequestText;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.MultiValueMap;
@@ -47,7 +47,7 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
                 RegionParameter.parseOptional(region),
                 from,
                 to,
-                RequestText.stripToNull(keyword),
+                KeywordParameter.normalize(keyword),
                 PerformanceStatusParameter.parse(queryParameters.get("status")),
                 sort,
                 page,
