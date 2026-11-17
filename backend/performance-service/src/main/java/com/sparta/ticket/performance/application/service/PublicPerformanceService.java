@@ -1,9 +1,11 @@
 package com.sparta.ticket.performance.application.service;
 
 import com.sparta.ticket.common.exception.BusinessException;
+import com.sparta.ticket.common.exception.CommonErrorCode;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
 import com.sparta.ticket.performance.application.dto.PublicPerformancePage;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.application.port.PublicPerformanceDetailCache;
 import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
@@ -47,7 +49,7 @@ public class PublicPerformanceService {
     }
 
     /**
-     * from이 to보다 늦으면 400 INVALID_TIME_RANGE.
+     * from이 to보다 늦으면 400 INVALID_TIME_RANGE. 검색어 없이 RELEVANCE로 정렬하면 400 VALIDATION_ERROR(이슈 #442).
      * Note: 목록은 페이지 ID·표시 정보와 기간·전체 개수를 쿼리 여러 개로 읽는다. 그 사이에 커밋된 변경이 섞여 한 응답 안에서
      * 항목이 빠지거나 개수가 어긋나지 않도록 REPEATABLE READ로 같은 시점을 읽는다(이슈 #343).
      * 상태·정렬·전체 개수의 시간 경계도 일치하도록 현재 시각은 한 번만 읽어 Reader에 전달한다(이슈 #382).
@@ -58,6 +60,9 @@ public class PublicPerformanceService {
                 && condition.to() != null
                 && condition.from().isAfter(condition.to())) {
             throw new BusinessException(PerformanceErrorCode.INVALID_TIME_RANGE);
+        }
+        if (condition.sort() == PublicPerformanceSort.RELEVANCE && condition.keyword() == null) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "관련도 순 정렬은 검색어가 있을 때만 쓸 수 있습니다.");
         }
         return reader.search(condition, LocalDateTime.now(clock));
     }
