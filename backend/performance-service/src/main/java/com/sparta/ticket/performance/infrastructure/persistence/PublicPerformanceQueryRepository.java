@@ -60,11 +60,15 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
      * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
      * Note: 한 번에 묶으면 OFFSET으로 버릴 공연까지 모든 공연의 기간을 계산한다(이슈 #343). 여러 쿼리가 같은 시점을 보도록
      * 서비스가 REPEATABLE READ로 부른다.
+     * 검색어가 없고 판매 상태가 기본(판매중·판매예정)인 목록의 예매 오픈 순은 별도 경로로 읽는다(이슈 #471).
      */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {
-        BooleanBuilder where = listablePerformance().and(filters(condition)).and(saleStatus(condition, now));
-        List<Long> ids = findPageIds(condition, where, now);
+        BooleanBuilder base = listablePerformance().and(filters(condition));
+        BooleanBuilder where = new BooleanBuilder(base.getValue()).and(saleStatus(condition, now));
+        List<Long> ids = isDefaultBrowse(condition) && condition.sort() == PublicPerformanceSort.BOOKING_OPEN_ASC
+                ? findDefaultBookingOpenPageIds(condition, base, now)
+                : findPageIds(condition, where, now);
         List<PublicPerformanceSummary> items = ids.isEmpty() ? List.of() : findSummaries(ids);
 
         Long total = queryFactory
@@ -76,6 +80,41 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .fetchOne();
 
         return new PublicPerformancePage(items, condition.page(), condition.size(), total == null ? 0 : total);
+    }
+
+    /**
+     * 검색어가 없고 판매 상태가 정확히 판매중·판매예정인 기본 목록인지. 상태 생략과 두 상태를 직접 고른 요청이 같은 경로를 탄다.
+     * Note: 기본 두 상태는 "시작 전 활성 회차가 있는 공연"과 같다(saleStatus의 onSale && upcoming 분기).
+     * 판매종료가 섞인 조합·단일 상태·세 상태 전체·키워드 검색은 기존 경로를 쓴다(이슈 #471 계획 5절).
+     */
+    private static boolean isDefaultBrowse(PublicPerformanceSearchCondition condition) {
+        return condition.keyword() == null
+                && condition.statuses()
+                        .equals(EnumSet.of(PublicPerformanceStatus.ON_SALE, PublicPerformanceStatus.UPCOMING));
+    }
+
+    /**
+     * 기본 목록의 예매 오픈 순 페이지 ID. 시작 전 활성 회차를 INNER JOIN 해 공연별 최소 오픈 시각으로 정렬한다(이슈 #471).
+     * Note: 기존 경로는 정렬용 LEFT JOIN과 상태 확인용 EXISTS가 같은 회차 집합을 두 번 읽었다. 기본 두 상태에서는 INNER JOIN이
+     * 남은 회차 존재를 보장하므로 EXISTS를 뺀다. 회차 수만큼 늘어난 행은 GROUP BY로 공연 하나로 묶은 뒤 페이지를 자른다.
+     * 날짜 필터는 base 안의 별도 하위 쿼리라 이 JOIN의 회차와 다른 회차가 만족해도 된다(기존 의미 유지).
+     * 오픈 시각이 없는 공연은 INNER JOIN에서 빠지므로 NULLS LAST가 필요 없다.
+     */
+    private List<Long> findDefaultBookingOpenPageIds(
+            PublicPerformanceSearchCondition condition, BooleanBuilder base, LocalDateTime now) {
+        return queryFactory
+                .select(PERFORMANCE.id)
+                .from(PERFORMANCE)
+                .join(VENUE)
+                .on(VENUE.id.eq(PERFORMANCE.venueId))
+                .join(SCHEDULE)
+                .on(SCHEDULE.performanceId.eq(PERFORMANCE.id), activeSchedule(SCHEDULE), SCHEDULE.startAt.gt(now))
+                .where(base)
+                .groupBy(PERFORMANCE.id)
+                .orderBy(SCHEDULE.bookingOpenAt.min().asc(), PERFORMANCE.id.desc())
+                .offset((long) condition.page() * condition.size())
+                .limit(condition.size())
+                .fetch();
     }
 
     /** 페이지에 들어갈 공연 ID를 정렬 순서대로 고른다. 기간은 계산하지 않는다. */
