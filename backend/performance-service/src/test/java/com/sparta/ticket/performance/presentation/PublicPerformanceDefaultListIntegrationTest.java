@@ -17,8 +17,10 @@ import org.springframework.test.context.jdbc.SqlConfig;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 이슈 #471: 검색어가 없고 판매 상태가 판매중·판매예정인 기본 목록의 별도 경로(예매 오픈 순 ID, 전체 개수)가
- * 기존 의미와 같은지 확인한다. 상태 조합·시각 경계·페이지 이동은 PublicPerformanceStatusIntegrationTest가 같은 API로 검증한다.
+ * 이슈 #471: 검색어가 없고 판매 상태가 판매중·판매예정인 기본 목록의 예매 오픈 순 항목과 전체 개수가
+ * 회차 조건(여러 미래 회차, 취소·삭제 회차, 시작 시각 경계)과 필터에서 의미대로 나오는지 확인한다.
+ * 별도 SQL 경로는 진단에서 이득이 없어 되돌렸지만, 인덱스·비용 설정으로 실행 계획이 바뀌어도 결과가 같아야 하므로 남긴다.
+ * 상태 조합·시각 경계·페이지 이동은 PublicPerformanceStatusIntegrationTest가 같은 API로 검증한다.
  *
  * <p>픽스처 기준 시각은 2026-11-01 12:00. 기본 목록은 공연 12·11·10이다.
  * 예매 오픈(시작 전 활성 회차의 최소값): 12 = 10-25, 11 = 11-05, 10 = 11-10.
