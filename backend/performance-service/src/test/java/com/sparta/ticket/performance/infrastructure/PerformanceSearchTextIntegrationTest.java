@@ -240,7 +240,13 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
         boolean interrupted = Thread.interrupted();
         for (int i = 0; i < writes.size(); i++) {
             if (!awaitQuietly(writes.get(i), errors)) {
-                Integer pid = pids.get(i).getNow(null);
+                // PID를 얻기 전에 실패한 작업은 PID future가 예외로 끝난다. 그때는 취소할 질의가 없으므로 기록만 하고 넘어간다(리뷰 R4-1)
+                Integer pid = null;
+                try {
+                    pid = pids.get(i).getNow(null);
+                } catch (RuntimeException exception) {
+                    errors.add(exception);
+                }
                 if (pid != null) {
                     try {
                         jdbc.queryForObject("SELECT pg_cancel_backend(?)", Boolean.class, pid);
