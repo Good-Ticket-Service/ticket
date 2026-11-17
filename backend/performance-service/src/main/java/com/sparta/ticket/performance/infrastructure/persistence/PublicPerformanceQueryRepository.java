@@ -22,6 +22,7 @@ import com.sparta.ticket.performance.domain.performance.PublicationStatus;
 import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
 import com.sparta.ticket.performance.domain.venue.QVenue;
+import com.sparta.ticket.performance.domain.venue.Region;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
@@ -180,10 +181,15 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
             builder.and(PERFORMANCE.genre.eq(condition.genre()));
         }
         if (condition.region() != null) {
-            builder.and(VENUE.region.eq(condition.region()));
+            builder.and(VENUE.region.eq(condition.region().name()));
         }
         if (condition.keyword() != null) {
-            builder.and(PERFORMANCE.title.containsIgnoreCase(condition.keyword()));
+            String keyword = condition.keyword();
+            BooleanBuilder matches = new BooleanBuilder(PERFORMANCE.title.containsIgnoreCase(keyword))
+                    .or(VENUE.name.containsIgnoreCase(keyword))
+                    .or(PERFORMANCE.castInfo.containsIgnoreCase(keyword));
+            Region.fromKeyword(keyword).ifPresent(region -> matches.or(VENUE.region.eq(region.name())));
+            builder.and(matches);
         }
         if (condition.from() != null || condition.to() != null) {
             builder.and(hasActiveScheduleStartingBetween(condition));
