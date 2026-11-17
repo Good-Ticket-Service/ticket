@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,26 @@ class ScheduleSeatPersistenceIntegrationTest extends ReservationIntegrationTest 
         return scheduleSeatRepository
                 .save(ScheduleSeat.create(SCHEDULE, venueSeatId, 7L, "VIP", 150_000, "A", "1", 1, true, 1L))
                 .getId();
+    }
+
+    @Test
+    @DisplayName("선점 조회는 필요한 좌석 필드를 읽고 좌석 ID와 회차가 함께 맞아야 반환한다")
+    void findForHoldReturnsSnapshotOnlyForRequestedSchedule() {
+        Long seatId = save(100L);
+
+        var snapshot = scheduleSeatRepository.findForHold(seatId, SCHEDULE).orElseThrow();
+
+        assertThat(snapshot.scheduleSeatId()).isEqualTo(seatId);
+        assertThat(snapshot.venueSeatId()).isEqualTo(100L);
+        assertThat(snapshot.configVersion()).isEqualTo(1L);
+        assertThat(snapshot.sellable()).isTrue();
+        assertThat(snapshot.basePrice()).isEqualTo(150_000);
+        assertThat(snapshot.status()).isEqualTo(SeatStatus.AVAILABLE);
+        assertThat(snapshot.reservationId()).isNull();
+        assertThat(snapshot.holdExpiresAt()).isNull();
+
+        assertThat(scheduleSeatRepository.findForHold(seatId, SCHEDULE + 1)).isEmpty();
+        assertThat(scheduleSeatRepository.findForHold(-1L, SCHEDULE)).isEmpty();
     }
 
     @Test
