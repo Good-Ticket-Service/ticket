@@ -1,7 +1,7 @@
 -- performance-service 스키마(performance_schema)의 현재 DDL. Entity를 추가·변경하면 이 파일도 같이 고친다.
 -- 통합 테스트(PostgresIntegrationTest)가 이 파일로 테이블을 만든 뒤 Entity와 맞는지 검사한다(ddl-auto=validate).
 -- 테이블 이름에 스키마를 붙이지 않는다. 서비스 계정(performance_app)으로 적용하면 계정 기본 search_path인 performance_schema에 만들어진다.
--- Note: 조회용 일반 인덱스는 아직 만들지 않는다. 공개 조회의 성능 기준선을 인덱스 없이 측정한 뒤 단계별로 추가한다.
+-- Note: 조회용 인덱스는 공개 조회의 성능 기준선을 인덱스 없이 측정한 뒤, 진단으로 근거가 확인된 것만 단계별로 추가한다(이슈 #471부터).
 -- 부분 UNIQUE INDEX는 중복 방지 제약이라 처음부터 둔다. 모두 미삭제 행(deleted_at IS NULL)만 대상으로 한다.
 
 -- 공연장
@@ -107,6 +107,12 @@ CREATE TABLE p_performances
     -- 공개된 공연에는 최초 공개 시각이 있어야 한다
     CONSTRAINT ck_p_performances_published_at CHECK (publication_status = 'DRAFT' OR published_at IS NOT NULL)
 );
+
+-- 공개 목록 최신순(published_at DESC, id DESC). 목록 대상(공개·운영 중·미삭제)만 담아 전체 정렬 없이 페이지를 채운다(이슈 #471 후보).
+-- Note: 부분 인덱스라 쿼리의 상태 조건이 바인딩 값이면 공용 계획(generic plan)에서 쓰이지 않을 수 있다. 채택 전에 확인한다(이슈 #471 계획 8.1.1).
+CREATE INDEX ix_p_performances_public_latest
+    ON p_performances (published_at DESC, id DESC)
+    WHERE deleted_at IS NULL AND publication_status = 'PUBLISHED' AND operation_status = 'ACTIVE';
 
 -- 공연별 등급 가격. 같은 공연의 모든 회차가 같은 가격을 쓴다
 CREATE TABLE p_performance_grade_prices
