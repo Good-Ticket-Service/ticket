@@ -158,6 +158,9 @@ BEGIN
 END';
 
 -- 공연장명이 바뀌면 그 공연장의 공연(삭제 행 포함)을 다시 계산한다. 지금은 공연장명 수정 API가 없고 SQL로만 바뀐다.
+-- Note: 한 트랜잭션에서 여러 공연장 이름을 바꾸는 동안 다른 트랜잭션이 그 공연장들 사이로 공연을 옮기면 교착이 날 수 있다
+-- (공연장 2 잠금 → 공연 행 대기 / 공연 행 잠금 → 공연장 2 대기). PostgreSQL이 한쪽을 롤백하므로 틀린 값이 커밋되지는 않는다.
+-- 수동 SQL로 이름을 바꿀 때는 공연장 하나씩 커밋하고, 교착으로 실패하면 그 트랜잭션 전체를 다시 실행한다(이슈 #441 리뷰 R2-2).
 CREATE OR REPLACE FUNCTION p_venues_refresh_search_text() RETURNS trigger LANGUAGE plpgsql
     SET search_path FROM CURRENT AS '
 BEGIN

@@ -13,11 +13,18 @@ import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -97,37 +104,54 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
     /**
      * 공연장명 변경이 커밋되기 전에 다른 연결이 그 공연장으로 공연을 넣거나 옮기면, 공연장 트리거의 일괄 갱신에는 그 행이 보이지 않는다.
      * 공연 트리거가 공연장 행을 공유 잠금으로 읽어 변경 커밋을 기다리고 바뀐 이름으로 채우는지 본다(이슈 #441 리뷰 R1-1).
+     * Note: 시간만 기다리면 작업이 늦게 시작해 커밋 뒤에 SQL을 보내도 통과한다. 두 작업의 서버 세션이 이름 변경 세션에 막혀 있는지
+     * pg_blocking_pids로 확인한 뒤 커밋한다. 공유 잠금이 없으면 막히지 않아 시험이 실패한다(리뷰 R2-1).
      */
     @Test
     @DisplayName("커밋 전인 공연장명 변경과 겹친 SQL 등록·공연장 이동도 바뀐 이름으로 채운다")
     void waitsForUncommittedVenueRename() throws Exception {
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        List<CompletableFuture<Integer>> writes = new ArrayList<>();
         try (Connection renamer = dataSource.getConnection()) {
             renamer.setAutoCommit(false);
             boolean committed = false;
             try {
+                int renamerPid = backendPid(renamer);
                 try (Statement statement = renamer.createStatement()) {
                     statement.executeUpdate("UPDATE p_venues SET name = '새 이름 홀' WHERE id = 1");
                 }
-                CompletableFuture<Integer> insert = CompletableFuture.supplyAsync(() -> jdbc.update(
+                CompletableFuture<Integer> insertPid = new CompletableFuture<>();
+                CompletableFuture<Integer> movePid = new CompletableFuture<>();
+                writes.add(updateOnOwnConnection(
+                        workers,
+                        insertPid,
                         "INSERT INTO p_performances (id, seller_id, venue_id, title, genre, running_time,"
                                 + " created_at, created_by, updated_at, updated_by)"
                                 + " VALUES (30, 501, 1, '새 공연', 'PLAY', 90, now(), 'SYSTEM', now(), 'SYSTEM')"));
-                CompletableFuture<Integer> move = CompletableFuture.supplyAsync(
-                        () -> jdbc.update("UPDATE p_performances SET venue_id = 1 WHERE id = 11"));
+                writes.add(updateOnOwnConnection(
+                        workers, movePid, "UPDATE p_performances SET venue_id = 1 WHERE id = 11"));
 
-                // 공연장 행 잠금 때문에 이름 변경이 커밋될 때까지 끝나지 않는다
-                Thread.sleep(500);
-                assertThat(insert).isNotDone();
-                assertThat(move).isNotDone();
+                awaitBlockedBy(insertPid.get(10, TimeUnit.SECONDS), renamerPid);
+                awaitBlockedBy(movePid.get(10, TimeUnit.SECONDS), renamerPid);
 
                 renamer.commit();
                 committed = true;
-                assertThat(insert.get(10, TimeUnit.SECONDS)).isEqualTo(1);
-                assertThat(move.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+                for (CompletableFuture<Integer> write : writes) {
+                    assertThat(write.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+                }
             } finally {
+                // 시험이 중간에 실패해도 대기를 풀고 두 작업을 회수해 다음 시험의 fixture 초기화를 막지 않는다
                 if (!committed) {
                     renamer.rollback();
                 }
+                for (CompletableFuture<Integer> write : writes) {
+                    try {
+                        write.get(10, TimeUnit.SECONDS);
+                    } catch (ExecutionException | TimeoutException ignored) {
+                        // 결과는 위에서 확인한다. 여기서는 끝나기만 기다린다
+                    }
+                }
+                workers.shutdownNow();
             }
         }
 
@@ -183,6 +207,45 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
             matched += fieldwise.size();
         }
         assertThat(matched).isPositive();
+    }
+
+    /** 전용 연결에서 서버 세션 PID를 알린 뒤 SQL을 실행한다. 자동 커밋이다. */
+    private CompletableFuture<Integer> updateOnOwnConnection(
+            ExecutorService workers, CompletableFuture<Integer> pid, String sql) {
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    try (Connection connection = dataSource.getConnection();
+                            Statement statement = connection.createStatement()) {
+                        pid.complete(backendPid(connection));
+                        return statement.executeUpdate(sql);
+                    } catch (SQLException exception) {
+                        pid.completeExceptionally(exception);
+                        throw new IllegalStateException(exception);
+                    }
+                },
+                workers);
+    }
+
+    private static int backendPid(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT pg_backend_pid()")) {
+            result.next();
+            return result.getInt(1);
+        }
+    }
+
+    /** waiter 세션이 blocker 세션의 잠금을 기다리는 상태가 될 때까지 최대 10초 확인한다. */
+    private void awaitBlockedBy(int waiterPid, int blockerPid) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Boolean blocked = jdbc.queryForObject(
+                    "SELECT ?::int = ANY(pg_blocking_pids(?::int))", Boolean.class, blockerPid, waiterPid);
+            if (Boolean.TRUE.equals(blocked)) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("세션 " + waiterPid + "이 공연장명 변경 세션 " + blockerPid + "에 막히지 않았습니다");
     }
 
     private String searchText(long performanceId) {
