@@ -8,6 +8,7 @@ import com.sparta.ticket.performance.application.dto.RegisteredSeats;
 import com.sparta.ticket.performance.application.dto.VenueDetail;
 import com.sparta.ticket.performance.application.port.VenueStore;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
+import com.sparta.ticket.performance.domain.venue.Region;
 import com.sparta.ticket.performance.domain.venue.SeatPosition;
 import com.sparta.ticket.performance.domain.venue.Venue;
 import com.sparta.ticket.performance.domain.venue.VenueSeat;
@@ -33,7 +34,7 @@ public class VenueAdminService {
     private final VenueStore store;
 
     /** 공연장을 등록한다. version은 0에서 시작한다. */
-    public VenueDetail register(String name, String address, String region) {
+    public VenueDetail register(String name, String address, Region region) {
         return VenueDetail.from(store.save(Venue.create(name, address, region)));
     }
 
