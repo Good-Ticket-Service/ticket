@@ -11,9 +11,9 @@
 
 -- 공연장
 INSERT INTO p_venues (id, name, address, region, version, created_at, created_by, updated_at, updated_by)
-VALUES (1, '서울 아트센터', '서울특별시 중구 예시로 10', '서울', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
-       (2, '부산 문화회관', '부산광역시 해운대구 예시로 20', '부산', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
-       (3, '대구 소극장', '대구광역시 중구 예시로 30', '대구', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM');
+VALUES (1, '서울 아트센터', '서울특별시 중구 예시로 10', 'SEOUL', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
+       (2, '부산 문화회관', '부산광역시 해운대구 예시로 20', 'BUSAN', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM'),
+       (3, '대구 소극장', '대구광역시 중구 예시로 30', 'DAEGU', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM');
 
 -- 공연장 좌석 등급
 INSERT INTO p_venue_seat_grades (id, venue_id, name, created_at, created_by, updated_at, updated_by)

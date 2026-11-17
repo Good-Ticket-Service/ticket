@@ -13,6 +13,35 @@ VERIFIED = {"PF301715", "PF301963", "PF302368"}
 # The pages for these three records could not be opened during the Nov 4 review.
 UNCHECKABLE = {"PF301964", "PF302411", "PF303375"}
 DAYS = "월화수목금토일"
+# 동기화 대상: domain/venue/Region.java, backend/sql/performance-service/migrations/438-region-codes.sql.
+# 검색 별칭은 코드 자체를 제외하지만, 아래 적재 변환 REGIONS는 이미 변환된 코드도 허용한다.
+REGION_ALIASES = {
+    "SEOUL": ("서울", "서울특별시"),
+    "GYEONGGI": ("경기", "경기도"),
+    "INCHEON": ("인천", "인천광역시"),
+    "GANGWON": ("강원", "강원특별자치도", "강원도"),
+    "CHUNGBUK": ("충북", "충청북도"),
+    "CHUNGNAM": ("충남", "충청남도"),
+    "DAEJEON": ("대전", "대전광역시"),
+    "SEJONG": ("세종", "세종특별자치시"),
+    "JEONBUK": ("전북", "전북특별자치도", "전라북도"),
+    "JEONNAM_GWANGJU": ("전남광주", "광주", "전남", "전남광주통합특별시", "광주광역시", "전라남도"),
+    "GYEONGBUK": ("경북", "경상북도"),
+    "GYEONGNAM": ("경남", "경상남도"),
+    "DAEGU": ("대구", "대구광역시"),
+    "ULSAN": ("울산", "울산광역시"),
+    "BUSAN": ("부산", "부산광역시"),
+    "JEJU": ("제주", "제주특별자치도", "제주도"),
+}
+REGIONS = {alias: code for code, aliases in REGION_ALIASES.items() for alias in (code, *aliases)}
+
+
+def region_code(value):
+    """알 수 없는 지역은 SQL 파일을 쓰기 전에 중단한다. 주소에서 임의 추정하지 않는다."""
+    normalized = value.strip()
+    if normalized not in REGIONS:
+        raise ValueError(f"이슈 #438: 대응되지 않는 KOPIS 지역: {value!r}")
+    return REGIONS[normalized]
 
 
 def scalar(value):
@@ -60,7 +89,7 @@ def generate(snapshot):
         name = venue if venue == room_name else f"{venue} ({room_name})"
         if len(name)>100:
             name = get("fcltynm")
-        hall_row = (hall, name, facility.findtext("adres").strip(), get("area"), int(r["seats"]))
+        hall_row = (hall, name, facility.findtext("adres").strip(), region_code(get("area")), int(r["seats"]))
         assert halls.setdefault(hall, hall_row) == hall_row
         runtime = re.fullmatch(r"(?:(\d+)시간\s*)?(?:(\d+)분)?", r["runtime"])
         minutes = int(runtime[1] or 0)*60 + int(runtime[2] or 0)
