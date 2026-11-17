@@ -1140,7 +1140,7 @@ public final class HoldBenchLoadMain {
             setHoldMode(HOLD_MODE);
         }
         // Redis 점유 판정(-S)은 부하 전에 회차를 올린다. 올리지 않으면 첫 선점들이 DB 좌석 읽기로 판정해 두 경로가 섞인다
-        if (HOLD_MODE.endsWith("-S")) {
+        if (HOLD_MODE.endsWith("-S") || HOLD_MODE.endsWith("-SL")) {
             for (long id : scheduleIds) {
                 post("/bench/seat-state/reload?scheduleId=" + id, "Redis 점유 좌석을 올리지 못했다");
             }
@@ -1272,7 +1272,15 @@ public final class HoldBenchLoadMain {
                                                 pendingReleases[kk],
                                                 random.nextLong(CONVERT_MIN_MS, CONVERT_MAX_MS + 1L),
                                                 new ConvertTiming(),
-                                                timing -> convertOnceAsync(kk, sid, uid, result.holdId(), t0, timing)
+                                                timing -> convertWithRetry(
+                                                                kk,
+                                                                sid,
+                                                                uid,
+                                                                result.holdId(),
+                                                                t0,
+                                                                timing,
+                                                                0,
+                                                                System.nanoTime())
                                                         .thenAccept(reservationId -> {
                                                             if (reservationId < 0) {
                                                                 // 결제하기에서 좌석을 잃었다(409·만료). 좌석은 다시 풀린다
@@ -1382,6 +1390,8 @@ public final class HoldBenchLoadMain {
         workload.put("user_threads_max", ACTIVE * n);
         workload.put("admit_per_second", ADMIT_PER_SECOND);
         workload.put("http_clients", HTTP_CLIENTS);
+        workload.put("convert_retries", convertRetries.get());
+        workload.put("convert_gave_up", convertGaveUp.get());
         workload.put(
                 "admit_model",
                 ADMIT_PER_SECOND > 0
@@ -1452,6 +1462,7 @@ public final class HoldBenchLoadMain {
                 .forEach(x -> convertOutcomes.merge(x.outcome(), 1, Integer::sum));
         report.put("convert_outcomes", convertOutcomes);
         report.put("convert_ms", distribution(latencies(all, "convert", null, 0, endNanos)));
+        report.put("convert_total_ms", distribution(latencies(all, "convert_total", null, 0, endNanos)));
         report.put("convert_traces", new ArrayList<>(convertTraces));
         List<Map<String, Object>> windows = new ArrayList<>();
         for (long from = 0; from < endNanos; from += TimeUnit.SECONDS.toNanos(10)) {
@@ -1500,6 +1511,7 @@ public final class HoldBenchLoadMain {
             w.put("taken_ms", distribution(latencies(all, "hold", "taken", from, to)));
             w.put("view_ms", distribution(latencies(all, "view", null, from, to)));
             w.put("convert_ms", distribution(latencies(all, "convert", null, from, to)));
+            w.put("convert_total_ms", distribution(latencies(all, "convert_total", null, from, to)));
             windows.add(w);
         }
         report.put("windows_10s", windows);
@@ -2200,6 +2212,59 @@ public final class HoldBenchLoadMain {
         return reservationId;
     }
 
+    /**
+     * convertOnceAsync의 반환값: 동시 처리 상한으로 거절됨(재시도 대상). CONVERT_BUSY - Retry-After초로 돌려줘, 받은 Retry-After를
+     * 재시도 간격에 쓴다(예: Retry-After 3초면 -1003).
+     */
+    static final long CONVERT_BUSY = -1000;
+
+    /** 선점 유지 시간(서버 기본 10분). 이만큼 지나면 재시도해도 만료라 그만둔다(남은 5초 전까지). */
+    static final long HOLD_TTL_MS = Long.getLong("bench.hold.ttl.ms", 600_000);
+
+    final AtomicLong convertRetries = new AtomicLong();
+    final AtomicLong convertGaveUp = new AtomicLong();
+
+    /** 상한으로 거절되면 받은 Retry-After만큼(+흩뿌림) 기다렸다 다시 보낸다. 실제 프런트도 Retry-After를 따르게 한다는 가정이다. */
+    CompletableFuture<Long> convertWithRetry(
+            int k,
+            long scheduleId,
+            long userId,
+            String holdId,
+            long t0,
+            ConvertTiming timing,
+            int attempt,
+            long firstStart) {
+        return convertOnceAsync(k, scheduleId, userId, holdId, t0, timing).thenCompose(id -> {
+            boolean busy = id <= CONVERT_BUSY;
+            long now = System.nanoTime();
+            // 선점이 곧 만료되거나 측정이 끝나면 그만둔다. 실제 회원은 선점이 남아 있는 한 다시 누를 수 있다
+            boolean outOfTime = now - firstStart > TimeUnit.MILLISECONDS.toNanos(HOLD_TTL_MS - 5_000)
+                    || now - t0 > TimeUnit.SECONDS.toNanos(SELLOUT_LIMIT_SECONDS);
+            if (!busy || outOfTime) {
+                if (busy) {
+                    convertGaveUp.incrementAndGet();
+                }
+                // 회원이 겪은 좌석 선택 완료 시간(재시도 포함). 503 응답 한 번은 빠르므로 convert 표본만 보면 지연이 작게 보인다
+                long end = System.nanoTime();
+                selloutSamples.add(new SelloutSample(
+                        k,
+                        "convert_total",
+                        firstStart - t0,
+                        (end - firstStart) / 1e6,
+                        id >= 0 ? "ok" : busy ? "gave_up" : "failed"));
+                return CompletableFuture.completedFuture(busy ? -1L : id);
+            }
+            convertRetries.incrementAndGet();
+            // 받은 Retry-After에 0\~50%를 더해 흩뿌린다. 같은 간격이면 거절된 회원이 한꺼번에 다시 온다
+            long retryAfterMs = (CONVERT_BUSY - id) * 1_000L;
+            long delay = retryAfterMs + ThreadLocalRandom.current().nextLong(retryAfterMs / 2 + 1);
+            return CompletableFuture.supplyAsync(
+                            () -> null, CompletableFuture.delayedExecutor(delay, TimeUnit.MILLISECONDS))
+                    .thenCompose(ignored ->
+                            convertWithRetry(k, scheduleId, userId, holdId, t0, timing, attempt + 1, firstStart));
+        });
+    }
+
     /** 비동기 결제하기 요청. 응답까지 클라이언트 구간과 동일한 trace id로 기록한다. */
     CompletableFuture<Long> convertOnceAsync(
             int k, long scheduleId, long userId, String holdId, long t0, ConvertTiming timing) {
@@ -2237,6 +2302,17 @@ public final class HoldBenchLoadMain {
                                 outcome = status == 201 ? "created" : "existing";
                                 reservationId =
                                         body.path("data").path("reservationId").asLong(-1);
+                            } else if (status == 503
+                                    && response.headers()
+                                            .firstValue("Retry-After")
+                                            .isPresent()) {
+                                // 좌석 선택 완료 동시 처리 상한(#449 후속). 선점은 그대로라 Retry-After 뒤 다시 보낸다
+                                outcome = "busy";
+                                long seconds = response.headers()
+                                        .firstValue("Retry-After")
+                                        .map(Long::parseLong)
+                                        .orElse(1L);
+                                reservationId = CONVERT_BUSY - Math.max(1, seconds);
                             } else {
                                 outcome = status == 409
                                         ? body.path("code").asText("conflict").toLowerCase(java.util.Locale.ROOT)

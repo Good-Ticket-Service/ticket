@@ -2,6 +2,7 @@ package com.sparta.ticket.bench.hold;
 
 import com.sparta.ticket.reservation.ReservationServiceApplication;
 import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.seat.application.hold.ConvertConcurrencyLimit;
 import com.sparta.ticket.reservation.seat.application.hold.HoldSeatLookup;
 import com.sparta.ticket.reservation.seat.application.hold.HoldStages;
 import com.sparta.ticket.reservation.seat.application.hold.RedisSeatStateLoader;
@@ -589,22 +590,38 @@ public final class HoldBenchServerMain {
         private final BenchHoldModeSwitch modeSwitch;
         private final RedisSeatStateLoader stateLoader;
         private final HoldSeatLookup holdSeats;
+        private final ConvertConcurrencyLimit convertLimit;
+
+        /**
+         * "-SL" 모드에서 쓰는 좌석 선택 완료 동시 처리 상한. 기본 60 = 연결 풀 30 × (좌석 선택 완료 약 80ms ÷ 그중 DB 약 40ms)
+         * (ConvertLimitProperties 기준). 30으로 쟀을 때 평상시 처리량보다 작아 재시도가 몰렸다.
+         */
+        private static final int BENCH_CONVERT_LIMIT = Integer.getInteger("bench.convert.limit", 60);
 
         BenchHoldModeController(
-                BenchHoldModeSwitch modeSwitch, RedisSeatStateLoader stateLoader, HoldSeatLookup holdSeats) {
+                BenchHoldModeSwitch modeSwitch,
+                RedisSeatStateLoader stateLoader,
+                HoldSeatLookup holdSeats,
+                ConvertConcurrencyLimit convertLimit) {
             this.modeSwitch = modeSwitch;
             this.stateLoader = stateLoader;
             this.holdSeats = holdSeats;
+            this.convertLimit = convertLimit;
         }
 
         /**
          * mode는 DB, REDIS, REDIS1C(REDIS + 결제하기 한 트랜잭션, #449 후속 1-C)다. 끝에 "-S"를 붙이면 Redis 점유 판정(#449 후속)을
-         * 켠다(REDIS-S, REDIS1C-S).
+         * 켠다(REDIS-S, REDIS1C-S). "-SL"은 여기에 좌석 선택 완료 동시 처리 상한을 더한다(REDIS-SL).
          */
         @PostMapping("/bench/hold-mode")
         String set(@RequestParam String mode) {
-            boolean state = mode.endsWith("-S");
-            String base = state ? mode.substring(0, mode.length() - 2) : mode;
+            // "-SL"은 Redis 점유 판정 + 좌석 선택 완료 동시 처리 상한(bench.convert.limit)이다(#449 후속)
+            boolean limited = mode.endsWith("-SL");
+            convertLimit.setLimit(limited ? BENCH_CONVERT_LIMIT : 0);
+            boolean state = limited || mode.endsWith("-S");
+            String base = limited
+                    ? mode.substring(0, mode.length() - 3)
+                    : state ? mode.substring(0, mode.length() - 2) : mode;
             boolean oneTx = base.endsWith("1C");
             modeSwitch.set(SeatHoldMode.valueOf(oneTx ? base.substring(0, base.length() - 2) : base), oneTx, state);
             return mode;

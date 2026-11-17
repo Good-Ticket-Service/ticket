@@ -26,6 +26,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
  *   2. 좌석을 잠금 없이 읽어 함께 잠글 옛 예약을 고른다(SeatHoldService 1단계와 같은 이유).
  *   3. 선점 트랜잭션(SeatHoldTransactions.holdUntil)으로 예약을 만든다. 만료 시각과 판매 검증은 Redis 선점 때의 값이다.
  *      좌석 행 잠금과 재판정이 최종 판정이라, Redis 키가 사라져 두 회원이 같은 좌석을 잡았어도 예약은 한 건만 생긴다.
+ *   0. 동시 처리 상한(ConvertConcurrencyLimit)에 걸리면 바로 503 + Retry-After다. 선점은 그대로다.
  *   4. 성공하면 Redis 좌석 키를 지우고 회원 키를 CONVERTED로 바꾼다. 실패하면 업무 거절은 Redis 선점을 지우고(다시 시도해도 같은 결과),
  *      트랜잭션을 시작하지 못한 오류는 HELD로 되돌리고, 커밋했는지 모르는 오류는 CONVERTING으로 둔다(해제는 409, 결제하기 재시도로
  *      커밋된 예약을 받거나 새로 만든다). 남은 시간이 모자란 재시도는 DB에서 앞선 요청의 예약을 찾는다.
@@ -49,9 +50,19 @@ public class SeatHoldConversionService {
     private final RedisHoldDbReads dbReads;
     private final HoldStages stages;
     private final SeatHoldModeSwitch modeSwitch;
+    private final ConvertConcurrencyLimit convertLimit;
 
     public SeatHoldResult convert(Long userId, Long scheduleId, String holdId) {
-        return stages.time("convert", "total", () -> doConvert(userId, scheduleId, holdId));
+        // 동시 처리 상한(#449 후속). 걸리면 Redis·DB를 건드리지 않고 바로 503이다. 선점은 그대로라 Retry-After 뒤 다시 누르면 된다
+        if (!convertLimit.tryEnter()) {
+            metrics.convert("busy");
+            throw new ConvertBusyException(convertLimit.retryAfter());
+        }
+        try {
+            return stages.time("convert", "total", () -> doConvert(userId, scheduleId, holdId));
+        } finally {
+            convertLimit.exit();
+        }
     }
 
     private SeatHoldResult doConvert(Long userId, Long scheduleId, String holdId) {

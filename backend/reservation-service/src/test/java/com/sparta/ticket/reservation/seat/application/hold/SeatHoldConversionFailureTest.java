@@ -1,5 +1,6 @@
 package com.sparta.ticket.reservation.seat.application.hold;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -73,6 +74,9 @@ class SeatHoldConversionFailureTest {
         when(store.beginConvert(eq(SCHEDULE), eq(hold.holdId()), eq(USER), any(), any()))
                 .thenReturn(new ConvertStart(ConvertOutcome.STARTED, null));
         when(store.find(SCHEDULE, hold.holdId())).thenReturn(Optional.of(hold));
+        limit = new ConvertConcurrencyLimit(
+                new ConvertLimitProperties(0, java.time.Duration.ofSeconds(1), java.time.Duration.ofSeconds(10)),
+                new SimpleMeterRegistry());
         SeatHoldModeSwitch modeSwitch = mock(SeatHoldModeSwitch.class);
         when(modeSwitch.current()).thenReturn(SeatHoldMode.REDIS);
         when(modeSwitch.label()).thenReturn(SeatHoldMode.REDIS.name());
@@ -84,8 +88,11 @@ class SeatHoldConversionFailureTest {
                 new RedisSeatHoldMetrics(new SimpleMeterRegistry()),
                 mock(RedisHoldDbReads.class),
                 new HoldStages(new SimpleMeterRegistry(), modeSwitch),
-                modeSwitch);
+                modeSwitch,
+                limit);
     }
+
+    private ConvertConcurrencyLimit limit;
 
     @Test
     @DisplayName("DB 연결을 얻지 못하면 예약이 없는 것이 확실해 HELD로 되돌린다")
@@ -108,5 +115,23 @@ class SeatHoldConversionFailureTest {
                 .isInstanceOf(TransactionSystemException.class);
         verify(store, never()).abortConvert(any(), anyBoolean());
         verify(store, never()).finishConvert(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("동시 처리 상한에 걸리면 Redis·DB를 건드리지 않고 Retry-After를 실은 503이고, 자리가 나면 다시 받는다")
+    void rejectsWhenConvertLimitIsFull() {
+        limit.setLimit(1);
+        assertThat(limit.tryEnter()).isTrue();
+
+        assertThatThrownBy(() -> service.convert(USER, SCHEDULE, hold.holdId()))
+                .isInstanceOfSatisfying(ConvertBusyException.class, e -> {
+                    assertThat(e.getErrorCode().code()).isEqualTo("SERVICE_UNAVAILABLE");
+                    assertThat(e.retryAfter()).isEqualTo(java.time.Duration.ofSeconds(1));
+                });
+        verify(store, never()).beginConvert(any(), any(), any(), any(), any());
+
+        limit.exit();
+        assertThat(limit.tryEnter()).isTrue();
+        limit.exit();
     }
 }
