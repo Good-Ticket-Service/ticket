@@ -22,10 +22,11 @@ spring:
       client:
         config:
           # 회차 좌석 준비(공연 → 좌석, 이슈 #175 합의). 키는 SeatSetupFeignClient의 contextId다.
-          # read 5초는 잠정값이다. 좌석 담당이 좌석 준비 API를 구현할 때 회차당 1,000석 기준으로 재서 조정한다
+          # read 10초(이슈 #466): 판매자는 기다리지 않는다(비동기). 좌석 쪽 잠금 대기 최대 3초와 처리 시간(2만 석 p95 0.52초)보다
+          # 넉넉하게 둬, 타임아웃 뒤 재시도가 처리 중인 요청과 겹치는 일을 줄인다. 바꾸면 retry.first-delay·recovery.lease도 검토한다
           seatSetupClient:
             connect-timeout: 1000
-            read-timeout: 5000
+            read-timeout: 10000
 
 management:
   health:
@@ -50,13 +51,22 @@ performance:
   seat-setup:
     # feign(기본) 또는 stub. stub은 좌석 서비스를 부르지 않고 성공으로 처리하는 임시 구현체다
     client: feign
+    dispatch:
+      # 커밋 뒤 좌석 준비를 보내는 실행기(이슈 #466). 판매자 응답은 좌석 응답을 기다리지 않는다.
+      # 좌석 호출 동시 수 = pool-size + 스케줄링 스레드(1, 재시도·복구가 함께 씀) = 인스턴스당 최대 2건.
+      # 좌석 준비가 예매 서비스의 선점·결제와 같은 DB 연결 풀을 써서 작게 둔다(이슈 #406 합의)
+      pool-size: 1
+      # 큐가 차면 버리고 거절 수(performance.seat.setup.dispatch.rejected)를 센다. 회차는 PENDING이라 재시도 스케줄러가 보낸다
+      queue-capacity: 200
     retry:
-      # 일시 실패(409 SEAT_SETUP_IN_USE 포함) 재시도: 최대 8회, 간격 10초에서 두 배씩(상한 5분), 첫 시도부터 약 15분.
-      # 15분은 선점(10분)이 만료·정리되기를 기다리는 길이다. 첫 간격은 connect + read 타임아웃(6초)보다 길어야 한다
+      # 일시 실패(409 SEAT_SETUP_IN_USE 포함) 재시도: 최대 8회, 간격 15초에서 두 배씩(상한 5분), 첫 시도부터 약 18분.
+      # 선점(10분)이 만료·정리되기를 기다리는 길이다. 첫 간격은 호출 중 같은 회차를 다시 보내지 않게 하는 임대라,
+      # 예상 HTTP 대기(connect 1초 + read 10초)보다 여유를 둔다
       max-attempts: 8
-      first-delay: 10s
+      first-delay: 15s
       max-delay: 5m
-      # 재시도 스케줄러: 5초마다 다음 시도 시각이 지난 PENDING 회차를 최대 50개 보낸다
+      # 재시도 스케줄러: 앞 실행이 끝나고 5초 뒤, 다음 시도 시각이 지난 PENDING 회차를 최대 50개 차례로 보낸다.
+      # 처리 속도가 아니다. 50건이 모두 read 10초를 채우면 한 번에 약 500초가 걸릴 수 있다(계산값)
       fixed-delay-ms: 5000
       batch-size: 50
     recovery:
@@ -66,7 +76,7 @@ performance:
       first-delay: 30s
       max-delay: 120s
       # 복구 호출 중 다른 실행이 같은 작업을 잡지 못하게 하는 임대. HTTP 대기와 DB 처리 여유를 포함한다.
-      # connect + read 타임아웃(현재 6초)보다 길게 두고, 타임아웃 변경 시 함께 검토한다.
-      lease: 15s
+      # 예상 HTTP 대기(connect 1초 + read 10초)보다 길게 두고, 타임아웃 변경 시 함께 검토한다.
+      lease: 20s
       fixed-delay-ms: 5000
       batch-size: 20

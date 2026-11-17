@@ -187,7 +187,8 @@ public class Schedule extends BaseEntity {
     /**
      * 좌석 준비를 한 번 보내도 되는지 확인하고, 보낸다면 시도 횟수를 올린다. 보내지 않으면 false.
      * Note: 다음 시도 시각을 지금 + retryDelay로 미리 옮겨 둔다. 호출하는 동안 다른 스레드·서버의 재시도 스케줄러가 같은 회차를
-     * 다시 보내지 않게 하는 임대 시간이다. 그래서 retryDelay는 한 번 호출의 최대 시간(connect + read 타임아웃)보다 길어야 한다.
+     * 다시 보내지 않게 하는 임대 시간이다. 그래서 retryDelay는 예상 HTTP 대기(connect + read 타임아웃)보다 여유 있게 둔다.
+     * 처리 전체의 상한은 아니다. 임대를 넘겨 다시 보내도 같은 requestId·configVersion이라 좌석이 같은 요청으로 처리한다.
      */
     public boolean startSeatSetupAttempt(LocalDateTime now, Duration retryDelay) {
         if (!isSeatSetupDue(now)) {
