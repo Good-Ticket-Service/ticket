@@ -60,7 +60,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
      * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
      * Note: 한 번에 묶으면 OFFSET으로 버릴 공연까지 모든 공연의 기간을 계산한다(이슈 #343). 여러 쿼리가 같은 시점을 보도록
      * 서비스가 REPEATABLE READ로 부른다.
-     * 검색어가 없고 판매 상태가 기본(판매중·판매예정)인 목록의 예매 오픈 순은 별도 경로로 읽는다(이슈 #471).
+     * 검색어가 없고 판매 상태가 기본(판매중·판매예정)인 목록의 예매 오픈 순과 전체 개수는 별도 경로로 읽는다(이슈 #471).
      */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {
@@ -71,13 +71,15 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 : findPageIds(condition, where, now);
         List<PublicPerformanceSummary> items = ids.isEmpty() ? List.of() : findSummaries(ids);
 
-        Long total = queryFactory
-                .select(PERFORMANCE.count())
-                .from(PERFORMANCE)
-                .join(VENUE)
-                .on(VENUE.id.eq(PERFORMANCE.venueId))
-                .where(where)
-                .fetchOne();
+        Long total = isDefaultBrowse(condition)
+                ? countDefaultBrowse(base, now)
+                : queryFactory
+                        .select(PERFORMANCE.count())
+                        .from(PERFORMANCE)
+                        .join(VENUE)
+                        .on(VENUE.id.eq(PERFORMANCE.venueId))
+                        .where(where)
+                        .fetchOne();
 
         return new PublicPerformancePage(items, condition.page(), condition.size(), total == null ? 0 : total);
     }
@@ -115,6 +117,24 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .offset((long) condition.page() * condition.size())
                 .limit(condition.size())
                 .fetch();
+    }
+
+    /**
+     * 기본 목록의 정확한 전체 개수. 시작 전 활성 회차에서 출발해 공연·공연장을 붙이고 공연 ID를 중복 없이 센다(이슈 #471).
+     * Note: 기존 개수 쿼리는 목록 대상 공연 전체를 읽고 공연마다 남은 회차를 EXISTS로 확인했다. 데이터가 쌓이면 대상 공연은 적은데
+     * 과거 공연까지 모두 읽는다. 시작 전 회차에서 출발하면 후보 공연을 먼저 좁힐 수 있다.
+     * 한 공연의 회차가 여러 개면 행이 늘어나므로 DISTINCT로 센다. 실제 조인 순서는 실행 계획으로 확인한다(작성 순서만으로 판단하지 않음).
+     */
+    private Long countDefaultBrowse(BooleanBuilder base, LocalDateTime now) {
+        return queryFactory
+                .select(SCHEDULE.performanceId.countDistinct())
+                .from(SCHEDULE)
+                .join(PERFORMANCE)
+                .on(PERFORMANCE.id.eq(SCHEDULE.performanceId))
+                .join(VENUE)
+                .on(VENUE.id.eq(PERFORMANCE.venueId))
+                .where(activeSchedule(SCHEDULE), SCHEDULE.startAt.gt(now), base)
+                .fetchOne();
     }
 
     /** 페이지에 들어갈 공연 ID를 정렬 순서대로 고른다. 기간은 계산하지 않는다. */
