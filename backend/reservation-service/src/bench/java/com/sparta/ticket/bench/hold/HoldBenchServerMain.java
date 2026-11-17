@@ -1,23 +1,49 @@
 package com.sparta.ticket.bench.hold;
 
 import com.sparta.ticket.reservation.ReservationServiceApplication;
+import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
+import com.sparta.ticket.reservation.seat.application.hold.HoldSeatLookup;
 import com.sparta.ticket.reservation.seat.application.hold.HoldStages;
+import com.sparta.ticket.reservation.seat.application.hold.RedisSeatStateLoader;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldModeSwitch;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
+import jakarta.servlet.Filter;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.ValveBase;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -59,7 +85,9 @@ public final class HoldBenchServerMain {
                 BenchSaleValidation.class,
                 BenchHoldMode.class,
                 BenchHoldModeController.class,
-                BenchConnectionWait.class);
+                BenchConnectionWait.class,
+                BenchRequestTrace.class,
+                BenchBookingFacade.class);
         app.setAdditionalProfiles("bench");
         app.run(
                 "--spring.cloud.config.enabled=false",
@@ -96,6 +124,14 @@ public final class HoldBenchServerMain {
 
     static final class TimedDataSource extends DelegatingDataSource {
 
+        /**
+         * 요청과 PostgreSQL 세션을 잇는 SQL(PID 조회·application_name 설정·복구)을 연결마다 실행할지. 연결 대여마다 DB 왕복이 2~3번
+         * 늘어 연결 대기를 부풀린다(observer effect, 2026-11-17 분석). 모드 비교 측정은 끄고(-Dbench.trace.dbSession=false), 세션
+         * 추적이 필요한 진단에서만 켠다.
+         */
+        private static final boolean TRACE_DB_SESSION =
+                Boolean.parseBoolean(System.getProperty("bench.trace.dbSession", "true"));
+
         TimedDataSource(DataSource target) {
             super(target);
         }
@@ -104,7 +140,7 @@ public final class HoldBenchServerMain {
         public Connection getConnection() throws SQLException {
             long start = System.nanoTime();
             try {
-                return super.getConnection();
+                return track(super.getConnection());
             } finally {
                 HoldStages.connectionWait(System.nanoTime() - start);
             }
@@ -114,10 +150,360 @@ public final class HoldBenchServerMain {
         public Connection getConnection(String username, String password) throws SQLException {
             long start = System.nanoTime();
             try {
-                return super.getConnection(username, password);
+                return track(super.getConnection(username, password));
             } finally {
                 HoldStages.connectionWait(System.nanoTime() - start);
             }
+        }
+
+        private Connection track(Connection connection) {
+            String traceId = BenchRequestTrace.current();
+            String previousApplicationName = null;
+            int backendPid = -1;
+            if (traceId != null && TRACE_DB_SESSION) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                                "select pg_backend_pid(), current_setting('application_name')");
+                        ResultSet result = statement.executeQuery()) {
+                    result.next();
+                    backendPid = result.getInt(1);
+                    previousApplicationName = result.getString(2);
+                    try (PreparedStatement set =
+                            connection.prepareStatement("select set_config('application_name', ?, false)")) {
+                        set.setString(1, "bench:" + traceId);
+                        set.execute();
+                    }
+                    BenchRequestTrace.event(
+                            traceId,
+                            "db_connection",
+                            backendPid,
+                            System.nanoTime(),
+                            0,
+                            "application_name=bench:" + traceId);
+                } catch (SQLException e) {
+                    throw new IllegalStateException("벤치 요청과 PostgreSQL 세션을 연결하지 못했습니다.", e);
+                }
+            }
+            String restoreApplicationName = previousApplicationName;
+            int pid = backendPid;
+            if (traceId != null) BenchRequestTrace.PID.set(pid);
+            AtomicLong transactionStarted = new AtomicLong();
+            HoldStages.ConnectionUsage usage = HoldStages.connectionUsageStarted();
+            AtomicBoolean recorded = new AtomicBoolean();
+            return (Connection) Proxy.newProxyInstance(
+                    Connection.class.getClassLoader(), new Class<?>[] {Connection.class}, (proxy, method, args) -> {
+                        boolean close = "close".equals(method.getName()) && method.getParameterCount() == 0;
+                        if (close) {
+                            SQLException resetFailure = null;
+                            try {
+                                if (restoreApplicationName != null) {
+                                    try (PreparedStatement reset = connection.prepareStatement(
+                                            "select set_config('application_name', ?, false)")) {
+                                        reset.setString(1, restoreApplicationName);
+                                        reset.execute();
+                                    }
+                                }
+                            } catch (SQLException e) {
+                                resetFailure = e;
+                            } finally {
+                                try {
+                                    method.invoke(connection, args);
+                                } catch (InvocationTargetException e) {
+                                    throw e.getCause();
+                                } finally {
+                                    if (recorded.compareAndSet(false, true)) usage.record();
+                                }
+                            }
+                            if (resetFailure != null) throw resetFailure;
+                            return null;
+                        }
+                        if ("setAutoCommit".equals(method.getName())
+                                && args != null
+                                && args.length == 1
+                                && Boolean.FALSE.equals(args[0])) {
+                            long started = System.nanoTime();
+                            Object result = invoke(method, connection, args);
+                            long beganAt = System.nanoTime();
+                            transactionStarted.set(beganAt);
+                            BenchRequestTrace.event(traceId, "tx_begin", pid, beganAt, beganAt - started, "");
+                            return result;
+                        }
+                        if ("commit".equals(method.getName()) || "rollback".equals(method.getName())) {
+                            long started = System.nanoTime();
+                            try {
+                                return invoke(method, connection, args);
+                            } finally {
+                                long completed = System.nanoTime();
+                                long transactionStart = transactionStarted.getAndSet(0);
+                                long eventStart = transactionStart == 0 ? started : transactionStart;
+                                BenchRequestTrace.event(
+                                        traceId,
+                                        "tx_" + method.getName(),
+                                        pid,
+                                        eventStart,
+                                        completed - eventStart,
+                                        "commit_ns=" + (completed - started));
+                            }
+                        }
+                        if (("prepareStatement".equals(method.getName())
+                                        || "prepareCall".equals(method.getName())
+                                        || "createStatement".equals(method.getName()))
+                                && args != null
+                                && args.length > 0
+                                && args[0] instanceof String sql) {
+                            Object statement = invoke(method, connection, args);
+                            return trackStatement(statement, method.getReturnType(), traceId, pid, sql);
+                        }
+                        return invoke(method, connection, args);
+                    });
+        }
+
+        private static Object trackStatement(Object statement, Class<?> contract, String traceId, int pid, String sql) {
+            String shape = normalizeSql(sql);
+            return Proxy.newProxyInstance(
+                    contract.getClassLoader(), new Class<?>[] {contract}, (proxy, method, args) -> {
+                        if (method.getName().startsWith("execute")) {
+                            long started = System.nanoTime();
+                            try {
+                                return invoke(method, statement, args);
+                            } finally {
+                                BenchRequestTrace.event(
+                                        traceId, "sql", pid, started, System.nanoTime() - started, shape);
+                            }
+                        }
+                        return invoke(method, statement, args);
+                    });
+        }
+
+        private static Object invoke(java.lang.reflect.Method method, Object target, Object[] args) throws Throwable {
+            try {
+                return method.invoke(target, args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+        }
+
+        private static final Pattern SQL_COMMENT = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
+        private static final Pattern SQL_STRING = Pattern.compile("'(?:''|[^'])*'");
+        private static final Pattern SQL_NUMBER = Pattern.compile("\\b\\d+(?:\\.\\d+)?\\b");
+        private static final Pattern SQL_SPACE = Pattern.compile("\\s+");
+
+        /** SQL 문장별 정규화 결과. Hibernate가 만드는 문장은 종류가 적어 상한에 닿지 않는다. 넘으면 저장하지 않고 계산만 한다. */
+        private static final Map<String, String> SQL_SHAPES = new ConcurrentHashMap<>();
+
+        private static final int SQL_SHAPES_MAX = 10_000;
+
+        /**
+         * Note: 예전에는 문장마다 replaceAll 4번(패턴도 매번 컴파일)을 해 측정 서버 CPU의 약 1/4을 썼다(2026-11-17 JFR). 모드마다 SQL
+         * 수가 달라 비교를 흔들었다. 패턴을 한 번만 컴파일하고 같은 문장은 저장한 결과를 쓴다.
+         */
+        private static String normalizeSql(String sql) {
+            String cached = SQL_SHAPES.get(sql);
+            if (cached != null) {
+                return cached;
+            }
+            String shape = SQL_SPACE
+                    .matcher(SQL_NUMBER
+                            .matcher(SQL_STRING
+                                    .matcher(SQL_COMMENT.matcher(sql).replaceAll(" "))
+                                    .replaceAll("?"))
+                            .replaceAll("?"))
+                    .replaceAll(" ")
+                    .trim();
+            if (SQL_SHAPES.size() < SQL_SHAPES_MAX) {
+                SQL_SHAPES.put(sql, shape);
+            }
+            return shape;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class BenchRequestTrace {
+        private static final String CONTAINER_ENTERED_NANOS = "bench.connector.entered.nanos";
+        private static final ThreadLocal<String> TRACE = new ThreadLocal<>();
+        private static final ThreadLocal<Long> START = new ThreadLocal<>();
+        private static final ThreadLocal<Integer> PID = new ThreadLocal<>();
+        private static final ThreadLocal<StringBuilder> EVENTS = new ThreadLocal<>();
+        private static final long DETAIL_THRESHOLD_NANOS =
+                TimeUnit.MILLISECONDS.toNanos(Long.getLong("bench.trace.minServerMs", 500L));
+
+        static String current() {
+            return TRACE.get();
+        }
+
+        static void event(String traceId, String event, int pid, long started, long elapsed, String detail) {
+            if (traceId != null) {
+                long requestStarted = START.get() == null ? started : START.get();
+                StringBuilder buffer = EVENTS.get();
+                if (buffer != null) {
+                    buffer.append("[bench-db-event] trace=")
+                            .append(traceId)
+                            .append(" pid=")
+                            .append(pid)
+                            .append(" event=")
+                            .append(event)
+                            .append(" offset_ns=")
+                            .append(started - requestStarted)
+                            .append(" elapsed_ns=")
+                            .append(elapsed)
+                            .append(" sql=")
+                            .append(detail)
+                            .append('\n');
+                }
+            }
+        }
+
+        static void bookingCall(String method, long started, long elapsed) {
+            String traceId = TRACE.get();
+            if (traceId != null) {
+                event(traceId, "app_booking_" + method, PID.get() == null ? -1 : PID.get(), started, elapsed, "");
+            }
+        }
+
+        @Bean(destroyMethod = "close")
+        BenchTraceLogWriter benchTraceLogWriter() {
+            return new BenchTraceLogWriter();
+        }
+
+        @Bean
+        WebServerFactoryCustomizer<TomcatServletWebServerFactory> benchConnectorEntryValve() {
+            return factory -> factory.addEngineValves(new ValveBase() {
+                @Override
+                public void invoke(Request request, Response response) throws IOException, ServletException {
+                    String traceId = request.getHeader("X-Bench-Trace-Id");
+                    if (traceId != null && traceId.matches("convert-[a-z0-9-]{1,80}")) {
+                        request.setAttribute(CONTAINER_ENTERED_NANOS, System.nanoTime());
+                    }
+                    getNext().invoke(request, response);
+                }
+            });
+        }
+
+        @Bean
+        Filter benchTraceFilter(BenchTraceLogWriter writer) {
+            return (request, response, chain) -> {
+                HttpServletRequest httpRequest = (HttpServletRequest) request;
+                String traceId = httpRequest.getHeader("X-Bench-Trace-Id");
+                if (traceId == null || !traceId.matches("convert-[a-z0-9-]{1,80}")) {
+                    chain.doFilter(request, response);
+                    return;
+                }
+                long started = System.nanoTime();
+                long sentEpochMs = parseEpochMillis(httpRequest.getHeader("X-Bench-Sent-Epoch-Ms"));
+                long preFilterMs = sentEpochMs < 0 ? -1 : Math.max(0, System.currentTimeMillis() - sentEpochMs);
+                Object containerEntered = httpRequest.getAttribute(CONTAINER_ENTERED_NANOS);
+                Double connectorToFilterMs =
+                        containerEntered instanceof Long entered ? Math.max(0, started - entered) / 1e6 : null;
+                TRACE.set(traceId);
+                START.set(started);
+                PID.remove();
+                EVENTS.set(new StringBuilder());
+                try {
+                    ((HttpServletResponse) response).setHeader("X-Bench-Trace-Id", traceId);
+                    if (preFilterMs >= 0) {
+                        ((HttpServletResponse) response).setHeader("X-Bench-Pre-Filter-Ms", Long.toString(preFilterMs));
+                    }
+                    if (connectorToFilterMs != null) {
+                        ((HttpServletResponse) response)
+                                .setHeader("X-Bench-Connector-To-Filter-Ms", Double.toString(connectorToFilterMs));
+                    }
+                    chain.doFilter(request, response);
+                } finally {
+                    long elapsed = System.nanoTime() - started;
+                    StringBuilder events = EVENTS.get();
+                    if (events != null && elapsed >= DETAIL_THRESHOLD_NANOS) writer.enqueue(events.toString());
+                    writer.enqueue(String.format(
+                            Locale.ROOT,
+                            "[bench-request] trace=%s pre_filter_ms=%d connector_to_filter_ms=%s server_ms=%.3f%n",
+                            traceId,
+                            preFilterMs,
+                            connectorToFilterMs == null
+                                    ? "missing"
+                                    : String.format(Locale.ROOT, "%.3f", connectorToFilterMs),
+                            elapsed / 1_000_000.0));
+                    TRACE.remove();
+                    START.remove();
+                    PID.remove();
+                    EVENTS.remove();
+                }
+            };
+        }
+
+        private static long parseEpochMillis(String value) {
+            if (value == null || !value.matches("\\d{1,16}")) return -1;
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+    }
+
+    /** 요청 스레드는 bounded queue에만 기록하고, 파일 출력은 전용 스레드가 담당한다. */
+    static final class BenchTraceLogWriter implements AutoCloseable {
+        private static final int CAPACITY = Integer.getInteger("bench.trace.log.queue.capacity", 16_384);
+        private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(CAPACITY);
+        private final AtomicBoolean running = new AtomicBoolean(true);
+        private final AtomicLong dropped = new AtomicLong();
+        private final Thread worker;
+
+        BenchTraceLogWriter() {
+            worker = new Thread(this::writeLoop, "bench-trace-log-writer");
+            worker.setDaemon(true);
+            worker.start();
+        }
+
+        void enqueue(String line) {
+            if (!queue.offer(line)) dropped.incrementAndGet();
+        }
+
+        private void writeLoop() {
+            while (running.get() || !queue.isEmpty()) {
+                try {
+                    String line = queue.poll(100, TimeUnit.MILLISECONDS);
+                    if (line != null) System.err.print(line);
+                } catch (InterruptedException e) {
+                    if (running.get()) Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            running.set(false);
+            try {
+                worker.join(TimeUnit.SECONDS.toMillis(30));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (worker.isAlive()) dropped.addAndGet(queue.size());
+            System.err.printf(Locale.ROOT, "[bench-trace-log] dropped=%d%n", dropped.get());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class BenchBookingFacade {
+        @Bean
+        static BeanPostProcessor benchBookingFacadePostProcessor() {
+            return new BeanPostProcessor() {
+                @Override
+                public Object postProcessAfterInitialization(Object bean, String beanName) {
+                    if (!(bean instanceof BookingFacade facade)) return bean;
+                    return Proxy.newProxyInstance(
+                            BookingFacade.class.getClassLoader(),
+                            new Class<?>[] {BookingFacade.class},
+                            (proxy, method, args) -> {
+                                long started = System.nanoTime();
+                                try {
+                                    return method.invoke(facade, args);
+                                } catch (InvocationTargetException e) {
+                                    throw e.getCause();
+                                } finally {
+                                    BenchRequestTrace.bookingCall(
+                                            method.getName(), started, System.nanoTime() - started);
+                                }
+                            });
+                }
+            };
         }
     }
 
@@ -167,6 +553,7 @@ public final class HoldBenchServerMain {
 
         private volatile SeatHoldMode mode;
         private volatile boolean convertInOneTransaction;
+        private volatile boolean redisSeatState;
 
         BenchHoldModeSwitch(SeatHoldProperties properties) {
             super(properties);
@@ -183,9 +570,15 @@ public final class HoldBenchServerMain {
             return convertInOneTransaction;
         }
 
-        void set(SeatHoldMode mode, boolean convertInOneTransaction) {
+        @Override
+        public boolean redisSeatState() {
+            return redisSeatState;
+        }
+
+        void set(SeatHoldMode mode, boolean convertInOneTransaction, boolean redisSeatState) {
             this.mode = mode;
             this.convertInOneTransaction = convertInOneTransaction;
+            this.redisSeatState = redisSeatState;
         }
     }
 
@@ -194,17 +587,39 @@ public final class HoldBenchServerMain {
     static class BenchHoldModeController {
 
         private final BenchHoldModeSwitch modeSwitch;
+        private final RedisSeatStateLoader stateLoader;
+        private final HoldSeatLookup holdSeats;
 
-        BenchHoldModeController(BenchHoldModeSwitch modeSwitch) {
+        BenchHoldModeController(
+                BenchHoldModeSwitch modeSwitch, RedisSeatStateLoader stateLoader, HoldSeatLookup holdSeats) {
             this.modeSwitch = modeSwitch;
+            this.stateLoader = stateLoader;
+            this.holdSeats = holdSeats;
         }
 
-        /** mode는 DB, REDIS, REDIS1C(REDIS + 결제하기 한 트랜잭션, #449 후속 1-C)다. */
+        /**
+         * mode는 DB, REDIS, REDIS1C(REDIS + 결제하기 한 트랜잭션, #449 후속 1-C)다. 끝에 "-S"를 붙이면 Redis 점유 판정(#449 후속)을
+         * 켠다(REDIS-S, REDIS1C-S).
+         */
         @PostMapping("/bench/hold-mode")
         String set(@RequestParam String mode) {
-            boolean oneTx = mode.endsWith("1C");
-            modeSwitch.set(SeatHoldMode.valueOf(oneTx ? mode.substring(0, mode.length() - 2) : mode), oneTx);
+            boolean state = mode.endsWith("-S");
+            String base = state ? mode.substring(0, mode.length() - 2) : mode;
+            boolean oneTx = base.endsWith("1C");
+            modeSwitch.set(SeatHoldMode.valueOf(oneTx ? base.substring(0, base.length() - 2) : base), oneTx, state);
             return mode;
+        }
+
+        /**
+         * 회차의 DB 점유 좌석을 지우고 다시 올리고, 선점용 좌석 고정 정보를 읽어 둔다. 부하 생성기가 회차를 만든 뒤, 부하를 보내기 전에
+         * 부른다. 첫 선점이 회차 좌석 전체를 읽느라 측정 첫 구간이 늦어지지 않게 한다.
+         */
+        @PostMapping("/bench/seat-state/reload")
+        String reload(@RequestParam Long scheduleId) {
+            stateLoader.reload(scheduleId);
+            holdSeats.invalidate(scheduleId);
+            holdSeats.warm(scheduleId);
+            return "ok";
         }
     }
 }

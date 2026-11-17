@@ -25,13 +25,24 @@ KAFKA_PORT=19099
 SERVER_PORT=18083
 # 짧은 확인 실행: LOAD_JAVA_OPTS="-Dbench.warmup=5 -Dbench.measure=10" POOLS=10 REPS=1
 LOAD_JAVA_OPTS="${LOAD_JAVA_OPTS:-}"
+# 서버와 부하 결과 기록기에 같은 판매 검증 지연을 전달한다. 비우면 기존 SERVER_JAVA_OPTS의 값을 따르고, 없으면 5ms다.
+SALE_VALIDATION_DELAY_MS="${SALE_VALIDATION_DELAY_MS:-}"
+if [[ -z "$SALE_VALIDATION_DELAY_MS" ]]; then
+    SALE_VALIDATION_DELAY_MS=5
+    for option in ${SERVER_JAVA_OPTS:-}; do
+        if [[ "$option" == -Dbench.sale.delay.ms=* ]]; then
+            SALE_VALIDATION_DELAY_MS="${option#-Dbench.sale.delay.ms=}"
+        fi
+    done
+fi
 # 진단 전용 DB 설정(예: PG_EXTRA_ARGS="-c synchronous_commit=off"). 측정 결과에는 쓰지 않는다
 PG_EXTRA_ARGS="${PG_EXTRA_ARGS:-}"
 # 진단 전용 DB 컨테이너 옵션(예: 데이터를 메모리에 두기 PG_DOCKER_ARGS="--tmpfs /var/lib/postgresql/data:rw,size=6g" PG_MEM=8g).
 # tmpfs는 컨테이너 메모리 한도에 들어가므로 PG_MEM도 함께 올린다. 측정 결과에는 쓰지 않는다
 PG_DOCKER_ARGS="${PG_DOCKER_ARGS:-}"
 PG_MEM="${PG_MEM:-2g}"
-# 예매 서비스 JVM 옵션(예: SERVER_JAVA_OPTS="-Dbench.sale.delay.ms=10" 판매 검증 가짜 지연). 부하 생성기 LOAD_JAVA_OPTS에도 같은 값을 넣어 결과에 남긴다
+# 예매 서비스 JVM 추가 옵션
+SERVER_JAVA_OPTS="${SERVER_JAVA_OPTS:-}"
 OUT="$ROOT/script/seat-load/out/hold-pool-$(date +%Y%m%d-%H%M%S)"
 PG=hb-pg
 SERVER_PID=
@@ -90,7 +101,8 @@ for pool in $POOLS; do
         KAFKA_BOOTSTRAP_SERVERS="localhost:$KAFKA_PORT" SERVER_PORT="$SERVER_PORT" \
         SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE="$pool" \
         SERVER_TOMCAT_MBEANREGISTRY_ENABLED=true \
-        taskset -c "$SERVER_CPUS" java -Xms256m -Xmx1g -XX:ActiveProcessorCount=2 ${SERVER_JAVA_OPTS:-} -cp "$CP" \
+        taskset -c "$SERVER_CPUS" java -Xms256m -Xmx1g -XX:ActiveProcessorCount=2 $SERVER_JAVA_OPTS \
+        -Dbench.sale.delay.ms="$SALE_VALIDATION_DELAY_MS" -cp "$CP" \
         com.sparta.ticket.bench.hold.HoldBenchServerMain "$BACKEND" >"$OUT/server-pool-$pool.log" 2>&1 &
     SERVER_PID=$!
     up=
@@ -123,7 +135,8 @@ for pool in $POOLS; do
                 opts="-Dbench.mode=sellout -Dbench.active=$active -Dbench.schedules=$schedules -Dbench.admit=$admit -Dbench.seats=${SELLOUT_SEATS:-25000} -Dbench.holdMode=$hold_mode"
             else name="pool-$pool-L$L-rep-$rep"; opts="-Dbench.rate=$L -Dbench.burst=$L"; fi
             echo "[bench] 풀 $pool $name 시작 $(date +%H:%M:%S)"
-            taskset -c "$LOAD_CPUS" java -Xmx1g $LOAD_JAVA_OPTS $opts -Dbench.run="$(( pool * 1000 + run_no ))" -cp "$CP" \
+            taskset -c "$LOAD_CPUS" java -Xmx1g $LOAD_JAVA_OPTS $opts \
+                -Dbench.sale.delay.ms="$SALE_VALIDATION_DELAY_MS" -Dbench.run="$(( pool * 1000 + run_no ))" -cp "$CP" \
                 com.sparta.ticket.bench.hold.HoldBenchLoadMain \
                 "http://localhost:$SERVER_PORT" "jdbc:postgresql://localhost:$PG_PORT/ticket?currentSchema=reservation_schema" \
                 reservation_app reservation_local_pw "$OUT/$name.json" "$pool" "$rep" "$SERVER_PID" "$PG"

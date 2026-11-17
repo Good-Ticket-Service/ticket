@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -24,11 +25,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Flow;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,15 +82,25 @@ public final class HoldBenchLoadMain {
     static final double CPU_SATURATED = 0.9;
     static final int SERVER_CPUS = 2;
     static final long LATE_MS = 100;
+    static final int ACTION_THREADS = Integer.getInteger("bench.actions.threads", 512);
+    static final int ACTION_QUEUE_CAPACITY = Integer.getInteger("bench.actions.queue.capacity", 8_192);
 
     private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final Pattern METRIC = Pattern.compile("^([a-zA-Z_:][a-zA-Z0-9_:]*)(\\{[^}]*})?\\s+(\\S+)");
 
-    private final HttpClient http = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(5))
-            .executor(Executors.newFixedThreadPool(16))
-            .build();
+    private final BenchHttpClientExecutor httpClientExecutor = new BenchHttpClientExecutor();
+    /**
+     * 부하 요청을 나눠 보내는 HTTP 클라이언트 수. JDK HttpClient는 클라이언트마다 I/O를 SelectorManager 스레드 하나가 맡고 연결 풀을
+     * 잠금 하나로 관리한다. 동시 연결이 수천 개면 이 잠금에서 막혀 서버가 놀고 있는데도 지연이 튀었다(2026-11-18 생성기 덤프). 클라이언트를
+     * 여러 개 두고 호출 스레드로 나눠 잠금과 선택자 스레드를 나눈다. 예전 측정은 1개였다.
+     */
+    static final int HTTP_CLIENTS = Integer.getInteger("bench.http.clients", 8);
+
+    private final HttpClient[] httpClients = newHttpClients(HTTP_CLIENTS);
+
+    /** 서버 지표 수집 전용. 부하 요청과 같은 클라이언트를 쓰면 부하 쪽 막힘에 지표 수집이 함께 끊긴다. */
+    private final HttpClient metricsHttp = newHttpClients(1)[0];
+
     private final String baseUrl;
     private final Queue<Sample> samples = new ConcurrentLinkedQueue<>();
     private final Queue<Map<String, Object>> serverSamples = new ConcurrentLinkedQueue<>();
@@ -95,6 +111,13 @@ public final class HoldBenchLoadMain {
     // 멈춤 진단(#434): 처리 중인 요청의 시작 시각. 가장 오래된 요청이 STALL_MS를 넘으면 서버 스레드 덤프를 남긴다
     private final Map<Long, Long> inFlight = new ConcurrentHashMap<>();
     private final AtomicLong requestSeq = new AtomicLong();
+    private final Queue<Double> actionQueueWaitsMs = new ConcurrentLinkedQueue<>();
+    private final Queue<Double> httpClientExecutorQueueWaitsMs = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger actionQueuePeak = new AtomicInteger();
+    private final AtomicInteger actionRejected = new AtomicInteger();
+    private final java.util.Set<CompletableFuture<?>> asyncActions = ConcurrentHashMap.newKeySet();
+    private final AtomicInteger httpClientExecutorQueuePeak = new AtomicInteger();
+    private final AtomicInteger httpClientExecutorRejected = new AtomicInteger();
     private final List<String> dumps = new ArrayList<>();
     static final long STALL_MS = 500;
     static final int MAX_DUMPS = 5;
@@ -289,7 +312,7 @@ public final class HoldBenchLoadMain {
         String outcome;
         JsonNode body = null;
         try {
-            HttpResponse<String> response = http.send(hold, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(hold, HttpResponse.BodyHandlers.ofString());
             body = parse(response.body());
             outcome = classify(response.statusCode(), body);
         } catch (IOException e) {
@@ -309,8 +332,9 @@ public final class HoldBenchLoadMain {
         long releaseSent = System.nanoTime();
         String releaseOutcome;
         try {
-            HttpResponse<String> response = http.send(
-                    request(path + "/" + reservationId, userId).DELETE().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            request(path + "/" + reservationId, userId).DELETE().build(),
+                            HttpResponse.BodyHandlers.ofString());
             releaseOutcome = response.statusCode() == 204 ? "released" : "release_failed";
         } catch (IOException e) {
             releaseOutcome = "release_failed";
@@ -324,11 +348,11 @@ public final class HoldBenchLoadMain {
     /** 좌석 상태 조회 한 번. 실패해도 선점 측정은 이어 간다. */
     void readStatus(long scheduleId, long userId) {
         try {
-            http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/status", userId)
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.discarding());
+            http().send(
+                            request("/api/seats/schedules/" + scheduleId + "/status", userId)
+                                    .GET()
+                                    .build(),
+                            HttpResponse.BodyHandlers.discarding());
         } catch (IOException e) {
             System.err.println("[bench] status read failed: " + e.getMessage());
         } catch (InterruptedException e) {
@@ -459,6 +483,34 @@ public final class HoldBenchLoadMain {
             row.put("pg_error", e.getMessage());
         }
         row.put("pg", waits);
+        List<Map<String, Object>> requests = new ArrayList<>();
+        try (PreparedStatement query =
+                db.prepareStatement("SELECT application_name, pid, state, wait_event_type, wait_event,"
+                        + " CASE WHEN xact_start IS NULL THEN NULL ELSE"
+                        + " round(extract(epoch FROM clock_timestamp() - xact_start) * 1000)::bigint END,"
+                        + " CASE WHEN query_start IS NULL THEN NULL ELSE"
+                        + " round(extract(epoch FROM clock_timestamp() - query_start) * 1000)::bigint END"
+                        + ", left(coalesce(query, ''), 1000)"
+                        + " FROM pg_stat_activity WHERE backend_type = 'client backend'"
+                        + " AND application_name LIKE 'bench:convert-%'")) {
+            try (ResultSet rows = query.executeQuery()) {
+                while (rows.next()) {
+                    Map<String, Object> request = new LinkedHashMap<>();
+                    request.put("trace", rows.getString(1).substring("bench:".length()));
+                    request.put("pid", rows.getInt(2));
+                    request.put("state", rows.getString(3));
+                    request.put("wait_type", rows.getString(4));
+                    request.put("wait_event", rows.getString(5));
+                    request.put("xact_ms", rows.getObject(6));
+                    request.put("query_ms", rows.getObject(7));
+                    request.put("query_shape", normalizeSqlShape(rows.getString(8)));
+                    requests.add(request);
+                }
+            }
+        } catch (SQLException e) {
+            row.put("pg_request_error", e.getMessage());
+        }
+        row.put("pg_requests", requests);
         List<String> workers = new ArrayList<>();
         try (PreparedStatement query = db.prepareStatement("SELECT left(coalesce(query, ''), 80) FROM pg_stat_activity"
                         + " WHERE backend_type = 'autovacuum worker'");
@@ -473,6 +525,15 @@ public final class HoldBenchLoadMain {
             row.put("autovacuum", workers);
         }
         return row;
+    }
+
+    /** pg_stat_activity의 현재 SQL에서 리터럴과 주석을 지워 쿼리 형태만 타임라인에 남긴다. */
+    static String normalizeSqlShape(String sql) {
+        return sql.replaceAll("(?s)/\\*.*?\\*/|--[^\\r\\n]*", " ")
+                .replaceAll("'(?:''|[^'])*'", "?")
+                .replaceAll("\\b\\d+(?:\\.\\d+)?\\b", "?")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     /** 보내기로 한 초마다 다른 좌석 선점 p99·최댓값과 burst 최댓값. 멈춘 시각을 타임라인과 맞춰 본다. */
@@ -514,11 +575,28 @@ public final class HoldBenchLoadMain {
         }
     }
 
+    private HttpClient[] newHttpClients(int count) {
+        HttpClient[] clients = new HttpClient[count];
+        for (int i = 0; i < count; i++) {
+            clients[i] = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .executor(httpClientExecutor)
+                    .build();
+        }
+        return clients;
+    }
+
+    /** 부하 요청용 클라이언트. 호출 스레드로 고르므로 한 사용자 스레드의 요청은 같은 클라이언트의 연결을 다시 쓴다. */
+    private HttpClient http() {
+        return httpClients[(int) (Thread.currentThread().getId() % httpClients.length)];
+    }
+
     /** 기본 풀(booking-main)의 Hikari 지표와 Tomcat 바쁜 스레드, GC 멈춤 누적 시간을 읽는다. */
     Map<String, Object> scrape() {
         Map<String, Object> row = new LinkedHashMap<>();
         try {
-            HttpResponse<String> response = http.send(
+            HttpResponse<String> response = metricsHttp.send(
                     HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
                             .timeout(Duration.ofSeconds(2))
                             .build(),
@@ -544,7 +622,25 @@ public final class HoldBenchLoadMain {
                     case "hikaricp_connections_acquire_seconds_max" -> {
                         if (main) row.put("hikari_acquire_max_ms", value * 1000);
                     }
+                    case "hikaricp_connections_usage_seconds_count" -> {
+                        String pool = labelValue(labels, "pool");
+                        if (pool != null) row.put("hikari_usage_seconds_count:" + pool, value);
+                    }
+                    case "hikaricp_connections_usage_seconds_sum" -> {
+                        String pool = labelValue(labels, "pool");
+                        if (pool != null) row.put("hikari_usage_seconds_sum:" + pool, value);
+                    }
+                    case "hikaricp_connections_usage_seconds_max" -> {
+                        String pool = labelValue(labels, "pool");
+                        if (pool != null) row.put("hikari_usage_seconds_max:" + pool, value);
+                    }
                     case "tomcat_threads_busy_threads" -> row.put("tomcat_busy", value);
+                    case "tomcat_threads_current_threads" -> row.put("tomcat_threads_current", value);
+                    case "tomcat_threads_config_max_threads" -> row.put("tomcat_threads_max", value);
+                    case "tomcat_connections_current_connections" -> row.put("tomcat_connections_current", value);
+                    case "tomcat_connections_config_max_connections" -> row.put("tomcat_connections_max", value);
+                    case "tomcat_connections_keepalive_current_connections" ->
+                        row.put("tomcat_connections_keepalive", value);
                     case "reservation_seat_hold_first_read_total" -> {
                         // 선점의 처음 좌석 읽기 경로 누적(#447). 스냅샷 경로가 실제로 쓰였는지 본다
                         row.put(
@@ -562,8 +658,14 @@ public final class HoldBenchLoadMain {
                         // 단계별 누적 시간(#449 후속). 초마다 차이를 보면 멈춘 초에 어느 단계가 시간을 썼는지 안다
                         // 모드도 키에 넣는다. 같은 서버에서 두 모드를 번갈아 재므로, 빼면 같은 단계의 DB·REDIS 값이 서로 덮어쓴다
                         row.put("stage_s:" + stageKey(labels), value);
+                    case "reservation_seat_hold_conn_wait_seconds_count" ->
+                        row.put("conn_wait_count:" + stageKey(labels), value);
                     case "reservation_seat_hold_conn_wait_seconds_sum" ->
                         row.put("conn_wait_s:" + stageKey(labels), value);
+                    case "reservation_seat_hold_conn_usage_seconds_count" ->
+                        row.put("conn_usage_count:" + stageKey(labels), value);
+                    case "reservation_seat_hold_conn_usage_seconds_sum" ->
+                        row.put("conn_usage_s:" + stageKey(labels), value);
                     default -> {}
                 }
             }
@@ -589,6 +691,23 @@ public final class HoldBenchLoadMain {
             row.put("pg_lock_waits", rows.getInt(3));
         } catch (SQLException e) {
             row.put("pg_error", e.getMessage());
+        }
+        try (PreparedStatement query = db.prepareStatement(
+                        "SELECT wal_records, wal_fpi, wal_bytes, wal_buffers_full, wal_write, wal_sync,"
+                                + " wal_write_time, wal_sync_time FROM pg_stat_wal");
+                ResultSet rows = query.executeQuery()) {
+            if (rows.next()) {
+                row.put("pg_wal_records", rows.getLong(1));
+                row.put("pg_wal_fpi", rows.getLong(2));
+                row.put("pg_wal_bytes", rows.getLong(3));
+                row.put("pg_wal_buffers_full", rows.getLong(4));
+                row.put("pg_wal_write", rows.getLong(5));
+                row.put("pg_wal_sync", rows.getLong(6));
+                row.put("pg_wal_write_ms", rows.getDouble(7));
+                row.put("pg_wal_sync_ms", rows.getDouble(8));
+            }
+        } catch (SQLException e) {
+            row.put("pg_wal_error", e.getMessage());
         }
         return row;
     }
@@ -674,6 +793,11 @@ public final class HoldBenchLoadMain {
                 "hikari_acquire_max_ms",
                 "hold_server_max_ms",
                 "tomcat_busy",
+                "tomcat_threads_current",
+                "tomcat_threads_max",
+                "tomcat_connections_current",
+                "tomcat_connections_max",
+                "tomcat_connections_keepalive",
                 "pg_connections",
                 "pg_connections_reservation",
                 "pg_lock_waits")) {
@@ -752,6 +876,13 @@ public final class HoldBenchLoadMain {
      */
     static final int ADMIT_PER_SECOND = Integer.getInteger("bench.admit", 0);
 
+    /** 대기열 입장 처리 주기(waiting-room `scheduler.interval`), 쌓아 둘 입장 시간(`admission.burst`), 프런트 순번 조회 간격. */
+    static final long ADMIT_INTERVAL_MS = Long.getLong("bench.admit.interval.ms", 1_000);
+
+    static final long ADMIT_BURST_MS = Long.getLong("bench.admit.burst.ms", 2_000);
+
+    static final long ADMIT_POLL_MS = Long.getLong("bench.admit.poll.ms", 3_000);
+
     /**
      * 선점 위치(#449). DB 또는 REDIS를 주면 회차를 시작하기 전에 측정 서버의 스위치를 바꾼다. 비우면 서버 기동 설정 그대로다.
      * 같은 서버에서 두 모드를 번갈아 재려고 스크립트가 단계마다 넘긴다.
@@ -771,6 +902,88 @@ public final class HoldBenchLoadMain {
 
     /** 모의 매진 요청 한 건. kind는 hold·view(구역 상태)·sections(구역 목록)·release, t는 시작 기준 경과 시간(ns)이다. */
     record SelloutSample(int k, String kind, long t, double latencyMs, String outcome) {}
+
+    record ConvertTrace(
+            String traceId,
+            double clientMs,
+            String outcome,
+            double scheduledActionLagMs,
+            double actionQueueLagMs,
+            double actionToSendMs,
+            Long preFilterMs,
+            Double sendAsyncToPublisherMs,
+            Double publisherToConnectorMs,
+            Double connectorToFilterMs) {}
+
+    private static final class TraceNoBodyPublisher implements HttpRequest.BodyPublisher {
+        private final AtomicLong subscribedAt = new AtomicLong();
+
+        @Override
+        public long contentLength() {
+            return 0;
+        }
+
+        @Override
+        public void subscribe(Flow.Subscriber<? super ByteBuffer> subscriber) {
+            subscribedAt.compareAndSet(0, System.nanoTime());
+            AtomicBoolean completed = new AtomicBoolean();
+            subscriber.onSubscribe(new Flow.Subscription() {
+                @Override
+                public void request(long n) {
+                    if (n <= 0) {
+                        if (completed.compareAndSet(false, true)) {
+                            subscriber.onError(new IllegalArgumentException("non-positive demand"));
+                        }
+                    } else if (completed.compareAndSet(false, true)) {
+                        subscriber.onComplete();
+                    }
+                }
+
+                @Override
+                public void cancel() {
+                    completed.set(true);
+                }
+            });
+        }
+    }
+
+    /** HttpClient executor queue 지연을 부하 의미를 바꾸지 않고 관측한다. */
+    private final class BenchHttpClientExecutor extends ThreadPoolExecutor {
+        private final Map<Runnable, Long> submittedAt = new ConcurrentHashMap<>();
+
+        BenchHttpClientExecutor() {
+            super(16, 16, 0L, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>());
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            submittedAt.put(command, System.nanoTime());
+            try {
+                super.execute(command);
+                httpClientExecutorQueuePeak.accumulateAndGet(getQueue().size(), Math::max);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                submittedAt.remove(command);
+                httpClientExecutorRejected.incrementAndGet();
+                throw e;
+            }
+        }
+
+        @Override
+        protected void beforeExecute(Thread thread, Runnable task) {
+            Long submitted = submittedAt.remove(task);
+            if (submitted != null) {
+                httpClientExecutorQueueWaitsMs.add(Math.max(0, System.nanoTime() - submitted) / 1e6);
+            }
+            super.beforeExecute(thread, task);
+        }
+    }
+
+    /** 결제하기 요청의 예약 실행 시각, 스케줄러 지연, actions 대기 시간을 분리한다. */
+    static final class ConvertTiming {
+        volatile long dueNanos;
+        volatile long schedulerStartedNanos;
+        volatile long actionStartedNanos;
+    }
 
     /** 선점 결과와 성공한 경우의 예약 id(DB 방식) 또는 holdId(REDIS 모드, #449). */
     record HoldOutcome(String outcome, long reservationId, String holdId) {}
@@ -843,6 +1056,7 @@ public final class HoldBenchLoadMain {
     }
 
     private final Queue<SelloutSample> selloutSamples = new ConcurrentLinkedQueue<>();
+    private final Queue<ConvertTrace> convertTraces = new ConcurrentLinkedQueue<>();
 
     /**
      * 처음부터 매진까지 실제로 팔아 본다. 회차 SCHEDULES개를 같은 서버에서 동시에 열고, 회차마다 안에 ACTIVE명이 있다.
@@ -885,8 +1099,9 @@ public final class HoldBenchLoadMain {
         }
         int n = SCHEDULES;
         Map<String, Double> redisBefore = scrapeRedisMetrics();
-        Map<String, Double> stageBefore =
-                scrapeMetrics("reservation_seat_hold_stage", "reservation_seat_hold_conn_wait");
+        Map<String, Double> stageBefore = scrapeMetrics(
+                "reservation_seat_hold_stage", "reservation_seat_hold_conn_wait", "reservation_seat_hold_conn_usage");
+        Map<String, Double> hikariUsageBefore = scrapeMetrics("hikaricp_connections_usage_seconds");
         errors.clear();
         long t0 = System.nanoTime();
         String prefix = output.toString().replaceFirst("\\.json$", "");
@@ -912,27 +1127,38 @@ public final class HoldBenchLoadMain {
         }
         long deadline = t0 + TimeUnit.SECONDS.toNanos(SELLOUT_LIMIT_SECONDS);
         java.util.concurrent.ScheduledExecutorService abandoner = Executors.newScheduledThreadPool(16);
-        // 해제·결제하기 요청은 예약 스레드가 아니라 여기서 보낸다. 예약 스레드(16개)에서 보내면 서버가 느릴 때 줄을 서 지연이 부풀려진다
-        ExecutorService actions = Executors.newCachedThreadPool();
+        // 지연 작업 실행기는 bounded다. 포화 시 큐 대기와 거절을 별도 기록해 생성기 한계를 서버 지연으로 오인하지 않는다.
+        int actionThreads = Math.min(ACTION_THREADS, Math.max(64, ACTIVE * n));
+        ThreadPoolExecutor actions = new ThreadPoolExecutor(
+                actionThreads,
+                actionThreads,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(ACTION_QUEUE_CAPACITY),
+                new ThreadPoolExecutor.AbortPolicy());
         if (!HOLD_MODE.isBlank()) {
             setHoldMode(HOLD_MODE);
         }
-        ExecutorService users = Executors.newFixedThreadPool(ACTIVE * n);
+        // Redis 점유 판정(-S)은 부하 전에 회차를 올린다. 올리지 않으면 첫 선점들이 DB 좌석 읽기로 판정해 두 경로가 섞인다
+        if (HOLD_MODE.endsWith("-S")) {
+            for (long id : scheduleIds) {
+                post("/bench/seat-state/reload?scheduleId=" + id, "Redis 점유 좌석을 올리지 못했다");
+            }
+        }
+        ThreadPoolExecutor users = (ThreadPoolExecutor) Executors.newFixedThreadPool(ACTIVE * n);
         java.util.concurrent.Semaphore[] admits = new java.util.concurrent.Semaphore[n];
         for (int k = 0; k < n; k++) {
             admits[k] = new java.util.concurrent.Semaphore(0);
         }
+        // 입장 대기 중인 사용자 스레드 수와, 입장시켰지만 아직 조회 지연 중인 사용자 수. 빈 자리 계산에 쓴다
+        AtomicInteger[] admitWaiting = new AtomicInteger[n];
+        AtomicInteger[] admitScheduled = new AtomicInteger[n];
+        for (int k = 0; k < n; k++) {
+            admitWaiting[k] = new AtomicInteger();
+            admitScheduled[k] = new AtomicInteger();
+        }
         if (ADMIT_PER_SECOND > 0) {
-            abandoner.scheduleAtFixedRate(
-                    () -> {
-                        for (java.util.concurrent.Semaphore admit : admits) {
-                            admit.release(Math.max(
-                                    0, Math.min(ADMIT_PER_SECOND, 2 * ADMIT_PER_SECOND - admit.availablePermits())));
-                        }
-                    },
-                    0,
-                    1,
-                    TimeUnit.SECONDS);
+            startAdmission(abandoner, admits, admitWaiting, admitScheduled, soldOut, deadline);
         }
         for (int k = 0; k < n; k++) {
             int kk = k;
@@ -943,13 +1169,18 @@ public final class HoldBenchLoadMain {
                     ThreadLocalRandom random = ThreadLocalRandom.current();
                     while (System.nanoTime() < deadline && !soldOut[kk].get()) {
                         if (ADMIT_PER_SECOND > 0) {
+                            // 입장할 때까지 막혀 기다린다. 끝·매진 때는 입장 처리기가 허가를 넉넉히 풀어 깨운다
+                            admitWaiting[kk].incrementAndGet();
                             try {
-                                if (!admits[kk].tryAcquire(200, TimeUnit.MILLISECONDS)) {
-                                    continue;
-                                }
+                                admits[kk].acquire();
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                                 return;
+                            } finally {
+                                admitWaiting[kk].decrementAndGet();
+                            }
+                            if (System.nanoTime() >= deadline || soldOut[kk].get()) {
+                                break;
                             }
                         }
                         long userId = nextUser[kk].getAndIncrement();
@@ -1020,45 +1251,55 @@ public final class HoldBenchLoadMain {
                                         }
                                     } else if (abandon && random.nextBoolean()) {
                                         // REDIS 모드, 결제하기 전에 포기
-                                        later(
+                                        laterAsync(
                                                 abandoner,
                                                 actions,
                                                 pendingReleases[kk],
                                                 random.nextLong(10_000, 30_001),
-                                                releaseLater);
+                                                null,
+                                                ignored -> releaseOnceAsync(kk, sid, uid, idOf(result), t0)
+                                                        .thenAccept(ok -> {
+                                                            if (ok) {
+                                                                sold[kk].decrementAndGet();
+                                                                released[kk].incrementAndGet();
+                                                            }
+                                                        }));
                                     } else {
                                         // REDIS 모드, 결제하기. 포기하는 사용자는 결제하기 뒤 결제창에서 포기해 예약을 해제한다
-                                        later(
+                                        laterAsync(
                                                 abandoner,
                                                 actions,
                                                 pendingReleases[kk],
                                                 random.nextLong(CONVERT_MIN_MS, CONVERT_MAX_MS + 1L),
-                                                () -> {
-                                                    long reservationId = convertOnce(kk, sid, uid, result.holdId(), t0);
-                                                    if (reservationId < 0) {
-                                                        // 결제하기에서 좌석을 잃었다(409·만료). 좌석은 다시 풀린다
-                                                        sold[kk].decrementAndGet();
-                                                        return;
-                                                    }
-                                                    if (abandon) {
-                                                        later(
-                                                                abandoner,
-                                                                actions,
-                                                                pendingReleases[kk],
-                                                                random.nextLong(10_000, 30_001),
-                                                                () -> {
-                                                                    if (releaseOnce(
-                                                                            kk,
-                                                                            sid,
-                                                                            uid,
-                                                                            Long.toString(reservationId),
-                                                                            t0)) {
-                                                                        sold[kk].decrementAndGet();
-                                                                        released[kk].incrementAndGet();
-                                                                    }
-                                                                });
-                                                    }
-                                                });
+                                                new ConvertTiming(),
+                                                timing -> convertOnceAsync(kk, sid, uid, result.holdId(), t0, timing)
+                                                        .thenAccept(reservationId -> {
+                                                            if (reservationId < 0) {
+                                                                // 결제하기에서 좌석을 잃었다(409·만료). 좌석은 다시 풀린다
+                                                                sold[kk].decrementAndGet();
+                                                                return;
+                                                            }
+                                                            if (abandon) {
+                                                                laterAsync(
+                                                                        abandoner,
+                                                                        actions,
+                                                                        pendingReleases[kk],
+                                                                        random.nextLong(10_000, 30_001),
+                                                                        null,
+                                                                        ignored -> releaseOnceAsync(
+                                                                                        kk,
+                                                                                        sid,
+                                                                                        uid,
+                                                                                        Long.toString(reservationId),
+                                                                                        t0)
+                                                                                .thenAccept(ok -> {
+                                                                                    if (ok) {
+                                                                                        sold[kk].decrementAndGet();
+                                                                                        released[kk].incrementAndGet();
+                                                                                    }
+                                                                                }));
+                                                            }
+                                                        }));
                                     }
                                     left = true;
                                     break;
@@ -1096,6 +1337,15 @@ public final class HoldBenchLoadMain {
         // 요청 제한 시간(65초)보다 길게 기다린다
         boolean drained = actions.awaitTermination(70, TimeUnit.SECONDS);
         int cutAtEnd = drained ? 0 : actions.shutdownNow().size();
+        CompletableFuture<?>[] outstanding = asyncActions.toArray(CompletableFuture[]::new);
+        if (drained && outstanding.length > 0) {
+            try {
+                CompletableFuture.allOf(outstanding).get(70, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                drained = false;
+                cutAtEnd += asyncActions.size();
+            }
+        }
         running.set(false);
         sampler.join(5_000);
 
@@ -1108,11 +1358,36 @@ public final class HoldBenchLoadMain {
         // 종료 때 70초 안에 끝나지 않아 끊은 작업 수(대기 중이던 작업 수, 실행 중이던 것은 errors의 interrupted로 남는다)
         report.put("drained_at_end", drained);
         report.put("cut_at_end", cutAtEnd);
+        report.put("action_executor_largest_pool", actions.getLargestPoolSize());
+        report.put("user_executor_largest_pool", users.getLargestPoolSize());
+        report.put("action_queue_peak", actionQueuePeak.get());
+        report.put("action_queue_remaining", actions.getQueue().size());
+        report.put("action_queue_rejected", actionRejected.get());
+        report.put("async_actions_outstanding", asyncActions.size());
+        report.put("action_queue_wait_ms", distribution(new ArrayList<>(actionQueueWaitsMs)));
+        report.put("http_client_executor_largest_pool", httpClientExecutor.getLargestPoolSize());
+        report.put("http_client_executor_active", httpClientExecutor.getActiveCount());
+        report.put("http_client_executor_pool_size", httpClientExecutor.getPoolSize());
+        report.put("http_client_executor_queue_peak", httpClientExecutorQueuePeak.get());
+        report.put(
+                "http_client_executor_queue_remaining",
+                httpClientExecutor.getQueue().size());
+        report.put("http_client_executor_submission_pending", httpClientExecutor.submittedAt.size());
+        report.put("http_client_executor_rejected", httpClientExecutorRejected.get());
+        report.put("http_client_executor_queue_wait_ms", distribution(new ArrayList<>(httpClientExecutorQueueWaitsMs)));
         Map<String, Object> workload = new LinkedHashMap<>();
         workload.put("seats", SEATS);
         workload.put("schedules", n);
         workload.put("active_users", ACTIVE);
+        workload.put("user_threads_max", ACTIVE * n);
         workload.put("admit_per_second", ADMIT_PER_SECOND);
+        workload.put("http_clients", HTTP_CLIENTS);
+        workload.put(
+                "admit_model",
+                ADMIT_PER_SECOND > 0
+                        ? "token_bucket_interval" + ADMIT_INTERVAL_MS + "_burst" + ADMIT_BURST_MS + "_poll"
+                                + ADMIT_POLL_MS
+                        : null);
         workload.put("section_seats", SECTION_SEATS);
         workload.put("hot_sections", HOT_SECTIONS);
         workload.put("hot_percent", HOT_PERCENT);
@@ -1125,6 +1400,8 @@ public final class HoldBenchLoadMain {
         workload.put("retry_ms", "1000-3000");
         workload.put("view_refresh_ms", VIEW_REFRESH_MS);
         workload.put("limit_seconds", SELLOUT_LIMIT_SECONDS);
+        workload.put("action_threads_max", actionThreads);
+        workload.put("action_queue_capacity", ACTION_QUEUE_CAPACITY);
         workload.put("sale_validation_delay_ms", HoldBenchServerMain.SALE_VALIDATION_DELAY.toMillis());
         report.put("workload", workload);
         report.put("finished", finished);
@@ -1175,6 +1452,7 @@ public final class HoldBenchLoadMain {
                 .forEach(x -> convertOutcomes.merge(x.outcome(), 1, Integer::sum));
         report.put("convert_outcomes", convertOutcomes);
         report.put("convert_ms", distribution(latencies(all, "convert", null, 0, endNanos)));
+        report.put("convert_traces", new ArrayList<>(convertTraces));
         List<Map<String, Object>> windows = new ArrayList<>();
         for (long from = 0; from < endNanos; from += TimeUnit.SECONDS.toNanos(10)) {
             long to = from + TimeUnit.SECONDS.toNanos(10);
@@ -1261,7 +1539,14 @@ public final class HoldBenchLoadMain {
         report.put(
                 "stages",
                 stageMetrics(
-                        stageBefore, scrapeMetrics("reservation_seat_hold_stage", "reservation_seat_hold_conn_wait")));
+                        stageBefore,
+                        scrapeMetrics(
+                                "reservation_seat_hold_stage",
+                                "reservation_seat_hold_conn_wait",
+                                "reservation_seat_hold_conn_usage")));
+        report.put(
+                "hikari_usage",
+                hikariUsageMetrics(hikariUsageBefore, scrapeMetrics("hikaricp_connections_usage_seconds")));
         report.put("errors", errorReport(t0, jdbcUrl, jdbcUser, jdbcPassword, prefix));
         report.put("server", summarizeServer(t0, 0, endNanos));
         report.put("server_rows", new ArrayList<>(serverSamples));
@@ -1334,7 +1619,7 @@ public final class HoldBenchLoadMain {
         long sent = System.nanoTime();
         inFlight.put(id, sent);
         try {
-            HttpResponse<String> response = http.send(hold, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(hold, HttpResponse.BodyHandlers.ofString());
             JsonNode body = parse(response.body());
             JsonNode holdId = body.path("data").path("holdId");
             String outcome = classify(response.statusCode(), body);
@@ -1364,11 +1649,11 @@ public final class HoldBenchLoadMain {
     Map<String, Double> scrapeMetrics(String... prefixes) {
         Map<String, Double> series = new LinkedHashMap<>();
         try {
-            HttpResponse<String> response = http.send(
-                    HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
-                            .timeout(Duration.ofSeconds(10))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
+                                    .timeout(Duration.ofSeconds(10))
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             for (String line : response.body().split("\n")) {
                 if (java.util.Arrays.stream(prefixes).noneMatch(line::startsWith)) {
                     continue;
@@ -1400,7 +1685,9 @@ public final class HoldBenchLoadMain {
             while (m.find()) {
                 labels.put(m.group(1), m.group(2));
             }
-            String family = key.startsWith("reservation_seat_hold_conn_wait") ? "conn_wait" : "stage";
+            String family = key.startsWith("reservation_seat_hold_conn_wait")
+                    ? "conn_wait"
+                    : key.startsWith("reservation_seat_hold_conn_usage") ? "conn_usage" : "stage";
             String name = family + ":" + labels.get("flow") + "/" + labels.get("stage") + "/" + labels.get("mode");
             if (key.contains("_seconds_bucket")) {
                 String le = labels.get("le");
@@ -1430,6 +1717,44 @@ public final class HoldBenchLoadMain {
             out.put(entry.getKey(), row);
         }
         return out;
+    }
+
+    /** 풀별 Hikari 연결 점유 타이머의 회차 count·sum 차이와 평균을 정리한다. */
+    static Map<String, Object> hikariUsageMetrics(Map<String, Double> before, Map<String, Double> after) {
+        java.util.regex.Pattern label = java.util.regex.Pattern.compile("(\\w+)=\"([^\"]*)\"");
+        Map<String, double[]> usage = new java.util.TreeMap<>();
+        String prefix = "hikaricp_connections_usage_seconds_";
+        for (Map.Entry<String, Double> entry : after.entrySet()) {
+            String key = entry.getKey();
+            String field;
+            if (key.startsWith(prefix) && key.contains("_count{")) field = "count";
+            else if (key.startsWith(prefix) && key.contains("_sum{")) field = "sum";
+            else continue;
+            java.util.regex.Matcher matcher = label.matcher(key);
+            String pool = null;
+            while (matcher.find()) if ("pool".equals(matcher.group(1))) pool = matcher.group(2);
+            if (pool == null) continue;
+            double delta = entry.getValue() - before.getOrDefault(key, 0.0);
+            usage.computeIfAbsent(pool, ignored -> new double[2]);
+            usage.get(pool)["count".equals(field) ? 0 : 1] = delta;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, double[]> entry : usage.entrySet()) {
+            double count = entry.getValue()[0];
+            double sum = entry.getValue()[1];
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("count", (long) count);
+            row.put("sum_s", sum);
+            row.put("mean_ms", count == 0 ? null : sum * 1000 / count);
+            out.put(entry.getKey(), row);
+        }
+        return out;
+    }
+
+    private static String labelValue(String labels, String name) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?:^|[,\\{])" + name + "=\"([^\"]*)\"")
+                .matcher(labels);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     /**
@@ -1491,11 +1816,11 @@ public final class HoldBenchLoadMain {
     Map<String, Double> scrapeRedisMetrics() {
         Map<String, Double> series = new LinkedHashMap<>();
         try {
-            HttpResponse<String> response = http.send(
-                    HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
-                            .timeout(Duration.ofSeconds(10))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus"))
+                                    .timeout(Duration.ofSeconds(10))
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             for (String line : response.body().split("\n")) {
                 if (!line.startsWith("reservation_seat_hold_redis")) {
                     continue;
@@ -1631,22 +1956,48 @@ public final class HoldBenchLoadMain {
     }
 
     /** delayMillis 뒤 actions에서 task를 실행한다. 실행이 끝날 때까지 pending에 세어 매진 판정을 미룬다. */
-    private static void later(
+    private void later(
             java.util.concurrent.ScheduledExecutorService scheduler,
-            ExecutorService actions,
+            ThreadPoolExecutor actions,
             AtomicInteger pending,
             long delayMillis,
             Runnable task) {
+        later(scheduler, actions, pending, delayMillis, null, ignored -> task.run());
+    }
+
+    private void later(
+            java.util.concurrent.ScheduledExecutorService scheduler,
+            ThreadPoolExecutor actions,
+            AtomicInteger pending,
+            long delayMillis,
+            ConvertTiming timing,
+            java.util.function.Consumer<ConvertTiming> task) {
         pending.incrementAndGet();
         try {
+            if (timing != null) timing.dueNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMillis);
             scheduler.schedule(
-                    () -> actions.execute(() -> {
+                    () -> {
+                        if (timing != null) timing.schedulerStartedNanos = System.nanoTime();
                         try {
-                            task.run();
-                        } finally {
+                            actions.execute(() -> {
+                                long actionStarted = System.nanoTime();
+                                long schedulerStarted = timing == null ? actionStarted : timing.schedulerStartedNanos;
+                                actionQueueWaitsMs.add(Math.max(0, actionStarted - schedulerStarted) / 1e6);
+                                actionQueuePeak.accumulateAndGet(
+                                        actions.getQueue().size(), Math::max);
+                                try {
+                                    if (timing != null) timing.actionStartedNanos = actionStarted;
+                                    task.accept(timing);
+                                } finally {
+                                    pending.decrementAndGet();
+                                }
+                            });
+                            actionQueuePeak.accumulateAndGet(actions.getQueue().size(), Math::max);
+                        } catch (java.util.concurrent.RejectedExecutionException e) {
+                            actionRejected.incrementAndGet();
                             pending.decrementAndGet();
                         }
-                    }),
+                    },
                     delayMillis,
                     TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -1655,22 +2006,128 @@ public final class HoldBenchLoadMain {
         }
     }
 
+    /** 예약된 요청을 bounded actions 실행기에서 시작하고, HTTP 응답까지 pending으로 유지한다. */
+    private <T> void laterAsync(
+            java.util.concurrent.ScheduledExecutorService scheduler,
+            ThreadPoolExecutor actions,
+            AtomicInteger pending,
+            long delayMillis,
+            ConvertTiming timing,
+            java.util.function.Function<ConvertTiming, CompletableFuture<T>> task) {
+        pending.incrementAndGet();
+        try {
+            if (timing != null) timing.dueNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMillis);
+            scheduler.schedule(
+                    () -> {
+                        if (timing != null) timing.schedulerStartedNanos = System.nanoTime();
+                        try {
+                            actions.execute(() -> {
+                                long actionStarted = System.nanoTime();
+                                long schedulerStarted = timing == null ? actionStarted : timing.schedulerStartedNanos;
+                                actionQueueWaitsMs.add(Math.max(0, actionStarted - schedulerStarted) / 1e6);
+                                actionQueuePeak.accumulateAndGet(
+                                        actions.getQueue().size(), Math::max);
+                                if (timing != null) timing.actionStartedNanos = actionStarted;
+                                try {
+                                    CompletableFuture<T> future = task.apply(timing);
+                                    asyncActions.add(future);
+                                    future.whenComplete((ignored, failure) -> {
+                                        asyncActions.remove(future);
+                                        pending.decrementAndGet();
+                                    });
+                                } catch (RuntimeException e) {
+                                    pending.decrementAndGet();
+                                    throw e;
+                                }
+                            });
+                            actionQueuePeak.accumulateAndGet(actions.getQueue().size(), Math::max);
+                        } catch (java.util.concurrent.RejectedExecutionException e) {
+                            actionRejected.incrementAndGet();
+                            pending.decrementAndGet();
+                        }
+                    },
+                    delayMillis,
+                    TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            pending.decrementAndGet();
+        }
+    }
+
+    /**
+     * 대기열 입장 흉내(waiting-room-service의 입장 처리와 같은 방식). 입장 처리기 하나가 ADMIT_INTERVAL_MS마다(고정 지연) 회차마다
+     * 토큰 버킷으로 입장 인원을 정한다: 마지막 입장 기준점부터 흐른 시간 × 초당 인원, 쉬는 동안 쌓이는 양은 ADMIT_BURST_MS까지,
+     * 빈 자리(입장 대기 중인 사용자 스레드 − 이미 입장시킨 몫)를 넘지 않는다(대기열의 max-active 상한). 들여보낸 사용자는 0\~ADMIT_POLL_MS
+     * 뒤에 시작한다(프런트가 순번을 3초마다 조회해 입장을 늦게 안다).
+     * Note: 예전 구현은 사용자 스레드 수천 개가 세마포어를 200ms마다 다시 기다려 생성기 CPU를 태웠고, 그 멈춤이 지연으로 기록됐다
+     * (2026-11-18 분석). 지금은 사용자 스레드가 막혀 기다리기만 한다.
+     */
+    private void startAdmission(
+            java.util.concurrent.ScheduledExecutorService scheduler,
+            java.util.concurrent.Semaphore[] admits,
+            AtomicInteger[] admitWaiting,
+            AtomicInteger[] admitScheduled,
+            AtomicBoolean[] soldOut,
+            long deadline) {
+        int n = admits.length;
+        double[] last = new double[n];
+        boolean[] woken = new boolean[n];
+        long start = System.currentTimeMillis();
+        java.util.Arrays.fill(last, start - 1000.0);
+        Runnable admit = () -> {
+            long now = System.currentTimeMillis();
+            for (int k = 0; k < n; k++) {
+                if (System.nanoTime() >= deadline || soldOut[k].get()) {
+                    if (!woken[k]) {
+                        // 기다리는 사용자 스레드를 모두 깨워 끝나게 한다
+                        admits[k].release(ACTIVE * 2);
+                        woken[k] = true;
+                    }
+                    continue;
+                }
+                if (last[k] < now - ADMIT_BURST_MS) {
+                    last[k] = now - ADMIT_BURST_MS;
+                }
+                int byRate = (int) Math.floor((now - last[k]) * ADMIT_PER_SECOND / 1000.0);
+                int free = admitWaiting[k].get() - admitScheduled[k].get() - admits[k].availablePermits();
+                int count = Math.max(0, Math.min(byRate, free));
+                last[k] += count * 1000.0 / ADMIT_PER_SECOND;
+                int kk = k;
+                for (int i = 0; i < count; i++) {
+                    admitScheduled[k].incrementAndGet();
+                    scheduler.schedule(
+                            () -> {
+                                admitScheduled[kk].decrementAndGet();
+                                admits[kk].release();
+                            },
+                            ThreadLocalRandom.current().nextLong(ADMIT_POLL_MS + 1L),
+                            TimeUnit.MILLISECONDS);
+                }
+            }
+        };
+        scheduler.scheduleWithFixedDelay(admit, 0, ADMIT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
     /** 측정 서버의 선점 위치 스위치를 바꾼다(#449). 실패하면 측정을 멈춘다. 모드가 섞인 결과는 쓸 수 없다. */
     void setHoldMode(String mode) {
+        post("/bench/hold-mode?mode=" + mode, "선점 위치를 바꾸지 못했다");
+    }
+
+    /** 측정 서버의 준비용 POST. 200이 아니면 측정을 멈춘다. */
+    private void post(String path, String failure) {
         try {
-            HttpResponse<String> response = http.send(
-                    request("/bench/hold-mode?mode=" + mode, 0)
-                            .POST(HttpRequest.BodyPublishers.noBody())
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            request(path, 0)
+                                    .POST(HttpRequest.BodyPublishers.noBody())
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                throw new IllegalStateException("선점 위치를 바꾸지 못했다: " + response.statusCode() + " " + response.body());
+                throw new IllegalStateException(failure + ": " + response.statusCode() + " " + response.body());
             }
         } catch (IOException e) {
-            throw new IllegalStateException("선점 위치를 바꾸지 못했다", e);
+            throw new IllegalStateException(failure, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("선점 위치를 바꾸지 못했다", e);
+            throw new IllegalStateException(failure, e);
         }
     }
 
@@ -1678,16 +2135,27 @@ public final class HoldBenchLoadMain {
      * 결제하기(#449): Redis 선점을 예약으로 바꾼다. 성공하면 예약 id, 실패하면 -1이다. 결과는 created(201)·existing(200)·
      * 409 코드(소문자)·error로 남긴다.
      */
-    long convertOnce(int k, long scheduleId, long userId, String holdId, long t0) {
+    long convertOnce(int k, long scheduleId, long userId, String holdId, long t0, ConvertTiming timing) {
         long start = System.nanoTime();
+        String traceId = "convert-" + Long.toUnsignedString(start, 36) + "-" + k;
         String outcome;
         long reservationId = -1;
+        Long preFilterMs = null;
+        long sentEpochMs = System.currentTimeMillis();
+        long sendStarted = 0;
         try {
-            HttpResponse<String> response = http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/holds/" + holdId + "/reservation", userId)
-                            .POST(HttpRequest.BodyPublishers.noBody())
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpRequest convertRequest = request(
+                            "/api/seats/schedules/" + scheduleId + "/holds/" + holdId + "/reservation", userId)
+                    .header("X-Bench-Trace-Id", traceId)
+                    .header("X-Bench-Sent-Epoch-Ms", Long.toString(sentEpochMs))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            sendStarted = System.nanoTime();
+            HttpResponse<String> response = http().send(convertRequest, HttpResponse.BodyHandlers.ofString());
+            preFilterMs = response.headers()
+                    .firstValue("X-Bench-Pre-Filter-Ms")
+                    .map(Long::parseLong)
+                    .orElse(null);
             JsonNode body = parse(response.body());
             int status = response.statusCode();
             if (status == 201 || status == 200) {
@@ -1710,8 +2178,123 @@ public final class HoldBenchLoadMain {
             outcome = "error";
             recordError(start, "convert", failureOf(e), 0, null, e, scheduleId, userId, holdId);
         }
-        selloutSamples.add(new SelloutSample(k, "convert", start - t0, (System.nanoTime() - start) / 1e6, outcome));
+        double clientMs = (System.nanoTime() - start) / 1e6;
+        selloutSamples.add(new SelloutSample(k, "convert", start - t0, clientMs, outcome));
+        convertTraces.add(new ConvertTrace(
+                traceId,
+                clientMs,
+                outcome,
+                timing == null || timing.dueNanos == 0
+                        ? 0
+                        : Math.max(0, timing.schedulerStartedNanos - timing.dueNanos) / 1e6,
+                timing == null || timing.actionStartedNanos == 0 || timing.schedulerStartedNanos == 0
+                        ? 0
+                        : Math.max(0, timing.actionStartedNanos - timing.schedulerStartedNanos) / 1e6,
+                timing == null || timing.actionStartedNanos == 0
+                        ? 0
+                        : sendStarted == 0 ? 0 : Math.max(0, sendStarted - timing.actionStartedNanos) / 1e6,
+                preFilterMs,
+                null,
+                null,
+                null));
         return reservationId;
+    }
+
+    /** 비동기 결제하기 요청. 응답까지 클라이언트 구간과 동일한 trace id로 기록한다. */
+    CompletableFuture<Long> convertOnceAsync(
+            int k, long scheduleId, long userId, String holdId, long t0, ConvertTiming timing) {
+        long start = System.nanoTime();
+        String traceId = "convert-" + Long.toUnsignedString(start, 36) + "-" + k;
+        long sentAtNanos = System.nanoTime();
+        long sentEpochMs = System.currentTimeMillis();
+        TraceNoBodyPublisher bodyPublisher = new TraceNoBodyPublisher();
+        HttpRequest convertRequest = request(
+                        "/api/seats/schedules/" + scheduleId + "/holds/" + holdId + "/reservation", userId)
+                .header("X-Bench-Trace-Id", traceId)
+                .header("X-Bench-Sent-Epoch-Ms", Long.toString(sentEpochMs))
+                .POST(bodyPublisher)
+                .build();
+        long sendStarted = System.nanoTime();
+        return http().sendAsync(convertRequest, HttpResponse.BodyHandlers.ofString())
+                .handle((response, error) -> {
+                    String outcome = "error";
+                    long reservationId = -1;
+                    Long preFilterMs = null;
+                    Double connectorToFilterMs = null;
+                    if (error == null) {
+                        try {
+                            preFilterMs = response.headers()
+                                    .firstValue("X-Bench-Pre-Filter-Ms")
+                                    .map(Long::parseLong)
+                                    .orElse(null);
+                            connectorToFilterMs = response.headers()
+                                    .firstValue("X-Bench-Connector-To-Filter-Ms")
+                                    .map(Double::parseDouble)
+                                    .orElse(null);
+                            JsonNode body = parse(response.body());
+                            int status = response.statusCode();
+                            if (status == 201 || status == 200) {
+                                outcome = status == 201 ? "created" : "existing";
+                                reservationId =
+                                        body.path("data").path("reservationId").asLong(-1);
+                            } else {
+                                outcome = status == 409
+                                        ? body.path("code").asText("conflict").toLowerCase(java.util.Locale.ROOT)
+                                        : "error";
+                                if (status != 409)
+                                    recordError(
+                                            start,
+                                            "convert",
+                                            statusCategory(status),
+                                            status,
+                                            body,
+                                            null,
+                                            scheduleId,
+                                            userId,
+                                            holdId);
+                            }
+                        } catch (RuntimeException e) {
+                            recordError(start, "convert", "response_parse", 0, null, e, scheduleId, userId, holdId);
+                        }
+                    } else {
+                        Throwable cause = error instanceof CompletionException && error.getCause() != null
+                                ? error.getCause()
+                                : error;
+                        Exception exception = cause instanceof Exception ex ? ex : new Exception(cause);
+                        recordError(
+                                start, "convert", failureOf(exception), 0, null, exception, scheduleId, userId, holdId);
+                    }
+                    double clientMs = (System.nanoTime() - start) / 1e6;
+                    long publisherStarted = bodyPublisher.subscribedAt.get();
+                    Double sendAsyncToPublisherMs =
+                            publisherStarted == 0 ? null : Math.max(0, publisherStarted - sendStarted) / 1e6;
+                    Double publisherToConnectorMs =
+                            preFilterMs == null || connectorToFilterMs == null || sendAsyncToPublisherMs == null
+                                    ? null
+                                    : preFilterMs
+                                            - Math.max(0, sendStarted - sentAtNanos) / 1e6
+                                            - sendAsyncToPublisherMs
+                                            - connectorToFilterMs;
+                    selloutSamples.add(new SelloutSample(k, "convert", start - t0, clientMs, outcome));
+                    convertTraces.add(new ConvertTrace(
+                            traceId,
+                            clientMs,
+                            outcome,
+                            timing == null || timing.dueNanos == 0
+                                    ? 0
+                                    : Math.max(0, timing.schedulerStartedNanos - timing.dueNanos) / 1e6,
+                            timing == null || timing.actionStartedNanos == 0 || timing.schedulerStartedNanos == 0
+                                    ? 0
+                                    : Math.max(0, timing.actionStartedNanos - timing.schedulerStartedNanos) / 1e6,
+                            timing == null || timing.actionStartedNanos == 0
+                                    ? 0
+                                    : Math.max(0, sendStarted - timing.actionStartedNanos) / 1e6,
+                            preFilterMs,
+                            sendAsyncToPublisherMs,
+                            publisherToConnectorMs,
+                            connectorToFilterMs));
+                    return reservationId;
+                });
     }
 
     /** 결제 포기: 선점을 해제한다. id는 예약 id 또는 holdId다. 성공하면 true. */
@@ -1719,11 +2302,11 @@ public final class HoldBenchLoadMain {
         long start = System.nanoTime();
         boolean ok;
         try {
-            HttpResponse<String> response = http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/holds/" + id, userId)
-                            .DELETE()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            request("/api/seats/schedules/" + scheduleId + "/holds/" + id, userId)
+                                    .DELETE()
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             ok = response.statusCode() == 204;
             if (!ok) {
                 int status = response.statusCode();
@@ -1744,15 +2327,58 @@ public final class HoldBenchLoadMain {
         return ok;
     }
 
+    CompletableFuture<Boolean> releaseOnceAsync(int k, long scheduleId, long userId, String id, long t0) {
+        long start = System.nanoTime();
+        HttpRequest releaseRequest = request("/api/seats/schedules/" + scheduleId + "/holds/" + id, userId)
+                .DELETE()
+                .build();
+        return http().sendAsync(releaseRequest, HttpResponse.BodyHandlers.ofString())
+                .handle((response, error) -> {
+                    boolean ok = error == null && response.statusCode() == 204;
+                    if (!ok) {
+                        if (error == null) {
+                            int status = response.statusCode();
+                            String category = status == 409 || status == 404 || status == 403
+                                    ? "business_reject"
+                                    : statusCategory(status);
+                            recordError(
+                                    start,
+                                    "release",
+                                    category,
+                                    status,
+                                    parse(response.body()),
+                                    null,
+                                    scheduleId,
+                                    userId,
+                                    id);
+                        } else {
+                            Throwable cause = error instanceof CompletionException && error.getCause() != null
+                                    ? error.getCause()
+                                    : error;
+                            Exception exception = cause instanceof Exception ex ? ex : new Exception(cause);
+                            recordError(
+                                    start, "release", failureOf(exception), 0, null, exception, scheduleId, userId, id);
+                        }
+                    }
+                    selloutSamples.add(new SelloutSample(
+                            k,
+                            "release",
+                            start - t0,
+                            (System.nanoTime() - start) / 1e6,
+                            ok ? "released" : "release_failed"));
+                    return ok;
+                });
+    }
+
     /** 구역 목록을 받아 구역 순서(S01부터)대로 선택 가능 좌석 수를 돌려준다. 실패하면 null. */
     int[] readSections(int k, long scheduleId, long userId, long t0) {
         long start = System.nanoTime();
         try {
-            HttpResponse<String> response = http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/sections", userId)
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            request("/api/seats/schedules/" + scheduleId + "/sections", userId)
+                                    .GET()
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             JsonNode sections = parse(response.body()).path("data").path("sections");
             int[] counts = new int[SEATS / SECTION_SEATS];
             for (JsonNode section : sections) {
@@ -1780,11 +2406,11 @@ public final class HoldBenchLoadMain {
         long start = System.nanoTime();
         try {
             String name = String.format("S%02d", section + 1);
-            HttpResponse<String> response = http.send(
-                    request("/api/seats/schedules/" + scheduleId + "/status?section=" + name, userId)
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = http().send(
+                            request("/api/seats/schedules/" + scheduleId + "/status?section=" + name, userId)
+                                    .GET()
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
             String bitmap =
                     parse(response.body()).path("data").path("selectableBitmap").asText("");
             byte[] bits = Base64.getDecoder().decode(bitmap);
