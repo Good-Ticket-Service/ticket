@@ -75,6 +75,7 @@ class SeatHoldConversionFailureTest {
         when(store.find(SCHEDULE, hold.holdId())).thenReturn(Optional.of(hold));
         SeatHoldModeSwitch modeSwitch = mock(SeatHoldModeSwitch.class);
         when(modeSwitch.current()).thenReturn(SeatHoldMode.REDIS);
+        when(modeSwitch.label()).thenReturn(SeatHoldMode.REDIS.name());
         service = new SeatHoldConversionService(
                 store,
                 seats,

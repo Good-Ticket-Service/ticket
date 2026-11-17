@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.Timer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
  * DB 연결 대기 시간을 따로 잰다.
  *
  * 지표(라벨은 고정된 값만 쓴다. 회원·holdId 같은 값은 넣지 않는다)
- *   - reservation.seat.hold.stage{flow=hold|convert, stage=..., mode=DB|REDIS}: 단계 시간
+ *   - reservation.seat.hold.stage{flow=hold|convert, stage=..., mode=SeatHoldModeSwitch.label()}: 단계 시간
  *     hold: total, seat_read, sale_validation, redis_hold, db_tx, lock
  *     convert: total, begin, find, seat_read, db_tx, lock, finish
  *     lock은 db_tx 안의 좌석 잠금 쿼리(잠금 대기 포함)다.
@@ -72,9 +73,46 @@ public class HoldStages {
         stages.timer("reservation.seat.hold.conn_wait", current[0], current[1]).record(nanos, TimeUnit.NANOSECONDS);
     }
 
+    /** 연결을 얻은 순간의 흐름·단계·모드를 기억하고 풀에 돌려줄 때 점유 시간을 기록한다. */
+    public static ConnectionUsage connectionUsageStarted() {
+        HoldStages stages = instance;
+        if (stages == null) return new ConnectionUsage(null, "other", "other", "DB", System.nanoTime());
+        String[] current = CURRENT.get();
+        String flow = current == null ? "other" : current[0];
+        String stage = current == null ? "other" : current[1];
+        return new ConnectionUsage(stages, flow, stage, stages.modeSwitch.label(), System.nanoTime());
+    }
+
+    public static final class ConnectionUsage {
+        private final HoldStages stages;
+        private final String flow;
+        private final String stage;
+        private final String mode;
+        private final long started;
+        private final AtomicBoolean recorded = new AtomicBoolean();
+
+        private ConnectionUsage(HoldStages stages, String flow, String stage, String mode, long started) {
+            this.stages = stages;
+            this.flow = flow;
+            this.stage = stage;
+            this.mode = mode;
+            this.started = started;
+        }
+
+        public void record() {
+            if (stages != null && recorded.compareAndSet(false, true)) {
+                stages.timer("reservation.seat.hold.conn_usage", flow, stage, mode)
+                        .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            }
+        }
+    }
+
     private Timer timer(String name, String flow, String stage) {
-        // 1-C 실험 경로는 모드 라벨을 따로 둔다(REDIS1C)
-        String mode = modeSwitch.current().name() + (modeSwitch.convertInOneTransaction() ? "1C" : "");
+        // 실험 경로는 모드 라벨을 따로 둔다(REDIS1C, REDIS-S)
+        return timer(name, flow, stage, modeSwitch.label());
+    }
+
+    private Timer timer(String name, String flow, String stage, String mode) {
         return timers.computeIfAbsent(
                 name + "|" + flow + "|" + stage + "|" + mode,
                 key -> Timer.builder(name)

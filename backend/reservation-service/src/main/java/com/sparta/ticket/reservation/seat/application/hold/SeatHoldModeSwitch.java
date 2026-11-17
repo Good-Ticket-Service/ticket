@@ -26,4 +26,17 @@ public class SeatHoldModeSwitch {
     public boolean convertInOneTransaction() {
         return false;
     }
+
+    /**
+     * REDIS 모드 선점이 DB 좌석 상태 대신 Redis에 올린 DB 점유 좌석으로 판정할지(#449 후속 실험). 운영은 끈다. 측정 서버만 바꾼다.
+     * Note: DB가 좌석을 풀 때 Redis에서 지우는 경로를 넣기 전에는 켜면 풀린 좌석이 Redis에 잡힌 채 남는다.
+     */
+    public boolean redisSeatState() {
+        return false;
+    }
+
+    /** 지표의 모드 라벨. 실험 경로는 따로 센다(1-C는 "1C", Redis 점유 판정은 "-S"를 붙인다). */
+    public String label() {
+        return current().name() + (convertInOneTransaction() ? "1C" : "") + (redisSeatState() ? "-S" : "");
+    }
 }

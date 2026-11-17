@@ -1,6 +1,7 @@
 package com.sparta.ticket.reservation.seat.infrastructure.persistence;
 
 import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
+import com.sparta.ticket.reservation.seat.domain.ReservedSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
@@ -26,6 +27,12 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
+
+    // Note: 예약 ID가 있는 좌석이 HOLD·SOLD다. 좌석 상태와 예약 ID의 일관성은 ck_p_schedule_seats_holder가 지킨다(#66)
+    @Override
+    @Query("SELECT new com.sparta.ticket.reservation.seat.domain.ReservedSeat(s.id, s.reservationId)"
+            + " FROM ScheduleSeat s WHERE s.scheduleId = :scheduleId AND s.reservationId IS NOT NULL")
+    List<ReservedSeat> findReservedSeats(@Param("scheduleId") Long scheduleId);
 
     @Override
     @Query("SELECT new com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot("
