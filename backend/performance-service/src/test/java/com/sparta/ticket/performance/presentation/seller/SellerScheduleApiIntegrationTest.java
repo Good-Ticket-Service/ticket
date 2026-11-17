@@ -40,7 +40,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * 회차 등록과 좌석 준비(1단계 동기: 커밋 뒤 요청 스레드에서 호출)를 실제 PostgreSQL과 가짜 좌석 서비스로 검증한다.
+ * 회차 등록과 좌석 준비를 실제 PostgreSQL과 가짜 좌석 서비스로 검증한다. 좌석 준비 실행기는 공통 부모가 동기 실행으로 바꿔 두므로
+ * 등록 응답 직후 결과를 확인한다. 실제 비동기 경로는 SeatSetupAsyncDispatchIntegrationTest가 맡는다(이슈 #466).
  * fixture는 sql/seller-schedule-fixture.sql이다. 공연 410은 판매자 601의 초안(VIP 150000·R 90000, 좌석 403 판매 제외)이다.
  */
 @Sql(
@@ -355,14 +356,14 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
             assertThat(pending)
                     .containsEntry("seat_setup_status", "PENDING")
                     .containsEntry("seat_setup_attempts", 1)
-                    .containsEntry("seat_setup_next_attempt_at", at(NOW.plusSeconds(10)))
+                    .containsEntry("seat_setup_next_attempt_at", at(NOW.plusSeconds(15)))
                     .containsEntry("seat_setup_error", null);
 
             // 다음 시도 시각 전에는 보내지 않는다
-            clock.set(NOW.plusSeconds(9));
+            clock.set(NOW.plusSeconds(14));
             assertThat(seatSetupProcessor.processDue(50)).isZero();
 
-            clock.set(NOW.plusSeconds(10));
+            clock.set(NOW.plusSeconds(15));
             assertThat(seatSetupProcessor.processDue(50)).isEqualTo(1);
 
             assertThat(schedule(id))
@@ -377,14 +378,14 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
         }
 
         @Test
-        @DisplayName("일시 실패가 8번이면 FAILED와 안전한 오류 요약. 간격은 10초에서 두 배씩 늘고 상한은 5분이다(약 15분)")
+        @DisplayName("일시 실패가 8번이면 FAILED와 안전한 오류 요약. 간격은 15초에서 두 배씩 늘고 상한은 5분이다(약 18분)")
         void failsAfterMaxAttempts() throws Exception {
             for (int i = 0; i < 8; i++) {
                 seatSetupClient.answer(new SeatSetupOutcome.Unavailable("503"));
             }
             long id = registerOk(PERFORMANCE, BODY);
 
-            java.time.LocalDateTime now = waitThroughRetries(id, new long[] {10, 20, 40, 80, 160, 300, 300});
+            java.time.LocalDateTime now = waitThroughRetries(id, new long[] {15, 30, 60, 120, 240, 300, 300});
 
             assertThat(schedule(id))
                     .containsEntry("seat_setup_status", "FAILED")
@@ -420,7 +421,7 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
                     .containsEntry("seat_setup_status", "PENDING")
                     .containsEntry("seat_setup_error", null);
 
-            clock.set(NOW.plusSeconds(10));
+            clock.set(NOW.plusSeconds(15));
             seatSetupProcessor.processDue(50);
 
             assertThat(schedule(id)).containsEntry("seat_setup_status", "READY");
@@ -435,7 +436,7 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
             }
             long id = registerOk(PERFORMANCE, BODY);
 
-            waitThroughRetries(id, new long[] {10, 20, 40, 80, 160, 300, 300});
+            waitThroughRetries(id, new long[] {15, 30, 60, 120, 240, 300, 300});
 
             assertThat(schedule(id))
                     .containsEntry("seat_setup_status", "FAILED")
@@ -457,7 +458,7 @@ class SellerScheduleApiIntegrationTest extends PerformanceIntegrationTest {
             });
             long id = registerOk(PERFORMANCE, BODY);
 
-            waitThroughRetries(id, new long[] {10, 20, 40, 80, 160, 300, 300});
+            waitThroughRetries(id, new long[] {15, 30, 60, 120, 240, 300, 300});
 
             assertThat(staleRuns[0]).isEqualTo(1);
             assertThat(schedule(id))
