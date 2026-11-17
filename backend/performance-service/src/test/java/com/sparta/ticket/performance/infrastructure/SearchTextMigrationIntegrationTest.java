@@ -109,6 +109,30 @@ class SearchTextMigrationIntegrationTest extends PerformanceIntegrationTest {
         }
     }
 
+    /** IF NOT EXISTS는 이름만 보므로 넘어간 뒤, 마지막 검사가 정의를 대조해 알리고 기존 인덱스는 지우지 않는다(이슈 #441 리뷰 R1-2). */
+    @Test
+    @DisplayName("같은 이름의 다른 정의 인덱스가 있으면 현재 정의를 알리고 중단하며 지우지 않는다")
+    void stopsWhenSameNameIndexHasDifferentDefinition() throws Exception {
+        createTables();
+        try {
+            jdbc.update("INSERT INTO " + SCHEMA + ".p_venues (id, name, address) VALUES (1, '서울 공연장', '주소')");
+            jdbc.update("INSERT INTO " + SCHEMA + ".p_performances (id, venue_id, title) VALUES (1, 1, '공연')");
+            jdbc.execute("CREATE INDEX ix_p_performances_search_text ON " + SCHEMA + ".p_performances (title)");
+
+            assertThatThrownBy(() -> executeMigration(true))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("정의가 다릅니다")
+                    .hasMessageContaining("(title)");
+
+            assertThat(jdbc.queryForObject(
+                            "SELECT pg_get_indexdef('" + SCHEMA + ".ix_p_performances_search_text'::regclass)",
+                            String.class))
+                    .contains("btree", "(title)");
+        } finally {
+            dropTables();
+        }
+    }
+
     private void executeMigration(boolean confirmed) throws Exception {
         String sql = Files.readString(MIGRATION)
                 .replace("SET LOCAL search_path TO performance_schema;", "SET LOCAL search_path TO " + SCHEMA + ", public;")
