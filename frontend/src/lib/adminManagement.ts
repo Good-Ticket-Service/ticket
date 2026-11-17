@@ -2,6 +2,7 @@ import type { SeatInput } from '../api/manageTypes';
 export interface VenueRecord {
   id: number;
   name: string;
+  /** 지역 코드. 이슈 #438 전 브라우저 기록에는 예전 한글 값이 남아 있을 수 있다. */
   region: string;
   address?: string;
   version: number;

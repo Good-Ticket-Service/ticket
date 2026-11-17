@@ -7,6 +7,7 @@ import { ErrorNotice } from '../../components/Common';
 import { AdminVenueList } from '../../components/AdminVenueList';
 import { useLocalRecords } from '../../lib/localRecords';
 import { VENUE_RECORDS, type VenueRecord } from '../../lib/adminManagement';
+import { REGION_OPTIONS } from '../../lib/regions';
 
 export function AdminVenuesPage() {
   const navigate = useNavigate(),
@@ -24,6 +25,20 @@ export function AdminVenuesPage() {
     event.preventDefault();
     if (!create.isPending) create.mutate();
   };
+  const textField = (key: 'name' | 'address', label: string, max: number) => (
+    <div className="field">
+      <label htmlFor={`venue-${key}`}>{label}</label>
+      <input
+        id={`venue-${key}`}
+        className="input"
+        required
+        pattern=".*\S.*"
+        maxLength={max}
+        value={form[key]}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+      />
+    </div>
+  );
   return (
     <main className="content seller-page admin-page stack">
       <header className="seller-page-heading">
@@ -43,26 +58,27 @@ export function AdminVenuesPage() {
             <form className="stack" onSubmit={submit}>
               <fieldset className="seller-fieldset stack" disabled={create.isPending}>
                 {create.isError && <ErrorNotice error={create.error} />}
-                {(
-                  [
-                    { key: 'name', label: '공연장명', max: 100 },
-                    { key: 'region', label: '지역', max: 20 },
-                    { key: 'address', label: '주소', max: 255 },
-                  ] as const
-                ).map((field) => (
-                  <div className="field" key={field.key}>
-                    <label htmlFor={`venue-${field.key}`}>{field.label}</label>
-                    <input
-                      id={`venue-${field.key}`}
-                      className="input"
-                      required
-                      pattern=".*\S.*"
-                      maxLength={field.max}
-                      value={form[field.key]}
-                      onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-                    />
-                  </div>
-                ))}
+                {textField('name', '공연장명', 100)}
+                <div className="field">
+                  <label htmlFor="venue-region">지역</label>
+                  <select
+                    id="venue-region"
+                    className="input"
+                    required
+                    value={form.region}
+                    onChange={(e) => setForm({ ...form, region: e.target.value })}
+                  >
+                    <option value="" disabled>
+                      지역 선택
+                    </option>
+                    {REGION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {textField('address', '주소', 255)}
                 <button className="btn btn-primary">{create.isPending ? '등록 중' : '공연장 등록'}</button>
               </fieldset>
             </form>

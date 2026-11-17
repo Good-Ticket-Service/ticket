@@ -6,6 +6,7 @@ import { ErrorNotice, Loading, Poster } from '../components/Common';
 import { PerformanceBooking } from '../components/PerformanceBooking';
 import { formatDate, won } from '../lib/format';
 import { genreLabel } from '../lib/genres';
+import { regionLabel } from '../lib/regions';
 import { ageGuidanceLabel } from '../lib/labels';
 
 export function PerformanceDetailPage() {
@@ -123,7 +124,7 @@ export function PerformanceDetailPage() {
           <section id="performance-venue" className="detail-text-section">
             <h2 className="section-marker">공연장 안내</h2>
             <strong>{item.venue.name}</strong>
-            <p>{item.venue.address || item.venue.region}</p>
+            <p>{item.venue.address || regionLabel(item.venue.region)}</p>
           </section>
         </div>
         {schedules.isSuccess ? (

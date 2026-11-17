@@ -1,3 +1,5 @@
+import type { Region } from '../lib/regions';
+
 export interface PageC<T> {
   content: T[];
   page: number;
@@ -11,7 +13,8 @@ export interface Venue {
   id: number;
   name: string;
   address: string;
-  region: string;
+  /** 지역 코드. 화면에는 regionLabel로 표시한다. */
+  region: Region;
 }
 
 export interface Period {
