@@ -17,7 +17,7 @@
 
 -- 공연장
 INSERT INTO p_venues (id, name, address, region, version, created_at, created_by, updated_at, updated_by)
-VALUES (900, '[부하] 측정 공연장', '서울특별시 중구 측정로 900', '서울', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM');
+VALUES (900, '[부하] 측정 공연장', '서울특별시 중구 측정로 900', 'SEOUL', 0, LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM');
 
 -- 공연장 좌석 등급
 INSERT INTO p_venue_seat_grades (id, venue_id, name, created_at, created_by, updated_at, updated_by)
