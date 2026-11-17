@@ -16,6 +16,7 @@ import com.sparta.ticket.common.auth.UserHeaders;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.performance.application.port.VenueStore;
 import com.sparta.ticket.performance.domain.performance.PerformanceErrorCode;
+import com.sparta.ticket.performance.domain.venue.Region;
 import com.sparta.ticket.performance.domain.venue.VenueSeat;
 import com.sparta.ticket.performance.domain.venue.VenueSeatGrade;
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
@@ -129,15 +130,37 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
     class RegisterVenue {
 
         @Test
+        @DisplayName("지역 16개 코드를 문자열로 저장·응답한다")
+        void acceptsEveryRegionCode() throws Exception {
+            for (Region region : Region.values()) {
+                createVenue("{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"" + region.name() + "\"}")
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.data.region").value(region.name()));
+            }
+        }
+
+        @Test
+        @DisplayName("한글 이름·임의 값·null·숫자·목록은 지역 코드로 받지 않는다")
+        void rejectsNonCodeRegions() throws Exception {
+            for (String regionJson :
+                    List.of("\"서울\"", "\"UNKNOWN\"", "\"seoul\"", "null", "0", "\"0\"", "true", "[]", "\"\"")) {
+                createVenue("{\"name\":\"공연장\",\"address\":\"주소\",\"region\":" + regionJson + "}")
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+            }
+        }
+
+        @Test
         @DisplayName("201과 Location을 주고 앞뒤 공백을 지워 version 0으로 저장한다")
         void createsVenue() throws Exception {
-            MvcResult result = createVenue("{\"name\":\" 서울 공연장 \",\"address\":\"서울특별시 중구 예시로 10\",\"region\":\"서울\"}")
+            MvcResult result = createVenue(
+                            "{\"name\":\" 서울 공연장 \",\"address\":\"서울특별시 중구 예시로 10\",\"region\":\"SEOUL\"}")
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.status").value(201))
                     .andExpect(jsonPath("$.message").value("SUCCESS"))
                     .andExpect(jsonPath("$.data.name").value("서울 공연장"))
                     .andExpect(jsonPath("$.data.address").value("서울특별시 중구 예시로 10"))
-                    .andExpect(jsonPath("$.data.region").value("서울"))
+                    .andExpect(jsonPath("$.data.region").value("SEOUL"))
                     .andExpect(jsonPath("$.data.version").value(0))
                     .andExpect(jsonPath("$.data.createdAt", matchesPattern(DATE_TIME_KST)))
                     .andExpect(jsonPath("$.data.updatedAt", matchesPattern(DATE_TIME_KST)))
@@ -155,7 +178,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("알 수 없는 필드는 무시한다")
         void ignoresUnknownFields() throws Exception {
-            createVenue("{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"서울\",\"capacity\":100}")
+            createVenue("{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"SEOUL\",\"capacity\":100}")
                     .andExpect(status().isCreated());
         }
 
@@ -163,12 +186,12 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         @DisplayName("필수값 누락·공백만·길이 초과는 400 VALIDATION_ERROR다")
         void rejectsInvalidBody() throws Exception {
             for (String body : new String[] {
-                "{\"address\":\"주소\",\"region\":\"서울\"}",
-                "{\"name\":\"   \",\"address\":\"주소\",\"region\":\"서울\"}",
-                "{\"name\":\"　\",\"address\":\"주소\",\"region\":\"서울\"}",
-                "{\"name\":\"공연장\",\"address\":\"　　\",\"region\":\"서울\"}",
+                "{\"address\":\"주소\",\"region\":\"SEOUL\"}",
+                "{\"name\":\"   \",\"address\":\"주소\",\"region\":\"SEOUL\"}",
+                "{\"name\":\"　\",\"address\":\"주소\",\"region\":\"SEOUL\"}",
+                "{\"name\":\"공연장\",\"address\":\"　　\",\"region\":\"SEOUL\"}",
                 "{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"" + "가".repeat(21) + "\"}",
-                "{\"name\":\"" + "가".repeat(101) + "\",\"address\":\"주소\",\"region\":\"서울\"}"
+                "{\"name\":\"" + "가".repeat(101) + "\",\"address\":\"주소\",\"region\":\"SEOUL\"}"
             }) {
                 expectError(createVenue(body), 400, "VALIDATION_ERROR");
             }
@@ -179,7 +202,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("MASTER가 아니면 403, 인증 헤더가 없으면 401이다")
         void requiresMaster() throws Exception {
-            String body = "{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"서울\"}";
+            String body = "{\"name\":\"공연장\",\"address\":\"주소\",\"region\":\"SEOUL\"}";
             for (String role : new String[] {"SELLER", "USER"}) {
                 expectError(mockMvc.perform(as(role, post("/api/admin/venues")).content(body)), 403, "FORBIDDEN");
             }
@@ -462,7 +485,7 @@ class AdminVenueApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("공연장 → 등급 → 좌석 순서로 이어서 등록할 수 있다")
         void registersWholeLayout() throws Exception {
-            MvcResult venue = createVenue("{\"name\":\"새 공연장\",\"address\":\"주소\",\"region\":\"서울\"}")
+            MvcResult venue = createVenue("{\"name\":\"새 공연장\",\"address\":\"주소\",\"region\":\"SEOUL\"}")
                     .andReturn();
             long venueId = objectMapper
                     .readTree(venue.getResponse().getContentAsString())
