@@ -113,6 +113,19 @@ class HibernateSeedStartupIntegrationTest {
                 .isEqualTo(1116);
     }
 
+    /** local 프로필은 schema.sql 대신 db/search-text-local.sql이 트리거를 만든다(이슈 #441). 모든 시드 공연이 같은 규칙으로 채워진다. */
+    @Test
+    void fillsSearchTextOfAllSeedsWithLocalTrigger() {
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM p_performances", Integer.class))
+                .isPositive();
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM p_performances p JOIN p_venues v ON v.id = p.venue_id"
+                                + " WHERE p.search_text IS DISTINCT FROM"
+                                + " p_performance_search_text(p.title, p.cast_info, v.name)",
+                        Integer.class))
+                .isZero();
+    }
+
     @Test
     void findsRecitalByClassicalGenreAndReturnsItsAgeGuidance() throws Exception {
         String title = "판타지아 영아티스트 콘서트 시리즈, 김채윤 피아노 독주회 [전남광주]";
