@@ -217,7 +217,7 @@ class VenueSeatBatchIntegrationTest {
     private void createVenue(long id) {
         jdbc.update(
                 "INSERT INTO p_venues (id,name,address,region,created_at,created_by,updated_at,updated_by)"
-                        + " VALUES (?,'배치 시험','주소','서울',now(),'SYSTEM',now(),'SYSTEM')",
+                        + " VALUES (?,'배치 시험','주소','SEOUL',now(),'SYSTEM',now(),'SYSTEM')",
                 id);
         jdbc.update(
                 "INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by)"

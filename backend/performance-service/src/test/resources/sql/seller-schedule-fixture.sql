@@ -6,8 +6,8 @@
 -- 공연 410 회차: 420(2026-12-01 19:00, READY), 421 삭제(2026-12-02 19:00)
 -- 판매자 회차 조회용: 430(공연 415, 좌석 준비 FAILED·판매 중지·예매 기간 중), 431(공연 415, 취소 회차),
 --   432(공연 411, 다른 판매자), 433(공연 413, 삭제된 공연), 434(공연 412, 취소된 공연의 ACTIVE 회차). PENDING이 아니라 재시도 대상이 아니다
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (401,'회차 공연장','서울특별시 중구 예시로 20','서울',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (402,'빈 공연장','부산 주소','부산',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (401,'회차 공연장','서울특별시 중구 예시로 20','SEOUL',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (402,'빈 공연장','부산 주소','BUSAN',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (401,401,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (402,401,'R','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);

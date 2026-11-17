@@ -11,11 +11,11 @@
 
 INSERT INTO p_venues (id, name, address, region, version, created_at, created_by, updated_at, updated_by,
                       deleted_at, deleted_by)
-VALUES (1, '서울 공연장', '서울특별시 중구 예시로 10', '서울', 0,
+VALUES (1, '서울 공연장', '서울특별시 중구 예시로 10', 'SEOUL', 0,
         '2026-10-01 09:00:00', 'SYSTEM', '2026-10-01 09:00:00', 'SYSTEM', NULL, NULL),
-       (2, '부산 공연장', '부산광역시 해운대구 예시로 20', '부산', 0,
+       (2, '부산 공연장', '부산광역시 해운대구 예시로 20', 'BUSAN', 0,
         '2026-10-01 09:00:00', 'SYSTEM', '2026-10-01 09:00:00', 'SYSTEM', NULL, NULL),
-       (3, '삭제된 공연장', '서울특별시 종로구 예시로 30', '서울', 0,
+       (3, '삭제된 공연장', '서울특별시 종로구 예시로 30', 'SEOUL', 0,
         '2026-10-01 09:00:00', 'SYSTEM', '2026-10-02 09:00:00', 'SYSTEM', '2026-10-02 09:00:00', 'SYSTEM');
 
 INSERT INTO p_venue_seat_grades (id, venue_id, name, created_at, created_by, updated_at, updated_by,

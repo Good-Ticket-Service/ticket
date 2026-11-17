@@ -51,7 +51,7 @@ class SeedLocalSqlIntegrationTest extends PerformanceIntegrationTest {
 
         Long nextVenueId = jdbcTemplate.queryForObject("""
                 INSERT INTO p_venues (name, address, region, created_at, created_by, updated_at, updated_by)
-                VALUES ('새 공연장', '주소', '서울', LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM')
+                VALUES ('새 공연장', '주소', 'SEOUL', LOCALTIMESTAMP, 'SYSTEM', LOCALTIMESTAMP, 'SYSTEM')
                 RETURNING id
                 """, Long.class);
         assertThat(nextVenueId).isEqualTo(4L);
