@@ -186,6 +186,14 @@ CREATE UNIQUE INDEX uq_p_schedules_start
     ON p_schedules (performance_id, start_at)
     WHERE deleted_at IS NULL;
 
+-- 시작 전 활성 회차를 공연과 상관없이 시작 시각 범위로 찾는다(공개 목록 판매 상태·예매 오픈 순·전체 개수, 이슈 #471 후보).
+-- 위 uq_p_schedules_start는 공연별 조회용(첫 키 performance_id)이라 전체 공연의 미래 범위를 찾는 데 맞지 않는다.
+-- booking_open_at은 예매 오픈 순의 최소값 계산에 쓰려고 포함 컬럼으로 둔다. 포함 여부도 비교 대상이다.
+-- Note: 부분 인덱스라 공용 계획에서의 사용 여부를 채택 전에 확인한다(이슈 #471 계획 8.1.1).
+CREATE INDEX ix_p_schedules_active_start
+    ON p_schedules (start_at, performance_id) INCLUDE (booking_open_at)
+    WHERE deleted_at IS NULL AND operation_status = 'ACTIVE';
+
 -- 공연 공통 판매 제외 좌석. 행이 있으면 모든 회차에서 판매하지 않는다
 CREATE TABLE p_performance_seat_policies
 (
