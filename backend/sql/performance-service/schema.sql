@@ -108,8 +108,9 @@ CREATE TABLE p_performances
     CONSTRAINT ck_p_performances_published_at CHECK (publication_status = 'DRAFT' OR published_at IS NOT NULL)
 );
 
--- 공개 목록 최신순(published_at DESC, id DESC). 목록 대상(공개·운영 중·미삭제)만 담아 전체 정렬 없이 페이지를 채운다(이슈 #471 후보).
--- Note: 부분 인덱스라 쿼리의 상태 조건이 바인딩 값이면 공용 계획(generic plan)에서 쓰이지 않을 수 있다. 채택 전에 확인한다(이슈 #471 계획 8.1.1).
+-- 공개 목록 최신순(published_at DESC, id DESC). 목록 대상(공개·운영 중·미삭제)만 담아 전체 정렬 없이 페이지를 채운다(이슈 #471 채택).
+-- Note: 부분 인덱스라 쿼리의 상태 조건이 바인딩 값이면 공용 계획(generic plan)에서 쓰이지 않을 수 있다.
+--       이슈 #471 부하 측정에서 앱의 준비된 문장 경로로 쓰이는 것을 버퍼 적중 수로 간접 확인했다. 쿼리 조건을 바꾸면 다시 확인한다.
 CREATE INDEX ix_p_performances_public_latest
     ON p_performances (published_at DESC, id DESC)
     WHERE deleted_at IS NULL AND publication_status = 'PUBLISHED' AND operation_status = 'ACTIVE';
@@ -186,10 +187,11 @@ CREATE UNIQUE INDEX uq_p_schedules_start
     ON p_schedules (performance_id, start_at)
     WHERE deleted_at IS NULL;
 
--- 시작 전 활성 회차를 공연과 상관없이 시작 시각 범위로 찾는다(공개 목록 판매 상태·예매 오픈 순·전체 개수, 이슈 #471 후보).
+-- 시작 전 활성 회차를 공연과 상관없이 시작 시각 범위로 찾는다(공개 목록 판매 상태·예매 오픈 순·전체 개수, 이슈 #471 채택).
 -- 위 uq_p_schedules_start는 공연별 조회용(첫 키 performance_id)이라 전체 공연의 미래 범위를 찾는 데 맞지 않는다.
--- booking_open_at은 예매 오픈 순의 최소값 계산에 쓰려고 포함 컬럼으로 둔다. 포함 여부도 비교 대상이다.
--- Note: 부분 인덱스라 공용 계획에서의 사용 여부를 채택 전에 확인한다(이슈 #471 계획 8.1.1).
+-- booking_open_at은 예매 오픈 순의 최소값 계산에 쓰려고 포함 컬럼으로 둔다.
+-- Note: 부분 인덱스라 공용 계획에서 쓰이지 않을 수 있다. 이슈 #471 부하 측정에서 앱 경로로 쓰이는 것을 간접 확인했다.
+--       공연 서비스 연결의 random_page_cost = 1.1(application.yml)과 함께 써야 개수 쿼리가 이 인덱스로 공연을 골라 읽는다.
 CREATE INDEX ix_p_schedules_active_start
     ON p_schedules (start_at, performance_id) INCLUDE (booking_open_at)
     WHERE deleted_at IS NULL AND operation_status = 'ACTIVE';
