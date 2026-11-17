@@ -196,8 +196,8 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
         if (condition.keyword() != null) {
             // 제목·공연장명·출연진 중 하나에 포함되는지를 검색용 텍스트 한 컬럼으로 본다(이슈 #441). 필드마다 공백을 지우고
             // 소문자로 바꾼 값을 구분 문자로 이은 컬럼이라, 필드별로 비교하던 이슈 #442의 결과와 같다. trigram 인덱스가 후보를 좁힌다.
-            BooleanBuilder matches = new BooleanBuilder(
-                    PERFORMANCE.searchText.like(containsPattern(condition.keyword()), LIKE_ESCAPE));
+            BooleanBuilder matches =
+                    new BooleanBuilder(PERFORMANCE.searchText.like(containsPattern(condition.keyword()), LIKE_ESCAPE));
             Region.fromKeyword(condition.keyword()).ifPresent(region -> matches.or(VENUE.region.eq(region.name())));
             builder.and(matches);
         }

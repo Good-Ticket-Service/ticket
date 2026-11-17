@@ -169,7 +169,8 @@ CREATE OR REPLACE FUNCTION p_venues_refresh_search_text() RETURNS trigger LANGUA
 BEGIN
     UPDATE p_performances p
     SET search_text = p_performance_search_text(p.title, p.cast_info, NEW.name)
-    WHERE p.venue_id = NEW.id;
+    WHERE p.venue_id = NEW.id
+      AND p.search_text IS DISTINCT FROM p_performance_search_text(p.title, p.cast_info, NEW.name);
     RETURN NULL;
 END';
 
@@ -180,6 +181,12 @@ CREATE TRIGGER p_performances_search_text
 CREATE TRIGGER p_venues_search_text
     AFTER UPDATE OF name ON p_venues
     FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name) EXECUTE FUNCTION p_venues_refresh_search_text();
+
+-- 같은 문장에서 공연장과 공연을 함께 넣으면(KOPIS 시드의 CTE INSERT) 공연 트리거가 아직 보이지 않는 공연장을 읽어
+-- 공연장명 자리가 빈다. AFTER 트리거는 문장이 끝난 뒤 실행되므로 그 공연들을 다시 계산한다. 공연이 없는 새 공연장이면 바꿀 행이 없다.
+CREATE TRIGGER p_venues_search_text_insert
+    AFTER INSERT ON p_venues
+    FOR EACH ROW EXECUTE FUNCTION p_venues_refresh_search_text();
 
 -- 공개 목록 키워드 검색의 후보를 좁힌다(이슈 #441). 3글자 이상 검색어에서 효과가 있고, 2글자 이하는 trigram을 만들지 못한다
 CREATE INDEX ix_p_performances_search_text ON p_performances USING gin (search_text gin_trgm_ops);

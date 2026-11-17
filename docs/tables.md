@@ -97,8 +97,9 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 
 - `CREATE EXTENSION IF NOT EXISTS pg_trgm;` 개발·통합시험·이행 대상 DB는 관리자 계정이 `performance_schema`에 설치한다(`infra/postgres/init.sh`, `infra/integration/init-schemas.sh`).
 - `CREATE INDEX ix_p_performances_search_text ON p_performances USING gin (search_text gin_trgm_ops);` 키워드 `LIKE '%검색어%'`의 후보를 좁힌다. 2글자 이하 검색어는 좁히지 못한다.
-- 트리거 `p_performances_search_text`(BEFORE INSERT, UPDATE OF title·cast_info·venue_id)와 `p_venues_search_text`(AFTER UPDATE OF name)가 함수 `p_performance_search_text(title, cast_info, venue_name)`로 값을 계산한다.
+- 트리거 `p_performances_search_text`(BEFORE INSERT, UPDATE OF title·cast_info·venue_id), `p_venues_search_text`(AFTER UPDATE OF name), `p_venues_search_text_insert`(AFTER INSERT)가 함수 `p_performance_search_text(title, cast_info, venue_name)`로 값을 계산한다.
   - 공연장명이 바뀌면 그 공연장의 공연(삭제 행 포함)을 다시 계산한다.
+  - 공연장과 공연을 한 문장으로 함께 넣으면(KOPIS 시드의 CTE) 공연장 AFTER INSERT 트리거가 문장 끝에 다시 계산한다.
   - local 프로필(Hibernate create)은 `db/search-text-local.sql`이 같은 함수·트리거를 만든다.
 - 이슈 #441 이행 SQL: `backend/sql/performance-service/migrations/441-search-text.sql`. 관리자 계정으로 실행하며, DB 문자 설정이 C·POSIX면 중단한다(한글 trigram 불가).
 
