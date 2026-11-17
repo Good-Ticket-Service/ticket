@@ -5,8 +5,8 @@ import com.sparta.ticket.common.exception.SimpleErrorCode;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
-import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -49,15 +49,15 @@ public class SeatHoldService {
 
     private SeatHoldResult doHold(Long userId, Long scheduleId, Long scheduleSeatId) {
         // 1. 경로의 회차 좌석인지 확인한다. 다른 회차 좌석을 받으면 그 회차의 판매 기간·매수 제한을 우회할 수 있다
-        ScheduleSeat seat = stages.time("hold", "seat_read", () -> scheduleSeatRepository.findById(scheduleSeatId))
-                .filter(found -> found.getScheduleId().equals(scheduleId))
+        SeatHoldSnapshot seat = stages.time(
+                        "hold", "seat_read", () -> scheduleSeatRepository.findForHold(scheduleSeatId, scheduleId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
 
         // 2. 판매 검증. 좌석 1장이고 구성 버전은 DB CHECK로 1 이상이라, 공연이 400으로 막는 빈 목록·중복·버전 0은 생기지 않는다
         SaleValidation validation = stages.time(
                 "hold",
                 "sale_validation",
-                () -> saleValidationPort.validate(scheduleId, seat.getConfigVersion(), List.of(seat.getVenueSeatId())));
+                () -> saleValidationPort.validate(scheduleId, seat.configVersion(), List.of(seat.venueSeatId())));
         if (!validation.allowed()) {
             throw rejected(validation.reasonCode());
         }
@@ -69,8 +69,8 @@ public class SeatHoldService {
 
         // 3. 읽은 시점의 점유 예약을 넘긴다. 잠근 뒤 만료됐으면 그 예약의 좌석 전체를 정리해야 해서 함께 잠그기 위해서다
         // 판매 완료 좌석은 잠근 뒤에도 409라 그 예약을 읽을 필요가 없어 HOLD일 때만 넘긴다
-        SeatHoldTarget target =
-                new SeatHoldTarget(seat.getId(), seat.getStatus() == SeatStatus.HOLD ? seat.getReservationId() : null);
+        SeatHoldTarget target = new SeatHoldTarget(
+                seat.scheduleSeatId(), seat.status() == SeatStatus.HOLD ? seat.reservationId() : null);
         try {
             return stages.time("hold", "db_tx", () -> transactions.hold(userId, scheduleId, target, validation));
         } catch (DataIntegrityViolationException e) {

@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.seat.infrastructure.persistence;
 import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
+import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
 import com.sparta.ticket.reservation.seat.domain.SeatOccupant;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -25,6 +26,13 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
+
+    @Override
+    @Query("SELECT new com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot("
+            + "s.id, s.venueSeatId, s.configVersion, s.sellable, s.basePrice, "
+            + "s.status, s.reservationId, s.holdExpiresAt) "
+            + "FROM ScheduleSeat s WHERE s.id = :id AND s.scheduleId = :scheduleId")
+    Optional<SeatHoldSnapshot> findForHold(@Param("id") Long id, @Param("scheduleId") Long scheduleId);
 
     @Override
     @Query("SELECT new com.sparta.ticket.reservation.seat.domain.SeatOccupant(s.scheduleId, s.status, s.reservationId)"

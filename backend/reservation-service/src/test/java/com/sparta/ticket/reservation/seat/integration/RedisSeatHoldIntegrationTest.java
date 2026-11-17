@@ -191,6 +191,43 @@ class RedisSeatHoldIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("좌석이 다른 회차에 속하면 Redis 모드에서도 404이고 판매 검증·Redis 기록을 하지 않는다")
+    void wrongScheduleIsNotFoundBeforeSaleValidation() {
+        Long otherScheduleSeat = scheduleSeatRepository
+                .save(ScheduleSeat.create(
+                        SCHEDULE + 1, 100L, 7L, "VIP", FakeSaleValidationPort.DEFAULT_PRICE, "A", "1", 1, true, 2L))
+                .getId();
+
+        assertThat(errorCode(() -> seatHoldService.hold(USER, SCHEDULE, otherScheduleSeat)))
+                .isEqualTo("SEAT_NOT_FOUND");
+        assertThat(saleValidation.calls()).isZero();
+        assertThat(redis.hasKey("seathold:{s" + SCHEDULE + "}:seat:" + otherScheduleSeat))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("판매 제외 좌석과 판매 검증 가격·구성 버전 불일치는 Redis 모드에서도 그대로 거절한다")
+    void unsellablePriceAndVersionMismatch() {
+        Long unsellable = scheduleSeatRepository
+                .save(ScheduleSeat.create(SCHEDULE, 100L, 7L, "VIP", null, "A", "1", 1, false, 2L))
+                .getId();
+        Long seatId = seat();
+
+        assertThat(errorCode(() -> seatHoldService.hold(USER, SCHEDULE, unsellable)))
+                .isEqualTo("SEAT_NOT_SELLABLE");
+
+        saleValidation.price(160_000);
+        assertThat(errorCode(() -> seatHoldService.hold(USER, SCHEDULE, seatId)))
+                .isEqualTo("SEAT_CONFIG_VERSION_MISMATCH");
+
+        saleValidation.reset();
+        saleValidation.configVersion(3L);
+        assertThat(errorCode(() -> seatHoldService.hold(USER, SCHEDULE, seatId)))
+                .isEqualTo("SEAT_CONFIG_VERSION_MISMATCH");
+        assertThat(redis.hasKey("seathold:{s" + SCHEDULE + "}:seat:" + seatId)).isFalse();
+    }
+
+    @Test
     @DisplayName("결제 중인 예약의 좌석은 선점 만료 시각이 지나도 Redis에 기록하지 않고 409다(예매 담당 리뷰 1번)")
     void paymentInProgressAfterExpiry() {
         Long seatId = seat();
