@@ -63,15 +63,18 @@ public interface PublicPerformanceApiSpec {
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate to,
             @Parameter(
-                            description = "제목·공연장명·출연진 부분 일치(대소문자 무시) 또는 지역 별칭 전체 일치. "
-                                    + "지역 코드 자체는 별칭이 아니며 주소는 검색하지 않는다. 이 OR 묶음과 다른 필터는 AND로 결합한다")
+                            description = "제목·공연장명·출연진 부분 일치(띄어쓰기·대소문자 무시) 또는 지역 별칭 전체 일치(띄어쓰기 무시). "
+                                    + "지역 코드 자체는 별칭이 아니며 주소는 검색하지 않는다. 이 OR 묶음과 다른 필터는 AND로 결합한다. "
+                                    + "스페이스를 지우고 남는 것이 없으면 검색어가 없는 것으로 본다")
                     @RequestParam(required = false)
                     String keyword,
             // Note: Spring의 컬렉션 변환 전에 원시 값을 읽어 반복 파라미터의 빈 항목도 검증한다.
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> queryParameters,
             @Parameter(
-                            description = "LATEST: 최근 공개 순, BOOKING_OPEN_ASC: 남은 활성 회차 중 최소 예매 오픈 시각순. "
-                                    + "종료 공연은 마지막, 동률은 ID 역순이며 판매중 우선순위는 없다")
+                            description = "LATEST: 최근 공개 순, BOOKING_OPEN_ASC: 남은 활성 회차 중 최소 예매 오픈 시각순"
+                                    + "(종료 공연은 마지막, 동률은 ID 역순이며 판매중 우선순위는 없다), "
+                                    + "RELEVANCE: 검색어 관련도 순(제목 같음 → 제목 시작 → 제목 포함 → 출연진 → 공연장명 → 지역 이름, 같은 등급은 최근 공개 순). "
+                                    + "RELEVANCE는 검색어가 없으면 400 VALIDATION_ERROR다")
                     @RequestParam(defaultValue = "LATEST")
                     PublicPerformanceSort sort,
             @Parameter(description = "0부터 시작하는 페이지 번호") @RequestParam(defaultValue = "0") @Min(0) int page,

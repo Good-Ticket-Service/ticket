@@ -9,7 +9,7 @@ import com.sparta.ticket.performance.application.dto.VenueSummary;
 
 /**
  * 공개 공연 목록 응답의 data를 만든다. 공통 {@link PageResponse}의 필드 구조를 쓴다(이슈 #364).
- * sort에는 공연 목록의 기존 정렬 이름(LATEST·BOOKING_OPEN_ASC)을 그대로 넣는다. 다른 목록의 "필드,방향" 형식과는 다르다.
+ * sort에는 공연 목록의 기존 정렬 이름(LATEST·BOOKING_OPEN_ASC·RELEVANCE)을 그대로 넣는다. 다른 목록의 "필드,방향" 형식과는 다르다.
  * version·publicationStatus·sellerId는 넣지 않는다.
  */
 public final class PublicPerformanceListResponse {
