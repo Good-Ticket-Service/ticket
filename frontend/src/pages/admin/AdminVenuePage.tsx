@@ -9,6 +9,7 @@ import { VersionOverride } from '../../components/Form';
 import { AdminVenueList } from '../../components/AdminVenueList';
 import { useLocalRecords } from '../../lib/localRecords';
 import { VENUE_RECORDS, seatDraft, venueVersion, type VenueRecord } from '../../lib/adminManagement';
+import { regionLabel } from '../../lib/regions';
 
 export function AdminVenuePage() {
   const { venueId } = useParams();
@@ -156,7 +157,7 @@ function Venue({ id }: { id: number }) {
                 <dl className="settlement-account-facts">
                   <div>
                     <dt>지역</dt>
-                    <dd>{record.region || '미확인'}</dd>
+                    <dd>{record.region ? regionLabel(record.region) : '미확인'}</dd>
                   </div>
                   <div>
                     <dt>기록된 좌석</dt>

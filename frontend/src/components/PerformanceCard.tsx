@@ -3,6 +3,7 @@ import type { PerformanceSummary } from '../api/types';
 import { Poster } from './Common';
 import { formatDate } from '../lib/format';
 import { genreLabel } from '../lib/genres';
+import { regionLabel } from '../lib/regions';
 import { isEndedByPeriod } from '../lib/saleStatus';
 
 export function PerformanceCard({ item }: { item: PerformanceSummary }) {
@@ -25,7 +26,7 @@ export function PerformanceCard({ item }: { item: PerformanceSummary }) {
         </span>
       </strong>
       <span className="performance-venue">
-        {item.venue.name} · {item.venue.region}
+        {item.venue.name} · {regionLabel(item.venue.region)}
       </span>
       {item.period && (
         <span className="performance-period num">

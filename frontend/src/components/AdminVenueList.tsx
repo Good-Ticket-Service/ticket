@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { VenueRecord } from '../lib/adminManagement';
+import { regionLabel } from '../lib/regions';
 import { GlassVenueIcon } from './GlassVenueIcon';
 export function AdminVenueList({ records, selected }: { records: VenueRecord[]; selected?: number }) {
   const [keyword, setKeyword] = useState(''),
@@ -38,7 +39,7 @@ export function AdminVenueList({ records, selected }: { records: VenueRecord[]; 
             <div className="admin-venue-copy">
               <strong>{item.name}</strong>
               <span>
-                {item.region || '지역 미확인'} · ID {item.id}
+                {item.region ? regionLabel(item.region) : '지역 미확인'} · ID {item.id}
               </span>
             </div>
           </Link>

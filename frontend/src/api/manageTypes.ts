@@ -1,6 +1,7 @@
 /** 판매자·관리자 화면의 요청·응답. */
 
 import type { Genre } from '../lib/genres';
+import type { Region } from '../lib/regions';
 import type { CouponDetail } from './types';
 export type { Genre } from '../lib/genres';
 export type AgeRating = 'ALL' | '12' | '15' | '19';
@@ -10,7 +11,7 @@ export interface VenueResult {
   id: number;
   name: string;
   address: string;
-  region: string;
+  region: Region;
   version: number;
 }
 
@@ -49,7 +50,7 @@ export interface PerformanceInput {
 /** 판매자 공연(초안 등록·공개 응답) */
 export interface SellerPerformance {
   id: number;
-  venue: { id: number; name: string; address: string; region: string };
+  venue: { id: number; name: string; address: string; region: Region };
   title: string;
   genre: string;
   ageRating: AgeRating | null;

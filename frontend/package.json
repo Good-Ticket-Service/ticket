@@ -18,7 +18,8 @@
     "test:admin-management": "node --test tests/admin-management.test.mjs",
     "test:admin-coupons": "node --test tests/admin-coupons.test.mjs",
     "test:operations": "node --test tests/operations.test.mjs",
-    "test:sale-status": "node --test tests/sale-status.test.mjs"
+    "test:sale-status": "node --test tests/sale-status.test.mjs",
+    "test:regions": "node --test tests/regions.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.62.7",
