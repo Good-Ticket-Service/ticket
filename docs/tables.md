@@ -91,8 +91,16 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 | operation_status | VARCHAR(20) | NOT NULL DEFAULT 'ACTIVE'; ACTIVE / CANCELED.; 공개 여부와 별개 |
 | published_at | TIMESTAMP(3) | NULL; 최초 공개 시각.; 공개 이력·변경 제한 판단 |
 | version | BIGINT | NOT NULL DEFAULT 0; 공연 정보·공연장·등급 가격·판매 제외·공개 상태 변경 시 증가.; 회차 변경으로는 증가하지 않는다. 공연 단위 명령의 If-Match 기준이다. |
+| search_text | TEXT | NOT NULL; 공개 목록 키워드 검색용(이슈 #441).; 제목·출연진·공연장명을 각각 공백 제거·소문자로 바꿔 U+001F로 잇는다.; 트리거가 채우며 애플리케이션은 쓰지 않는다. 응답에 넣지 않는다. |
 
 제약·인덱스:
+
+- `CREATE EXTENSION IF NOT EXISTS pg_trgm;` 개발·통합시험·이행 대상 DB는 관리자 계정이 `performance_schema`에 설치한다(`infra/postgres/init.sh`, `infra/integration/init-schemas.sh`).
+- `CREATE INDEX ix_p_performances_search_text ON p_performances USING gin (search_text gin_trgm_ops);` 키워드 `LIKE '%검색어%'`의 후보를 좁힌다. 2글자 이하 검색어는 좁히지 못한다.
+- 트리거 `p_performances_search_text`(BEFORE INSERT, UPDATE OF title·cast_info·venue_id)와 `p_venues_search_text`(AFTER UPDATE OF name)가 함수 `p_performance_search_text(title, cast_info, venue_name)`로 값을 계산한다.
+  - 공연장명이 바뀌면 그 공연장의 공연(삭제 행 포함)을 다시 계산한다.
+  - local 프로필(Hibernate create)은 `db/search-text-local.sql`이 같은 함수·트리거를 만든다.
+- 이슈 #441 이행 SQL: `backend/sql/performance-service/migrations/441-search-text.sql`. 관리자 계정으로 실행하며, DB 문자 설정이 C·POSIX면 중단한다(한글 trigram 불가).
 
 - `CONSTRAINT ck_p_performances_genre CHECK (genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS', 'CLASSICAL', 'KOREAN_MUSIC', 'DANCE', 'CIRCUS_MAGIC', 'MULTIDISCIPLINARY'))`
 - `CONSTRAINT ck_p_performances_age_rating CHECK (age_rating IN ('ALL', '12', '15', '19'))`
