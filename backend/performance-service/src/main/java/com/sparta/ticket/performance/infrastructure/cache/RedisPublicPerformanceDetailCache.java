@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceDetail;
 import com.sparta.ticket.performance.application.port.PublicPerformanceDetailCache;
+import com.sparta.ticket.performance.domain.venue.Region;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.Optional;
@@ -131,6 +132,8 @@ public class RedisPublicPerformanceDetailCache implements PublicPerformanceDetai
         return detail != null
                 && performanceId.equals(detail.id())
                 && detail.venue() != null
+                // Note: 지역 코드 전환 전에 저장된 한글 지역 캐시는 버리고 이행된 DB에서 다시 읽는다(이슈 #438).
+                && Region.isCode(detail.venue().region())
                 && detail.title() != null
                 && detail.genre() != null
                 && detail.operationStatus() != null
