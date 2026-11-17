@@ -37,7 +37,7 @@
 공통 규칙
 
 - Path ID는 양의 long이다.
-- 공연 공개 목록은 공통 `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`이다(이슈 #364). page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다(공통 resolver의 10·30·50과 다르다). sort는 적용한 정렬 이름(LATEST/BOOKING_OPEN_ASC)이다.
+- 공연 공개 목록은 공통 `PageC<T>={content:T[],page:int,size:int,totalElements:long,totalPages:int,sort:string}`이다(이슈 #364). page는 0부터 시작하고 기본 0이다. size는 1~100이고 기본 20이다(공통 resolver의 10·30·50과 다르다). sort는 적용한 정렬 이름(LATEST/BOOKING_OPEN_ASC/RELEVANCE)이다.
 - 버전 필드(version, venueVersion, performanceVersion, policyVersion, configVersion, seatConfigVersion)는 long이다. 테이블의 BIGINT 컬럼과 같다.
 - If-Match는 대상 리소스의 version을 큰따옴표로 감싼 값이다(예: `"3"`).
 - 서버는 따옴표 없는 값(예: `3`)도 받는다. Swagger 등에서 손으로 넣기 쉽게 하려는 것이다.
@@ -70,7 +70,7 @@
 - 둘 다 없는 기존 데이터는 정보 미제공으로 표시한다. 신규 등록에서 둘 다 미입력은 400 VALIDATION_ERROR다.
 - 두 연령 필드가 모두 미입력인 경우 필드 오류 이름은 `ageInformationProvided`다(교차 필드 검증).
 - 상세의 '연령:'은 화면 라벨이며 ageGuidance에는 관람 안내 문구만 저장한다. 생년월일 검사·예매 차단은 하지 않는다.
-- 표의 PerformanceSort는 LATEST, BOOKING_OPEN_ASC 중 하나다.
+- 표의 PerformanceSort는 LATEST, BOOKING_OPEN_ASC, RELEVANCE 중 하나다(RELEVANCE는 이슈 #442).
 - PerformanceStatus는 ON_SALE, UPCOMING, ENDED 중 하나이며 여러 값을 선택한다(이슈 #382).
 
 지역 코드·검색 별칭(이슈 #438)
@@ -101,6 +101,10 @@
 
 - 키워드는 앞뒤 공백을 제거하며 제목·공연장명·출연진의 대소문자 무시 부분 일치와 지역 별칭 전체 일치를 OR로 묶는다.
   `%`·`_`는 문자 그대로 검색한다. 지역 코드 자체와 주소는 지역 별칭 검색 대상이 아니다.
+- 키워드와 제목·공연장명·출연진은 스페이스를 모두 지우고 비교한다(이슈 #442). 지역 별칭 일치도 같다.
+  예: `시 카고`는 `시카고`, `전남 광주`는 전남광주 지역을 찾는다.
+  스페이스를 지우고 남는 것이 없으면 키워드가 없는 것으로 본다.
+  공백을 지운 뒤 비교하므로 단어 경계를 넘는 일치도 결과에 포함된다(예: `피아노 독주회`를 `노독`으로 찾음).
 - 위 OR 묶음은 공개·미삭제·미취소·status·genre·명시적 region·날짜 조건과 AND로 결합한다.
   `region=BUSAN&keyword=서울`은 부산 공연 중 텍스트 필드에 서울이 있는 공연만 준다.
   목록 항목과 전체 개수에 같은 키워드 조건을 쓴다. 일치 필드는 응답에 추가하지 않는다.
@@ -255,6 +259,10 @@
 - BOOKING_OPEN_ASC는 남은 활성 회차 중 가장 이른 예매 오픈 시각의 오름차순이다. 예매 마감 조건은 사용하지 않는다.
 - BOOKING_OPEN_ASC에서 남은 회차가 없는 ENDED 공연은 마지막에 둔다. 기준 시각이 같으면 ID 역순이다.
 - 판매중 우선 정렬은 없다. 남은 회차의 오픈 시각에 따라 판매예정 공연이 판매중보다 먼저 나올 수 있다.
+- RELEVANCE는 키워드 관련도 순이다(이슈 #442). 공연마다 아래 중 가장 높은 등급으로 정렬하고, 같은 등급은 LATEST 순서다.
+  1 제목이 키워드와 같음, 2 제목이 키워드로 시작함, 3 제목에 키워드가 있음, 4 출연진에 있음, 5 공연장명에 있음, 6 지역 이름과 일치.
+  비교는 모두 스페이스를 지운 값의 대소문자 무시 비교다. 목록 대상과 전체 개수는 다른 정렬과 같다.
+- 키워드가 없거나 스페이스뿐인데 RELEVANCE를 보내면 400 VALIDATION_ERROR다.
 - 활성 회차는 삭제되지 않고 취소되지 않은 회차다.
 - period는 활성 회차의 첫 공연 날짜와 마지막 공연 날짜다. 활성 회차가 없으면 null이다.
 - from·to 필터는 시작일(KST)이 범위 안인 활성 회차가 있는 공연을 고른다.
