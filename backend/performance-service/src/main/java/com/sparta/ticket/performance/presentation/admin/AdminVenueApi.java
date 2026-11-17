@@ -40,9 +40,7 @@ public class AdminVenueApi implements AdminVenueApiSpec {
     @PostMapping
     public ResponseEntity<ApiResponse<VenueResponse>> register(VenueCreateRequest request) {
         VenueDetail venue = service.register(
-                RequestText.strip(request.name()),
-                RequestText.strip(request.address()),
-                RequestText.strip(request.region()));
+                RequestText.strip(request.name()), RequestText.strip(request.address()), request.region());
         return ResponseEntity.created(URI.create(VENUE_LOCATION + venue.id()))
                 .body(ApiResponse.created(SUCCESS, VenueResponse.from(venue)));
     }

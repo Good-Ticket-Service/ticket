@@ -25,7 +25,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 @Tag(name = "관리자 공연장")
 public interface AdminVenueApiSpec {
 
-    @Operation(summary = "공연장 등록", description = "201과 Location: /api/seller/venues/{venueId}를 준다. version은 0에서 시작한다.")
+    @Operation(
+            summary = "공연장 등록",
+            description = "201과 Location: /api/seller/venues/{venueId}를 준다. version은 0에서 시작한다. "
+                    + "region은 시·도 코드 16개 중 하나이며 누락·알 수 없는 값·한글 지역명은 400 VALIDATION_ERROR다.")
     ResponseEntity<ApiResponse<VenueResponse>> register(@Valid @RequestBody VenueCreateRequest request);
 
     @Operation(
