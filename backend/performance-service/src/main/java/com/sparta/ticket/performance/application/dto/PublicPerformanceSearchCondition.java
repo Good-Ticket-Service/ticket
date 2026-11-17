@@ -1,6 +1,7 @@
 package com.sparta.ticket.performance.application.dto;
 
 import com.sparta.ticket.performance.domain.performance.Genre;
+import com.sparta.ticket.performance.domain.venue.Region;
 import java.time.LocalDate;
 import java.util.Set;
 
@@ -9,11 +10,11 @@ import java.util.Set;
  *
  * @param from 공연 시작일(KST) 하한, 포함
  * @param to 공연 시작일(KST) 상한, 포함
- * @param keyword 공연명 검색어. 앞뒤 공백을 지운 값이며 빈 문자열은 null로 바꿔 넘긴다
+ * @param keyword 제목·공연장명·출연진 부분 일치 또는 지역 별칭 정확 일치 검색어. 앞뒤 공백을 지우고 빈 문자열은 null로 넘긴다
  */
 public record PublicPerformanceSearchCondition(
         Genre genre,
-        String region,
+        Region region,
         LocalDate from,
         LocalDate to,
         String keyword,
