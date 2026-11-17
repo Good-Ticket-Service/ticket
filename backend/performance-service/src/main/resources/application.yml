@@ -4,6 +4,11 @@ spring:
       # Note: URL을 환경 변수나 Testcontainers로 교체해도 드라이버 배치 재작성을 유지한다.
       data-source-properties:
         reWriteBatchedInserts: true
+        # 공연 서비스 연결에만 플래너의 무작위 읽기 비용을 낮춘다(기본 4). DB 서버·다른 서비스 설정은 그대로다(이슈 #471).
+        # Note: 기본값에서는 시작 전 회차로 공연 수백 개만 고르는 목록 개수·예매 오픈 순 쿼리도 공연 전체를 순차 스캔했다.
+        #       데이터가 대부분 메모리(공유 버퍼)에 있어 PK 접근이 싸다. 3년 누적 DB 진단에서 기본 개수 36.7 → 2.7ms.
+        #       config-repo에서 data-source-properties를 다시 정의하면 이 값이 빠질 수 있다.
+        options: "-c random_page_cost=1.1"
   jpa:
     properties:
       hibernate:
