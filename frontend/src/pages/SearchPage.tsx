@@ -6,18 +6,22 @@ import { ErrorNotice, Loading } from '../components/Common';
 import { PerformanceCard } from '../components/PerformanceCard';
 import { GENRE_OPTIONS } from '../lib/genres';
 import { REGION_OPTIONS } from '../lib/regions';
+import { hasSearchKeyword, resolveSearchSort, searchSortOptions } from '../lib/searchSort';
 import { SALE_STATUS_OPTIONS, parseSaleStatuses, saleStatusParam, toggleSaleStatus } from '../lib/saleStatus';
 
 export function SearchPage() {
   const [search, setSearch] = useSearchParams();
-  const keyword = (search.get('keyword') ?? '').trim();
+  // 서버가 검색어를 정리하므로 원래 값을 그대로 보낸다. JS trim()은 서버와 공백 범위가 달라 화면 표시에만 쓴다.
+  const rawKeyword = search.get('keyword') ?? '';
+  const keyword = rawKeyword.trim();
   const genre = GENRE_OPTIONS.some((item) => item.value === search.get('genre')) ? search.get('genre')! : '';
   const region = REGION_OPTIONS.some((item) => item.value === search.get('region')) ? search.get('region')! : '';
-  const sort = search.get('sort') === 'BOOKING_OPEN_ASC' ? 'BOOKING_OPEN_ASC' : 'LATEST';
+  const keywordGiven = hasSearchKeyword(rawKeyword);
+  const sort = resolveSearchSort(search.get('sort'), keywordGiven);
   const pageValue = Number(search.get('page') ?? 0);
   const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
   const params = new URLSearchParams({ page: String(page), size: '20', sort });
-  if (keyword) params.set('keyword', keyword);
+  if (keywordGiven) params.set('keyword', rawKeyword);
   if (genre) params.set('genre', genre);
   if (region) params.set('region', region);
   // 판매 상태: 기본(판매중·판매예정)이면 보내지 않는다. 빈 status는 서버가 400으로 거절한다(이슈 #382).
@@ -51,10 +55,7 @@ export function SearchPage() {
           {query.isSuccess && <>검색 결과 <strong className="num">{query.data.totalElements}</strong><span>개</span></>}
         </p>
         <div className="search-sort" role="group" aria-label="검색 결과 정렬">
-          {[
-            { value: 'LATEST', label: '최근 공개순' },
-            { value: 'BOOKING_OPEN_ASC', label: '예매 오픈순' },
-          ].map((option) => (
+          {searchSortOptions(keywordGiven).map((option) => (
             <button key={option.value} type="button" aria-pressed={sort === option.value}
               onClick={() => update('sort', option.value)}>{option.label}</button>
           ))}
