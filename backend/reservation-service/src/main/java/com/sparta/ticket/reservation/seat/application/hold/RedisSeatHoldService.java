@@ -7,7 +7,7 @@ import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore.HoldAttempt;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore.HoldState;
 import com.sparta.ticket.reservation.seat.application.port.StoredHold;
-import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
+import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -44,30 +44,30 @@ public class RedisSeatHoldService {
     private final RedisSeatHoldMetrics metrics;
     private final Clock clock;
 
-    SeatHoldResult hold(Long userId, Long scheduleId, ScheduleSeat seat, SaleValidation validation) {
+    SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldSnapshot seat, SaleValidation validation) {
         Instant now = clock.instant();
         LocalDateTime nowLocal = LocalDateTime.ofInstant(now, clock.getZone());
 
         // 1. 좌석 자체 조건과 DB 점유. 선점 트랜잭션 4·5단계와 같은 판단을 잠금 없이 미리 한다
-        if (!seat.isSellable()) {
+        if (!seat.sellable()) {
             throw new BusinessException(ReservationErrorCode.SEAT_NOT_SELLABLE);
         }
         int validatedPrice = validation.seats().get(0).basePrice();
-        if (seat.getConfigVersion() != validation.configVersion()
-                || !seat.getBasePrice().equals(validatedPrice)) {
+        if (seat.configVersion() != validation.configVersion()
+                || !seat.basePrice().equals(validatedPrice)) {
             throw new BusinessException(ReservationErrorCode.SEAT_CONFIG_VERSION_MISMATCH);
         }
-        if (seat.getStatus() == SeatStatus.SOLD) {
+        if (seat.status() == SeatStatus.SOLD) {
             metrics.hold("taken_in_db");
             throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
         }
         // 만료된 HOLD는 그 예약이 결제 중이 아니면 비어 있는 것으로 본다(정리 전인 만료 선점). 결제 중인 예약은 선점 만료 뒤에도 좌석을
         // 놓지 않으므로 409다. 여기서 막지 않으면 Redis 선점은 되지만 결제하기 때 409가 난다(#449 예매 담당 리뷰 1번)
         Long heldInDbBy = null;
-        if (seat.getStatus() == SeatStatus.HOLD) {
+        if (seat.status() == SeatStatus.HOLD) {
             if (!seat.isHoldExpiredAt(nowLocal)) {
-                heldInDbBy = seat.getReservationId();
-            } else if (dbReads.paymentInProgress(seat.getReservationId())) {
+                heldInDbBy = seat.reservationId();
+            } else if (dbReads.paymentInProgress(seat.reservationId())) {
                 metrics.hold("taken_in_db");
                 throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
             }
@@ -76,7 +76,7 @@ public class RedisSeatHoldService {
         // 2. 기록
         Instant expiresAt = now.plus(holdDuration.current());
         StoredHold hold = new StoredHold(
-                newHoldId(), scheduleId, userId, seat.getId(), validation, expiresAt, HoldState.HELD, null);
+                newHoldId(), scheduleId, userId, seat.scheduleSeatId(), validation, expiresAt, HoldState.HELD, null);
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             HoldAttempt result = store.hold(hold, heldInDbBy, now);
             metrics.hold(RedisSeatHoldMetrics.tag(result.outcome()));
@@ -95,9 +95,9 @@ public class RedisSeatHoldService {
                     // 이 회원이 이미 예약으로 바꾼 좌석이다. DB 모드의 "같은 회원·같은 좌석"처럼 그 예약을 돌려준다
                     return new SeatHoldResult(
                             result.reservationId(),
-                            seat.getId(),
-                            seat.getHoldExpiresAt(),
-                            seat.getBasePrice(),
+                            seat.scheduleSeatId(),
+                            seat.holdExpiresAt(),
+                            seat.basePrice(),
                             false,
                             null);
                 case TAKEN:
@@ -106,8 +106,8 @@ public class RedisSeatHoldService {
                     throw new BusinessException(ReservationErrorCode.PURCHASE_LIMIT_EXCEEDED);
                 case CONVERTED_USER:
                     // 3. 예약으로 바꾼 적 있는 회원만 DB를 읽는다
-                    Optional<SeatHoldResult> own =
-                            dbReads.checkConvertedUser(userId, scheduleId, seat.getId(), seat.getBasePrice(), nowLocal);
+                    Optional<SeatHoldResult> own = dbReads.checkConvertedUser(
+                            userId, scheduleId, seat.scheduleSeatId(), seat.basePrice(), nowLocal);
                     if (own.isPresent()) {
                         return own.get();
                     }
@@ -120,12 +120,12 @@ public class RedisSeatHoldService {
         throw new BusinessException(ReservationErrorCode.PURCHASE_LIMIT_EXCEEDED);
     }
 
-    private SeatHoldResult redisResult(String holdId, ScheduleSeat seat, Instant expiresAt, boolean created) {
+    private SeatHoldResult redisResult(String holdId, SeatHoldSnapshot seat, Instant expiresAt, boolean created) {
         return new SeatHoldResult(
                 null,
-                seat.getId(),
+                seat.scheduleSeatId(),
                 LocalDateTime.ofInstant(expiresAt, clock.getZone()),
-                seat.getBasePrice(),
+                seat.basePrice(),
                 created,
                 holdId);
     }
