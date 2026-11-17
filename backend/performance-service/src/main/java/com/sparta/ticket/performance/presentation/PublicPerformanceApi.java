@@ -9,6 +9,8 @@ import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
 import com.sparta.ticket.performance.presentation.support.PerformanceStatusParameter;
+import com.sparta.ticket.performance.presentation.support.RegionParameter;
+import com.sparta.ticket.performance.presentation.support.RequestText;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.MultiValueMap;
@@ -42,10 +44,10 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
             int size) {
         PublicPerformanceSearchCondition condition = new PublicPerformanceSearchCondition(
                 genre,
-                blankToNull(region),
+                RegionParameter.parseOptional(region),
                 from,
                 to,
-                blankToNull(keyword),
+                RequestText.stripToNull(keyword),
                 PerformanceStatusParameter.parse(queryParameters.get("status")),
                 sort,
                 page,
@@ -59,13 +61,5 @@ public class PublicPerformanceApi implements PublicPerformanceApiSpec {
     @GetMapping("/{performanceId}")
     public ApiResponse<PublicPerformanceDetailResponse> getDetail(Long performanceId) {
         return ApiResponse.ok(PublicPerformanceDetailResponse.from(publicPerformanceService.getDetail(performanceId)));
-    }
-
-    /** 앞뒤 공백을 지우고, 남는 글자가 없으면 필터를 적용하지 않도록 null로 바꾼다. */
-    private static String blankToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.strip();
     }
 }

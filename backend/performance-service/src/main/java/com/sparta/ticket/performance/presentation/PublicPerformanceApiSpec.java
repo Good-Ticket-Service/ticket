@@ -4,6 +4,7 @@ import com.sparta.ticket.common.response.ApiResponse;
 import com.sparta.ticket.common.response.PageResponse;
 import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
 import com.sparta.ticket.performance.domain.performance.Genre;
+import com.sparta.ticket.performance.domain.venue.Region;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceDetailResponse;
 import com.sparta.ticket.performance.presentation.dto.PublicPerformanceListResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -47,7 +48,12 @@ public interface PublicPerformanceApiSpec {
                             schema = @Schema(type = "string")))
     ApiResponse<PageResponse<PublicPerformanceListResponse.Item>> search(
             @Parameter(description = "장르") @RequestParam(required = false) Genre genre,
-            @Parameter(description = "공연장 지역. 일치 검색", example = "서울") @RequestParam(required = false) String region,
+            @Parameter(
+                            description = "시·도 코드. 정확히 일치하는 지역으로 제한한다. 생략·빈값은 전체, 알 수 없는 코드는 400 VALIDATION_ERROR다",
+                            example = "SEOUL",
+                            schema = @Schema(implementation = Region.class))
+                    @RequestParam(required = false)
+                    String region,
             @Parameter(description = "이 날짜(KST)부터 시작하는 활성 회차가 있는 공연", example = "2026-12-01")
                     @RequestParam(required = false)
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -56,7 +62,11 @@ public interface PublicPerformanceApiSpec {
                     @RequestParam(required = false)
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate to,
-            @Parameter(description = "공연명 부분 일치. 대소문자 무시") @RequestParam(required = false) String keyword,
+            @Parameter(
+                            description = "제목·공연장명·출연진 부분 일치(대소문자 무시) 또는 지역 별칭 전체 일치. "
+                                    + "지역 코드 자체는 별칭이 아니며 주소는 검색하지 않는다. 이 OR 묶음과 다른 필터는 AND로 결합한다")
+                    @RequestParam(required = false)
+                    String keyword,
             // Note: Spring의 컬렉션 변환 전에 원시 값을 읽어 반복 파라미터의 빈 항목도 검증한다.
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> queryParameters,
             @Parameter(
