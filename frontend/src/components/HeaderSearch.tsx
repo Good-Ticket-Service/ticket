@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { newSearchParams } from '../lib/searchSort';
 
 export function HeaderSearch() {
   const [params] = useSearchParams();
@@ -9,13 +10,10 @@ export function HeaderSearch() {
   const [value, setValue] = useState(keyword);
   useEffect(() => setValue(keyword), [keyword, location.pathname]);
   const search = (text: string) => {
-    const next =
-      location.pathname === '/' || location.pathname === '/search'
-        ? new URLSearchParams(params)
-        : new URLSearchParams();
-    if (text) next.set('keyword', text);
-    else next.delete('keyword');
-    next.delete('page');
+    const next = newSearchParams(
+      location.pathname === '/' || location.pathname === '/search' ? params : new URLSearchParams(),
+      text,
+    );
     navigate(
       {
         pathname: '/search',
