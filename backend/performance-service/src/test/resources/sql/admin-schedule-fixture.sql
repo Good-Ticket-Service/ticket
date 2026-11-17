@@ -2,7 +2,7 @@
 -- 공연장 901: 등급 VIP(901), 좌석 901
 -- 공연 910: 공개 공연. 회차 920(판매 중, version 0), 921(판매 중지 '좌석 점검', version 3), 922(취소), 923(삭제), 925(오픈 전)
 -- 공연 911: 공개 후 취소된 공연(회차 924는 ACTIVE). 912: 초안 공연(회차 926). 913: 삭제된 공연(회차 927)
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (901,'중지 공연장','서울특별시 중구 예시로 90','서울',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (901,'중지 공연장','서울특별시 중구 예시로 90','SEOUL',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (901,901,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seats (id,venue_id,venue_seat_grade_id,section,row_label,seat_number,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (901,901,901,'A','1',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 

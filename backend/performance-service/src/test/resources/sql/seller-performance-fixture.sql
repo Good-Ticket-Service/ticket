@@ -6,9 +6,9 @@
 -- 공연 310 회차: 320 READY(구성 1), 321 FAILED(구성 2), 322 삭제, 323 취소(READY), 324 PENDING(다음 재시도 시각 있음)
 -- 판매 대상 등급 경계: 공연장 304의 공연 314. VIP(311)는 살아 있는 좌석, R(312)은 삭제 좌석만, S(313)는 판매 제외 행이 삭제돼 판매 대상
 -- 빈 가격 집합: 공연 315는 공연장 302의 유일한 좌석 306을 판매 제외해 판매 대상 좌석이 없다
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (301,'판매 공연장','서울특별시 중구 예시로 10','서울',2,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (302,'다른 공연장','부산 주소','부산',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (303,'삭제 공연장','대구 주소','대구',0,'2026-10-01','SYSTEM','2026-10-02','SYSTEM','2026-10-02');
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (301,'판매 공연장','서울특별시 중구 예시로 10','SEOUL',2,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (302,'다른 공연장','부산 주소','BUSAN',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (303,'삭제 공연장','대구 주소','DAEGU',0,'2026-10-01','SYSTEM','2026-10-02','SYSTEM','2026-10-02');
 
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (301,301,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (302,301,'R','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
@@ -41,7 +41,7 @@ INSERT INTO p_schedules (id,performance_id,start_at,booking_open_at,booking_clos
 INSERT INTO p_schedules (id,performance_id,start_at,booking_open_at,booking_close_at,operation_status,seat_setup_status,seat_config_version,seat_setup_request_id,seat_setup_error,sales_suspended,canceled_at,cancel_reason,seat_setup_attempts,seat_setup_next_attempt_at,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (323,310,'2026-12-04 19:00:00','2026-11-10 14:00:00','2026-12-04 18:00:00','CANCELED','READY',1,'req-323',NULL,FALSE,'2026-10-20 10:00:00','공연장 사정',1,NULL,1,'2026-10-01','seller01','2026-10-20','seller01',NULL);
 INSERT INTO p_schedules (id,performance_id,start_at,booking_open_at,booking_close_at,operation_status,seat_setup_status,seat_config_version,seat_setup_request_id,seat_setup_error,sales_suspended,canceled_at,cancel_reason,seat_setup_attempts,seat_setup_next_attempt_at,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (324,310,'2026-12-05 19:00:00','2026-11-10 14:00:00','2026-12-05 18:00:00','ACTIVE','PENDING',1,'req-324','일시 장애',FALSE,NULL,NULL,2,'2026-10-30 12:05:00',0,'2026-10-01','seller01','2026-10-01','seller01',NULL);
 
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (304,'경계 공연장','인천 주소','인천',3,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (304,'경계 공연장','인천 주소','INCHEON',3,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (311,304,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (312,304,'R','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (313,304,'S','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);

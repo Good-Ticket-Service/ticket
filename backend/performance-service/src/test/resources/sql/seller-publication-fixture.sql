@@ -6,9 +6,9 @@
 -- 공연 715: 판매자 801의 초안. 공연장 702의 유일한 좌석을 판매 제외해 판매 대상 좌석이 없음
 -- 공연 716: 판매자 801의 공개 후 취소된 공연. 717: 판매자 801의 초안, 회차만 없음(동시 요청 테스트용)
 -- 공연 718: 판매자 801의 초안. 좌석이 하나도 없는 공연장 703을 씀
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (701,'공개 공연장','서울특별시 중구 예시로 70','서울',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (702,'제외 공연장','부산 주소','부산',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
-INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (703,'빈 공연장','대구 주소','대구',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (701,'공개 공연장','서울특별시 중구 예시로 70','SEOUL',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (702,'제외 공연장','부산 주소','BUSAN',1,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
+INSERT INTO p_venues (id,name,address,region,version,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (703,'빈 공연장','대구 주소','DAEGU',0,'2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (701,701,'VIP','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);
 INSERT INTO p_venue_seat_grades (id,venue_id,name,created_at,created_by,updated_at,updated_by,deleted_at) VALUES (702,701,'R','2026-10-01','SYSTEM','2026-10-01','SYSTEM',NULL);

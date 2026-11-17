@@ -48,7 +48,7 @@ class PublicSeatLayoutApiIntegrationTest extends PerformanceIntegrationTest {
                 .andExpect(jsonPath("$.data.venue.id").value(101))
                 .andExpect(jsonPath("$.data.venue.name").value("배치 공연장"))
                 .andExpect(jsonPath("$.data.venue.address").value("서울 주소"))
-                .andExpect(jsonPath("$.data.venue.region").value("서울"))
+                .andExpect(jsonPath("$.data.venue.region").value("SEOUL"))
                 .andExpect(jsonPath("$.data.seats[*].id").value(contains(108, 103, 101, 102, 104, 107)))
                 .andExpect(jsonPath("$.data.seats[*].rowLabel").value(contains("1", "2", "2", "10", "1", "2")))
                 .andExpect(jsonPath("$.data.seats[*].seatNumber").value(contains(1, 1, 2, 1, 1, 1)));

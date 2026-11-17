@@ -154,7 +154,7 @@ class SellerPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.venue.id").value(VENUE))
                     .andExpect(jsonPath("$.data.venue.name").value("판매 공연장"))
                     .andExpect(jsonPath("$.data.venue.address").value("서울특별시 중구 예시로 10"))
-                    .andExpect(jsonPath("$.data.venue.region").value("서울"))
+                    .andExpect(jsonPath("$.data.venue.region").value("SEOUL"))
                     .andExpect(jsonPath("$.data.title").value("공연 A 서울"))
                     .andExpect(jsonPath("$.data.genre").value("MUSICAL"))
                     .andExpect(jsonPath("$.data.ageRating").value("12"))
