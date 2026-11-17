@@ -318,6 +318,8 @@ a.item:hover { background:var(--deep); }
 .hero-controls { position:absolute; z-index:2; right:24px; bottom:18px; display:flex; align-items:center; gap:16px; font-size:12px; }
 .hero-controls>span>span { color:var(--dim); margin-left:6px; }
 .hero-controls button,.calendar-arrows button { width:36px; height:36px; border-radius:50%; border:1px solid var(--line); color:var(--text); background:var(--ground); font-size:24px; cursor:pointer; }
+.hero-controls button { display:grid; place-items:center; padding:0; line-height:1; }
+.hero-controls button svg { display:block; width:18px; height:18px; }
 .hero-placeholder { min-height:320px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:30px; text-align:center; background:var(--surface); border-radius:12px; border:1px solid var(--line); }
 .hero-placeholder h1 { font-size:26px; }
 .hero-placeholder p { color:var(--muted); }
