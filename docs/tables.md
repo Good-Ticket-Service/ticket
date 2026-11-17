@@ -104,6 +104,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `CONSTRAINT ck_p_performances_publication_status CHECK (publication_status IN ('DRAFT', 'PUBLISHED'))`
 - `CONSTRAINT ck_p_performances_operation_status CHECK (operation_status IN ('ACTIVE', 'CANCELED'))`
 - `CONSTRAINT ck_p_performances_published_at CHECK (publication_status = 'DRAFT' OR published_at IS NOT NULL)`
+- `CREATE INDEX ix_p_performances_public_latest ON p_performances (published_at DESC, id DESC) WHERE deleted_at IS NULL AND publication_status = 'PUBLISHED' AND operation_status = 'ACTIVE';` 공개 목록 최신순용 후보다(이슈 #471, 채택 전 검증 중).
 - 공개된 공연에는 최초 공개 시각(published_at)이 있어야 한다.
 
 ### p_performance_grade_prices — performance-service/schema.sql + A
@@ -157,6 +158,7 @@ PK IDENTITY는 BIGINT 자동 생성. 금액 KRW 정수; 현행 booking BIGINT와
 - `CONSTRAINT ck_p_schedules_failure_kind CHECK (seat_setup_failure_kind IN ('RESULT_UNKNOWN','INVALID_REQUEST','INVALID_CONFIGURATION','SEAT_IN_USE','STALE_VERSION'))`
 - `CREATE INDEX ix_p_schedules_recovery_due ON p_schedules (seat_setup_recovery_next_at,id) WHERE seat_setup_status='FAILED' AND seat_setup_failure_kind='RESULT_UNKNOWN' AND deleted_at IS NULL;`
 - `CREATE UNIQUE INDEX uq_p_schedules_start ON p_schedules (performance_id, start_at) WHERE deleted_at IS NULL;`
+- `CREATE INDEX ix_p_schedules_active_start ON p_schedules (start_at, performance_id) INCLUDE (booking_open_at) WHERE deleted_at IS NULL AND operation_status = 'ACTIVE';` 공개 목록의 시작 전 활성 회차 조회용 후보다(이슈 #471, 채택 전 검증 중).
 - booking_period CHECK 때문에 공연 시작 후에는 판매하지 않는다.
 - 회차 UNIQUE는 미삭제 행만 검사한다. 삭제한 회차와 같은 시각으로 다시 등록할 수 있게 하기 위해서다.
 
@@ -911,7 +913,7 @@ reservation-service/schema.sql에는 공유 테이블이 없다. 아래 명세�
 | 대상 | 기준 |
 |---|---|
 | 공연 부분 UNIQUE | 미삭제 행(deleted_at IS NULL)만: venue 등급(venue_id,name), 물리 좌석(venue_id,section,row_label,seat_number), 공연 가격(performance_id,venue_seat_grade_id), 회차(performance_id,start_at), 제외(performance_id,venue_seat_id). 현행 DDL에 부분 UNIQUE INDEX로 있다. 정의는 각 공연 테이블 아래에 있다. |
-| 공연 조회 인덱스 | p_venue_seats(venue_id,venue_seat_grade_id);p_performances(seller_id,deleted_at),(publication_status,genre,id);p_schedules(performance_id,booking_open_at). 현재 DDL에 없다. 조회 성능 기준선을 측정한 뒤 추가한다. |
+| 공연 조회 인덱스 | p_venue_seats(venue_id,venue_seat_grade_id);p_performances(seller_id,deleted_at),(publication_status,genre,id);p_schedules(performance_id,booking_open_at). 현재 DDL에 없다. 조회 성능 기준선을 측정한 뒤 진단으로 근거가 확인된 것만 추가한다. 공개 목록용 `ix_p_performances_public_latest`·`ix_p_schedules_active_start`는 이슈 #471 후보로 DDL에 있다(위 표). |
 | 공연 FK | 같은 performance_schema 내 venue/grade/seat/performance/schedule 관계만. schedule_seat은 외부 참조 |
 | 공연 가격·시각 | price>0; booking_open_at<booking_close_at<=start_at. 판매 제외 좌석만 base_price NULL 허용 |
 | 예매 쿠폰 | user_coupon_id BIGINT NULL, discount_amount BIGINT NULL을 booking.sql에 반영했다(#143). 할인액은 min(쿠폰액, 정가-100)이고 결제는 보정 없이 검증한다 |
