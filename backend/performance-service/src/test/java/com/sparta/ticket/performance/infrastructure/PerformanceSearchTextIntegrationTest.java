@@ -69,6 +69,19 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
         assertThat(searchText(23)).isEqualTo("뮤지컬lostvenue" + SEP + SEP + "삭제된공연장");
     }
 
+    /** KOPIS 시드처럼 공연장과 공연을 한 문장의 CTE로 함께 넣어도 공연장명을 채운다. 공연 트리거에는 그 공연장이 아직 보이지 않는다. */
+    @Test
+    @DisplayName("한 문장에서 공연장과 공연을 함께 넣어도 공연장명을 채운다")
+    void fillsVenueNameWhenVenueAndPerformanceAreInsertedInOneStatement() {
+        jdbc.update("WITH venue AS (INSERT INTO p_venues (id, name, address, region, created_at, created_by,"
+                + " updated_at, updated_by) VALUES (40, '한 문장 홀', '주소', 'SEOUL', now(), 'SYSTEM', now(), 'SYSTEM'))"
+                + " INSERT INTO p_performances (id, seller_id, venue_id, title, genre, running_time,"
+                + " created_at, created_by, updated_at, updated_by)"
+                + " VALUES (40, 501, 40, '같은 문장 공연', 'PLAY', 90, now(), 'SYSTEM', now(), 'SYSTEM')");
+
+        assertThat(searchText(40)).isEqualTo("같은문장공연" + SEP + SEP + "한문장홀");
+    }
+
     @Test
     @DisplayName("Entity로 등록한 공연도 트리거가 채운다")
     void fillsSearchTextOnJpaInsert() {
@@ -184,8 +197,24 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
         jdbc.update("UPDATE p_performances SET cast_info = 'Alpha 합창단, 배우_C 100%!' WHERE id = 12");
         jdbc.update("UPDATE p_venues SET name = 'Gamma Hall' WHERE id = 2");
         List<String> keywords = List.of(
-                "alpha", "ALPHA", "뮤지컬", "공연장", "서울 공연장", "배우A", "배우_c", "_", "%", "!", "100%!", "a,배",
-                "gamma", "hall", "부산", "delta", "없는말", "lostvenue");
+                "alpha",
+                "ALPHA",
+                "뮤지컬",
+                "공연장",
+                "서울 공연장",
+                "배우A",
+                "배우_c",
+                "_",
+                "%",
+                "!",
+                "100%!",
+                "a,배",
+                "gamma",
+                "hall",
+                "부산",
+                "delta",
+                "없는말",
+                "lostvenue");
 
         int matched = 0;
         for (String keyword : keywords) {
@@ -334,14 +363,12 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
     }
 
     private String searchText(long performanceId) {
-        return jdbc.queryForObject(
-                "SELECT search_text FROM p_performances WHERE id = ?", String.class, performanceId);
+        return jdbc.queryForObject("SELECT search_text FROM p_performances WHERE id = ?", String.class, performanceId);
     }
 
     private ResultActions search(String keyword) throws Exception {
-        return mockMvc.perform(get("/api/performances")
-                .queryParam("keyword", keyword)
-                .queryParam("status", "ON_SALE,UPCOMING,ENDED"));
+        return mockMvc.perform(
+                get("/api/performances").queryParam("keyword", keyword).queryParam("status", "ON_SALE,UPCOMING,ENDED"));
     }
 
     /** 저장소와 같은 패턴: 스페이스를 지우고(KeywordParameter) 소문자로 바꾼 뒤 %·_·!를 이스케이프한다. */

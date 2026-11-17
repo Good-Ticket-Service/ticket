@@ -78,7 +78,8 @@ CREATE OR REPLACE FUNCTION p_venues_refresh_search_text() RETURNS trigger LANGUA
 BEGIN
     UPDATE p_performances p
     SET search_text = p_performance_search_text(p.title, p.cast_info, NEW.name)
-    WHERE p.venue_id = NEW.id;
+    WHERE p.venue_id = NEW.id
+      AND p.search_text IS DISTINCT FROM p_performance_search_text(p.title, p.cast_info, NEW.name);
     RETURN NULL;
 END';
 
@@ -92,6 +93,13 @@ DROP TRIGGER IF EXISTS p_venues_search_text ON p_venues;
 CREATE TRIGGER p_venues_search_text
     AFTER UPDATE OF name ON p_venues
     FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name) EXECUTE FUNCTION p_venues_refresh_search_text();
+
+-- 같은 문장에서 공연장과 공연을 함께 넣으면(KOPIS 시드의 CTE INSERT) 공연 트리거가 아직 보이지 않는 공연장을 읽어
+-- 공연장명 자리가 빈다. AFTER 트리거는 문장이 끝난 뒤 실행되므로 그 공연들을 다시 계산한다. 공연이 없는 새 공연장이면 바꿀 행이 없다.
+DROP TRIGGER IF EXISTS p_venues_search_text_insert ON p_venues;
+CREATE TRIGGER p_venues_search_text_insert
+    AFTER INSERT ON p_venues
+    FOR EACH ROW EXECUTE FUNCTION p_venues_refresh_search_text();
 
 -- 삭제 행도 채운다. 파생 값이므로 감사 컬럼·version은 바꾸지 않는다
 UPDATE p_performances p

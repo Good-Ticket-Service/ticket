@@ -43,9 +43,10 @@ class SearchTextMigrationIntegrationTest extends PerformanceIntegrationTest {
         try {
             jdbc.update("INSERT INTO " + SCHEMA + ".p_venues (id, name, address) VALUES (1, '서울 공연장', '주소'),"
                     + " (2, 'Busan Hall', '주소')");
-            jdbc.update("INSERT INTO " + SCHEMA + ".p_performances (id, venue_id, title, cast_info, version, updated_at,"
-                    + " deleted_at) VALUES (1, 1, '피아노 독주회', 'Kim A, 이 B', 7, timestamp '2026-10-01', NULL),"
-                    + " (2, 2, 'Concert', NULL, 3, timestamp '2026-10-02', timestamp '2026-10-03')");
+            jdbc.update(
+                    "INSERT INTO " + SCHEMA + ".p_performances (id, venue_id, title, cast_info, version, updated_at,"
+                            + " deleted_at) VALUES (1, 1, '피아노 독주회', 'Kim A, 이 B', 7, timestamp '2026-10-01', NULL),"
+                            + " (2, 2, 'Concert', NULL, 3, timestamp '2026-10-02', timestamp '2026-10-03')");
             var auditBefore = jdbc.queryForList(
                     "SELECT id, version, updated_at, deleted_at FROM " + SCHEMA + ".p_performances ORDER BY id");
 
@@ -53,8 +54,8 @@ class SearchTextMigrationIntegrationTest extends PerformanceIntegrationTest {
 
             assertThat(searchText(1)).isEqualTo("피아노독주회" + SEP + "kima,이b" + SEP + "서울공연장");
             assertThat(searchText(2)).isEqualTo("concert" + SEP + SEP + "busanhall");
-            assertThat(jdbc.queryForList(
-                            "SELECT id, version, updated_at, deleted_at FROM " + SCHEMA + ".p_performances ORDER BY id"))
+            assertThat(jdbc.queryForList("SELECT id, version, updated_at, deleted_at FROM " + SCHEMA
+                            + ".p_performances ORDER BY id"))
                     .isEqualTo(auditBefore);
             assertThat(jdbc.queryForObject(
                             "SELECT attnotnull FROM pg_attribute WHERE attrelid = '" + SCHEMA
@@ -135,7 +136,9 @@ class SearchTextMigrationIntegrationTest extends PerformanceIntegrationTest {
 
     private void executeMigration(boolean confirmed) throws Exception {
         String sql = Files.readString(MIGRATION)
-                .replace("SET LOCAL search_path TO performance_schema;", "SET LOCAL search_path TO " + SCHEMA + ", public;")
+                .replace(
+                        "SET LOCAL search_path TO performance_schema;",
+                        "SET LOCAL search_path TO " + SCHEMA + ", public;")
                 .replace("SET search_path TO performance_schema;", "SET search_path TO " + SCHEMA + ", public;");
         int split = sql.indexOf(PART_TWO);
         assertThat(split).isPositive();
