@@ -91,7 +91,8 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
      */
     private static boolean isDefaultBrowse(PublicPerformanceSearchCondition condition) {
         return condition.keyword() == null
-                && condition.statuses()
+                && condition
+                        .statuses()
                         .equals(EnumSet.of(PublicPerformanceStatus.ON_SALE, PublicPerformanceStatus.UPCOMING));
     }
 
