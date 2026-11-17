@@ -38,9 +38,10 @@ waiting-room:
     enabled: true
     interval: ${QUEUE_ADMIT_INTERVAL:1s}
   # Tomcat이 연결마다 잡는 소켓 읽기·쓰기 버퍼. 연결이 열린 동안 계속 잡혀 있어 연결 수만큼 힙을 쓴다(동시 2만 연결에서 312.5MB, #413).
-  # 지금 값은 Tomcat 기본값(8KB)과 같다. 진입·순번 조회 요청은 약 0.8KB, 응답은 0.5KB 이하라 줄일 수 있는지 측정으로 정한다(#413).
+  # 진입·순번 조회 요청은 약 0.8KB, 응답은 0.5KB 이하라 Tomcat 기본값(8KB)보다 작은 2KB로 둔다.
+  # 동시 4만 명 측정에서 GC 뒤 남는 힙이 약 760MB → 280MB로 줄고 처리 속도·응답 시간도 나았다(#413).
   # 버퍼보다 큰 요청·응답은 실패하지 않고 여러 번 나눠 읽고 쓴다. 값을 지우면 Tomcat 기본값을 쓴다
   tomcat:
     socket-buffer:
-      read-size: 8KB
-      write-size: 8KB
+      read-size: 2KB
+      write-size: 2KB
