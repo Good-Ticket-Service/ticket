@@ -111,48 +111,48 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
     @DisplayName("커밋 전인 공연장명 변경과 겹친 SQL 등록·공연장 이동도 바뀐 이름으로 채운다")
     void waitsForUncommittedVenueRename() throws Exception {
         ExecutorService workers = Executors.newFixedThreadPool(2);
+        // pids와 writes는 같은 순서다. 정리할 때 끝나지 않은 작업의 서버 질의를 PID로 취소한다
+        List<CompletableFuture<Integer>> pids = new ArrayList<>();
         List<CompletableFuture<Integer>> writes = new ArrayList<>();
-        try (Connection renamer = dataSource.getConnection()) {
+        Connection renamer = dataSource.getConnection();
+        boolean committed = false;
+        try {
             renamer.setAutoCommit(false);
-            boolean committed = false;
-            try {
-                int renamerPid = backendPid(renamer);
-                try (Statement statement = renamer.createStatement()) {
-                    statement.executeUpdate("UPDATE p_venues SET name = '새 이름 홀' WHERE id = 1");
-                }
-                CompletableFuture<Integer> insertPid = new CompletableFuture<>();
-                CompletableFuture<Integer> movePid = new CompletableFuture<>();
-                writes.add(updateOnOwnConnection(
-                        workers,
-                        insertPid,
-                        "INSERT INTO p_performances (id, seller_id, venue_id, title, genre, running_time,"
-                                + " created_at, created_by, updated_at, updated_by)"
-                                + " VALUES (30, 501, 1, '새 공연', 'PLAY', 90, now(), 'SYSTEM', now(), 'SYSTEM')"));
-                writes.add(updateOnOwnConnection(
-                        workers, movePid, "UPDATE p_performances SET venue_id = 1 WHERE id = 11"));
-
-                awaitBlockedBy(insertPid.get(10, TimeUnit.SECONDS), renamerPid);
-                awaitBlockedBy(movePid.get(10, TimeUnit.SECONDS), renamerPid);
-
-                renamer.commit();
-                committed = true;
-                for (CompletableFuture<Integer> write : writes) {
-                    assertThat(write.get(10, TimeUnit.SECONDS)).isEqualTo(1);
-                }
-            } finally {
-                // 시험이 중간에 실패해도 대기를 풀고 두 작업을 회수해 다음 시험의 fixture 초기화를 막지 않는다
-                if (!committed) {
-                    renamer.rollback();
-                }
-                for (CompletableFuture<Integer> write : writes) {
-                    try {
-                        write.get(10, TimeUnit.SECONDS);
-                    } catch (ExecutionException | TimeoutException ignored) {
-                        // 결과는 위에서 확인한다. 여기서는 끝나기만 기다린다
-                    }
-                }
-                workers.shutdownNow();
+            int renamerPid = backendPid(renamer);
+            try (Statement statement = renamer.createStatement()) {
+                statement.executeUpdate("UPDATE p_venues SET name = '새 이름 홀' WHERE id = 1");
             }
+            pids.add(new CompletableFuture<>());
+            writes.add(updateOnOwnConnection(
+                    workers,
+                    pids.get(0),
+                    "INSERT INTO p_performances (id, seller_id, venue_id, title, genre, running_time,"
+                            + " created_at, created_by, updated_at, updated_by)"
+                            + " VALUES (30, 501, 1, '새 공연', 'PLAY', 90, now(), 'SYSTEM', now(), 'SYSTEM')"));
+            pids.add(new CompletableFuture<>());
+            writes.add(updateOnOwnConnection(
+                    workers, pids.get(1), "UPDATE p_performances SET venue_id = 1 WHERE id = 11"));
+
+            for (CompletableFuture<Integer> pid : pids) {
+                awaitBlockedBy(pid.get(10, TimeUnit.SECONDS), renamerPid);
+            }
+
+            renamer.commit();
+            committed = true;
+            for (CompletableFuture<Integer> write : writes) {
+                assertThat(write.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            }
+        } catch (Throwable failure) {
+            // 정리 실패가 원래 실패를 가리지 않게, 정리 중 오류는 원래 실패에 덧붙인다
+            Exception cleanup = releaseAndDrain(renamer, committed, pids, writes, workers);
+            if (cleanup != null) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+        Exception cleanup = releaseAndDrain(renamer, committed, pids, writes, workers);
+        if (cleanup != null) {
+            throw cleanup;
         }
 
         assertThat(searchText(30)).isEqualTo("새공연" + SEP + SEP + "새이름홀");
@@ -207,6 +207,85 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
             matched += fieldwise.size();
         }
         assertThat(matched).isPositive();
+    }
+
+    /**
+     * 대기 시험의 뒷정리. 다음 시험의 fixture 초기화(TRUNCATE)가 남은 잠금·질의에 막히지 않게 한다(리뷰 R3-1).
+     * 단계마다 오류를 모으고 다음 단계로 넘어간다. 한 단계가 실패해도 뒤 단계(작업 회수, 실행기 종료)를 건너뛰지 않는다.
+     * 1. 커밋 전이면 롤백하고 이름 변경 연결을 닫아 공연장 잠금을 푼다.
+     * 2. 작업을 10초씩 기다린다. 끝나지 않으면 pg_cancel_backend로 서버 질의를 취소하고 다시 기다린다.
+     *    스레드 중단이나 future 취소만으로는 서버의 SQL이 끝나지 않기 때문이다.
+     * 3. 실행기를 종료하고 스레드가 끝났는지 확인한다.
+     * Note: PID를 받기 전(연결을 얻는 중)에 멈춘 작업은 취소할 질의가 없어 실행기 종료 확인에 맡긴다.
+     */
+    private Exception releaseAndDrain(
+            Connection renamer,
+            boolean committed,
+            List<CompletableFuture<Integer>> pids,
+            List<CompletableFuture<Integer>> writes,
+            ExecutorService workers) {
+        List<Exception> errors = new ArrayList<>();
+        try {
+            if (!committed) {
+                renamer.rollback();
+            }
+        } catch (SQLException exception) {
+            errors.add(exception);
+        }
+        try {
+            renamer.close();
+        } catch (SQLException exception) {
+            errors.add(exception);
+        }
+        boolean interrupted = Thread.interrupted();
+        for (int i = 0; i < writes.size(); i++) {
+            if (!awaitQuietly(writes.get(i), errors)) {
+                Integer pid = pids.get(i).getNow(null);
+                if (pid != null) {
+                    try {
+                        jdbc.queryForObject("SELECT pg_cancel_backend(?)", Boolean.class, pid);
+                    } catch (RuntimeException exception) {
+                        errors.add(exception);
+                    }
+                }
+                if (!awaitQuietly(writes.get(i), errors)) {
+                    errors.add(new IllegalStateException("작업 " + i + "(PID " + pid + ")이 취소 뒤에도 끝나지 않았습니다"));
+                }
+            }
+        }
+        workers.shutdownNow();
+        try {
+            if (!workers.awaitTermination(10, TimeUnit.SECONDS)) {
+                errors.add(new IllegalStateException("작업 스레드가 끝나지 않았습니다"));
+            }
+        } catch (InterruptedException exception) {
+            errors.add(exception);
+        }
+        if (interrupted || errors.stream().anyMatch(InterruptedException.class::isInstance)) {
+            Thread.currentThread().interrupt();
+        }
+        if (errors.isEmpty()) {
+            return null;
+        }
+        IllegalStateException failure = new IllegalStateException("대기 시험 정리 실패");
+        errors.forEach(failure::addSuppressed);
+        return failure;
+    }
+
+    /** 작업이 10초 안에 끝나면 true. 작업 자체의 실패는 본문에서 확인하므로 여기서는 끝났는지만 본다. */
+    private static boolean awaitQuietly(CompletableFuture<Integer> write, List<Exception> errors) {
+        try {
+            write.get(10, TimeUnit.SECONDS);
+            return true;
+        } catch (ExecutionException exception) {
+            return true;
+        } catch (TimeoutException exception) {
+            return false;
+        } catch (InterruptedException exception) {
+            // 인터럽트 상태에서도 정리를 이어 가도록 표시만 지우고 기록한다. 호출한 쪽이 끝에 되살린다
+            errors.add(exception);
+            return write.isDone();
+        }
     }
 
     /** 전용 연결에서 서버 세션 PID를 알린 뒤 SQL을 실행한다. 자동 커밋이다. */
