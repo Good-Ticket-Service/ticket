@@ -3,8 +3,10 @@ package com.sparta.ticket.performance.support;
 import com.sparta.ticket.common.support.PostgresIntegrationTest;
 import com.sparta.ticket.performance.application.port.PublicPerformanceReader;
 import com.sparta.ticket.performance.application.port.PublicScheduleReader;
+import com.sparta.ticket.performance.application.service.SeatSetupDispatcher;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.concurrent.Executor;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
@@ -31,6 +34,8 @@ import org.testcontainers.utility.DockerImageName;
  * 직접 부른다(시각을 MutableClock으로 정하기 위해서다).
  * 공개 공연 상세 캐시(이슈 #398)용 Redis도 여기서 한 번만 띄운다. 테스트마다 fixture가 같은 ID로 다시 들어가므로,
  * 앞 테스트가 남긴 캐시 값을 읽지 않게 매 테스트 전에 비운다.
+ * 좌석 준비 실행기(이슈 #466)는 같은 이름의 위임 실행기로 바꾼다. 기본은 호출 스레드에서 바로 실행하므로 기존 시험은 등록·가격 설정
+ * 응답 직후 결과를 확인한다. 비동기 시험만 시험 동안 실제 실행기로 바꾼다({@link SwitchableExecutor}).
  */
 @AutoConfigureMockMvc
 @Import(PerformanceIntegrationTest.ClockTestConfig.class)
@@ -81,10 +86,27 @@ public abstract class PerformanceIntegrationTest extends PostgresIntegrationTest
     @MockitoSpyBean
     protected PublicScheduleReader publicScheduleReader;
 
+    /**
+     * Dispatcher가 이름(@Qualifier)으로 받으므로 같은 이름으로 바꾼다. 다른 이름의 @Primary 빈으로는 바뀌지 않는다.
+     * Note: @TestBean은 이름과 필드 타입이 모두 맞는 빈을 바꾼다. 운영 빈(ThreadPoolTaskExecutor)과 맞도록 필드 타입은 Executor로 둔다.
+     */
+    @TestBean(name = SeatSetupDispatcher.EXECUTOR, methodName = "directSeatSetupExecutor")
+    private Executor seatSetupExecutorBean;
+
+    static Executor directSeatSetupExecutor() {
+        return new SwitchableExecutor();
+    }
+
+    /** 좌석 준비 위임 실행기. 비동기 시험만 위임 대상을 바꾼다. */
+    protected SwitchableExecutor seatSetupExecutor() {
+        return (SwitchableExecutor) seatSetupExecutorBean;
+    }
+
     @BeforeEach
     void resetClock() {
         clock.set(NOW);
         seatSetupClient.reset();
+        seatSetupExecutor().useDirect();
         redis.execute((RedisCallback<Object>) connection -> {
             connection.serverCommands().flushDb();
             return null;

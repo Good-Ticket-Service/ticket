@@ -120,7 +120,7 @@ class SeatSetupRecoveryIntegrationTest extends PerformanceIntegrationTest {
         clock.set(NOW.plusSeconds(30));
         SeatSetupRecoveryAttempt old = recovery.start(id).orElseThrow();
         assertThat(recovery.start(id)).isEmpty();
-        clock.set(NOW.plusSeconds(46));
+        clock.set(NOW.plusSeconds(51)); // 복구 첫 간격 30초 + 임대 20초가 지난 뒤
         SeatSetupRecoveryAttempt current = recovery.start(id).orElseThrow();
         recovery.finish(old, new SeatSetupOutcome.Unavailable("late failure"));
         assertThat(row(id)).containsEntry("seat_setup_recovery_attempts", 2);
