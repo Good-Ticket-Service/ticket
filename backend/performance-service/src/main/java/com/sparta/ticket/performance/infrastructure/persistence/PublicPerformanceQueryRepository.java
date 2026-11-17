@@ -194,11 +194,10 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
             builder.and(VENUE.region.eq(condition.region().name()));
         }
         if (condition.keyword() != null) {
-            String pattern = containsPattern(condition.keyword());
+            // 제목·공연장명·출연진 중 하나에 포함되는지를 검색용 텍스트 한 컬럼으로 본다(이슈 #441). 필드마다 공백을 지우고
+            // 소문자로 바꾼 값을 구분 문자로 이은 컬럼이라, 필드별로 비교하던 이슈 #442의 결과와 같다. trigram 인덱스가 후보를 좁힌다.
             BooleanBuilder matches = new BooleanBuilder(
-                            spaceless(PERFORMANCE.title).like(pattern, LIKE_ESCAPE))
-                    .or(spaceless(VENUE.name).like(pattern, LIKE_ESCAPE))
-                    .or(spaceless(PERFORMANCE.castInfo).like(pattern, LIKE_ESCAPE));
+                    PERFORMANCE.searchText.like(containsPattern(condition.keyword()), LIKE_ESCAPE));
             Region.fromKeyword(condition.keyword()).ifPresent(region -> matches.or(VENUE.region.eq(region.name())));
             builder.and(matches);
         }
@@ -231,14 +230,19 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
     }
 
     /**
-     * 띄어쓰기·영문 대소문자를 무시하고 비교할 필드 식. 조회 조건과 관련도 정렬이 이 식 하나만 쓴다.
-     * Note: 이슈 #441에서 색인을 만들면 이 식 모양(lower(replace(필드, ' ', '')))에 건다. 모양이 달라지면 색인을 쓰지 못한다.
+     * 띄어쓰기·영문 대소문자를 무시하고 비교할 필드 식. 관련도 정렬이 쓴다.
+     * Note: 검색 조건은 검색용 텍스트 컬럼(search_text)을 쓴다(이슈 #441). 그 값은 DB 함수 p_performance_search_text가 필드마다
+     * 이 식과 같은 모양(lower(replace(필드, ' ', '')))으로 만든다. 한쪽을 바꾸면 검색 조건과 관련도 등급이 어긋나므로 함께 바꾼다.
+     * 관련도 등급은 조건을 통과한 결과 행에만 계산해 인덱스가 필요 없다.
      */
     private static StringExpression spaceless(StringExpression field) {
         return Expressions.stringTemplate("lower(replace({0}, ' ', ''))", field);
     }
 
-    /** 공백을 지운 검색어의 부분 일치 패턴. %·_·!는 문자 그대로 찾는다. */
+    /**
+     * 공백을 지운 검색어의 부분 일치 패턴. %·_·!는 문자 그대로 찾는다.
+     * Note: 검색어에 구분 문자 U+001F가 들어 있으면 검색용 텍스트에서 필드 경계를 넘어 맞을 수 있다. 사람이 입력할 일이 없어 막지 않는다.
+     */
     private static String containsPattern(String keyword) {
         return "%" + escapeLike(keyword.toLowerCase(Locale.ROOT)) + "%";
     }
