@@ -41,8 +41,8 @@ class PublicPerformanceDefaultListIntegrationTest extends PerformanceIntegration
         // 공연 11에 시작 전 활성 회차를 둘 더한다. 하나는 오픈이 가장 이르다(10-20).
         insertSchedule(201, 11, "2026-12-21 19:00:00", "2026-10-20 14:00:00", "ACTIVE");
         insertSchedule(202, 11, "2026-12-22 19:00:00", "2026-11-20 14:00:00", "ACTIVE");
-        for (MockHttpServletRequestBuilder request : List.of(
-                list("BOOKING_OPEN_ASC"), list("BOOKING_OPEN_ASC").queryParam("status", "UPCOMING,ON_SALE"))) {
+        for (MockHttpServletRequestBuilder request :
+                List.of(list("BOOKING_OPEN_ASC"), list("BOOKING_OPEN_ASC").queryParam("status", "UPCOMING,ON_SALE"))) {
             mockMvc.perform(request)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(11, 12, 10)))
@@ -139,21 +139,13 @@ class PublicPerformanceDefaultListIntegrationTest extends PerformanceIntegration
     }
 
     private void insertSchedule(long id, long performanceId, String startAt, String bookingOpenAt, String status) {
-        jdbc.update(
-                """
+        jdbc.update("""
                 INSERT INTO p_schedules (id, performance_id, start_at, booking_open_at, booking_close_at, operation_status,
                                          seat_setup_status, seat_config_version, seat_setup_request_id, sales_suspended,
                                          seat_setup_attempts, version, created_at, created_by, updated_at, updated_by,
                                          deleted_at, deleted_by)
                 VALUES (?, ?, ?::timestamp, ?::timestamp, ?::timestamp, ?, 'READY', 1, ?, FALSE, 1, 0,
                         '2026-10-01 09:00:00', 'SYSTEM', '2026-10-01 09:00:00', 'SYSTEM', NULL, NULL)
-                """,
-                id,
-                performanceId,
-                startAt,
-                bookingOpenAt,
-                startAt,
-                status,
-                "req-" + id);
+                """, id, performanceId, startAt, bookingOpenAt, startAt, status, "req-" + id);
     }
 }
