@@ -22,7 +22,7 @@ spring:
       client:
         config:
           # 회차 좌석 준비(공연 → 좌석, 이슈 #175 합의). 키는 SeatSetupFeignClient의 contextId다.
-          # read 10초(이슈 #466): 판매자는 기다리지 않는다(비동기). 좌석 쪽 잠금 대기 최대 3초와 처리 시간(2만 석 p95 0.52초)보다
+          # read 10초(이슈 #466): 판매자는 기다리지 않는다(비동기). 좌석 쪽 잠금 하나당 대기 상한 3초와 처리 시간(2만 석 p95 0.52초)보다
           # 넉넉하게 둬, 타임아웃 뒤 재시도가 처리 중인 요청과 겹치는 일을 줄인다. 바꾸면 retry.first-delay·recovery.lease도 검토한다
           seatSetupClient:
             connect-timeout: 1000
