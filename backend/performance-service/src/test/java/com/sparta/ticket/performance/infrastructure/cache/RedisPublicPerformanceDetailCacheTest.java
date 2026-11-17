@@ -62,7 +62,7 @@ class RedisPublicPerformanceDetailCacheTest {
             PerformancePeriod period, List<PublicPerformanceDetail.GradePrice> prices) {
         return new PublicPerformanceDetail(
                 10L,
-                new VenueSummary(1L, "서울 공연장", "서울특별시 중구 예시로 10", "서울"),
+                new VenueSummary(1L, "서울 공연장", "서울특별시 중구 예시로 10", "SEOUL"),
                 "뮤지컬 Alpha",
                 Genre.MUSICAL,
                 AgeRating.values()[0],
@@ -99,6 +99,19 @@ class RedisPublicPerformanceDetailCacheTest {
 
             assertThat(cache.find(10L)).contains(original);
         }
+    }
+
+    @Test
+    @DisplayName("지역 이행 전 한글 지역 캐시는 미적중으로 처리해 새 코드 응답을 보장한다")
+    void discardsLegacyRegionCache() {
+        ArgumentCaptor<String> stored = ArgumentCaptor.forClass(String.class);
+        cache.put(detail(null, List.of()));
+        verify(values).set(eq("performance:detail:v1:10"), stored.capture(), any(Duration.class));
+        String legacy = stored.getValue().replace("\"region\":\"SEOUL\"", "\"region\":\"서울\"");
+        when(values.get("performance:detail:v1:10")).thenReturn(legacy);
+        assertThat(cache.find(10L)).isEmpty();
+        verify(redis).delete("performance:detail:v1:10");
+        assertThat(count("get", "invalid")).isEqualTo(1);
     }
 
     @Test
@@ -167,7 +180,7 @@ class RedisPublicPerformanceDetailCacheTest {
     @DisplayName("JSON은 맞아도 쓸 수 없는 값(null, {}, 다른 공연의 값)은 지우고 미적중으로 본다")
     void unusableValueIsDeleted() {
         String otherPerformance =
-                "{\"id\":11,\"venue\":{\"id\":1,\"name\":\"서울 공연장\",\"address\":\"주소\",\"region\":\"서울\"},"
+                "{\"id\":11,\"venue\":{\"id\":1,\"name\":\"서울 공연장\",\"address\":\"주소\",\"region\":\"SEOUL\"},"
                         + "\"title\":\"다른 공연\",\"genre\":\"PLAY\",\"runningTime\":90,\"operationStatus\":\"ACTIVE\","
                         + "\"createdAt\":\"2026-10-19T09:00:00\",\"updatedAt\":\"2026-10-19T09:00:00\",\"gradePrices\":[]}";
         for (String value : List.of("null", "{}", otherPerformance)) {
