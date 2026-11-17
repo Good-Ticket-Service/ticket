@@ -83,7 +83,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.content[0].venue.id").value(1))
                     .andExpect(jsonPath("$.data.content[0].venue.name").value("서울 공연장"))
                     .andExpect(jsonPath("$.data.content[0].venue.address").value("서울특별시 중구 예시로 10"))
-                    .andExpect(jsonPath("$.data.content[0].venue.region").value("서울"))
+                    .andExpect(jsonPath("$.data.content[0].venue.region").value("SEOUL"))
                     .andExpect(jsonPath("$.data.content[0].title").value("뮤지컬 Alpha"))
                     .andExpect(jsonPath("$.data.content[0].genre").value("MUSICAL"))
                     .andExpect(jsonPath("$.data.content[0].posterUrl").value("https://example.com/10.jpg"))
@@ -118,7 +118,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("공연장 지역으로 거른다")
         void filtersByRegion() throws Exception {
-            listAll("?region=부산")
+            listAll("?region=BUSAN")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 11)))
                     .andExpect(jsonPath("$.data.totalElements").value(2));
         }
@@ -173,7 +173,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
         @Test
         @DisplayName("필터를 함께 쓰면 모두 만족하는 공연만 나온다")
         void combinesFilters() throws Exception {
-            listAll("?genre=MUSICAL&region=서울&from=2026-12-01&to=2026-12-31")
+            listAll("?genre=MUSICAL&region=SEOUL&from=2026-12-01&to=2026-12-31")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(10)));
         }
 
@@ -219,7 +219,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
             listAll("")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(14, 13, 12, 11, 10, 16, 15, 17)))
                     .andExpect(jsonPath("$.data.totalElements").value(8));
-            listAll("?genre=PLAY&region=서울")
+            listAll("?genre=PLAY&region=SEOUL")
                     .andExpect(jsonPath("$.data.content[*].id").value(contains(12, 16, 15)))
                     .andExpect(jsonPath("$.data.content[1].period").value(nullValue()))
                     .andExpect(jsonPath("$.data.content[2].period").value(nullValue()))
@@ -455,7 +455,7 @@ class PublicPerformanceApiIntegrationTest extends PerformanceIntegrationTest {
                     .andExpect(jsonPath("$.data.venue.id").value(1))
                     .andExpect(jsonPath("$.data.venue.name").value("서울 공연장"))
                     .andExpect(jsonPath("$.data.venue.address").value("서울특별시 중구 예시로 10"))
-                    .andExpect(jsonPath("$.data.venue.region").value("서울"))
+                    .andExpect(jsonPath("$.data.venue.region").value("SEOUL"))
                     .andExpect(jsonPath("$.data.title").value("뮤지컬 Alpha"))
                     .andExpect(jsonPath("$.data.genre").value("MUSICAL"))
                     .andExpect(jsonPath("$.data.ageRating").value("12"))
