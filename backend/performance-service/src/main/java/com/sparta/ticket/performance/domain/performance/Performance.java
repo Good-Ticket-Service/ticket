@@ -85,6 +85,15 @@ public class Performance extends BaseEntity {
     @Column(nullable = false)
     private Long version;
 
+    /**
+     * 공개 목록 검색용 텍스트(이슈 #441). 제목·출연진·공연장명을 공백 제거·소문자로 바꿔 U+001F로 이은 값이다.
+     * Note: DB 트리거가 채우므로 애플리케이션은 쓰지도 읽지도 않는다. 저장소 키워드 조건에서만 쓴다.
+     * SQL로 직접 넣는 시드·테스트 데이터와 공연장명 변경도 같은 규칙으로 맞추기 위해서다. 정의는 schema.sql에 있다.
+     */
+    @Getter(AccessLevel.NONE)
+    @Column(columnDefinition = "TEXT", nullable = false, insertable = false, updatable = false)
+    private String searchText;
+
     private Performance(
             Long sellerId,
             Long venueId,

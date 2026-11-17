@@ -33,6 +33,12 @@ create_service_schema payment_schema payment_app "$PAYMENT_DB_PASSWORD"
 # 테스트용 fake PG(backend/fake-pg)의 거래 기록
 create_service_schema fake_pg_schema fake_pg_app "$FAKE_PG_DB_PASSWORD"
 
+# 공연 키워드 검색의 trigram 인덱스(이슈 #441)가 쓰는 확장. 서비스 계정에 DB 생성 권한을 주지 않으려고 관리자가 설치한다.
+# public 권한은 위에서 회수했으므로, 공연 서비스 계정의 search_path인 performance_schema에 둔다. 다른 서비스 스키마에는 영향이 없다.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA performance_schema;
+SQL
+
 # 결제는 JDBC 운영 테이블·Batch 메타데이터·원장 불변 트리거도 사용한다.
 # Hibernate create는 이 계약을 만들 수 없고 재기동 시 금융 원장을 지우므로, 결제 local도 validate를 쓴다.
 # 기본 Compose가 공식 SQL을 마운트한다. 자체 스키마를 준비하는 독립 시험 환경은 역할 생성만 재사용할 수 있다.
