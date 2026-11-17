@@ -59,7 +59,7 @@ flowchart LR
 | gateway → user | WebClient GET /internal/users/{userId}, 일반 요청 캐시60초. 결제 관리자 요청은 캐시 우회·MASTER 검사 | 일반 인증 구현됨. 관리자 예외는 #88 브랜치 구현 |
 | gateway → waiting-room | 기동 즉시와 10초마다 WebClient GET /internal/waiting-rooms/scopes로 대기열 보호 목록(scope·closeAt)을 받아 메모리에 둔다. 실패는 마지막 목록 유지, 한 번도 못 받으면 좌석 조회·선점 503. 입장 토큰 검사는 토큰 scopes와 URL 회차로만 하고 공연 서비스를 조회하지 않는다 | 구현됨(#299, #228의 gateway → performance 회차 조회 대체). 대상 서비스는 #298로 waiting-room-service |
 | 서비스 → 서비스 | Feign이 검증된 사용자 헤더 전달. 서비스 인증은 별도 계약 | 기반 구현됨 |
-| performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. POST /internal/schedules/{scheduleId}/seat-setups (api 「좌석 내부 API」). 성능 측정 뒤 Kafka 전환 | 합의(이슈 #175). 공연 쪽 호출 구현됨(이슈 #131), 좌석 쪽 엔드포인트 구현됨(이슈 #190) |
+| performance → seat | 판매자 회차 등록·구성 변경 커밋 후 Feign으로 준비/재준비. POST /internal/schedules/{scheduleId}/seat-setups (api 「좌석 내부 API」). 커밋 뒤 공연 쪽 실행기에서 비동기 호출(이슈 #466), Kafka는 추후 검토 | 합의(이슈 #175). 공연 쪽 호출 구현됨(이슈 #131), 좌석 쪽 엔드포인트 구현됨(이슈 #190) |
 | seat → performance | POST /internal/schedules/{scheduleId}/sale-validations, 선점 트랜잭션 밖 호출 | 기존 합의·DTO 상세 초안 구분 |
 | booking → coupon | 로컬 CouponUsage, reservationId 점유 | #125 합의, coupon 구현됨(#159), 예매 연결됨 |
 | booking → payment 준비·조회 | Feign 동기 | 구현됨 |
@@ -276,7 +276,7 @@ root 문서에 나오는 번호의 뜻이다. 여기에 없는 번호는 추측�
 | #34 | seat ↔ booking은 facade 패키지의 메서드·타입으로만 서로 부르고, 공유 Clock으로 선점 만료를 계산한다 | 합의 |
 | #86 | 결제 준비의 sellerId·performanceId는 판매 검증(P21) 응답에서 받아 선점 때 예약에 저장한 값을 쓴다 | 합의 |
 | #54 | 공연 명세의 최신 원본. 회차 좌석 준비는 configVersion이 바뀔 때만 새 requestId를 쓴다 | 합의 |
-| #175 | 회차 좌석 준비는 MVP Feign(`POST /internal/schedules/{scheduleId}/seat-setups`)으로 하고 성능 측정 뒤 Kafka로 바꾼다. 좌석은 (scheduleId, configVersion)으로 멱등 판단하고 응답에 requestId를 돌려준다 | 합의 (좌석·공연 담당 확인) |
+| #175 | 회차 좌석 준비는 MVP Feign(`POST /internal/schedules/{scheduleId}/seat-setups`)으로 하고 성능 측정 뒤 Kafka로 바꾼다. 좌석은 (scheduleId, configVersion)으로 멱등 판단하고 응답에 requestId를 돌려준다. 이슈 #406에서 Kafka 대신 공연 쪽 비동기 실행으로 먼저 바꾸기로 했다(Kafka는 추후 검토) | 합의 (좌석·공연 담당 확인) |
 | P3·P4 | (Notion) 환불(P3)·승인(P4) Phase 2 전환 안건 | P4는 D16으로 철회했다가 #318로 다시 합의, P3는 #319로 합의 |
 | #318 | 승인을 `payment.confirm.requested` 메시지로 요청하고 PG 인증값을 싣는다. confirmBefore·처리 순서 불변 조건 | 합의 (결제 담당 확인) |
 | #319 | 결과(`payment.result`)·환불 명령·환불 접수 결과 메시지. 결과는 한 번 정하면 바꾸지 않음 | 합의 (결제 담당 확인) |
@@ -315,7 +315,7 @@ api의 P1~P21은 공연 응답 DTO 식별자이며 Notion 전환 안건 P3/P4와
 | 금액 타입 | payment_amount 및 원본 discount_amount BIGINT에서 공통 INT 목표로 DDL·DTO 이행 범위·시점 | 예매·결제 |
 | 내부 보안·운영 | 결제 관리자 JWT·MASTER·캐시 우회는 #88 브랜치 구현(api/infra 참조). 서비스 인증 전반·직접 접근 통제·공통 감사 주체·미완료 경보는 별도 확인 | 플랫폼·각 도메인 |
 | 추가 API | 티켓 조회/관리자 예매 목록은 현행 계약 없음. 전체 공연 취소 API는 제공하지 않고 회차별 취소 | 예매·공연 |
-| 좌석 준비 통신 | MVP Feign 계약은 이슈 #175로 합의했다(api 「좌석 내부 API」). read 타임아웃 5초는 유지한다(좌석 직접 호출 측정: 2만 석 최악 0.53초, 이슈 #175). 좌석 쪽 잠금 대기 상한 3초는 잠금마다 걸려 전체 대기가 5초를 넘을 수 있지만, 넘으면 같은 requestId 재시도로 같은 결과를 받는다. 공연 → 좌석 연동을 local에서 확인했다(회차 등록 응답 1,000석 p95 약 48ms, 이슈 #190). 결과 불명 복구는 이슈 #252에서 제한된 자동 확인·운영자 명령으로 구현했다. 남은 것: Kafka 전환 일정·토픽·스키마 | 공연·좌석 |
+| 좌석 준비 통신 | MVP Feign 계약은 이슈 #175로 합의했다(api 「좌석 내부 API」). read 타임아웃은 10초다(이슈 #466). 판매자가 기다리지 않게 되어, 좌석 쪽 잠금 대기 상한 3초와 처리 시간(좌석 직접 호출 측정: 2만 석 최악 0.53초, 이슈 #175)보다 넉넉하게 늘렸다. 넘으면 같은 requestId 재시도로 같은 결과를 받는다. 공연 → 좌석 연동을 local에서 확인했다(회차 등록 응답 1,000석 p95 약 48ms, 이슈 #190). 결과 불명 복구는 이슈 #252에서 제한된 자동 확인·운영자 명령으로 구현했다. 공연 쪽 호출은 커밋 뒤 비동기 실행으로 바꿨다(이슈 #406 합의, 이슈 #466). Kafka 전환은 추후 검토한다 | 공연·좌석 |
 | 공연 복원 검토 | 등급/좌석 미존재 오류, 공개 정적배치 권한, 취소 목록 포함, 공개검증, salesStatus/period 대상 회차 확인. 공개 wrapper/숫자ID/UNAUTHORIZED는 공통 기준 유지 | 공연·좌석 |
 | 판매 검증 경계 | 중지 후 기존 유효 HOLD 결제 허용은 기존 정책. 취소 경합·판매 마감 이후 확정 경계·필요한 재검증 확인 | 공연·예매·좌석 |
 | 결제 메시지 전환 | 계약은 #318·#319로 합의했다. 남은 것은 결제의 Outbox·발행기·승인 요청 소비자, 예매의 메시지 승인(이슈 #321)·환불 명령 구현이다. 메시지 승인은 예매 인스턴스가 모두 새 버전이 된 뒤 켠다. HTTP 승인 API를 지우는 시점은 전환 뒤 정한다. Kafka 장애 때의 HTTP 대체 승인은 #422로 합의했고 결제·예매 모두 구현했다(예매 #404). 예매는 동기 전환 중 남은 요청에 대체 승인을 늘 보내고, 동기 전환 스위치를 끄면 함께 멈춘다(#460) | 예매·결제 |
