@@ -6,6 +6,8 @@ SET ROLE user_app;
 SET search_path TO user_schema;
 \i /integration-sql/user-service/schema.sql
 RESET ROLE;
+-- 공연 키워드 검색의 trigram 확장(이슈 #441)은 관리자가 공연 스키마에 먼저 설치한다. schema.sql은 이미 있어 넘어간다
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA performance_schema;
 SET ROLE performance_app;
 SET search_path TO performance_schema;
 \i /integration-sql/performance-service/schema.sql

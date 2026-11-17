@@ -4,6 +4,10 @@
 -- Note: 조회용 인덱스는 공개 조회의 성능 기준선을 인덱스 없이 측정한 뒤, 진단으로 근거가 확인된 것만 단계별로 추가한다(이슈 #471부터).
 -- 부분 UNIQUE INDEX는 중복 방지 제약이라 처음부터 둔다. 모두 미삭제 행(deleted_at IS NULL)만 대상으로 한다.
 
+-- 공연 검색용 trigram 연산자(이슈 #441). 개발·통합시험·이행 대상 DB는 관리자 계정이 performance_schema에 먼저 설치하고,
+-- 서비스 계정으로 이 파일을 적용할 때는 이미 있어 넘어간다. 통합 테스트(Testcontainers)는 관리자 계정이 이 파일을 실행해 여기서 설치한다.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- 공연장
 CREATE TABLE p_venues
 (
@@ -96,6 +100,8 @@ CREATE TABLE p_performances
     updated_by         VARCHAR(100) NOT NULL,
     deleted_at         TIMESTAMP,
     deleted_by         VARCHAR(100),
+    -- 공개 목록 검색용 텍스트(이슈 #441). 트리거 p_performances_search_text가 채운다
+    search_text        TEXT         NOT NULL,
 
     CONSTRAINT ck_p_performances_genre CHECK (genre IN ('CONCERT', 'MUSICAL', 'PLAY', 'SPORTS',
         'CLASSICAL', 'KOREAN_MUSIC', 'DANCE', 'CIRCUS_MAGIC', 'MULTIDISCIPLINARY')),
@@ -114,6 +120,49 @@ CREATE TABLE p_performances
 CREATE INDEX ix_p_performances_public_latest
     ON p_performances (published_at DESC, id DESC)
     WHERE deleted_at IS NULL AND publication_status = 'PUBLISHED' AND operation_status = 'ACTIVE';
+
+-- 공개 목록 검색용 텍스트(이슈 #441). 제목·출연진·공연장명을 각각 공백(U+0020)을 지우고 소문자로 바꾼 뒤 U+001F로 잇는다.
+-- 키워드 검색은 이 컬럼 하나를 LIKE '%검색어%'로 비교하고 trigram 인덱스로 후보를 좁힌다.
+-- 구분 문자 U+001F는 공연 정보·검색어에 들어올 일이 없는 제어 문자로, 필드 경계를 넘는 일치(제목 끝 + 출연진 앞)를 막는다.
+-- Note: 값은 트리거가 채운다. SQL로 직접 넣는 시드·테스트 데이터와 공연장명 변경까지 같은 규칙으로 맞추기 위해서다.
+-- 같은 정의가 migrations/441-search-text.sql과 performance-service의 db/search-text-local.sql(local 프로필)에도 있다.
+-- 바꾸면 세 곳을 함께 고친다. 함수 본문은 결제 schema.sql처럼 작은따옴표로 감싼다(Spring SQL 초기화가 $$ 인용을 모른다).
+CREATE OR REPLACE FUNCTION p_performance_search_text(title TEXT, cast_info TEXT, venue_name TEXT)
+    RETURNS TEXT LANGUAGE sql IMMUTABLE PARALLEL SAFE AS '
+SELECT lower(replace(title, '' '', '''')) || chr(31)
+    || lower(replace(coalesce(cast_info, ''''), '' '', '''')) || chr(31)
+    || lower(replace(coalesce(venue_name, ''''), '' '', ''''))';
+
+-- 공연을 넣거나 제목·출연진·공연장을 바꾸면 검색용 텍스트를 다시 계산한다.
+-- 테이블 이름에 스키마를 붙이지 않으므로, 만들 때의 search_path를 함수에 고정해 다른 search_path로 실행돼도 같은 테이블을 읽는다.
+CREATE OR REPLACE FUNCTION p_performances_fill_search_text() RETURNS trigger LANGUAGE plpgsql
+    SET search_path FROM CURRENT AS '
+BEGIN
+    NEW.search_text := p_performance_search_text(
+        NEW.title, NEW.cast_info, (SELECT v.name FROM p_venues v WHERE v.id = NEW.venue_id));
+    RETURN NEW;
+END';
+
+-- 공연장명이 바뀌면 그 공연장의 공연(삭제 행 포함)을 다시 계산한다. 지금은 공연장명 수정 API가 없고 SQL로만 바뀐다.
+CREATE OR REPLACE FUNCTION p_venues_refresh_search_text() RETURNS trigger LANGUAGE plpgsql
+    SET search_path FROM CURRENT AS '
+BEGIN
+    UPDATE p_performances p
+    SET search_text = p_performance_search_text(p.title, p.cast_info, NEW.name)
+    WHERE p.venue_id = NEW.id;
+    RETURN NULL;
+END';
+
+CREATE TRIGGER p_performances_search_text
+    BEFORE INSERT OR UPDATE OF title, cast_info, venue_id ON p_performances
+    FOR EACH ROW EXECUTE FUNCTION p_performances_fill_search_text();
+
+CREATE TRIGGER p_venues_search_text
+    AFTER UPDATE OF name ON p_venues
+    FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name) EXECUTE FUNCTION p_venues_refresh_search_text();
+
+-- 공개 목록 키워드 검색의 후보를 좁힌다(이슈 #441). 3글자 이상 검색어에서 효과가 있고, 2글자 이하는 trigram을 만들지 못한다
+CREATE INDEX ix_p_performances_search_text ON p_performances USING gin (search_text gin_trgm_ops);
 
 -- 공연별 등급 가격. 같은 공연의 모든 회차가 같은 가격을 쓴다
 CREATE TABLE p_performance_grade_prices
