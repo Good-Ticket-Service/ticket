@@ -5,18 +5,21 @@ import type { PageC, PerformanceSummary } from '../api/types';
 import { ErrorNotice, Loading } from '../components/Common';
 import { PerformanceCard } from '../components/PerformanceCard';
 import { GENRE_OPTIONS } from '../lib/genres';
+import { REGION_OPTIONS } from '../lib/regions';
 import { SALE_STATUS_OPTIONS, parseSaleStatuses, saleStatusParam, toggleSaleStatus } from '../lib/saleStatus';
 
 export function SearchPage() {
   const [search, setSearch] = useSearchParams();
   const keyword = (search.get('keyword') ?? '').trim();
   const genre = GENRE_OPTIONS.some((item) => item.value === search.get('genre')) ? search.get('genre')! : '';
+  const region = REGION_OPTIONS.some((item) => item.value === search.get('region')) ? search.get('region')! : '';
   const sort = search.get('sort') === 'BOOKING_OPEN_ASC' ? 'BOOKING_OPEN_ASC' : 'LATEST';
   const pageValue = Number(search.get('page') ?? 0);
   const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
   const params = new URLSearchParams({ page: String(page), size: '20', sort });
   if (keyword) params.set('keyword', keyword);
   if (genre) params.set('genre', genre);
+  if (region) params.set('region', region);
   // 판매 상태: 기본(판매중·판매예정)이면 보내지 않는다. 빈 status는 서버가 400으로 거절한다(이슈 #382).
   const statuses = parseSaleStatuses(search.get('status'));
   const statusParam = saleStatusParam(statuses);
@@ -68,18 +71,8 @@ export function SearchPage() {
             </button>
           </div>
           <fieldset>
-            <legend>장르</legend>
-            <div className="search-genre-options">
-              {GENRE_OPTIONS.map((item) => (
-                <button key={item.value} className="chip" type="button" aria-pressed={genre === item.value}
-                  onClick={() => update('genre', genre === item.value ? '' : item.value)}>{item.label}</button>
-              ))}
-            </div>
-          </fieldset>
-          <p className="search-filter-hint">선택한 장르를 다시 누르면 해제돼요.</p>
-          <fieldset>
             <legend>판매 상태</legend>
-            <div className="search-genre-options">
+            <div className="search-filter-options search-sale-options">
               {SALE_STATUS_OPTIONS.map((item) => {
                 const selected = statuses.includes(item.value);
                 const onlyOne = selected && statuses.length === 1;
@@ -94,6 +87,26 @@ export function SearchPage() {
             </div>
           </fieldset>
           <p className="search-filter-hint">판매종료를 켜면 끝난 공연도 함께 보여요.</p>
+          <fieldset>
+            <legend>장르</legend>
+            <div className="search-filter-options search-genre-options">
+              {GENRE_OPTIONS.map((item) => (
+                <button key={item.value} className="chip" type="button" aria-pressed={genre === item.value}
+                  onClick={() => update('genre', genre === item.value ? '' : item.value)}>{item.label}</button>
+              ))}
+            </div>
+          </fieldset>
+          <p className="search-filter-hint">선택한 장르를 다시 누르면 해제돼요.</p>
+          <fieldset>
+            <legend>지역</legend>
+            <div className="search-filter-options search-region-options">
+              {REGION_OPTIONS.map((item) => (
+                <button key={item.value} className={`chip${item.value === 'JEONNAM_GWANGJU' ? ' region-wide' : ''}`} type="button" aria-pressed={region === item.value}
+                  onClick={() => update('region', region === item.value ? '' : item.value)}>{item.label}</button>
+              ))}
+            </div>
+          </fieldset>
+          <p className="search-filter-hint">선택한 지역을 다시 누르면 해제돼요.</p>
         </aside>
         <section className="search-results" aria-label="공연 검색 결과" aria-busy={query.isFetching}>
           {query.isPending && <Loading />}
@@ -106,7 +119,7 @@ export function SearchPage() {
           {query.isSuccess && query.data.content.length === 0 && (
             <div className="home-empty">
               <h2>조건에 맞는 공연이 없어요.</h2>
-              <p>검색어를 바꾸거나 장르·판매 상태 필터를 초기화해 보세요.</p>
+              <p>검색어를 바꾸거나 장르·지역·판매 상태 필터를 초기화해 보세요.</p>
               <button className="btn-link" type="button" onClick={clearFilters}>필터 초기화</button>
             </div>
           )}
