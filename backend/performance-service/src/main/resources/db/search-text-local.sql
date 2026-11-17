@@ -11,11 +11,25 @@ SELECT lower(replace(title, '' '', '''')) || chr(31)
     || lower(replace(coalesce(cast_info, ''''), '' '', '''')) || chr(31)
     || lower(replace(coalesce(venue_name, ''''), '' '', ''''))';
 
+-- 새 공연이거나 공연장을 바꾸면 공연장 행을 공유 잠금(FOR SHARE)으로 읽는다. 커밋 전인 공연장명 변경이 있으면 끝날 때까지
+-- 기다려 바뀐 이름을 읽는다. 공연장 트리거의 일괄 갱신에는 아직 보이지 않는 이 행이 빠지기 때문이다(이슈 #441 리뷰 R1-1).
+-- 제목·출연진만 바꿀 때는 잠그지 않는다. 같은 공연 행의 행 잠금으로 공연장 트리거와 이미 직렬화되고,
+-- 잠그면 공연 행 → 공연장 순서가 공연장 트리거의 공연장 → 공연 행 순서와 엇갈려 교착이 날 수 있다.
 CREATE OR REPLACE FUNCTION p_performances_fill_search_text() RETURNS trigger LANGUAGE plpgsql
     SET search_path FROM CURRENT AS '
+DECLARE
+    venue_name TEXT;
+    lock_venue BOOLEAN := TG_OP = ''INSERT'';
 BEGIN
-    NEW.search_text := p_performance_search_text(
-        NEW.title, NEW.cast_info, (SELECT v.name FROM p_venues v WHERE v.id = NEW.venue_id));
+    IF NOT lock_venue THEN
+        lock_venue := NEW.venue_id IS DISTINCT FROM OLD.venue_id;
+    END IF;
+    IF lock_venue THEN
+        SELECT v.name INTO venue_name FROM p_venues v WHERE v.id = NEW.venue_id FOR SHARE;
+    ELSE
+        SELECT v.name INTO venue_name FROM p_venues v WHERE v.id = NEW.venue_id;
+    END IF;
+    NEW.search_text := p_performance_search_text(NEW.title, NEW.cast_info, venue_name);
     RETURN NEW;
 END';
 

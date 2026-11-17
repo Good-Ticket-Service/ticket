@@ -12,8 +12,13 @@ import com.sparta.ticket.performance.domain.performance.AgeRating;
 import com.sparta.ticket.performance.domain.performance.Genre;
 import com.sparta.ticket.performance.domain.performance.Performance;
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +47,9 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
 
     @Autowired
     private TransactionTemplate transactions;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     @DisplayName("SQL로 넣은 공연도 제목·출연진·공연장명을 공백 제거·소문자로 바꿔 구분 문자로 잇는다")
@@ -84,6 +92,48 @@ class PerformanceSearchTextIntegrationTest extends PerformanceIntegrationTest {
         jdbc.update("UPDATE p_venues SET address = '다른 주소' WHERE id = 2");
         jdbc.update("UPDATE p_performances SET description = '다른 안내' WHERE id = 11");
         assertThat(searchText(11)).isEqualTo("콘서트beta" + SEP + SEP + "부산공연장");
+    }
+
+    /**
+     * 공연장명 변경이 커밋되기 전에 다른 연결이 그 공연장으로 공연을 넣거나 옮기면, 공연장 트리거의 일괄 갱신에는 그 행이 보이지 않는다.
+     * 공연 트리거가 공연장 행을 공유 잠금으로 읽어 변경 커밋을 기다리고 바뀐 이름으로 채우는지 본다(이슈 #441 리뷰 R1-1).
+     */
+    @Test
+    @DisplayName("커밋 전인 공연장명 변경과 겹친 SQL 등록·공연장 이동도 바뀐 이름으로 채운다")
+    void waitsForUncommittedVenueRename() throws Exception {
+        try (Connection renamer = dataSource.getConnection()) {
+            renamer.setAutoCommit(false);
+            boolean committed = false;
+            try {
+                try (Statement statement = renamer.createStatement()) {
+                    statement.executeUpdate("UPDATE p_venues SET name = '새 이름 홀' WHERE id = 1");
+                }
+                CompletableFuture<Integer> insert = CompletableFuture.supplyAsync(() -> jdbc.update(
+                        "INSERT INTO p_performances (id, seller_id, venue_id, title, genre, running_time,"
+                                + " created_at, created_by, updated_at, updated_by)"
+                                + " VALUES (30, 501, 1, '새 공연', 'PLAY', 90, now(), 'SYSTEM', now(), 'SYSTEM')"));
+                CompletableFuture<Integer> move = CompletableFuture.supplyAsync(
+                        () -> jdbc.update("UPDATE p_performances SET venue_id = 1 WHERE id = 11"));
+
+                // 공연장 행 잠금 때문에 이름 변경이 커밋될 때까지 끝나지 않는다
+                Thread.sleep(500);
+                assertThat(insert).isNotDone();
+                assertThat(move).isNotDone();
+
+                renamer.commit();
+                committed = true;
+                assertThat(insert.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+                assertThat(move.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            } finally {
+                if (!committed) {
+                    renamer.rollback();
+                }
+            }
+        }
+
+        assertThat(searchText(30)).isEqualTo("새공연" + SEP + SEP + "새이름홀");
+        assertThat(searchText(11)).isEqualTo("콘서트beta" + SEP + SEP + "새이름홀");
+        assertThat(searchText(10)).isEqualTo("뮤지컬alpha" + SEP + "배우a,배우b" + SEP + "새이름홀");
     }
 
     @Test

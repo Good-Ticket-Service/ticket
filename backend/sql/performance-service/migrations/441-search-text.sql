@@ -8,7 +8,8 @@
 --         -c "SET performance.search_text_migration_database = '대상DB'" -f 441-search-text.sql
 -- 1부(검사·확장·컬럼·트리거·채우기)는 한 트랜잭션이다. 실패하면 아무것도 바뀌지 않는다.
 -- 2부(인덱스)는 쓰기를 막지 않도록 CONCURRENTLY로 만들어 트랜잭션 밖에서 실행한다.
---   2부가 중간에 실패하면 무효 인덱스가 남는다. 마지막 검사가 알려 주면 DROP INDEX CONCURRENTLY 뒤 다시 실행한다.
+--   2부가 중간에 실패하면 무효 인덱스가 남는다. 같은 이름의 다른 정의 인덱스가 이미 있어도 만들지 않고 넘어간다.
+--   마지막 검사가 두 경우를 현재 정의와 함께 알려 준다. 확인 뒤 DROP INDEX CONCURRENTLY 하고 2부를 다시 실행한다.
 -- 다시 실행해도 된다. 이미 맞는 행은 갱신하지 않는다.
 -- 같은 정의가 schema.sql과 performance-service의 db/search-text-local.sql에도 있다. 바꾸면 세 곳을 함께 고친다.
 
@@ -50,11 +51,25 @@ SELECT lower(replace(title, '' '', '''')) || chr(31)
     || lower(replace(coalesce(venue_name, ''''), '' '', ''''))';
 
 -- SET search_path FROM CURRENT: 위 SET LOCAL의 performance_schema를 함수에 고정한다
+-- 새 공연이거나 공연장을 바꾸면 공연장 행을 공유 잠금(FOR SHARE)으로 읽는다. 커밋 전인 공연장명 변경이 있으면 끝날 때까지
+-- 기다려 바뀐 이름을 읽는다. 공연장 트리거의 일괄 갱신에는 아직 보이지 않는 이 행이 빠지기 때문이다(이슈 #441 리뷰 R1-1).
+-- 제목·출연진만 바꿀 때는 잠그지 않는다. 같은 공연 행의 행 잠금으로 공연장 트리거와 이미 직렬화되고,
+-- 잠그면 공연 행 → 공연장 순서가 공연장 트리거의 공연장 → 공연 행 순서와 엇갈려 교착이 날 수 있다.
 CREATE OR REPLACE FUNCTION p_performances_fill_search_text() RETURNS trigger LANGUAGE plpgsql
     SET search_path FROM CURRENT AS '
+DECLARE
+    venue_name TEXT;
+    lock_venue BOOLEAN := TG_OP = ''INSERT'';
 BEGIN
-    NEW.search_text := p_performance_search_text(
-        NEW.title, NEW.cast_info, (SELECT v.name FROM p_venues v WHERE v.id = NEW.venue_id));
+    IF NOT lock_venue THEN
+        lock_venue := NEW.venue_id IS DISTINCT FROM OLD.venue_id;
+    END IF;
+    IF lock_venue THEN
+        SELECT v.name INTO venue_name FROM p_venues v WHERE v.id = NEW.venue_id FOR SHARE;
+    ELSE
+        SELECT v.name INTO venue_name FROM p_venues v WHERE v.id = NEW.venue_id;
+    END IF;
+    NEW.search_text := p_performance_search_text(NEW.title, NEW.cast_info, venue_name);
     RETURN NEW;
 END';
 
@@ -94,11 +109,27 @@ COMMIT;
 SET search_path TO performance_schema;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_p_performances_search_text
     ON p_performances USING gin (search_text gin_trgm_ops);
+-- IF NOT EXISTS는 이름만 보므로, 같은 이름의 다른 인덱스가 있어도 넘어간다. 정의까지 대조하고 다르면 지우지 않고 중단한다
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_index i
-                   WHERE i.indexrelid = to_regclass('ix_p_performances_search_text') AND i.indisvalid) THEN
-        RAISE EXCEPTION '인덱스 ix_p_performances_search_text가 없거나 무효입니다. DROP INDEX CONCURRENTLY 뒤 2부를 다시 실행하십시오.';
+    IF NOT EXISTS (SELECT 1
+                   FROM pg_index i
+                   JOIN pg_class ic ON ic.oid = i.indexrelid
+                   JOIN pg_am am ON am.oid = ic.relam
+                   JOIN pg_opclass oc ON oc.oid = i.indclass[0]
+                   JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+                   WHERE i.indexrelid = to_regclass('ix_p_performances_search_text')
+                     AND i.indrelid = to_regclass('p_performances')
+                     AND i.indisvalid
+                     AND i.indnatts = 1
+                     AND i.indpred IS NULL
+                     AND i.indexprs IS NULL
+                     AND am.amname = 'gin'
+                     AND oc.opcname = 'gin_trgm_ops'
+                     AND a.attname = 'search_text') THEN
+        RAISE EXCEPTION '인덱스 ix_p_performances_search_text가 없거나, 무효이거나, 정의가 다릅니다. 현재 정의: %',
+            coalesce(pg_get_indexdef(to_regclass('ix_p_performances_search_text')), '없음')
+            USING HINT = '확인 뒤 DROP INDEX CONCURRENTLY ix_p_performances_search_text; 를 실행하고 2부를 다시 실행하십시오.';
     END IF;
 END $$;
 ANALYZE p_performances;
