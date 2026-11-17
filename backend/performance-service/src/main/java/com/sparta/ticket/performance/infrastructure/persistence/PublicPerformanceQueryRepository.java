@@ -5,6 +5,10 @@ import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.NumberExpression;
+import com.querydsl.core.types.dsl.StringExpression;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -26,6 +30,7 @@ import com.sparta.ticket.performance.domain.venue.Region;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,6 +51,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
     private static final QPerformance PERFORMANCE = QPerformance.performance;
     private static final QVenue VENUE = QVenue.venue;
     private static final QSchedule SCHEDULE = QSchedule.schedule;
+    private static final char LIKE_ESCAPE = '!';
 
     private final JPAQueryFactory queryFactory;
     private final PublicPerformanceDetailJpaRepository detailJpaRepository;
@@ -90,6 +96,10 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                             new OrderSpecifier<>(
                                     Order.ASC, SCHEDULE.bookingOpenAt.min(), OrderSpecifier.NullHandling.NullsLast),
                             PERFORMANCE.id.desc());
+        } else if (condition.sort() == PublicPerformanceSort.RELEVANCE) {
+            // 검색어가 없으면 서비스가 400으로 막는다. 같은 등급은 LATEST와 같은 순서다.
+            query.orderBy(
+                    relevanceGrade(condition.keyword()).asc(), PERFORMANCE.publishedAt.desc(), PERFORMANCE.id.desc());
         } else {
             query.orderBy(PERFORMANCE.publishedAt.desc(), PERFORMANCE.id.desc());
         }
@@ -184,17 +194,57 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
             builder.and(VENUE.region.eq(condition.region().name()));
         }
         if (condition.keyword() != null) {
-            String keyword = condition.keyword();
-            BooleanBuilder matches = new BooleanBuilder(PERFORMANCE.title.containsIgnoreCase(keyword))
-                    .or(VENUE.name.containsIgnoreCase(keyword))
-                    .or(PERFORMANCE.castInfo.containsIgnoreCase(keyword));
-            Region.fromKeyword(keyword).ifPresent(region -> matches.or(VENUE.region.eq(region.name())));
+            String pattern = containsPattern(condition.keyword());
+            BooleanBuilder matches = new BooleanBuilder(
+                            spaceless(PERFORMANCE.title).like(pattern, LIKE_ESCAPE))
+                    .or(spaceless(VENUE.name).like(pattern, LIKE_ESCAPE))
+                    .or(spaceless(PERFORMANCE.castInfo).like(pattern, LIKE_ESCAPE));
+            Region.fromKeyword(condition.keyword()).ifPresent(region -> matches.or(VENUE.region.eq(region.name())));
             builder.and(matches);
         }
         if (condition.from() != null || condition.to() != null) {
             builder.and(hasActiveScheduleStartingBetween(condition));
         }
         return builder;
+    }
+
+    /**
+     * 관련도 등급(작을수록 앞). 제목 같음 1, 제목 시작 2, 제목 포함 3, 출연진 4, 공연장명 5, 지역 이름 6이다(이슈 #442).
+     * 목록 조건을 통과한 공연만 정렬하므로, 텍스트 필드에 걸리지 않은 공연은 지역 이름으로 걸린 공연이다.
+     */
+    private static NumberExpression<Integer> relevanceGrade(String keyword) {
+        String lowered = keyword.toLowerCase(Locale.ROOT);
+        String contains = containsPattern(keyword);
+        StringExpression title = spaceless(PERFORMANCE.title);
+        return new CaseBuilder()
+                .when(title.eq(lowered))
+                .then(1)
+                .when(title.like(escapeLike(lowered) + "%", LIKE_ESCAPE))
+                .then(2)
+                .when(title.like(contains, LIKE_ESCAPE))
+                .then(3)
+                .when(spaceless(PERFORMANCE.castInfo).like(contains, LIKE_ESCAPE))
+                .then(4)
+                .when(spaceless(VENUE.name).like(contains, LIKE_ESCAPE))
+                .then(5)
+                .otherwise(6);
+    }
+
+    /**
+     * 띄어쓰기·영문 대소문자를 무시하고 비교할 필드 식. 조회 조건과 관련도 정렬이 이 식 하나만 쓴다.
+     * Note: 이슈 #441에서 색인을 만들면 이 식 모양(lower(replace(필드, ' ', '')))에 건다. 모양이 달라지면 색인을 쓰지 못한다.
+     */
+    private static StringExpression spaceless(StringExpression field) {
+        return Expressions.stringTemplate("lower(replace({0}, ' ', ''))", field);
+    }
+
+    /** 공백을 지운 검색어의 부분 일치 패턴. %·_·!는 문자 그대로 찾는다. */
+    private static String containsPattern(String keyword) {
+        return "%" + escapeLike(keyword.toLowerCase(Locale.ROOT)) + "%";
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     /** 상태·날짜는 독립된 공연 단위 조건이며, 목록과 count에 동일한 요청 시각으로 적용한다. */
