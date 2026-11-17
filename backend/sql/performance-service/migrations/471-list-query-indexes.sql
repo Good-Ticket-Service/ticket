@@ -10,3 +10,8 @@ SET search_path TO performance_schema;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_p_performances_public_latest
     ON p_performances (published_at DESC, id DESC)
     WHERE deleted_at IS NULL AND publication_status = 'PUBLISHED' AND operation_status = 'ACTIVE';
+
+-- 시작 전 활성 회차(시작 시각 선두)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_p_schedules_active_start
+    ON p_schedules (start_at, performance_id) INCLUDE (booking_open_at)
+    WHERE deleted_at IS NULL AND operation_status = 'ACTIVE';
