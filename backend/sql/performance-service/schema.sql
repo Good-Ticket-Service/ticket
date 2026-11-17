@@ -17,7 +17,10 @@ CREATE TABLE p_venues
     updated_at TIMESTAMP    NOT NULL,
     updated_by VARCHAR(100) NOT NULL,
     deleted_at TIMESTAMP,
-    deleted_by VARCHAR(100)
+    deleted_by VARCHAR(100),
+    CONSTRAINT ck_p_venues_region CHECK (region IN
+        ('SEOUL', 'GYEONGGI', 'INCHEON', 'GANGWON', 'CHUNGBUK', 'CHUNGNAM', 'DAEJEON', 'SEJONG',
+         'JEONBUK', 'JEONNAM_GWANGJU', 'GYEONGBUK', 'GYEONGNAM', 'DAEGU', 'ULSAN', 'BUSAN', 'JEJU'))
 );
 
 -- 공연장별 좌석 등급. 가격은 공연별 등급 가격(p_performance_grade_prices)에 둔다

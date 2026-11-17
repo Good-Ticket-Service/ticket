@@ -13,6 +13,7 @@ import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Check;
 import org.hibernate.annotations.SQLRestriction;
 
 /**
@@ -21,6 +22,11 @@ import org.hibernate.annotations.SQLRestriction;
 @Getter
 @Entity
 @Table(name = "p_venues")
+@Check(
+        name = "ck_p_venues_region",
+        constraints =
+                "region IN ('SEOUL','GYEONGGI','INCHEON','GANGWON','CHUNGBUK','CHUNGNAM',"
+                        + "'DAEJEON','SEJONG','JEONBUK','JEONNAM_GWANGJU','GYEONGBUK','GYEONGNAM','DAEGU','ULSAN','BUSAN','JEJU')")
 @SQLRestriction("deleted_at IS NULL")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Venue extends BaseEntity {
@@ -43,14 +49,14 @@ public class Venue extends BaseEntity {
     @Column(nullable = false)
     private Long version;
 
-    private Venue(String name, String address, String region) {
+    private Venue(String name, String address, Region region) {
         this.name = name;
         this.address = address;
-        this.region = region;
+        this.region = region.name();
     }
 
     /**공연장 생성- 공백 정리, 길이 검증은 요청 DTO에서 끝난 값*/
-    public static Venue create(String name, String address, String region) {
+    public static Venue create(String name, String address, Region region) {
         return new Venue(name, address, region);
     }
 
