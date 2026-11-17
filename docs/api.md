@@ -73,11 +73,43 @@
 - 표의 PerformanceSort는 LATEST, BOOKING_OPEN_ASC 중 하나다.
 - PerformanceStatus는 ON_SALE, UPCOMING, ENDED 중 하나이며 여러 값을 선택한다(이슈 #382).
 
+지역 코드·검색 별칭(이슈 #438)
+
+- 지역 요청·응답은 RegionCode 문자열이다. 관리자 등록은 필수, 목록 필터는 선택이며 생략·빈값은 전체다.
+- 관리자 입력은 코드만 받는다. 목록 밖 값·한글 이름·누락·숫자는 400 VALIDATION_ERROR다.
+  선택 지역 필터도 값이 있으면 코드만 받으며, 한글 이름·알 수 없는 코드는 400 VALIDATION_ERROR다.
+- 화면 이름은 프런트가 코드 표로 붙인다. 응답의 region 필드는 문자열 형태를 유지한다.
+
+| RegionCode | 화면 이름 | 키워드 전체 일치 별칭 |
+|---|---|---|
+| SEOUL | 서울 | 서울, 서울특별시 |
+| GYEONGGI | 경기 | 경기, 경기도 |
+| INCHEON | 인천 | 인천, 인천광역시 |
+| GANGWON | 강원 | 강원, 강원특별자치도, 강원도 |
+| CHUNGBUK | 충북 | 충북, 충청북도 |
+| CHUNGNAM | 충남 | 충남, 충청남도 |
+| DAEJEON | 대전 | 대전, 대전광역시 |
+| SEJONG | 세종 | 세종, 세종특별자치시 |
+| JEONBUK | 전북 | 전북, 전북특별자치도, 전라북도 |
+| JEONNAM_GWANGJU | 전남광주 | 전남광주, 광주, 전남, 전남광주통합특별시, 광주광역시, 전라남도 |
+| GYEONGBUK | 경북 | 경북, 경상북도 |
+| GYEONGNAM | 경남 | 경남, 경상남도 |
+| DAEGU | 대구 | 대구, 대구광역시 |
+| ULSAN | 울산 | 울산, 울산광역시 |
+| BUSAN | 부산 | 부산, 부산광역시 |
+| JEJU | 제주 | 제주, 제주특별자치도, 제주도 |
+
+- 키워드는 앞뒤 공백을 제거하며 제목·공연장명·출연진의 대소문자 무시 부분 일치와 지역 별칭 전체 일치를 OR로 묶는다.
+  `%`·`_`는 문자 그대로 검색한다. 지역 코드 자체와 주소는 지역 별칭 검색 대상이 아니다.
+- 위 OR 묶음은 공개·미삭제·미취소·status·genre·명시적 region·날짜 조건과 AND로 결합한다.
+  `region=BUSAN&keyword=서울`은 부산 공연 중 텍스트 필드에 서울이 있는 공연만 준다.
+  목록 항목과 전체 개수에 같은 키워드 조건을 쓴다. 일치 필드는 응답에 추가하지 않는다.
+
 ### 이번 기간 구현 API
 
 | Method URI | 권한 | 성공 | B / Q | R | 추가 오류 |
 |---|---|---|---|---|---|
-| POST /api/admin/venues | MASTER | 201, Location | B: name:string[1~100자],address:string[1~255자],region:string[1~20자] | P1 | — |
+| POST /api/admin/venues | MASTER | 201, Location | B: name:string[1~100자],address:string[1~255자],region:RegionCode | P1 | — |
 | POST /api/admin/venues/{venueId}/seat-grades | MASTER | 201 | 헤더 If-Match; B: grades:GradeInput[][1개 이상] | P3 | 404 VENUE_NOT_FOUND;409 DUPLICATE_VENUE_GRADE;409 VENUE_LAYOUT_IN_USE;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
 | POST /api/admin/venues/{venueId}/seats | MASTER | 201 | 헤더 If-Match; B: seats:SeatInput[][1~5,000개] | P5 | 400 VENUE_GRADE_MISMATCH;404 VENUE_NOT_FOUND;409 DUPLICATE_VENUE_SEAT;409 VENUE_LAYOUT_IN_USE;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
 | POST /api/seller/performances | SELLER | 201, Location | B: PerformanceInput | P8 | 404 VENUE_NOT_FOUND |
@@ -86,7 +118,7 @@
 | POST /api/seller/performances/{performanceId}/schedules | 소유 SELLER | 201, Location | B: startAt:datetime,bookingOpenAt:datetime,bookingCloseAt:datetime | P13 | 400 INVALID_TIME_RANGE;404 PERFORMANCE_NOT_FOUND;409 DUPLICATE_SCHEDULE;409 INVALID_STATUS_TRANSITION |
 | GET /api/seller/schedules/{scheduleId} | 소유 SELLER | 200, ETag | 없음 | P13 | 404 SCHEDULE_NOT_FOUND |
 | PUT /api/admin/schedules/{scheduleId}/sales-suspension | MASTER | 200 | 헤더 If-Match; B: suspended:boolean,reason?:string\|null | P15 | 404 SCHEDULE_NOT_FOUND;409 INVALID_STATUS_TRANSITION;409 VERSION_CONFLICT;428 PRECONDITION_REQUIRED |
-| GET /api/performances | 누구나 | 200 | Q: genre?:Genre,region?:string,from?:date,to?:date,keyword?:string,status?:PerformanceStatus[]=ON_SALE+UPCOMING,sort?:PerformanceSort=LATEST,page?:int=0,size?:int=20[1~100] | P16 | 400 INVALID_TIME_RANGE |
+| GET /api/performances | 누구나 | 200 | Q: genre?:Genre,region?:RegionCode,from?:date,to?:date,keyword?:string,status?:PerformanceStatus[]=ON_SALE+UPCOMING,sort?:PerformanceSort=LATEST,page?:int=0,size?:int=20[1~100] | P16 | 400 INVALID_TIME_RANGE |
 | GET /api/performances/{performanceId} | 누구나 | 200 | 없음 | P17 | 404 PERFORMANCE_NOT_FOUND |
 | GET /api/performances/{performanceId}/schedules | 누구나 | 200 | 없음 | P18 | 404 PERFORMANCE_NOT_FOUND |
 | GET /api/schedules/{scheduleId} | 누구나 | 200 | 없음 | P19 | 404 SCHEDULE_NOT_FOUND |
