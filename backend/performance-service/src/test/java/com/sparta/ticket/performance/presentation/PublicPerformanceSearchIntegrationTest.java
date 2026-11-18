@@ -1,13 +1,18 @@
 package com.sparta.ticket.performance.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSearchCondition;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceSort;
+import com.sparta.ticket.performance.application.dto.PublicPerformanceStatus;
 import com.sparta.ticket.performance.support.PerformanceIntegrationTest;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +20,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.context.jdbc.SqlConfig;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 이슈 #438의 검색 OR 묶음과 외부 필터 AND를 실제 MVC 바인딩·PostgreSQL 경로로 확인한다. */
 @Sql(
@@ -24,6 +31,9 @@ class PublicPerformanceSearchIntegrationTest extends PerformanceIntegrationTest 
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     @DisplayName("공연장명·출연진 전용 검색과 null 출연진을 처리한다")
@@ -145,6 +155,52 @@ class PublicPerformanceSearchIntegrationTest extends PerformanceIntegrationTest 
         keyword("_")
                 .andExpect(jsonPath("$.data.content[*].id").value(contains(11, 10)))
                 .andExpect(jsonPath("$.data.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("키워드 검색만 그 트랜잭션에서 custom 계획을 강제하고, 트랜잭션이 끝나면 같은 연결에서 원래 값으로 돌아간다")
+    void forcesCustomPlanOnlyInKeywordSearchTransaction() {
+        TransactionTemplate readOnly = new TransactionTemplate(transactionManager);
+        readOnly.setReadOnly(true);
+
+        // JpaTransactionManager가 JDBC 연결을 공유하므로 JdbcTemplate은 같은 트랜잭션·연결의 설정을 읽는다
+        String[] inSearch = readOnly.execute(status -> {
+            publicPerformanceReader.search(condition("피아노"), NOW);
+            return new String[] {planCacheMode(), backendPid()};
+        });
+        assertThat(inSearch[0]).isEqualTo("force_custom_plan");
+
+        // Hikari는 같은 스레드에 방금 반납한 연결을 먼저 준다. 같은 연결인지 PID로 확인한 뒤 설정이 풀렸는지 본다
+        String[] next = readOnly.execute(status -> new String[] {planCacheMode(), backendPid()});
+        assertThat(next[1]).isEqualTo(inSearch[1]);
+        assertThat(next[0]).isEqualTo("auto");
+
+        String withoutKeyword = readOnly.execute(status -> {
+            publicPerformanceReader.search(condition(null), NOW);
+            return planCacheMode();
+        });
+        assertThat(withoutKeyword).isEqualTo("auto");
+    }
+
+    private static PublicPerformanceSearchCondition condition(String keyword) {
+        return new PublicPerformanceSearchCondition(
+                null,
+                null,
+                null,
+                null,
+                keyword,
+                Set.of(PublicPerformanceStatus.values()),
+                PublicPerformanceSort.LATEST,
+                0,
+                20);
+    }
+
+    private String planCacheMode() {
+        return jdbc.queryForObject("SELECT current_setting('plan_cache_mode')", String.class);
+    }
+
+    private String backendPid() {
+        return jdbc.queryForObject("SELECT pg_backend_pid()::text", String.class);
     }
 
     private ResultActions keyword(String keyword) throws Exception {
