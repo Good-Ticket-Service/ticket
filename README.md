@@ -9,12 +9,12 @@
 ## 목차
 
 1. [프로젝트 소개](#프로젝트-소개)
-2. [주요 기능](#주요-기능)
-3. [화면](#화면)
-4. [아키텍처](#아키텍처)
-5. [예매 흐름](#예매-흐름)
-6. [기술적 고민과 해결](#기술적-고민과-해결)
-7. [기술 스택](#기술-스택)
+2. [기술 스택](#기술-스택)
+3. [아키텍처](#아키텍처)
+4. [예매 흐름](#예매-흐름)
+5. [기술적 고민과 해결](#기술적-고민과-해결)
+6. [주요 기능](#주요-기능)
+7. [화면](#화면)
 8. [팀원](#팀원)
 9. [문서](#문서)
 10. [개발 안내](#개발-안내)
@@ -29,56 +29,16 @@
   - 결제 승인 결과가 늦거나 유실되어도 예매·좌석·쿠폰 상태가 어긋나지 않게 맞춥니다.
   - 부하 측정으로 병목을 찾고, 숫자로 개선을 확인합니다.
 
-## 주요 기능
+## 기술 스택
 
-### 회원
-
-| 분류 | 기능 |
+| 분류 | 기술 |
 |---|---|
-| 계정 | 회원가입, 판매자 회원가입, 로그인(JWT), 내 정보 조회·수정 |
-| 공연 조회 | 공연 목록(장르·지역·기간·판매 상태·키워드 검색, 정렬, 페이지), 공연 상세, 회차 목록·상세, 좌석 배치도 |
-| 대기열 | 회차 대기열 조회, 대기열 진입, 내 순번 확인, 대기 취소, 차례가 되면 입장 토큰 발급 |
-| 좌석 | 구역 목록, 구역별 좌석 배치와 선택 가능 여부(비트맵·ETag 캐시), 등급별 잔여석, 좌석 선점, 선점 해제, 선점 시간이 지나면 자동 해제, Redis 선점 모드(선점 조회·좌석 선택 완료, 기능 스위치·기본 꺼짐) |
-| 쿠폰 | 발급 중인 쿠폰 목록·상세, 선착순 쿠폰 발급, 내 쿠폰함 |
-| 예매·결제 | 결제 준비(쿠폰 적용, 서버가 금액 확정), 결제 승인(토스·카카오페이 형식), 예매 상태 조회, 내 예매 목록·상세, 예매 취소·환불 |
-
-### 판매자
-
-| 분류 | 기능 |
-|---|---|
-| 공연 | 공연 등록, 등급별 가격 설정, 판매 공개, 회차 등록·조회 |
-| 정산 | 지급 계좌 등록·조회, 정산서 목록·상세, 미수금 조회, 예상 정산 조회 |
-
-### 관리자(MASTER)
-
-| 분류 | 기능 |
-|---|---|
-| 공연장 | 공연장 등록, 좌석 등급 등록, 좌석 배치 등록 |
-| 판매 | 회차 판매 중지·재개, 회차 대기열(room) 생성 |
-| 쿠폰 | 쿠폰 정책 생성·수정·발급 종료·삭제 |
-| 결제 운영 | 환불 목록·상세, 실패한 환불 재시도·재개 |
-| 정산 운영 | 지급 목록·상세·재시도, 판매자 미수금, 예상 정산 다시 만들기, 내부 정산 대조, PG 정산 대사(차이 확인·해소, 잔액 조회), 정산 메시지 처리 실패 재처리·해결 |
-
-### 운영·테스트 도구
-
-| 분류 | 기능 |
-|---|---|
-| fake PG | 토스·카카오페이 호환 승인·조회·취소, 장애 주입(지연·서버 오류·승인 거절·응답 유실·지연 승인·처리량 제한), 정산 명세 조회 |
-| 모니터링 | Prometheus 지표 수집(Eureka 목록에서 자동 탐색), Grafana 대시보드, Alertmanager 알림 |
-| 부하 측정 | 좌석 선점·쿠폰 발급·결제 부하 스크립트(k6) |
-| 시드 데이터 | 테스트 회원·판매자 계정 생성, KOPIS 공연 데이터 |
-
-## 화면
-
-| 공연 목록·카테고리 | 공연 상세·회차 선택 | 대기열 |
-|:---:|:---:|:---:|
-| <img src="docs/images/performance-list.png" width="260" alt="공연 목록·카테고리"> | <img src="docs/images/performance-detail.png" width="260" alt="공연 상세·회차 선택"> | <img src="docs/images/queue.png" width="260" alt="대기열"> |
-| **좌석 조회/선택·1인 매수 제한** | **결제·쿠폰 적용** | **예매 내역** |
-| <img src="docs/images/seat-select.png" width="260" alt="좌석 조회/선택·1인 매수 제한"> | <img src="docs/images/checkout.png" width="260" alt="결제·쿠폰 적용"> | <img src="docs/images/bookings.png" width="260" alt="예매 내역"> |
-| **쿠폰 조회·발급** | **관리자 쿠폰 생성** | **관리자 쿠폰 관리** |
-| <img src="docs/images/coupons.png" width="260" alt="쿠폰 조회·발급"> | <img src="docs/images/admin-coupon-create.png" width="260" alt="관리자 쿠폰 생성"> | <img src="docs/images/admin-coupons.png" width="260" alt="관리자 쿠폰 관리"> |
-| **판매자 정산 조회** | **Grafana 대시보드** |  |
-| <img src="docs/images/seller-settlements.png" width="260" alt="판매자 정산 조회"> | <img src="docs/images/grafana.png" width="260" alt="Grafana 대시보드"> |  |
+| Backend | Java 17, Spring Boot 3.5, Spring Cloud 2025.0 (Gateway, Eureka, Config, OpenFeign), Spring Data JPA, QueryDSL, Spring Batch, Spring Kafka, Resilience4j |
+| Data | PostgreSQL 16, Redis 7.4, Kafka |
+| Frontend | React 18, TypeScript, Vite, TanStack Query |
+| Infra | AWS EC2·ECR·S3·SSM, Docker Compose, Caddy, GitHub Actions |
+| 모니터링·측정 | Prometheus, Grafana, Alertmanager, k6 |
+| 테스트·품질 | JUnit 5, Testcontainers, ArchUnit, Spotless, Checkstyle |
 
 ## 아키텍처
 
@@ -259,16 +219,56 @@ sequenceDiagram
 | DB 쿼리 방식에서 쿠폰 하나에 요청이 몰리면 처리량 저하 | Redis Lua 판단으로 전환, 원본은 DB 유지 | 지속 처리 한계 초당 약 200\~250건 → 800건 이상 |
 | Redis 전환 뒤에도 순간 몰림 상한이 VU 약 8,300에서 그대로 | Tomcat 연결 한도와 JVM 힙 조정(테스트 설정) | 실패 없이 통과한 최대 VU 8,000 → 20,000 |
 
-## 기술 스택
+## 주요 기능
 
-| 분류 | 기술 |
+### 회원
+
+| 분류 | 기능 |
 |---|---|
-| Backend | Java 17, Spring Boot 3.5, Spring Cloud 2025.0 (Gateway, Eureka, Config, OpenFeign), Spring Data JPA, QueryDSL, Spring Batch, Spring Kafka, Resilience4j |
-| Data | PostgreSQL 16, Redis 7.4, Kafka |
-| Frontend | React 18, TypeScript, Vite, TanStack Query |
-| Infra | AWS EC2·ECR·S3·SSM, Docker Compose, Caddy, GitHub Actions |
-| 모니터링·측정 | Prometheus, Grafana, Alertmanager, k6 |
-| 테스트·품질 | JUnit 5, Testcontainers, ArchUnit, Spotless, Checkstyle |
+| 계정 | 회원가입, 판매자 회원가입, 로그인(JWT), 내 정보 조회·수정 |
+| 공연 조회 | 공연 목록(장르·지역·기간·판매 상태·키워드 검색, 정렬, 페이지), 공연 상세, 회차 목록·상세, 좌석 배치도 |
+| 대기열 | 회차 대기열 조회, 대기열 진입, 내 순번 확인, 대기 취소, 차례가 되면 입장 토큰 발급 |
+| 좌석 | 구역 목록, 구역별 좌석 배치와 선택 가능 여부(비트맵·ETag 캐시), 등급별 잔여석, 좌석 선점, 선점 해제, 선점 시간이 지나면 자동 해제, Redis 선점 모드(선점 조회·좌석 선택 완료, 기능 스위치·기본 꺼짐) |
+| 쿠폰 | 발급 중인 쿠폰 목록·상세, 선착순 쿠폰 발급, 내 쿠폰함 |
+| 예매·결제 | 결제 준비(쿠폰 적용, 서버가 금액 확정), 결제 승인(토스·카카오페이 형식), 예매 상태 조회, 내 예매 목록·상세, 예매 취소·환불 |
+
+### 판매자
+
+| 분류 | 기능 |
+|---|---|
+| 공연 | 공연 등록, 등급별 가격 설정, 판매 공개, 회차 등록·조회 |
+| 정산 | 지급 계좌 등록·조회, 정산서 목록·상세, 미수금 조회, 예상 정산 조회 |
+
+### 관리자(MASTER)
+
+| 분류 | 기능 |
+|---|---|
+| 공연장 | 공연장 등록, 좌석 등급 등록, 좌석 배치 등록 |
+| 판매 | 회차 판매 중지·재개, 회차 대기열(room) 생성 |
+| 쿠폰 | 쿠폰 정책 생성·수정·발급 종료·삭제 |
+| 결제 운영 | 환불 목록·상세, 실패한 환불 재시도·재개 |
+| 정산 운영 | 지급 목록·상세·재시도, 판매자 미수금, 예상 정산 다시 만들기, 내부 정산 대조, PG 정산 대사(차이 확인·해소, 잔액 조회), 정산 메시지 처리 실패 재처리·해결 |
+
+### 운영·테스트 도구
+
+| 분류 | 기능 |
+|---|---|
+| fake PG | 토스·카카오페이 호환 승인·조회·취소, 장애 주입(지연·서버 오류·승인 거절·응답 유실·지연 승인·처리량 제한), 정산 명세 조회 |
+| 모니터링 | Prometheus 지표 수집(Eureka 목록에서 자동 탐색), Grafana 대시보드, Alertmanager 알림 |
+| 부하 측정 | 좌석 선점·쿠폰 발급·결제 부하 스크립트(k6) |
+| 시드 데이터 | 테스트 회원·판매자 계정 생성, KOPIS 공연 데이터 |
+
+## 화면
+
+| 공연 목록·카테고리 | 공연 상세·회차 선택 | 대기열 |
+|:---:|:---:|:---:|
+| <img src="docs/images/performance-list.png" width="260" alt="공연 목록·카테고리"> | <img src="docs/images/performance-detail.png" width="260" alt="공연 상세·회차 선택"> | <img src="docs/images/queue.png" width="260" alt="대기열"> |
+| **좌석 조회/선택·1인 매수 제한** | **결제·쿠폰 적용** | **예매 내역** |
+| <img src="docs/images/seat-select.png" width="260" alt="좌석 조회/선택·1인 매수 제한"> | <img src="docs/images/checkout.png" width="260" alt="결제·쿠폰 적용"> | <img src="docs/images/bookings.png" width="260" alt="예매 내역"> |
+| **쿠폰 조회·발급** | **관리자 쿠폰 생성** | **관리자 쿠폰 관리** |
+| <img src="docs/images/coupons.png" width="260" alt="쿠폰 조회·발급"> | <img src="docs/images/admin-coupon-create.png" width="260" alt="관리자 쿠폰 생성"> | <img src="docs/images/admin-coupons.png" width="260" alt="관리자 쿠폰 관리"> |
+| **판매자 정산 조회** | **Grafana 대시보드** |  |
+| <img src="docs/images/seller-settlements.png" width="260" alt="판매자 정산 조회"> | <img src="docs/images/grafana.png" width="260" alt="Grafana 대시보드"> |  |
 
 ## 팀원
 
