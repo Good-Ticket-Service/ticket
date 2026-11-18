@@ -25,14 +25,14 @@ import org.springframework.stereotype.Service;
  *
  * 처리 흐름(좌석 읽기와 판매 검증은 SeatHoldService가 이미 했다)
  *   1. 이미 읽은 좌석으로 거른다. 판매 불가, 구성 버전·가격이 판매 검증과 다름이면 Redis에 기록하지 않는다.
- *   2. DB 점유 판정. Redis 점유 판정(SeatHoldModeSwitch.redisSeatState)이 켜져 있고 이 회차를 Redis에 올렸으면 hold.lua가 Redis로
- *      판정한다. 아니면 이미 읽은 좌석으로 판정한다. DB에서 팔렸거나 만료 전 HOLD인 좌석, 만료됐지만 예약이 결제 중인 좌석은 기록하지 않는다.
+ *   2. DB 점유 판정(#459). 이 회차를 Redis에 올렸으면 hold.lua가 Redis에 올린 DB 점유 좌석으로 판정한다. 아직 올리지 않았으면 올리기를
+ *      요청하고, 이번 요청만 DB 좌석을 읽어 판정한다. DB에서 팔렸거나 만료 전 HOLD인 좌석, 만료됐지만 예약이 결제 중인 좌석은 기록하지 않는다.
  *      어느 쪽이든 잠금 없이 본 값이라 최종 판정은 아니다. 결제하기 때 선점 트랜잭션이 좌석을 잠그고 다시 판정한다.
  *   3. 만료 시각을 공유 Clock으로 한 번 계산해 hold.lua로 기록한다. 이 값을 결제하기 때 DB 예약에도 그대로 쓴다(architecture 11절).
  *   4. 예약으로 바꾼 적 있는 회원이면 DB를 한 번 읽어 매수 제한을 확인한다(RedisHoldDbReads). 막을 예약이 없으면 회원 표시를 지우고
  *      한 번만 다시 기록한다. 그 사이 또 바뀌었으면 409다.
  *
- * Note: Redis 점유 판정은 DB가 좌석을 풀 때(만료 스케줄러·해제·취소) Redis에서 지운다. 그래서 만료 시각이 지난 HOLD 좌석은 DB 판정보다
+ * Note: Redis에 올린 DB 점유는 DB가 좌석을 풀 때(만료 스케줄러·해제·취소) Redis에서 지운다. 그래서 만료 시각이 지난 HOLD 좌석은 DB 판정보다
  * 만료 스케줄러 간격만큼 늦게 다시 잡을 수 있다(사용자 결정, 2026-11-17).
  */
 @Service
@@ -49,7 +49,6 @@ public class RedisSeatHoldService {
     private final SeatHoldDuration holdDuration;
     private final RedisHoldDbReads dbReads;
     private final RedisSeatHoldMetrics metrics;
-    private final SeatHoldModeSwitch modeSwitch;
     private final RedisSeatStateLoader stateLoader;
     private final Clock clock;
 
@@ -114,33 +113,28 @@ public class RedisSeatHoldService {
     }
 
     /**
-     * Redis 점유 판정이 켜져 있으면 DB 좌석 상태를 보지 않고 기록한다. 이 회차를 아직 올리지 않았으면 올리기를 요청하고, 이번 요청은
-     * 읽은 좌석으로 판정해 기록한다.
+     * DB 좌석 상태를 보지 않고 Redis 점유로 판정해 기록한다. 이 회차를 아직 올리지 않았으면 올리기를 요청하고, 이번 요청은 DB 좌석을
+     * 읽어 판정해 기록한다.
      */
     private HoldAttempt write(StoredHold hold, SeatHoldSnapshot seat, LocalDateTime nowLocal, Instant now) {
-        if (modeSwitch.redisSeatState()) {
-            HoldAttempt result = store.hold(hold, now);
-            if (result.outcome() != HoldOutcome.NOT_LOADED) {
-                return result;
-            }
-            metrics.hold(RedisSeatHoldMetrics.tag(HoldOutcome.NOT_LOADED));
-            stateLoader.requestLoad(hold.scheduleId());
+        HoldAttempt result = store.hold(hold, now);
+        if (result.outcome() != HoldOutcome.NOT_LOADED) {
+            return result;
         }
-        return store.hold(hold, heldInDb(seat, hold.scheduleId(), nowLocal), now);
+        metrics.hold(RedisSeatHoldMetrics.tag(HoldOutcome.NOT_LOADED));
+        stateLoader.requestLoad(hold.scheduleId());
+        return store.hold(hold, heldInDb(seat.scheduleSeatId(), hold.scheduleId(), nowLocal), now);
     }
 
     /**
-     * 읽은 좌석으로 본 DB 점유. 팔린 좌석과 만료됐지만 결제 중인 예약의 좌석은 409다. 만료 전 HOLD면 그 예약 ID, 비었으면 null이다.
+     * 아직 Redis에 올리지 않은 회차에서 DB 좌석을 읽어 본 DB 점유. 팔린 좌석과 만료됐지만 결제 중인 예약의 좌석은 409다. 만료 전 HOLD면 그 예약 ID, 비었으면 null이다.
      * 만료된 HOLD는 그 예약이 결제 중이 아니면 비어 있는 것으로 본다(정리 전인 만료 선점). 결제 중인 예약은 선점 만료 뒤에도 좌석을
      * 놓지 않으므로 409다. 여기서 막지 않으면 Redis 선점은 되지만 결제하기 때 409가 난다(#449 예매 담당 리뷰 1번)
      */
-    private Long heldInDb(SeatHoldSnapshot fixedOrRead, Long scheduleId, LocalDateTime nowLocal) {
-        // 고정 정보만 있는 값(캐시)이면 점유를 DB에서 읽는다. 아직 올리지 않은 회차의 선점만 여기로 온다
-        SeatHoldSnapshot seat = fixedOrRead.occupancyKnown()
-                ? fixedOrRead
-                : scheduleSeatRepository
-                        .findForHold(fixedOrRead.scheduleSeatId(), scheduleId)
-                        .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
+    private Long heldInDb(Long scheduleSeatId, Long scheduleId, LocalDateTime nowLocal) {
+        SeatHoldSnapshot seat = scheduleSeatRepository
+                .findForHold(scheduleSeatId, scheduleId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
         if (seat.status() == SeatStatus.SOLD) {
             metrics.hold("taken_in_db");
             throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);

@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * 선점에 쓰는 회차 좌석 고정 정보(좌석 ID → 고정 정보)의 캐시(#449 후속). 구현은 infrastructure의 서버 메모리 캐시가 맡는다.
+ * 선점에 쓰는 회차 좌석 고정 정보(좌석 ID → 고정 정보)의 캐시(#459). 구현은 infrastructure의 서버 메모리 캐시가 맡는다.
  * 고정 정보는 판매 중에 바뀌지 않아(architecture 10절) 회차마다 한 번 읽는다.
  */
 public interface HoldSeatCache {
