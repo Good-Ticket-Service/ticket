@@ -409,6 +409,61 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
+    @DisplayName("정합 작업은 DB 모드 동안 잡혀 Redis에 없는 좌석을 채워, 다른 회원의 선점을 409로 막는다")
+    void reconcilerFillsMissing() {
+        Long seatId = seat();
+        stateLoader.reload(SCHEDULE);
+        // DB 모드에서는 Redis를 부르지 않아 이 선점이 Redis에 없다
+        Long reservationId = dbHold(USER, seatId);
+        assertThat(reserved()).isEmpty();
+
+        reconciler.reconcile(SCHEDULE);
+
+        assertThat(reserved()).containsOnly(Map.entry(String.valueOf(seatId), String.valueOf(reservationId)));
+        assertThat(errorCode(() -> seatHoldService.hold(OTHER_USER, SCHEDULE, seatId)))
+                .isEqualTo("SEAT_ALREADY_TAKEN");
+    }
+
+    @Test
+    @DisplayName("이 서버가 올리지 않았는데 올림 표시가 남은 회차(서버 재시작 뒤)는 선점이 처음 쓸 때 바로 정합한다")
+    void firstUseAfterRestartReconcilesImmediately() {
+        Long taken = seat();
+        Long free = seat();
+        Long reservationId = dbHold(OTHER_USER, taken);
+        // 앞선 서버가 남긴 표시와 같다. 이 서버는 이 회차를 올린 적이 없다
+        store.loadReserved(SCHEDULE, Map.of(), true, Duration.ofHours(1));
+        stateLoader.forget(SCHEDULE);
+
+        assertThat(seatHoldService.hold(USER, SCHEDULE, free).created()).isTrue();
+
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> reserved().containsKey(String.valueOf(taken)));
+        assertThat(reserved()).containsOnly(Map.entry(String.valueOf(taken), String.valueOf(reservationId)));
+    }
+
+    @Test
+    @DisplayName("정합 작업은 올림 표시가 있는 회차의 수명을 늘리고, 표시가 없는 회차는 늘리지 않는다")
+    void reconcilerExtendsOnlyLoaded() {
+        Long seatId = seat();
+        stateLoader.reload(SCHEDULE);
+        convertedReservation(USER, seatId);
+        redis.expire(PREFIX + "loaded", Duration.ofSeconds(60));
+        redis.expire(PREFIX + "reserved", Duration.ofSeconds(60));
+
+        reconciler.reconcile(SCHEDULE);
+
+        assertThat(redis.getExpire(PREFIX + "loaded")).isGreaterThan(Duration.ofHours(23).toSeconds());
+        assertThat(redis.getExpire(PREFIX + "reserved")).isGreaterThan(Duration.ofHours(23).toSeconds());
+
+        redis.delete(PREFIX + "loaded");
+        redis.expire(PREFIX + "reserved", Duration.ofSeconds(60));
+        reconciler.reconcile(SCHEDULE);
+
+        assertThat(redis.hasKey(PREFIX + "loaded")).isFalse();
+        assertThat(redis.getExpire(PREFIX + "reserved")).isLessThanOrEqualTo(60);
+    }
+
+    @Test
     @DisplayName("Redis 점유 판정의 선점은 DB가 아니라 좌석 고정 정보 캐시를 읽고, 낡은 값은 결제하기의 재판정이 막는다")
     void holdReadsFixedSeatCache() {
         Long seatId = seat();
