@@ -17,7 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 회차의 DB 점유 좌석(HOLD·SOLD)을 Redis에 올린다(#449 후속). 다 올린 회차는 선점이 DB 좌석 상태를 읽지 않고 Redis로 판정한다.
+ * 회차의 DB 점유 좌석(HOLD·SOLD)을 Redis에 올린다(#459). 다 올린 회차는 선점이 DB 좌석 상태를 읽지 않고 Redis로 판정한다.
  *
  * 올리는 때
  *   - 판매 전·측정 준비: {@link #reload}로 지우고 다시 올린다. 트래픽이 없을 때라 경합이 없다.

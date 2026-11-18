@@ -38,7 +38,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Redis 점유 판정(#449 후속)을 실제 DB·Redis로 확인한다. 회차를 Redis에 올리면 선점은 DB 좌석 상태가 아니라 Redis에 올린 점유 좌석으로
+ * Redis 점유 판정(#459)을 실제 DB·Redis로 확인한다. 회차를 Redis에 올리면 선점은 DB 좌석 상태가 아니라 Redis에 올린 점유 좌석으로
  * 판정한다. 그래서 DB와 Redis를 일부러 어긋나게 만들어, 판정이 어느 쪽에서 나왔는지 본다.
  */
 class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
@@ -118,7 +118,6 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
         saleValidation.reset();
         clock.set(NOW);
         modeSwitch.set(SeatHoldMode.REDIS);
-        modeSwitch.setRedisSeatState(true);
         // 테스트마다 같은 회차 ID에 좌석을 새로 만들어 고정 정보 캐시를 비운다
         holdSeats.invalidate(SCHEDULE);
         bookingSeats.useReal(seatFacadeAdapter);
@@ -252,11 +251,13 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("올리지 않은 회차는 결제하기가 끝나도 Redis 점유에 넣지 않는다")
+    @DisplayName("올림 표시가 사라진 회차는 결제하기가 끝나도 Redis 점유에 넣지 않는다")
     void conversionSkipsUnloadedSchedule() {
-        modeSwitch.setRedisSeatState(false);
         Long seatId = seat();
+        stateLoader.reload(SCHEDULE);
         SeatHoldResult hold = seatHoldService.hold(USER, SCHEDULE, seatId);
+        // 올린 값의 수명이 끝난 것과 같다
+        redis.delete(List.of(PREFIX + "loaded", PREFIX + "reserved"));
 
         conversionService.convert(USER, SCHEDULE, hold.holdId());
 
@@ -360,27 +361,31 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Test
-    @DisplayName("선점 트랜잭션이 다른 회원의 만료 선점을 정리하면 커밋 뒤 그 예약의 좌석을 Redis에서 지운다")
-    void expiredCleanupInHoldFreesRedis() {
+    @DisplayName("올림 표시가 사라진 회차에서 만료 선점 좌석을 다시 잡아 결제하기하면, 만료 선점을 정리하고 Redis 점유가 새 예약이 된다")
+    void expiredCleanupInConversionUpdatesRedis() {
         Long seatId = seat();
         stateLoader.reload(SCHEDULE);
-        convertedReservation(USER, seatId);
+        Long expired = convertedReservation(USER, seatId);
         clock.advance(Duration.ofMinutes(11));
+        // 올림 표시만 사라져 이번 선점은 DB를 읽는다. 만료 선점은 결제 중이 아니라 빈 좌석으로 본다
+        redis.delete(PREFIX + "loaded");
 
-        // DB 모드 선점은 잠근 뒤 만료 선점을 정리하고 같은 좌석을 잡는다
-        Long newReservation = dbHold(OTHER_USER, seatId);
+        SeatHoldResult hold = seatHoldService.hold(OTHER_USER, SCHEDULE, seatId);
+        await().atMost(Duration.ofSeconds(5)).until(() -> Boolean.TRUE.equals(redis.hasKey(PREFIX + "loaded")));
+        // 결제하기 트랜잭션이 좌석을 잠근 뒤 만료 선점을 정리하고 같은 좌석으로 새 예약을 만든다
+        SeatHoldResult converted = conversionService.convert(OTHER_USER, SCHEDULE, hold.holdId());
 
-        assertThat(newReservation).isNotNull();
-        assertThat(reserved()).doesNotContainKey(String.valueOf(seatId));
+        assertThat(converted.reservationId()).isNotEqualTo(expired);
+        assertThat(reserved()).containsOnly(Map.entry(String.valueOf(seatId), String.valueOf(converted.reservationId())));
     }
 
     @Test
-    @DisplayName("Redis 점유 판정을 끄면 DB가 좌석을 풀어도 Redis를 부르지 않는다(DB 모드 측정에 섞지 않음)")
-    void syncSkippedWhenSwitchOff() {
+    @DisplayName("DB 모드에서는 DB가 좌석을 풀어도 Redis를 부르지 않는다(Redis 장애 때의 대체 경로)")
+    void syncSkippedInDbMode() {
         Long seatId = seat();
         stateLoader.reload(SCHEDULE);
         Long reservationId = convertedReservation(USER, seatId);
-        modeSwitch.setRedisSeatState(false);
+        modeSwitch.set(SeatHoldMode.DB);
 
         seatReleaseService.release(USER, SCHEDULE, reservationId);
 

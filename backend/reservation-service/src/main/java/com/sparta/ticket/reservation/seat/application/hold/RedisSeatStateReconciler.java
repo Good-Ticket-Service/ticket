@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Redis 점유 좌석 중 DB에서 이미 풀린 좌석을 지우는 정합 작업(#449 후속). 커밋 뒤 지우기(RedisSeatStateSync)가 Redis 오류로 빠졌거나,
+ * Redis 점유 좌석 중 DB에서 이미 풀린 좌석을 지우는 정합 작업(#459). 커밋 뒤 지우기(RedisSeatStateSync)가 Redis 오류로 빠졌거나,
  * 올리기(RedisSeatStateLoader)가 DB를 읽은 뒤 풀린 좌석을 올린 경우를 고친다.
  *
  * 순서: Redis를 먼저 읽고 DB를 나중에 읽는다. Redis에 있는 값은 그 예약의 DB 커밋 뒤에 들어간 것이라(결제하기 완료·올리기), 나중에 읽은
@@ -66,7 +66,7 @@ public class RedisSeatStateReconciler {
     }
 
     void reconcileAll() {
-        if (!modeSwitch.redisSeatState()) {
+        if (modeSwitch.current() != SeatHoldMode.REDIS) {
             return;
         }
         for (Long scheduleId : loader.loadedSchedules()) {
