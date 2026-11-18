@@ -15,6 +15,7 @@ import { couponConditions, couponPreview, couponTitle } from '../lib/coupons';
 import { clock, formatDateTime, parseTime, won } from '../lib/format';
 import { genreLabel } from '../lib/genres';
 import { HOLD_ID, RESELECT_CODES, reservationResolver } from '../lib/holdCheckout';
+import { forgetHold } from '../lib/holdMemory';
 import { saveSeatLabel, seatLabel } from '../lib/seatLabels';
 
 /** 결제 화면을 여는 근거. DB 모드는 예약, REDIS 모드는 아직 예약이 없는 선점(holdId)이다. */
@@ -186,6 +187,8 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
         convertedId.current = id;
         const label = seatLabel((source as { holdId: string }).holdId);
         if (label) saveSeatLabel(id, label);
+        // 예약이 생겼으니 좌석 화면의 진행 중 선점 안내는 필요 없다(이후는 내 예매에 있다)
+        forgetHold(source.kind === 'hold' ? source.scheduleId : '', (source as { holdId: string }).holdId);
         // 예약이 생겼으니 새로고침·다시 열기는 예약 결제 화면으로 가게 주소만 바꾼다. 화면은 다시 그리지 않아 결제가 이어진다.
         // 선점 기록은 원래 만료 시각에 사라져, 결제 중에 그 시각이 지나면 선점 주소는 "선점이 끝났어요"를 보이기 때문이다.
         // 라우터가 기록 항목에 둔 값(순번 등)은 그대로 둬 뒤로·앞으로 가기가 꼬이지 않게 한다
@@ -294,6 +297,7 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
         { method: 'DELETE' },
       ),
     onSuccess: () => {
+      if (source.kind === 'hold') forgetHold(source.scheduleId, source.holdId);
       client.invalidateQueries({ queryKey: ['coupons'] });
       client.invalidateQueries({ queryKey: ['reservations'] });
       // 좌석을 놓은 뒤에는 다른 좌석을 고르러 좌석 화면으로 간다. 입장 시간이 끝났으면 좌석 화면이 대기열로 보낸다
@@ -304,6 +308,11 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
       actionLock.current = false;
     },
   });
+  // 끝난 선점(404)은 좌석 화면의 진행 중 선점 안내에서도 뺀다
+  const holdGone = hold.error instanceof ApiError && hold.error.code === 'HOLD_NOT_FOUND';
+  useEffect(() => {
+    if (holdGone && source.kind === 'hold') forgetHold(source.scheduleId, source.holdId);
+  }, [holdGone, source]);
   const source$ = holdMode ? hold : reservation;
   if (source$.isPending)
     return (

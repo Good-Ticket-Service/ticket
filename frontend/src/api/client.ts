@@ -1,4 +1,5 @@
 import { clearEntryTokens } from '../lib/entryTokens';
+import { forgetAllHolds } from '../lib/holdMemory';
 
 const TOKEN_KEY = 'ticket.accessToken';
 
@@ -27,8 +28,9 @@ export function setToken(token: string | null): void {
   } catch {
     // 저장소를 쓸 수 없는 브라우저에서는 이번 화면에서만 로그인이 유지되지 않는다.
   }
-  // 입장 토큰은 발급받은 회원에게만 유효하다.
+  // 입장 토큰과 기억해 둔 선점은 그 회원에게만 유효하다.
   clearEntryTokens();
+  forgetAllHolds();
   window.dispatchEvent(new Event('ticket-auth-changed'));
 }
 

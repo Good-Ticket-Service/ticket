@@ -100,11 +100,16 @@ test('구역·열·번호를 자연 정렬하면서 상태 비트맵의 원본 �
   );
 });
 test('layout 304는 이전 본문을 재사용하고 인증·입장권·ETag 헤더를 유지한다', async () => {
-  const clientUrl = moduleUrl(
-    (await read('../src/api/client.ts')).replace(
-      /from ['"]\.\.\/lib\/entryTokens['"]/,
-      `from '${tokensUrl}'`,
+  const holdMemoryUrl = moduleUrl(
+    (await read('../src/lib/holdMemory.ts')).replace(
+      /from ['"]\.\/holdCheckout['"]/,
+      `from '${moduleUrl(await read('../src/lib/holdCheckout.ts'))}'`,
     ),
+  );
+  const clientUrl = moduleUrl(
+    (await read('../src/api/client.ts'))
+      .replace(/from ['"]\.\.\/lib\/entryTokens['"]/, `from '${tokensUrl}'`)
+      .replace(/from ['"]\.\.\/lib\/holdMemory['"]/, `from '${holdMemoryUrl}'`),
   );
   const { conditionalApi } = await import(clientUrl);
   globalThis.localStorage = { getItem: () => 'test-auth' };
