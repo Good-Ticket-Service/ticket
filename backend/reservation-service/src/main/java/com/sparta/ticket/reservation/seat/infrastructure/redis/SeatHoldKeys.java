@@ -35,6 +35,19 @@ final class SeatHoldKeys {
         return prefix(scheduleId) + "held:g" + venueSeatGradeId;
     }
 
+    /**
+     * DB에서 HOLD·SOLD인 좌석(HASH, field = 좌석 ID, value = 예약 ID). Redis가 좌석 점유를 판정할 때 DB 좌석 읽기 대신 본다.
+     * 결제하기 완료 때 넣고, 처음 한 번 DB에서 올린다({@link #loaded}).
+     */
+    static String reserved(Long scheduleId) {
+        return prefix(scheduleId) + "reserved";
+    }
+
+    /** {@link #reserved}를 DB에서 다 올렸다는 표시(STRING). 없으면 Redis가 점유를 판정하지 않고 DB 좌석 읽기로 돌아간다. */
+    static String loaded(Long scheduleId) {
+        return prefix(scheduleId) + "loaded";
+    }
+
     /** Lua 스크립트가 받는 KEYS 순서(좌석, 회원, 선점, 목록, 등급별 목록). */
     static List<String> all(Long scheduleId, Long scheduleSeatId, Long userId, String holdId, Long venueSeatGradeId) {
         return List.of(
@@ -43,6 +56,19 @@ final class SeatHoldKeys {
                 hold(scheduleId, holdId),
                 held(scheduleId),
                 heldGrade(scheduleId, venueSeatGradeId));
+    }
+
+    /** {@link #all} 뒤에 점유 목록과 올림 표시를 붙인 KEYS(hold.lua·convert-finish.lua). */
+    static List<String> withState(
+            Long scheduleId, Long scheduleSeatId, Long userId, String holdId, Long venueSeatGradeId) {
+        return List.of(
+                seat(scheduleId, scheduleSeatId),
+                user(scheduleId, userId),
+                hold(scheduleId, holdId),
+                held(scheduleId),
+                heldGrade(scheduleId, venueSeatGradeId),
+                reserved(scheduleId),
+                loaded(scheduleId));
     }
 
     private static String prefix(Long scheduleId) {
