@@ -58,6 +58,9 @@ public interface SeatHoldStore {
     /** 이 회차를 다 올렸다는 표시가 있는지. */
     boolean isLoaded(Long scheduleId);
 
+    /** 올림 표시가 있으면 표시와 올린 좌석의 수명을 ttl로 늘리고 true, 표시가 없으면 아무것도 하지 않고 false다. */
+    boolean extendReserved(Long scheduleId, Duration ttl);
+
     Optional<StoredHold> find(Long scheduleId, String holdId);
 
     ReleaseAttempt release(Long scheduleId, String holdId, Long userId);

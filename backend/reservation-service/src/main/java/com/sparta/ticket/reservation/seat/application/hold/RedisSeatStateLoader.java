@@ -4,7 +4,9 @@ import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.domain.ReservedSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import jakarta.annotation.PreDestroy;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -37,8 +39,14 @@ public class RedisSeatStateLoader {
     private final SeatHoldStore store;
     private final Set<Long> loading = ConcurrentHashMap.newKeySet();
 
-    /** 이 서버가 올린 회차. 정합 작업이 돈다. 서버가 여러 대면 각자 올린 회차를 맞춘다(같은 회차를 여럿이 맞춰도 결과는 같다). */
-    private final Set<Long> loaded = ConcurrentHashMap.newKeySet();
+    /** 쓴 시각을 다시 적는 간격. 선점마다 같은 항목에 쓰지 않으려고 둔다. */
+    private static final Duration USE_RECORD_INTERVAL = Duration.ofSeconds(10);
+
+    /**
+     * 이 서버가 올렸거나 선점이 올린 값을 쓴 회차와 마지막으로 쓴 시각. 정합 작업이 이 회차들을 맞춘다. 서버가 여러 대면 각자 쓴 회차를
+     * 맞춘다(같은 회차를 여럿이 맞춰도 결과는 같다).
+     */
+    private final Map<Long, Instant> used = new ConcurrentHashMap<>();
 
     /** 올리는 일에 쓰는 DB 연결을 하나로 묶는다. 대기는 회차 수만큼이면 충분하고, 넘치면 다음 선점이 다시 요청한다. */
     private final ThreadPoolExecutor executor =
@@ -48,9 +56,12 @@ public class RedisSeatStateLoader {
                 return thread;
             });
 
-    public RedisSeatStateLoader(ScheduleSeatRepository scheduleSeatRepository, SeatHoldStore store) {
+    private final Clock clock;
+
+    public RedisSeatStateLoader(ScheduleSeatRepository scheduleSeatRepository, SeatHoldStore store, Clock clock) {
         this.scheduleSeatRepository = scheduleSeatRepository;
         this.store = store;
+        this.clock = clock;
     }
 
     /** 이 회차를 지금 스레드에서 올린다. 이미 있는 좌석 값은 덮지 않는다. */
@@ -60,18 +71,31 @@ public class RedisSeatStateLoader {
             seats.put(seat.scheduleSeatId(), seat.reservationId());
         }
         store.loadReserved(scheduleId, seats, true, STATE_TTL);
-        loaded.add(scheduleId);
+        used.put(scheduleId, clock.instant());
         log.info("DB 점유 좌석을 Redis에 올렸다. scheduleId={}, seats={}", scheduleId, seats.size());
     }
 
-    /** 이 서버가 올린 회차들. */
-    public Set<Long> loadedSchedules() {
-        return Set.copyOf(loaded);
+    /**
+     * 선점이 이 회차의 올린 값을 썼다고 적는다. 이 서버에서 처음 쓴 회차면 true다. 서버를 다시 띄운 뒤에는 표시가 남은 회차를 다시
+     * 올리지 않으므로, 이 기록이 없으면 정합 작업이 그 회차를 맡지 않는다.
+     */
+    boolean markUsed(Long scheduleId) {
+        Instant now = clock.instant();
+        Instant last = used.get(scheduleId);
+        if (last != null && last.isAfter(now.minus(USE_RECORD_INTERVAL))) {
+            return false;
+        }
+        return used.put(scheduleId, now) == null;
     }
 
-    /** 올림 표시가 사라진 회차를 정합 대상에서 뺀다. 다음 선점이 다시 올리면 다시 들어온다. */
-    void forget(Long scheduleId) {
-        loaded.remove(scheduleId);
+    /** 이 서버가 올렸거나 선점이 쓴 회차와 마지막으로 쓴 시각. */
+    Map<Long, Instant> usedSchedules() {
+        return Map.copyOf(used);
+    }
+
+    /** 정합 대상에서 뺀다. 다음 선점이 다시 쓰거나 올리면 다시 들어온다. */
+    public void forget(Long scheduleId) {
+        used.remove(scheduleId);
     }
 
     /** 지우고 다시 올린다. 판매 전·측정 준비처럼 그 회차에 선점이 없을 때만 쓴다. */
