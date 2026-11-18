@@ -27,6 +27,7 @@ import com.sparta.ticket.performance.domain.performance.QPerformance;
 import com.sparta.ticket.performance.domain.schedule.QSchedule;
 import com.sparta.ticket.performance.domain.venue.QVenue;
 import com.sparta.ticket.performance.domain.venue.Region;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
@@ -55,6 +56,7 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
 
     private final JPAQueryFactory queryFactory;
     private final PublicPerformanceDetailJpaRepository detailJpaRepository;
+    private final EntityManager entityManager;
 
     /**
      * 목록은 두 번에 나눠 읽는다. 먼저 페이지에 들어갈 공연 ID를 정렬 순서대로 고르고, 그 ID들의 표시 정보와 기간만 계산한다.
@@ -63,6 +65,9 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
      */
     @Override
     public PublicPerformancePage search(PublicPerformanceSearchCondition condition, LocalDateTime now) {
+        if (condition.keyword() != null) {
+            forceCustomPlanInTransaction();
+        }
         BooleanBuilder where = listablePerformance().and(filters(condition)).and(saleStatus(condition, now));
         List<Long> ids = findPageIds(condition, where, now);
         List<PublicPerformanceSummary> items = ids.isEmpty() ? List.of() : findSummaries(ids);
@@ -76,6 +81,20 @@ public class PublicPerformanceQueryRepository implements PublicPerformanceReader
                 .fetchOne();
 
         return new PublicPerformancePage(items, condition.page(), condition.size(), total == null ? 0 : total);
+    }
+
+    /**
+     * 이 트랜잭션의 SQL은 실행마다 바인딩 값으로 계획을 세우게 한다(SET LOCAL과 같다. 트랜잭션이 끝나면 풀린다).
+     * Note: 키워드 검색 SQL은 pgjdbc 서버 준비문이다. 같은 연결에서 반복되면 PostgreSQL이 비용을 비교해 값 없는 generic 계획을
+     * 고를 수 있고, 진단한 기본 상태·2글자 검색에서 실제로 골랐다. 그 계획은 키워드 선택도와 상태 조건을 몰라 느린 경로를 탄다
+     * (2글자 키워드의 GIN 전체 후보, 회차 Nested Loop). 보완 측정 평균에서 custom 강제 시 요청당 SQL이 기본 상태 약 53%,
+     * 2글자 약 67% 줄었다. 기본 상태는 반복 변동폭 안이라 정량 효과를 유보했고, 구현 후 재측정으로 확인한다(이슈 #441 회귀 진단).
+     * 키워드 없는 목록은 generic 문제를 확인하지 않았고 매번 계획을 세우는 비용만 늘 수 있어 두지 않는다.
+     */
+    private void forceCustomPlanInTransaction() {
+        entityManager
+                .createNativeQuery("SELECT set_config('plan_cache_mode', 'force_custom_plan', true)")
+                .getSingleResult();
     }
 
     /** 페이지에 들어갈 공연 ID를 정렬 순서대로 고른다. 기간은 계산하지 않는다. */
