@@ -376,7 +376,8 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
         SeatHoldResult converted = conversionService.convert(OTHER_USER, SCHEDULE, hold.holdId());
 
         assertThat(converted.reservationId()).isNotEqualTo(expired);
-        assertThat(reserved()).containsOnly(Map.entry(String.valueOf(seatId), String.valueOf(converted.reservationId())));
+        assertThat(reserved())
+                .containsOnly(Map.entry(String.valueOf(seatId), String.valueOf(converted.reservationId())));
     }
 
     @Test
@@ -436,8 +437,7 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
 
         assertThat(seatHoldService.hold(USER, SCHEDULE, free).created()).isTrue();
 
-        await().atMost(Duration.ofSeconds(5))
-                .until(() -> reserved().containsKey(String.valueOf(taken)));
+        await().atMost(Duration.ofSeconds(5)).until(() -> reserved().containsKey(String.valueOf(taken)));
         assertThat(reserved()).containsOnly(Map.entry(String.valueOf(taken), String.valueOf(reservationId)));
     }
 
@@ -452,8 +452,10 @@ class RedisSeatStateIntegrationTest extends ReservationIntegrationTest {
 
         reconciler.reconcile(SCHEDULE);
 
-        assertThat(redis.getExpire(PREFIX + "loaded")).isGreaterThan(Duration.ofHours(23).toSeconds());
-        assertThat(redis.getExpire(PREFIX + "reserved")).isGreaterThan(Duration.ofHours(23).toSeconds());
+        assertThat(redis.getExpire(PREFIX + "loaded"))
+                .isGreaterThan(Duration.ofHours(23).toSeconds());
+        assertThat(redis.getExpire(PREFIX + "reserved"))
+                .isGreaterThan(Duration.ofHours(23).toSeconds());
 
         redis.delete(PREFIX + "loaded");
         redis.expire(PREFIX + "reserved", Duration.ofSeconds(60));
