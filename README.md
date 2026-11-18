@@ -10,13 +10,14 @@
 
 1. [프로젝트 소개](#프로젝트-소개)
 2. [주요 기능](#주요-기능)
-3. [아키텍처](#아키텍처)
-4. [예매 흐름](#예매-흐름)
-5. [기술적 고민과 해결](#기술적-고민과-해결)
-6. [기술 스택](#기술-스택)
-7. [팀원](#팀원)
-8. [문서](#문서)
-9. [개발 안내](#개발-안내)
+3. [화면](#화면)
+4. [아키텍처](#아키텍처)
+5. [예매 흐름](#예매-흐름)
+6. [기술적 고민과 해결](#기술적-고민과-해결)
+7. [기술 스택](#기술-스택)
+8. [팀원](#팀원)
+9. [문서](#문서)
+10. [개발 안내](#개발-안내)
 
 ## 프로젝트 소개
 
@@ -67,23 +68,17 @@
 | 부하 측정 | 좌석 선점·쿠폰 발급·결제 부하 스크립트(k6) |
 | 시드 데이터 | 테스트 회원·판매자 계정 생성, KOPIS 공연 데이터 |
 
-<!-- 화면: docs/images/ 에 캡처를 넣고 이 주석을 풀면 됩니다. 목차에 "[화면](#화면)"도 다시 넣습니다. 필요 없는 칸은 지웁니다.
-
 ## 화면
 
-| 공연 목록 | 공연 상세·회차 선택 |
-|:---:|:---:|
-| <img src="docs/images/performance-list.png" width="400" alt="공연 목록"> | <img src="docs/images/performance-detail.png" width="400" alt="공연 상세"> |
-| **대기열** | **좌석 선택** |
-| <img src="docs/images/queue.png" width="400" alt="대기열"> | <img src="docs/images/seat-select.png" width="400" alt="좌석 선택"> |
-| **결제·쿠폰 적용** | **예매 내역** |
-| <img src="docs/images/checkout.png" width="400" alt="결제"> | <img src="docs/images/bookings.png" width="400" alt="예매 내역"> |
-| **판매자 공연 등록·정산** | **관리자 운영** |
-| <img src="docs/images/seller.png" width="400" alt="판매자 화면"> | <img src="docs/images/admin.png" width="400" alt="관리자 화면"> |
-| **Grafana 대시보드** | **부하 측정 결과** |
-| <img src="docs/images/grafana.png" width="400" alt="Grafana"> | <img src="docs/images/load-test.png" width="400" alt="부하 측정"> |
-
--->
+| 공연 목록·카테고리 | 공연 상세·회차 선택 | 대기열 |
+|:---:|:---:|:---:|
+| <img src="docs/images/performance-list.png" width="260" alt="공연 목록·카테고리"> | <img src="docs/images/performance-detail.png" width="260" alt="공연 상세·회차 선택"> | <img src="docs/images/queue.png" width="260" alt="대기열"> |
+| **좌석 조회/선택·1인 매수 제한** | **결제·쿠폰 적용** | **예매 내역** |
+| <img src="docs/images/seat-select.png" width="260" alt="좌석 조회/선택·1인 매수 제한"> | <img src="docs/images/checkout.png" width="260" alt="결제·쿠폰 적용"> | <img src="docs/images/bookings.png" width="260" alt="예매 내역"> |
+| **쿠폰 조회·발급** | **관리자 쿠폰 생성** | **관리자 쿠폰 관리** |
+| <img src="docs/images/coupons.png" width="260" alt="쿠폰 조회·발급"> | <img src="docs/images/admin-coupon-create.png" width="260" alt="관리자 쿠폰 생성"> | <img src="docs/images/admin-coupons.png" width="260" alt="관리자 쿠폰 관리"> |
+| **판매자 정산 조회** | **Grafana 대시보드** |  |
+| <img src="docs/images/seller-settlements.png" width="260" alt="판매자 정산 조회"> | <img src="docs/images/grafana.png" width="260" alt="Grafana 대시보드"> |  |
 
 ## 아키텍처
 
