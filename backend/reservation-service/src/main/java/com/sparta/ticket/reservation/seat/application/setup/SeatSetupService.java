@@ -3,6 +3,7 @@ package com.sparta.ticket.reservation.seat.application.setup;
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.SeatChangeStamps;
+import com.sparta.ticket.reservation.seat.application.hold.HoldSeatLookup;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatCounts;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatSetupRepository;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatSnapshot;
@@ -19,6 +20,8 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 회차 좌석 준비(POST /internal/schedules/{scheduleId}/seat-setups, #175). 공연 서비스가 회차를 등록하거나 좌석 구성(가격·판매 제외)을
@@ -52,6 +55,7 @@ public class SeatSetupService {
 
     private final ScheduleSeatSetupRepository repository;
     private final SeatChangeStamps stamps;
+    private final HoldSeatLookup holdSeats;
 
     @Transactional
     public SeatSetupResult setup(SeatSetupCommand command) {
@@ -87,6 +91,13 @@ public class SeatSetupService {
         }
 
         apply(command, locked);
+        // 선점용 좌석 고정 정보(#449 후속)를 커밋 뒤 지운다. 커밋 전에 지우면 그 사이 선점이 바뀌기 전 좌석을 다시 읽어 둘 수 있다
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                holdSeats.invalidate(scheduleId);
+            }
+        });
         return result(command);
     }
 
