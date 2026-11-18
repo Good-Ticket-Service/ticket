@@ -10,14 +10,13 @@
 
 1. [프로젝트 소개](#프로젝트-소개)
 2. [주요 기능](#주요-기능)
-3. [화면](#화면)
-4. [아키텍처](#아키텍처)
-5. [예매 흐름](#예매-흐름)
-6. [기술적 고민과 해결](#기술적-고민과-해결)
-7. [기술 스택](#기술-스택)
-8. [팀원](#팀원)
-9. [문서](#문서)
-10. [개발 안내](#개발-안내)
+3. [아키텍처](#아키텍처)
+4. [예매 흐름](#예매-흐름)
+5. [기술적 고민과 해결](#기술적-고민과-해결)
+6. [기술 스택](#기술-스택)
+7. [팀원](#팀원)
+8. [문서](#문서)
+9. [개발 안내](#개발-안내)
 
 ## 프로젝트 소개
 
@@ -68,9 +67,9 @@
 | 부하 측정 | 좌석 선점·쿠폰 발급·결제 부하 스크립트(k6) |
 | 시드 데이터 | 테스트 회원·판매자 계정 생성, KOPIS 공연 데이터 |
 
-## 화면
+<!-- 화면: docs/images/ 에 캡처를 넣고 이 주석을 풀면 됩니다. 목차에 "[화면](#화면)"도 다시 넣습니다. 필요 없는 칸은 지웁니다.
 
-<!-- docs/images/ 에 캡처를 넣고 파일 이름만 맞추면 됩니다. 필요 없는 칸은 지웁니다. -->
+## 화면
 
 | 공연 목록 | 공연 상세·회차 선택 |
 |:---:|:---:|
@@ -83,6 +82,8 @@
 | <img src="docs/images/seller.png" width="400" alt="판매자 화면"> | <img src="docs/images/admin.png" width="400" alt="관리자 화면"> |
 | **Grafana 대시보드** | **부하 측정 결과** |
 | <img src="docs/images/grafana.png" width="400" alt="Grafana"> | <img src="docs/images/load-test.png" width="400" alt="부하 측정"> |
+
+-->
 
 ## 아키텍처
 
@@ -271,9 +272,9 @@ sequenceDiagram
 | 김태현 | 회원·인증, Gateway, 대기열 | [@nuyheat](https://github.com/nuyheat) |
 | 박의연 | 공연·회차·좌석 배치 | [@kiteof-park](https://github.com/kiteof-park) |
 | 변정민 | 좌석 조회·선점·잔여석 | [@wjdals717](https://github.com/wjdals717) |
-| 한얼 | 예매·티켓 | [@jihaneol](https://github.com/jihaneol) |
-| 윤범 | 쿠폰 | [@sybeom](https://github.com/sybeom) |
-| 강현민 | 결제·fake PG | [@rkddk7165](https://github.com/rkddk7165) |
+| 지한얼 | 예매·티켓 | [@jihaneol](https://github.com/jihaneol) |
+| 성윤범 | 쿠폰 | [@sybeom](https://github.com/sybeom) |
+| 강현민 | 결제·정산·fake PG | [@rkddk7165](https://github.com/rkddk7165) |
 
 ## 문서
 
