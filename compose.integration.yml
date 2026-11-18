@@ -122,6 +122,8 @@ services:
       PYROSCOPE_APPLICATION_NAME: reservation-service
       # 선점 유지 시간(#248, reservation.seat.hold.duration). 값은 compose-inputs.example에서 바꾼다. 기본값은 코드 기본값과 같다
       RESERVATION_SEAT_HOLD_DURATION: ${INTEGRATION_SEAT_HOLD_DURATION:-10m}
+      # 선점 위치(#476, reservation.seat.hold.mode). 시연·측정에서 REDIS로 바꿀 때 쓴다. 없으면 코드 기본값과 같은 DB
+      RESERVATION_SEAT_HOLD_MODE: ${DEMO_SEAT_HOLD_MODE:-DB}
       # JFR과 누수 탐지는 observability 프로필에서만 compose.py가 켠다. 기본 실행의 측정 조건을 이전과 같게 둔다. 0은 누수 탐지 끔이다.
       SPRING_DATASOURCE_HIKARI_LEAKDETECTIONTHRESHOLD: ${INTEGRATION_LEAK_DETECTION_MS:-0}
       JAVA_OPTS: "-Xms256m -Xmx1g -XX:ActiveProcessorCount=2${INTEGRATION_JFR:+ -XX:FlightRecorderOptions:stackdepth=256 -XX:StartFlightRecording=disk=true,maxage=30m,maxsize=200m,dumponexit=true,filename=/jfr/reservation.jfr}"

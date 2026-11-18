@@ -28,12 +28,13 @@
 | 파일 | 하는 일 |
 |---|---|
 | `prepare.py` | 시연 데이터 준비. 계정(회원·판매자·경쟁 봇·티켓팅 봇), 공연장(구역 여러 개, A가 가장 인기), 좌석, 공연, 회차, 공개, 대기열을 만들고 **봇 로그인까지 미리** 해서 `input.json`에 저장한다 |
-| `ticketing.js` | k6 티켓팅 봇. 오픈 전 대기 → 오픈 후 파도별로 대기열 진입 → 입장 → 앞 구역 가중치로 좌석 선택(0.3~1.0초) → 충돌하면 다시 고름(최대 5번) → 5%는 결제 포기 → 토스 결제 → 확정 |
+| `ticketing.js` | k6 티켓팅 봇. 오픈 전 대기 → 오픈 후 파도별로 대기열 진입 → 입장 → 앞 구역 가중치로 좌석 선택(0.3~1.0초) → 충돌하면 다시 고름(최대 5번) → 5%는 결제 포기 → 토스 결제 → 확정. 선점 응답에 `holdId`가 있으면(REDIS 모드) 결제 전에 좌석 선택 완료로 예약을 만든다. 선점·좌석 선택 완료·승인 응답 시간(`demo_hold_ms`·`demo_convert_ms`·`demo_confirm_ms`)을 남긴다 |
 | `rival.py` | 경쟁 봇. 4번 장면의 충돌을 확실히 만들기 위해, 회원이 대기열을 통과하고 5초 뒤 A구역 1열 10번을 먼저 선점한다 |
 | `input.json` | `prepare.py`가 만든다. 봇 토큰이 있어 Git에 올리지 않는다 |
 
 통합시험 환경에서 함께 바꾼 것
 - `compose.integration.yml`: 대기열 입장 속도·동시 입장 상한을 `DEMO_QUEUE_ADMIT_PER_SECOND`·`DEMO_QUEUE_MAX_ACTIVE`로 바꿀 수 있다. 없으면 기존 기본값(10, 1000).
+- `compose.integration.yml`: 예매 서비스 선점 위치를 `DEMO_SEAT_HOLD_MODE`(DB·REDIS)로 바꿀 수 있다(#476). 없으면 DB. REDIS 모드는 Redis 선점 코드가 들어간 소스로 빌드했을 때만 동작한다.
 - `infra/integration/init-schemas.sh`: 기본 `infra/postgres/init.sh`와 결제 스키마를 두 번 만들어 PostgreSQL 초기화가 실패하던 문제를 고쳤다.
 
 ## 3. 준비물
