@@ -955,3 +955,14 @@ a.item:hover { background:var(--deep); }
   color: var(--muted);
   border: 1px solid var(--muted);
 }
+/* REDIS 모드 선점이 끝났을 때(만료·다른 분이 먼저 예매·해제) */
+.hold-ended { max-width:520px; margin:48px auto; padding:36px 32px 32px; border:1px solid var(--line); border-radius:12px; background:var(--surface); text-align:center; }
+.hold-ended-mark { display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; border:2px solid var(--red); color:var(--red); font-size:22px; font-weight:700; margin-bottom:18px; }
+.hold-ended h1 { font-size:20px; font-weight:700; margin:0 0 10px; }
+.hold-ended > p { color:var(--muted); font-size:14px; line-height:1.7; margin:0 0 22px; }
+.hold-ended-item { margin:0 0 24px; padding:14px 18px; border-radius:8px; background:var(--deep); text-align:left; font-size:13px; }
+.hold-ended-item div { display:flex; justify-content:space-between; gap:16px; padding:4px 0; }
+.hold-ended-item dt { color:var(--dim); }
+.hold-ended-item dd { margin:0; text-align:right; }
+.hold-ended-actions { display:flex; flex-direction:column; gap:10px; }
+@media (min-width:480px) { .hold-ended-actions { flex-direction:row; } .hold-ended-actions .btn { flex:1; } }
