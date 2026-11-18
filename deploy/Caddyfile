@@ -8,6 +8,13 @@
 		reverse_proxy localhost:8080
 	}
 
+	# 결제 화면이 브라우저에서 부르는 가짜 PG 결제창 인증 하나만 vm-data의 fake-pg로 넘긴다.
+	# fake-pg의 나머지 경로(/fake/admin/** 장애 주입, /v1/payments 승인 등)는 인터넷에서 닿으면 안 되므로 열지 않는다.
+	handle /fake-pg/fake/toss/checkout {
+		uri strip_prefix /fake-pg
+		reverse_proxy {$DATA_IP}:8090
+	}
+
 	handle {
 		root * /srv/frontend
 		# 화면 경로(/bookings/1 등)는 파일이 없으므로 index.html을 내보내 프론트 라우터가 처리하게 한다

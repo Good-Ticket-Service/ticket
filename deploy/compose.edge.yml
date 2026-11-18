@@ -56,6 +56,8 @@ services:
     logging: *log
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN이 필요하다}
+      # 결제창 인증 요청을 넘길 vm-data의 fake-pg 주소
+      DATA_IP: ${DATA_IP:?DATA_IP가 필요하다}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # 프론트 빌드 결과(frontend/dist). 프론트를 다른 곳에 두기로 하면 Caddyfile의 정적 파일 부분과 함께 뺀다.

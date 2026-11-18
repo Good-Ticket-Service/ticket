@@ -8,7 +8,7 @@
 | `compose.data.yml` | vm-data | Postgres, Redis, Kafka, fake-pg, Prometheus, Alertmanager, Grafana, Kafka UI, node-exporter, cAdvisor, postgres·redis·kafka exporter |
 | `compose.edge.yml` | vm-edge | Caddy, config-server, eureka, gateway, user, performance, waiting-room, node-exporter |
 | `compose.core.yml` | vm-core | reservation, payment, node-exporter |
-| `Caddyfile` | vm-edge | `/api/*` → gateway, 나머지는 프론트 정적 파일 |
+| `Caddyfile` | vm-edge | `/api/*` → gateway, 가짜 PG 결제창 인증(`/fake-pg/fake/toss/checkout`) → vm-data fake-pg, 나머지는 프론트 정적 파일 |
 | `postgres/schemas.sh` | vm-data | 빈 DB에 서비스 테이블 생성 |
 | `postgres/metrics.sh` | vm-data | 지표 수집 계정(`metrics_app`)과 SQL 통계 확장(`pg_stat_statements`) 생성 |
 | `postgres/exporter-queries.yaml` | vm-data | postgres-exporter의 진단 쿼리(계정별 세션·대기, 오래 열린 트랜잭션, 잠금 대기, WAL, 계정별 SQL 통계) |
