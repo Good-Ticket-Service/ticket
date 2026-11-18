@@ -6,6 +6,7 @@ import type { Hold, PerformanceDetail, Schedule, Seat, SeatLayout, SeatStatus } 
 import { ErrorNotice, Loading, Poster } from '../components/Common';
 import { clearEntryToken, entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
+import { checkoutPath } from '../lib/holdCheckout';
 import { saveSeatLabel } from '../lib/seatLabels';
 import { mergeSeatStatus, seatName, seatSections } from '../lib/seatMap';
 
@@ -86,8 +87,9 @@ export function SeatsPage() {
       }),
     onSuccess: (result, seat) => {
       setUncertain(null);
-      saveSeatLabel(result.reservationId, seatName(seat));
-      navigate(`/reservations/${result.reservationId}/checkout`);
+      // REDIS 모드 선점은 예약이 아직 없어 holdId로 결제 화면에 간다. 예약은 결제하기 때 만든다
+      saveSeatLabel(result.holdId ?? result.reservationId!, seatName(seat));
+      navigate(checkoutPath(scheduleId!, result));
     },
     onError: (error, seat) => {
       if (backToQueue(error)) return;
