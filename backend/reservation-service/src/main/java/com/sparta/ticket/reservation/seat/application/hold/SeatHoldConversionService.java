@@ -43,11 +43,9 @@ public class SeatHoldConversionService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final SeatHoldTransactions transactions;
     private final Clock clock;
-    private final RedisSeatHoldMetrics metrics;
 
     public SeatHoldResult convert(Long userId, Long scheduleId, String holdId) {
         if (!HoldIds.isHoldId(holdId)) {
-            metrics.convert("not_found");
             throw new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND);
         }
         Instant now = clock.instant();
@@ -57,13 +55,10 @@ public class SeatHoldConversionService {
         switch (start.outcome()) {
             case NOT_FOUND, FORBIDDEN:
                 // 남의 선점인지 드러내지 않는다. holdId는 추측할 수 없는 값이다
-                metrics.convert("not_found");
                 throw new BusinessException(ReservationErrorCode.HOLD_NOT_FOUND);
             case EXPIRED:
-                metrics.convert("expired");
                 throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
             case CONVERTED:
-                metrics.convert("already_converted");
                 return converted(scheduleId, holdId, start.reservationId());
             case STARTED:
                 break;
@@ -79,7 +74,6 @@ public class SeatHoldConversionService {
                 .filter(found -> found.getScheduleId().equals(scheduleId))
                 .orElse(null);
         if (seat == null) {
-            metrics.convert("rejected");
             abort(hold, true);
             throw new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND);
         }
@@ -93,26 +87,20 @@ public class SeatHoldConversionService {
             result = transactions.holdUntil(userId, scheduleId, target, hold.validation(), holdExpiresAt);
         } catch (BusinessException e) {
             // 좌석이 이미 잡힘·매수 제한·판매 불가·구성 불일치·만료. 다시 시도해도 같으므로 선점을 지운다
-            metrics.convert("rejected");
             abort(hold, true);
             throw e;
         } catch (DataIntegrityViolationException e) {
             if (SeatHoldService.violates(e, SeatHoldService.ACTIVE_RESERVATION_CONSTRAINT)) {
-                metrics.convert("rejected");
                 abort(hold, true);
                 throw new BusinessException(ReservationErrorCode.PURCHASE_LIMIT_EXCEEDED);
             }
-            metrics.convert("failed");
             abort(hold, false);
             throw e;
         } catch (RuntimeException e) {
             // DB 장애 등. 예약이 생기지 않았으므로 다시 결제하기를 누를 수 있게 되돌린다
-            metrics.convert("failed");
             abort(hold, false);
             throw e;
         }
-
-        metrics.convert(result.created() ? "created" : "existing");
 
         // 4. 완료 기록. DB는 이미 커밋했으므로 Redis가 실패해도 예약을 돌려준다. 남은 키는 선점 만료 때 사라진다
         try {

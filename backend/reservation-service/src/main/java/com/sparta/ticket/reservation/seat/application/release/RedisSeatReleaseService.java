@@ -2,7 +2,6 @@ package com.sparta.ticket.reservation.seat.application.release;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.common.exception.CommonErrorCode;
-import com.sparta.ticket.reservation.seat.application.hold.RedisSeatHoldMetrics;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore.ReleaseAttempt;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +20,9 @@ public class RedisSeatReleaseService {
 
     private final SeatHoldStore store;
     private final SeatReleaseService seatReleaseService;
-    private final RedisSeatHoldMetrics metrics;
 
     public void release(Long userId, Long scheduleId, String holdId) {
         ReleaseAttempt attempt = store.release(scheduleId, holdId, userId);
-        metrics.release(RedisSeatHoldMetrics.tag(attempt.outcome()));
         switch (attempt.outcome()) {
             case GONE, RELEASED:
                 return;

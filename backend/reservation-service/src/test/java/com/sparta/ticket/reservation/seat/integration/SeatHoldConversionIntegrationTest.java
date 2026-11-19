@@ -8,15 +8,12 @@ import com.sparta.ticket.reservation.seat.application.hold.SeatHoldConversionSer
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
-import com.sparta.ticket.reservation.seat.application.release.RedisSeatReleaseService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.support.FakeSaleValidationPort;
 import com.sparta.ticket.reservation.seat.support.MutableSeatHoldModeSwitch;
 import com.sparta.ticket.reservation.support.ReservationIntegrationTest;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -58,12 +55,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private SeatReleaseService seatReleaseService;
-
-    @Autowired
-    private RedisSeatReleaseService redisSeatReleaseService;
-
-    @Autowired
-    private MeterRegistry meters;
 
     @Autowired
     private ScheduleSeatRepository scheduleSeatRepository;
@@ -280,35 +271,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
                 .isEqualTo("SEAT_CONFIG_VERSION_MISMATCH");
         assertThat(count("SELECT COUNT(*) FROM p_reservations")).isZero();
         assertThat(redis.hasKey(key("hold:" + hold.holdId()))).isFalse();
-    }
-
-    @Test
-    @DisplayName("Redis 선점의 선점·해제·결제하기 결과를 따로 센다(예매 담당 리뷰 5번)")
-    void countsRedisHolds() {
-        Long seatId = seat();
-        double holdCreated = counter("hold", "created");
-        double released = counter("release", "released");
-        double convertCreated = counter("convert", "created");
-        double convertExisting = counter("convert", "already_converted");
-
-        String first = seatHoldService.hold(USER, SCHEDULE, seatId).holdId();
-        redisSeatReleaseService.release(USER, SCHEDULE, first);
-        String second = seatHoldService.hold(USER, SCHEDULE, seatId).holdId();
-        conversionService.convert(USER, SCHEDULE, second);
-        conversionService.convert(USER, SCHEDULE, second);
-
-        assertThat(counter("hold", "created") - holdCreated).isEqualTo(2);
-        assertThat(counter("release", "released") - released).isEqualTo(1);
-        assertThat(counter("convert", "created") - convertCreated).isEqualTo(1);
-        assertThat(counter("convert", "already_converted") - convertExisting).isEqualTo(1);
-    }
-
-    private double counter(String operation, String result) {
-        Counter counter = meters.find("reservation.seat.hold.redis")
-                .tag("operation", operation)
-                .tag("result", result)
-                .counter();
-        return counter == null ? 0 : counter.count();
     }
 
     private String errorOf(Runnable action) {
