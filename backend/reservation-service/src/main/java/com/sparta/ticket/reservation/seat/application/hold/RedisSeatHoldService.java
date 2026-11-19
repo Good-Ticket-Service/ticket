@@ -22,11 +22,10 @@ import org.springframework.stereotype.Service;
  * REDIS 모드의 좌석 선점(#449). 선점은 Redis에만 기록하고 DB에는 쓰지 않는다. 예약은 결제하기 때 만든다.
  *
  * 처리 흐름(좌석 읽기와 판매 검증은 SeatHoldService가 이미 했다)
- *   1. 이미 읽은 좌석으로 거른다. 판매 불가, 구성 버전·가격이 판매 검증과 다름, DB에서 팔렸거나 만료 전 HOLD인 좌석, 만료됐지만
- *      예약이 결제 중인 좌석은 Redis에 기록하지 않는다.
+ *   1. 이미 읽은 좌석으로 거른다. 판매 불가, 구성 버전·가격이 판매 검증과 다름, DB에서 팔렸거나 만료 전 HOLD인 좌석은 Redis에 기록하지 않는다.
  *      잠금 없이 읽은 값이라 최종 판정은 아니다. 결제하기 때 선점 트랜잭션이 좌석을 잠그고 다시 판정한다.
  *   2. 만료 시각을 공유 Clock으로 한 번 계산해 hold.lua로 기록한다. 이 값을 결제하기 때 DB 예약에도 그대로 쓴다(architecture 11절).
- *   3. 예약으로 바꾼 적 있는 회원이면 DB를 한 번 읽어 매수 제한을 확인한다(RedisHoldDbReads). 막을 예약이 없으면 회원 표시를 지우고
+ *   3. 예약으로 바꾼 적 있는 회원이면 DB를 한 번 읽어 매수 제한을 확인한다(ConvertedUserCheck). 막을 예약이 없으면 회원 표시를 지우고
  *      한 번만 다시 기록한다. 그 사이 또 바뀌었으면 409다.
  */
 @Service
@@ -40,7 +39,7 @@ public class RedisSeatHoldService {
 
     private final SeatHoldStore store;
     private final SeatHoldDuration holdDuration;
-    private final RedisHoldDbReads dbReads;
+    private final ConvertedUserCheck convertedUserCheck;
     private final Clock clock;
 
     SeatHoldResult hold(Long userId, Long scheduleId, ScheduleSeat seat, SaleValidation validation) {
@@ -59,16 +58,9 @@ public class RedisSeatHoldService {
         if (seat.getStatus() == SeatStatus.SOLD) {
             throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
         }
-        // 만료된 HOLD는 그 예약이 결제 중이 아니면 비어 있는 것으로 본다(정리 전인 만료 선점). 결제 중인 예약은 선점 만료 뒤에도 좌석을
-        // 놓지 않으므로 409다. 여기서 막지 않으면 Redis 선점은 되지만 결제하기 때 409가 난다(#449 예매 담당 리뷰 1번)
-        Long heldInDbBy = null;
-        if (seat.getStatus() == SeatStatus.HOLD) {
-            if (!seat.isHoldExpiredAt(nowLocal)) {
-                heldInDbBy = seat.getReservationId();
-            } else if (dbReads.paymentInProgress(seat.getReservationId())) {
-                throw new BusinessException(ReservationErrorCode.SEAT_ALREADY_TAKEN);
-            }
-        }
+        // 만료된 HOLD는 비어 있는 것으로 본다. 그 예약이 결제 중이면 결제하기 때 선점 트랜잭션이 409로 막는다
+        Long heldInDbBy =
+                seat.getStatus() == SeatStatus.HOLD && !seat.isHoldExpiredAt(nowLocal) ? seat.getReservationId() : null;
 
         // 2. 기록
         Instant expiresAt = now.plus(holdDuration.current());
@@ -103,7 +95,7 @@ public class RedisSeatHoldService {
                 case CONVERTED_USER:
                     // 3. 예약으로 바꾼 적 있는 회원만 DB를 읽는다
                     Optional<SeatHoldResult> own =
-                            dbReads.checkConvertedUser(userId, scheduleId, seat.getId(), seat.getBasePrice(), nowLocal);
+                            convertedUserCheck.check(userId, scheduleId, seat.getId(), seat.getBasePrice(), nowLocal);
                     if (own.isPresent()) {
                         return own.get();
                     }
