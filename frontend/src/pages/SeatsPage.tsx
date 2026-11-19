@@ -4,11 +4,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, conditionalApi, getToken } from '../api/client';
 import type { Hold, PerformanceDetail, Schedule, Seat, SeatLayout, SeatStatus } from '../api/types';
 import { ErrorNotice, Loading, Poster } from '../components/Common';
-import { PendingHold } from '../components/PendingHold';
 import { clearEntryToken, entryToken } from '../lib/entryTokens';
 import { formatDateTime, won } from '../lib/format';
 import { checkoutPath } from '../lib/holdCheckout';
-import { rememberedHold, rememberHold } from '../lib/holdMemory';
 import { saveSeatLabel } from '../lib/seatLabels';
 import { mergeSeatStatus, seatName, seatSections } from '../lib/seatMap';
 
@@ -19,7 +17,6 @@ export function SeatsPage() {
   const [pickedId, setPickedId] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [uncertain, setUncertain] = useState<Seat | null>(null);
-  const [holdCheck, setHoldCheck] = useState(0);
   const valid = /^[1-9]\d*$/.test(scheduleId ?? '') && /^[1-9]\d*$/.test(performanceId ?? '');
   const auth = getToken();
   const layoutKey = ['seat-layout', scheduleId, auth];
@@ -92,15 +89,11 @@ export function SeatsPage() {
       setUncertain(null);
       // REDIS 모드 선점은 예약이 아직 없어 holdId로 결제 화면에 간다. 예약은 결제하기 때 만든다
       saveSeatLabel(result.holdId ?? result.reservationId!, seatName(seat));
-      // 결제 화면을 벗어나도 이 좌석 화면에서 선점으로 돌아올 수 있게 이 탭에 둔다(REDIS 모드만)
-      if (result.holdId) rememberHold(scheduleId!, result.holdId);
       navigate(checkoutPath(scheduleId!, result));
     },
     onError: (error, seat) => {
       if (backToQueue(error)) return;
       setUncertain(error instanceof ApiError && (error.status === 0 || error.status >= 500) ? seat : null);
-      // 1인 1매에 막혔으면 이 탭에서 잡아 둔 선점이 살아 있는지 다시 본다
-      if (error instanceof ApiError && error.code === 'PURCHASE_LIMIT_EXCEEDED') setHoldCheck((value) => value + 1);
       setPickedId(null);
       client.invalidateQueries({ queryKey: seatKey });
     },
@@ -151,16 +144,6 @@ export function SeatsPage() {
       {schedule.isPending && <Loading />}
       {schedule.isError && <ErrorNotice error={schedule.error} />}
       {schedule.isSuccess && !matches && <p className="notice">이 공연에 속한 회차가 아니에요.</p>}
-      {matches && (
-        <PendingHold
-          scheduleId={scheduleId!}
-          checkKey={holdCheck}
-          onReleased={() => {
-            hold.reset();
-            client.invalidateQueries({ queryKey: seatKey });
-          }}
-        />
-      )}
       {matches && (
         <div className="seat-selection-layout">
           <section className="seat-map-panel" aria-label="좌석 배치도">
@@ -315,14 +298,7 @@ export function SeatsPage() {
               <dt>선택 좌석 금액</dt>
               <dd>{picked?.basePrice != null ? won(picked.basePrice) : '—'}</dd>
             </dl>
-            {hold.isError &&
-              (hold.error instanceof ApiError &&
-              hold.error.code === 'PURCHASE_LIMIT_EXCEEDED' &&
-              rememberedHold(scheduleId!) ? (
-                <p className="notice">진행 중인 좌석 선점이 있어 다른 좌석을 고를 수 없어요. 위 안내에서 이어 가 주세요.</p>
-              ) : (
-                <ErrorNotice error={hold.error} />
-              ))}
+            {hold.isError && <ErrorNotice error={hold.error} />}
             {uncertain && (
               <div className="stack">
                 <p className="booking-hint">
