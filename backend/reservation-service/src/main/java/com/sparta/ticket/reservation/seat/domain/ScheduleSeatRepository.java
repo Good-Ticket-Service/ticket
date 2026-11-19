@@ -16,9 +16,6 @@ public interface ScheduleSeatRepository {
     /** 좌석 하나를 잠그지 않고 읽는다. 삭제된 좌석은 빈 값이다. */
     Optional<ScheduleSeat> findById(Long id);
 
-    /** 선점 진입에 필요한 좌석 필드만 읽는다. 좌석 ID와 회차가 모두 맞지 않으면 빈 값이다. */
-    Optional<SeatHoldSnapshot> findForHold(Long id, Long scheduleId);
-
     /** 넘긴 좌석을 id 오름차순으로 잠그고 읽는다. 없는 id와 삭제된 좌석은 결과에서 빠진다. 트랜잭션 안에서만 부른다. */
     List<ScheduleSeat> findAllByIdsForUpdate(Collection<Long> ids);
 
