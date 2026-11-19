@@ -11,7 +11,7 @@ import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 
 /**
- * 선점용 좌석 고정 정보를 서버 메모리에 두는 캐시(#459).
+ * 선점용 좌석 고정 정보를 서버 메모리에 두는 캐시(#449 후속).
  *
  * Note: 고정 정보는 판매 중에 바뀌지 않지만 좌석 구성 변경(재준비)은 판매 전에 일어날 수 있다. 그 서버에서는 커밋 뒤 지우고(SeatSetupService),
  * 다른 서버는 TTL로 낡은 값을 버린다. 낡은 값으로 선점하면 판매 검증의 구성 버전 불일치나 결제하기 트랜잭션의 재판정이 409로 막는다.

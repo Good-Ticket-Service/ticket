@@ -91,7 +91,7 @@ public class SeatSetupService {
         }
 
         apply(command, locked);
-        // 선점용 좌석 고정 정보(#459)를 커밋 뒤 지운다. 커밋 전에 지우면 그 사이 선점이 바뀌기 전 좌석을 다시 읽어 둘 수 있다
+        // 선점용 좌석 고정 정보(#449 후속)를 커밋 뒤 지운다. 커밋 전에 지우면 그 사이 선점이 바뀌기 전 좌석을 다시 읽어 둘 수 있다
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {

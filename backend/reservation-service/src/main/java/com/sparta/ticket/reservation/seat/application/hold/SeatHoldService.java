@@ -45,9 +45,9 @@ public class SeatHoldService {
 
     public SeatHoldResult hold(Long userId, Long scheduleId, Long scheduleSeatId) {
         // 1. 경로의 회차 좌석인지 확인한다. 다른 회차 좌석을 받으면 그 회차의 판매 기간·매수 제한을 우회할 수 있다
-        //    REDIS 모드는 점유를 Redis가 보므로(#459) DB 대신 서버 메모리의 좌석 고정 정보를 읽는다
-        boolean redis = modeSwitch.current() == SeatHoldMode.REDIS;
-        SeatHoldSnapshot seat = (redis
+        //    Redis 점유 판정(#459)은 점유를 Redis가 보므로 DB 대신 서버 메모리의 좌석 고정 정보를 읽는다
+        boolean fixedOnly = modeSwitch.current() == SeatHoldMode.REDIS && modeSwitch.redisSeatState();
+        SeatHoldSnapshot seat = (fixedOnly
                         ? holdSeats.find(scheduleId, scheduleSeatId)
                         : scheduleSeatRepository.findForHold(scheduleSeatId, scheduleId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
@@ -60,7 +60,7 @@ public class SeatHoldService {
         }
 
         // REDIS 모드(#449)는 여기서 Redis에만 기록하고 DB 트랜잭션을 열지 않는다
-        if (redis) {
+        if (modeSwitch.current() == SeatHoldMode.REDIS) {
             return redisHolds.hold(userId, scheduleId, seat, validation);
         }
 

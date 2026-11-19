@@ -25,7 +25,20 @@ public class MutableSeatHoldModeSwitch extends SeatHoldModeSwitch {
         this.mode = mode;
     }
 
+    private volatile boolean redisSeatState;
+
+    /** Redis 점유 판정(#459)을 켠다. reset()이 끈다. */
+    public void setRedisSeatState(boolean on) {
+        this.redisSeatState = on;
+    }
+
+    @Override
+    public boolean redisSeatState() {
+        return redisSeatState;
+    }
+
     public void reset() {
         this.mode = configured;
+        this.redisSeatState = false;
     }
 }

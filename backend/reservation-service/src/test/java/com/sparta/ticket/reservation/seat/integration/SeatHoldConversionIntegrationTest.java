@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sparta.ticket.common.exception.BusinessException;
 import com.sparta.ticket.reservation.booking.support.MutableClock;
-import com.sparta.ticket.reservation.seat.application.hold.RedisSeatStateLoader;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldConversionService;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
@@ -55,9 +54,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private SeatHoldService seatHoldService;
-
-    @Autowired
-    private RedisSeatStateLoader stateLoader;
 
     @Autowired
     private SeatHoldConversionService conversionService;
@@ -329,8 +325,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
     @DisplayName("Redis 선점의 선점·해제·결제하기 결과를 따로 센다(예매 담당 리뷰 5번)")
     void countsRedisHolds() {
         Long seatId = seat();
-        // 올린 회차라 선점마다 hold.lua를 한 번만 부른다(올리지 않은 회차는 Redis 판정 시도 뒤 DB 판정으로 한 번 더 부른다)
-        stateLoader.reload(SCHEDULE);
         double holdCreated = counter("hold", "created");
         double released = counter("release", "released");
         double convertCreated = counter("convert", "created");
