@@ -55,31 +55,6 @@ public class SeatHoldTransactions {
 
     @Transactional
     public SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldTarget target, SaleValidation validation) {
-        return doHold(userId, scheduleId, target, validation, null);
-    }
-
-    /**
-     * REDIS 모드의 결제하기(#449). Redis 선점 때 정한 만료 시각을 그대로 예약·좌석에 쓴다(architecture 11절: 한 번 계산해 같은 값 저장).
-     * 판매 검증도 선점 때 받은 결과를 쓴다. 나머지 판정(좌석 잠금, 같은 회원 재요청, 만료 선점 정리, 매수 제한)은 DB 모드 선점과 같다.
-     * 잠금을 기다리는 사이 그 만료 시각이 지났으면 409 HOLD_EXPIRED다.
-     */
-    @Transactional
-    public SeatHoldResult holdUntil(
-            Long userId,
-            Long scheduleId,
-            SeatHoldTarget target,
-            SaleValidation validation,
-            LocalDateTime holdExpiresAt) {
-        return doHold(userId, scheduleId, target, validation, holdExpiresAt);
-    }
-
-    /** @param fixedExpiresAt null이면 잠근 뒤의 현재 시각 + 유지 시간으로 계산한다 */
-    private SeatHoldResult doHold(
-            Long userId,
-            Long scheduleId,
-            SeatHoldTarget target,
-            SaleValidation validation,
-            LocalDateTime fixedExpiresAt) {
         // 1. 함께 잠글 좌석을 고른다. 예약만 읽고 좌석 Entity는 아직 읽지 않는다(잠그기 전에 읽으면 낡은 값이 남는다).
         //    이 회원의 HOLD와 요청 좌석을 잡고 있던 예약은 만료 여부와 관계없이 좌석 전체를 잠근다. 판매 검증을 기다리는 사이 만료될 수
         //    있어서, 지금 만료 전이라고 빼 두면 잠근 뒤 만료됐을 때 그 예약의 다른 좌석을 정리할 수 없다
@@ -176,11 +151,7 @@ public class SeatHoldTransactions {
 
         // 8. 예약을 만들고 좌석을 잡는다. 만료 시각은 한 번 계산해 예약과 좌석에 같은 값을 쓴다. 가격은 좌석의 스냅샷 가격이다.
         //    공연·판매자(#86), 회차 시작 시각·공연명(#126), 공연 장르(#383)는 클라이언트 입력이 아니라 판매 검증 응답 값을 그대로 넘긴다
-        LocalDateTime holdExpiresAt = fixedExpiresAt != null ? fixedExpiresAt : now.plus(holdDuration.current());
-        if (!holdExpiresAt.isAfter(now)) {
-            // 결제하기의 만료 시각이 잠금을 기다리는 사이 지났다. 만든 예약이 곧바로 만료 대상이 되므로 만들지 않는다
-            throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
-        }
+        LocalDateTime holdExpiresAt = now.plus(holdDuration.current());
         HoldTarget holdTarget = new HoldTarget(
                 scheduleId,
                 validation.performanceId(),

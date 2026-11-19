@@ -97,7 +97,7 @@ public class SeatHoldService {
      * ("violates unique constraint \"...\"")에서 잘라 낸다(Hibernate 6.6 PostgreSQLDialect). DB 메시지 언어(lc_messages)가
      * 영어가 아니면 null이 되어 409가 아니라 500이 나간다. 서버 오류 정보의 제약 이름은 언어와 관계없다.
      */
-    static boolean violates(DataIntegrityViolationException e, String constraintName) {
+    private static boolean violates(DataIntegrityViolationException e, String constraintName) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null) {
                 return constraintName.equalsIgnoreCase(
