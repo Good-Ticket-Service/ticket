@@ -1,18 +1,10 @@
 package com.sparta.ticket.reservation.seat.application.remaining;
 
-import com.sparta.ticket.common.exception.BusinessException;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldModeSwitch;
 import com.sparta.ticket.reservation.seat.application.port.RemainingSeatCache;
-import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
-import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,7 +19,6 @@ import org.springframework.stereotype.Service;
  *
  * Note: 트랜잭션을 열지 않는다. 캐시에 있으면 DB 연결을 잡지 않고, 없으면 집계 쿼리 하나만 실행한다.
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RemainingSeatService {
@@ -35,8 +26,6 @@ public class RemainingSeatService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final RemainingSeatCache cache;
     private final Clock clock;
-    private final SeatHoldModeSwitch modeSwitch;
-    private final SeatHoldStore holdStore;
 
     public RemainingSeatsResult getRemaining(Long scheduleId) {
         RemainingSeatCache.Lookup lookup = cache.getOrLoad(scheduleId, () -> count(scheduleId));
@@ -47,33 +36,6 @@ public class RemainingSeatService {
     private RemainingSeats count(Long scheduleId) {
         // 집계 시각은 seat·booking이 함께 쓰는 Clock에서 읽는다. 응답의 asOf로 나간다
         LocalDateTime asOf = LocalDateTime.now(clock);
-        List<GradeRemaining> grades = scheduleSeatRepository.countRemainingByGrade(scheduleId);
-        return new RemainingSeats(scheduleId, withoutRedisHolds(scheduleId, grades), asOf);
-    }
-
-    /**
-     * REDIS 모드(#449)에서 Redis로 잡힌 좌석은 DB에서 AVAILABLE이라 남은 좌석으로 세어진다. 등급별 개수를 빼 "적게 보이는 쪽"
-     * 원칙을 지킨다. Redis를 읽지 못하면 DB 집계만 준다(안내용이라 오류로 바꾸지 않는다).
-     */
-    private List<GradeRemaining> withoutRedisHolds(Long scheduleId, List<GradeRemaining> grades) {
-        if (modeSwitch.current() != SeatHoldMode.REDIS || grades.isEmpty()) {
-            return grades;
-        }
-        Map<Long, Long> held;
-        try {
-            held = holdStore.heldCountByGrade(
-                    scheduleId,
-                    grades.stream().map(GradeRemaining::venueSeatGradeId).toList(),
-                    clock.instant());
-        } catch (BusinessException e) {
-            log.warn("Redis 선점 수를 읽지 못해 DB 집계만으로 잔여석을 준다. scheduleId={}", scheduleId);
-            return grades;
-        }
-        return grades.stream()
-                .map(grade -> new GradeRemaining(
-                        grade.venueSeatGradeId(),
-                        grade.gradeName(),
-                        Math.max(0, grade.remaining() - held.getOrDefault(grade.venueSeatGradeId(), 0L))))
-                .toList();
+        return new RemainingSeats(scheduleId, scheduleSeatRepository.countRemainingByGrade(scheduleId), asOf);
     }
 }

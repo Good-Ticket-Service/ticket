@@ -2,10 +2,7 @@ package com.sparta.ticket.reservation.seat.application.port;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Redis 선점 저장소(#449). REDIS 모드에서 선점을 DB 대신 여기에 두고, 결제하기 때 DB 예약으로 바꾼다.
@@ -48,12 +45,6 @@ public interface SeatHoldStore {
 
     /** DB 트랜잭션이 실패했을 때 부른다. drop이면 선점을 지우고(좌석이 이미 DB에서 잡힘 등), 아니면 다시 HELD로 되돌린다. */
     void abortConvert(StoredHold hold, boolean drop);
-
-    /** 지금 Redis로 잡혀 있는(만료 전) 좌석 ID. 좌석 화면 스냅샷이 선택 불가로 덮는다. 예약으로 바꾼 좌석은 빠진다(DB가 HOLD로 보여 준다). */
-    Set<Long> heldSeatIds(Long scheduleId, Instant now);
-
-    /** 등급별로 지금 Redis로 잡혀 있는(만료 전) 좌석 수. 잔여석에서 뺀다. 목록에 없는 등급은 0이다. */
-    Map<Long, Long> heldCountByGrade(Long scheduleId, Collection<Long> venueSeatGradeIds, Instant now);
 
     /** 회원 키가 아직 "CONVERTED:reservationId"일 때만 지운다. 그 예약이 이미 끝난 것을 DB로 확인한 뒤 부른다. */
     boolean clearConvertedUser(Long scheduleId, Long userId, Long reservationId);

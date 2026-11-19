@@ -6,23 +6,16 @@ import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationSeat;
 import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.application.port.StoredHold;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.domain.Range;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -102,7 +95,10 @@ public class RedisSeatHoldStore implements SeatHoldStore {
             args.add(field);
             args.add(value);
         });
-        List<String> result = executeList(HOLD_SCRIPT, keys(hold), args.toArray(String[]::new));
+        List<String> result = executeList(
+                HOLD_SCRIPT,
+                SeatHoldKeys.all(hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId()),
+                args.toArray(String[]::new));
         HoldOutcome outcome = HOLD_OUTCOMES[code(result)];
         return switch (outcome) {
             case CREATED, EXISTING -> new HoldAttempt(outcome, result.get(1), null);
@@ -129,7 +125,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
         // 좌석 ID는 선점 키에만 있어 먼저 읽는다. 읽은 뒤 사라지거나 바뀌어도 Lua가 선점 키를 다시 보고 판단한다
         List<String> result = executeList(
                 RELEASE_SCRIPT,
-                SeatHoldKeys.all(scheduleId, hold.get().scheduleSeatId(), userId, holdId, gradeId(hold.get())),
+                SeatHoldKeys.all(scheduleId, hold.get().scheduleSeatId(), userId, holdId),
                 holdId,
                 String.valueOf(userId));
         ReleaseOutcome outcome = RELEASE_OUTCOMES[code(result)];
@@ -153,7 +149,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
     public void finishConvert(StoredHold hold, Long reservationId, Instant userKeyExpiresAt, Instant now) {
         call(() -> redis.execute(
                 CONVERT_FINISH_SCRIPT,
-                keys(hold),
+                SeatHoldKeys.all(hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId()),
                 hold.holdId(),
                 String.valueOf(reservationId),
                 String.valueOf(ttlMillis(userKeyExpiresAt, now)),
@@ -164,7 +160,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
     public void abortConvert(StoredHold hold, boolean drop) {
         call(() -> redis.execute(
                 CONVERT_ABORT_SCRIPT,
-                keys(hold),
+                SeatHoldKeys.all(hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId()),
                 hold.holdId(),
                 drop ? "drop" : "revert",
                 String.valueOf(hold.scheduleSeatId())));
@@ -177,49 +173,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
                 List.of(SeatHoldKeys.user(scheduleId, userId)),
                 CONVERTED_PREFIX + reservationId));
         return Long.valueOf(1L).equals(result);
-    }
-
-    @Override
-    public Set<Long> heldSeatIds(Long scheduleId, Instant now) {
-        Set<String> members = call(() -> redis.opsForZSet()
-                .rangeByScore(SeatHoldKeys.held(scheduleId), now.toEpochMilli() + 1, Double.POSITIVE_INFINITY));
-        Set<Long> ids = new HashSet<>();
-        if (members != null) {
-            members.forEach(member -> ids.add(Long.valueOf(member)));
-        }
-        return ids;
-    }
-
-    @Override
-    public Map<Long, Long> heldCountByGrade(Long scheduleId, Collection<Long> venueSeatGradeIds, Instant now) {
-        List<Long> grades = List.copyOf(venueSeatGradeIds);
-        if (grades.isEmpty()) {
-            return Map.of();
-        }
-        // 등급마다 개수만 센다(ZCOUNT). 한 번의 왕복으로 보낸다
-        List<Object> counts = call(() -> redis.executePipelined((RedisCallback<Object>) connection -> {
-            for (Long grade : grades) {
-                connection
-                        .zSetCommands()
-                        .zCount(
-                                SeatHoldKeys.heldGrade(scheduleId, grade).getBytes(StandardCharsets.UTF_8),
-                                Range.closed(now.toEpochMilli() + 1, Double.POSITIVE_INFINITY));
-            }
-            return null;
-        }));
-        Map<Long, Long> result = new HashMap<>();
-        for (int i = 0; i < grades.size(); i++) {
-            result.put(grades.get(i), ((Number) counts.get(i)).longValue());
-        }
-        return result;
-    }
-
-    private static List<String> keys(StoredHold hold) {
-        return SeatHoldKeys.all(hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId(), gradeId(hold));
-    }
-
-    private static Long gradeId(StoredHold hold) {
-        return hold.validation().seats().get(0).venueSeatGradeId();
     }
 
     /** 키 만료로 넘길 상대 시간(ms). 이미 지난 시각이면 1ms로 둔다(Redis는 0 이하 만료를 받지 않는다). */

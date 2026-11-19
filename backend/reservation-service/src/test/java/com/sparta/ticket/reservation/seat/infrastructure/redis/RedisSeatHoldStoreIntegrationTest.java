@@ -430,52 +430,6 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
     }
 
     @Nested
-    @DisplayName("좌석 화면·잔여석이 읽는 선점 좌석")
-    class Held {
-
-        /** 테스트 선점의 등급(newHold의 판매 검증 좌석 등급). */
-        private static final Long GRADE = 7L;
-
-        @Test
-        @DisplayName("만료 전 선점 좌석만 돌려주고, 등급별 개수도 같다")
-        void heldSeatsAndCounts() {
-            long schedule = newSchedule();
-            store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), null, Instant.now());
-            store.hold(newHold(schedule, 2L, OTHER_SEAT, Instant.now().plusSeconds(1)), null, Instant.now());
-            Instant later = Instant.now().plusSeconds(2);
-
-            assertThat(store.heldSeatIds(schedule, Instant.now())).containsExactlyInAnyOrder(SEAT, OTHER_SEAT);
-            assertThat(store.heldSeatIds(schedule, later)).containsExactly(SEAT);
-            assertThat(store.heldCountByGrade(schedule, List.of(GRADE, 99L), later))
-                    .containsEntry(GRADE, 1L)
-                    .containsEntry(99L, 0L);
-        }
-
-        @Test
-        @DisplayName("해제·예약으로 바꾸기·바꾸기 실패(drop)는 두 목록에서 모두 뺀다")
-        void removedFromBothLists() {
-            long schedule = newSchedule();
-            StoredHold released = newHold(schedule, 1L, SEAT, inMinutes(10));
-            StoredHold converted = newHold(schedule, 2L, OTHER_SEAT, inMinutes(10));
-            StoredHold dropped = newHold(schedule, 3L, 13L, inMinutes(10));
-            for (StoredHold hold : List.of(released, converted, dropped)) {
-                store.hold(hold, null, Instant.now());
-            }
-            assertThat(store.heldCountByGrade(schedule, List.of(GRADE), Instant.now()))
-                    .containsEntry(GRADE, 3L);
-
-            store.release(schedule, released.holdId(), 1L);
-            convert(converted, 77L);
-            store.beginConvert(schedule, dropped.holdId(), 3L, Instant.now(), Duration.ofSeconds(3));
-            store.abortConvert(dropped, true);
-
-            assertThat(store.heldSeatIds(schedule, Instant.now())).isEmpty();
-            assertThat(store.heldCountByGrade(schedule, List.of(GRADE), Instant.now()))
-                    .containsEntry(GRADE, 0L);
-        }
-    }
-
-    @Nested
     @DisplayName("끝난 예약의 회원 표시 지우기")
     class ClearConvertedUser {
 

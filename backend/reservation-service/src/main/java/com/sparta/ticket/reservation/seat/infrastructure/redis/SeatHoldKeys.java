@@ -30,19 +30,10 @@ final class SeatHoldKeys {
         return prefix(scheduleId) + "held";
     }
 
-    /** 등급별 선점 좌석 목록(ZSET, member = 좌석 ID, score = 만료 시각 ms). 잔여석이 등급마다 개수만 센다. */
-    static String heldGrade(Long scheduleId, Long venueSeatGradeId) {
-        return prefix(scheduleId) + "held:g" + venueSeatGradeId;
-    }
-
-    /** Lua 스크립트가 받는 KEYS 순서(좌석, 회원, 선점, 목록, 등급별 목록). */
-    static List<String> all(Long scheduleId, Long scheduleSeatId, Long userId, String holdId, Long venueSeatGradeId) {
+    /** Lua 스크립트가 받는 KEYS 순서(좌석, 회원, 선점, 목록). */
+    static List<String> all(Long scheduleId, Long scheduleSeatId, Long userId, String holdId) {
         return List.of(
-                seat(scheduleId, scheduleSeatId),
-                user(scheduleId, userId),
-                hold(scheduleId, holdId),
-                held(scheduleId),
-                heldGrade(scheduleId, venueSeatGradeId));
+                seat(scheduleId, scheduleSeatId), user(scheduleId, userId), hold(scheduleId, holdId), held(scheduleId));
     }
 
     private static String prefix(Long scheduleId) {
