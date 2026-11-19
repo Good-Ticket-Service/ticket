@@ -6,7 +6,6 @@ import com.sparta.ticket.reservation.booking.application.facade.BookingFacade;
 import com.sparta.ticket.reservation.booking.application.facade.ReleaseResult;
 import com.sparta.ticket.reservation.booking.application.facade.ReservationView;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
-import com.sparta.ticket.reservation.seat.application.hold.RedisSeatStateSync;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
@@ -36,7 +35,6 @@ public class SeatReleaseService {
 
     private final BookingFacade bookingFacade;
     private final ScheduleSeatRepository scheduleSeatRepository;
-    private final RedisSeatStateSync stateSync;
 
     @Transactional
     public void release(Long userId, Long scheduleId, Long reservationId) {
@@ -68,11 +66,7 @@ public class SeatReleaseService {
         //    반환은 HOLD 좌석만 한다. 끝난 선점의 좌석이 SOLD면 예약과 좌석이 어긋난 상태라, 판 좌석을 다시 팔지 않도록 풀지 않고 알린다
         List<ScheduleSeat> held =
                 locked.stream().filter(seat -> seat.isHeldBy(reservationId)).toList();
-        List<ScheduleSeat> returned = held.stream()
-                .filter(seat -> seat.getStatus() == SeatStatus.HOLD)
-                .toList();
-        returned.forEach(seat -> seat.release(reservationId));
-        stateSync.releasedAfterCommit(returned, reservationId);
+        held.stream().filter(seat -> seat.getStatus() == SeatStatus.HOLD).forEach(seat -> seat.release(reservationId));
         List<Long> sold = held.stream()
                 .filter(seat -> seat.getStatus() == SeatStatus.SOLD)
                 .map(ScheduleSeat::getId)

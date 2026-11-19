@@ -3,7 +3,6 @@ package com.sparta.ticket.reservation.seat.application;
 import com.sparta.ticket.reservation.seat.application.facade.SeatFacade;
 import com.sparta.ticket.reservation.seat.application.facade.SeatLock;
 import com.sparta.ticket.reservation.seat.application.facade.SeatState;
-import com.sparta.ticket.reservation.seat.application.hold.RedisSeatStateSync;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
 import java.util.Collection;
@@ -29,7 +28,6 @@ public class SeatFacadeService implements SeatFacade {
 
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final SeatChangeStamps changeStamps;
-    private final RedisSeatStateSync stateSync;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
@@ -61,12 +59,8 @@ public class SeatFacadeService implements SeatFacade {
         if (ids.isEmpty()) {
             return 0;
         }
-        List<ScheduleSeat> locked = scheduleSeatRepository.findAllByIdsForUpdate(ids);
-        int released = scheduleSeatRepository.release(ids, reservationId, changeStamps.now(), changeStamps.by());
-        // Note: booking의 트랜잭션 안이라 커밋 뒤에 Redis 점유 좌석을 지운다. 이 예약이 잡고 있던 좌석만 지워진다(값 비교)
-        stateSync.releasedAfterCommit(
-                locked.stream().filter(seat -> seat.isHeldBy(reservationId)).toList(), reservationId);
-        return released;
+        scheduleSeatRepository.findAllByIdsForUpdate(ids);
+        return scheduleSeatRepository.release(ids, reservationId, changeStamps.now(), changeStamps.by());
     }
 
     private static List<Long> distinct(Collection<Long> ids) {

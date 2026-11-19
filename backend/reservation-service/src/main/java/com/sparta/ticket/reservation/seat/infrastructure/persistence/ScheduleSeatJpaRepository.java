@@ -1,15 +1,12 @@
 package com.sparta.ticket.reservation.seat.infrastructure.persistence;
 
 import com.sparta.ticket.reservation.seat.domain.GradeRemaining;
-import com.sparta.ticket.reservation.seat.domain.ReservedSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
-import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -26,19 +23,6 @@ public interface ScheduleSeatJpaRepository extends JpaRepository<ScheduleSeat, L
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM ScheduleSeat s WHERE s.id IN :ids ORDER BY s.id")
     List<ScheduleSeat> findAllByIdsForUpdate(@Param("ids") Collection<Long> ids);
-
-    // Note: 예약 ID가 있는 좌석이 HOLD·SOLD다. 좌석 상태와 예약 ID의 일관성은 ck_p_schedule_seats_holder가 지킨다(#66)
-    @Override
-    @Query("SELECT new com.sparta.ticket.reservation.seat.domain.ReservedSeat(s.id, s.reservationId)"
-            + " FROM ScheduleSeat s WHERE s.scheduleId = :scheduleId AND s.reservationId IS NOT NULL")
-    List<ReservedSeat> findReservedSeats(@Param("scheduleId") Long scheduleId);
-
-    @Override
-    @Query("SELECT new com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot("
-            + "s.id, s.venueSeatId, s.configVersion, s.sellable, s.basePrice, "
-            + "s.status, s.reservationId, s.holdExpiresAt) "
-            + "FROM ScheduleSeat s WHERE s.id = :id AND s.scheduleId = :scheduleId")
-    Optional<SeatHoldSnapshot> findForHold(@Param("id") Long id, @Param("scheduleId") Long scheduleId);
 
     /** 회차별 조회는 ix_p_schedule_seats_selectable(schedule_id, is_sellable, status)의 앞 컬럼을 탄다. */
     @Override

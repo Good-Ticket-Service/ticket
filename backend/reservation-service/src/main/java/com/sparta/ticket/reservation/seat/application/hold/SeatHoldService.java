@@ -5,8 +5,8 @@ import com.sparta.ticket.common.exception.SimpleErrorCode;
 import com.sparta.ticket.reservation.domain.ReservationErrorCode;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidation;
 import com.sparta.ticket.reservation.seat.application.port.SaleValidationPort;
+import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeatRepository;
-import com.sparta.ticket.reservation.seat.domain.SeatHoldSnapshot;
 import com.sparta.ticket.reservation.seat.domain.SeatStatus;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -39,35 +39,25 @@ public class SeatHoldService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final SaleValidationPort saleValidationPort;
     private final SeatHoldTransactions transactions;
-    private final SeatHoldModeSwitch modeSwitch;
-    private final RedisSeatHoldService redisHolds;
-    private final HoldSeatLookup holdSeats;
 
     public SeatHoldResult hold(Long userId, Long scheduleId, Long scheduleSeatId) {
         // 1. 경로의 회차 좌석인지 확인한다. 다른 회차 좌석을 받으면 그 회차의 판매 기간·매수 제한을 우회할 수 있다
-        //    REDIS 모드는 점유를 Redis가 보므로(#459) DB 대신 서버 메모리의 좌석 고정 정보를 읽는다
-        boolean redis = modeSwitch.current() == SeatHoldMode.REDIS;
-        SeatHoldSnapshot seat = (redis
-                        ? holdSeats.find(scheduleId, scheduleSeatId)
-                        : scheduleSeatRepository.findForHold(scheduleSeatId, scheduleId))
+        ScheduleSeat seat = scheduleSeatRepository
+                .findById(scheduleSeatId)
+                .filter(found -> found.getScheduleId().equals(scheduleId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.SEAT_NOT_FOUND));
 
         // 2. 판매 검증. 좌석 1장이고 구성 버전은 DB CHECK로 1 이상이라, 공연이 400으로 막는 빈 목록·중복·버전 0은 생기지 않는다
         SaleValidation validation =
-                saleValidationPort.validate(scheduleId, seat.configVersion(), List.of(seat.venueSeatId()));
+                saleValidationPort.validate(scheduleId, seat.getConfigVersion(), List.of(seat.getVenueSeatId()));
         if (!validation.allowed()) {
             throw rejected(validation.reasonCode());
         }
 
-        // REDIS 모드(#449)는 여기서 Redis에만 기록하고 DB 트랜잭션을 열지 않는다
-        if (redis) {
-            return redisHolds.hold(userId, scheduleId, seat, validation);
-        }
-
         // 3. 읽은 시점의 점유 예약을 넘긴다. 잠근 뒤 만료됐으면 그 예약의 좌석 전체를 정리해야 해서 함께 잠그기 위해서다
         // 판매 완료 좌석은 잠근 뒤에도 409라 그 예약을 읽을 필요가 없어 HOLD일 때만 넘긴다
-        SeatHoldTarget target = new SeatHoldTarget(
-                seat.scheduleSeatId(), seat.status() == SeatStatus.HOLD ? seat.reservationId() : null);
+        SeatHoldTarget target =
+                new SeatHoldTarget(seat.getId(), seat.getStatus() == SeatStatus.HOLD ? seat.getReservationId() : null);
         try {
             return transactions.hold(userId, scheduleId, target, validation);
         } catch (DataIntegrityViolationException e) {
@@ -100,7 +90,7 @@ public class SeatHoldService {
      * ("violates unique constraint \"...\"")에서 잘라 낸다(Hibernate 6.6 PostgreSQLDialect). DB 메시지 언어(lc_messages)가
      * 영어가 아니면 null이 되어 409가 아니라 500이 나간다. 서버 오류 정보의 제약 이름은 언어와 관계없다.
      */
-    static boolean violates(DataIntegrityViolationException e, String constraintName) {
+    private static boolean violates(DataIntegrityViolationException e, String constraintName) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null) {
                 return constraintName.equalsIgnoreCase(

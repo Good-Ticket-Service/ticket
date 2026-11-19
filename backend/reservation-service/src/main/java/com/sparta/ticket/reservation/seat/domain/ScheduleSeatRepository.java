@@ -16,17 +16,8 @@ public interface ScheduleSeatRepository {
     /** 좌석 하나를 잠그지 않고 읽는다. 삭제된 좌석은 빈 값이다. */
     Optional<ScheduleSeat> findById(Long id);
 
-    /** 선점 진입에 필요한 좌석 필드만 읽는다. 좌석 ID와 회차가 모두 맞지 않으면 빈 값이다. */
-    Optional<SeatHoldSnapshot> findForHold(Long id, Long scheduleId);
-
     /** 넘긴 좌석을 id 오름차순으로 잠그고 읽는다. 없는 id와 삭제된 좌석은 결과에서 빠진다. 트랜잭션 안에서만 부른다. */
     List<ScheduleSeat> findAllByIdsForUpdate(Collection<Long> ids);
-
-    /**
-     * 회차에서 예약이 잡고 있는 좌석(HOLD·SOLD)과 그 예약을 읽는다. 잠그지 않는다. 삭제된 좌석은 빠진다.
-     * 만료 시각이 지났지만 아직 정리 전인 HOLD도 들어 있다.
-     */
-    List<ReservedSeat> findReservedSeats(Long scheduleId);
 
     /** 회차의 좌석을 id 순서로 읽는다. 잠그지 않는다. 삭제된 좌석은 빠진다. */
     List<ScheduleSeat> findAllBySchedule(Long scheduleId);

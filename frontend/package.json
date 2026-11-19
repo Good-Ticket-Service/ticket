@@ -10,7 +10,6 @@
     "test:performance-calendar": "node --test tests/performance-calendar.test.mjs",
     "test:queue-seats": "node --test tests/queue-seats.test.mjs",
     "test:checkout-coupons": "node --test tests/checkout-coupons.test.mjs",
-    "test:hold-checkout": "node --test tests/hold-checkout.test.mjs",
     "preview": "vite preview",
     "test:bookings": "node --test tests/bookings.test.mjs",
     "test:account": "node --test tests/account.test.mjs",

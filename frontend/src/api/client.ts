@@ -1,5 +1,4 @@
 import { clearEntryTokens } from '../lib/entryTokens';
-import { forgetAllHolds } from '../lib/holdMemory';
 
 const TOKEN_KEY = 'ticket.accessToken';
 
@@ -28,9 +27,8 @@ export function setToken(token: string | null): void {
   } catch {
     // 저장소를 쓸 수 없는 브라우저에서는 이번 화면에서만 로그인이 유지되지 않는다.
   }
-  // 입장 토큰과 기억해 둔 선점은 그 회원에게만 유효하다.
+  // 입장 토큰은 발급받은 회원에게만 유효하다.
   clearEntryTokens();
-  forgetAllHolds();
   window.dispatchEvent(new Event('ticket-auth-changed'));
 }
 
@@ -140,8 +138,6 @@ export function errorMessage(error: unknown): string {
 
 const MESSAGES: Record<string, string> = {
   HOLD_EXPIRED: '좌석을 잡아 둔 시간이 끝났어요. 좌석을 다시 골라 주세요.',
-  HOLD_NOT_FOUND: '좌석 선점이 끝났어요(시간 만료·해제). 좌석을 다시 골라 주세요.',
-  SEAT_CONFIG_VERSION_MISMATCH: '좌석 정보가 바뀌었어요. 좌석을 다시 골라 주세요.',
   SEAT_ALREADY_TAKEN: '방금 다른 분이 고른 좌석이에요. 다른 좌석을 골라 주세요.',
   PURCHASE_LIMIT_EXCEEDED: '이 회차에 진행 중인 예매가 이미 있어요. 내 예매에서 확인해 주세요.',
   COUPON_NOT_AVAILABLE: '이 쿠폰은 쓸 수 없어요. 다른 쿠폰을 골라 주세요.',

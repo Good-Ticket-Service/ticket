@@ -15,13 +15,9 @@ import com.sparta.ticket.reservation.seat.application.SelectableSeatQueryService
 import com.sparta.ticket.reservation.seat.application.dto.SeatMapSnapshot;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatResult;
 import com.sparta.ticket.reservation.seat.application.dto.SelectableSeatsResult;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldModeSwitch;
-import com.sparta.ticket.reservation.seat.application.hold.SeatHoldProperties;
 import com.sparta.ticket.reservation.seat.support.DeferredTasks;
 import com.sparta.ticket.reservation.seat.support.MutableTicker;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -284,13 +280,7 @@ class CaffeineSelectableSeatCacheTest {
                 .thenAnswer(invocation -> snapshot(invocation.getArgument(0)).result());
         CaffeineSelectableSeatCache measured = new CaffeineSelectableSeatCache(
                 PROPERTIES,
-                new SeatMapSnapshotLoader(
-                        queryService,
-                        new SeatSnapshotMetrics(meters),
-                        // DB 모드라 Redis 선점 저장소와 시계를 쓰지 않는다
-                        new SeatHoldModeSwitch(new SeatHoldProperties(Duration.ofMinutes(10), SeatHoldMode.DB)),
-                        null,
-                        Clock.systemUTC()),
+                new SeatMapSnapshotLoader(queryService, new SeatSnapshotMetrics(meters)),
                 SeatSnapshotRefreshExecutor.using(Runnable::run),
                 ticker,
                 meters);
