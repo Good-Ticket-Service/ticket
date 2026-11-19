@@ -296,8 +296,7 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['coupons'] });
       client.invalidateQueries({ queryKey: ['reservations'] });
-      // 좌석을 놓은 뒤에는 다른 좌석을 고르러 좌석 화면으로 간다. 입장 시간이 끝났으면 좌석 화면이 대기열로 보낸다
-      navigate(`/performances/${item!.performanceId}/schedules/${item!.scheduleId}/seats`, { replace: true });
+      navigate(`/performances/${item!.performanceId}`, { replace: true });
     },
     onError: () => (holdMode ? hold.refetch() : reservation.refetch()),
     onSettled: () => {
@@ -314,56 +313,14 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
   if (holdMode && hold.error instanceof ApiError && hold.error.code === 'HOLD_NOT_FOUND') {
     // 실패한 조회도 마지막으로 받은 선점은 남아 있어 그 회차의 좌석 화면으로 보낸다
     const last = hold.data;
-    const cause = pay.error instanceof ApiError ? pay.error.code : '';
-    const [title, body] =
-      cause === 'SEAT_ALREADY_TAKEN'
-        ? ['다른 분이 먼저 예매한 좌석이에요', '결제 직전에 좌석을 한 번 더 확인하는데, 그사이 다른 분의 예매가 먼저 끝났어요. 결제는 진행되지 않았어요.']
-        : cause && cause !== 'HOLD_NOT_FOUND' && cause !== 'HOLD_EXPIRED'
-          ? ['이 좌석은 예매할 수 없어요', errorMessage(pay.error)]
-          : ['좌석을 잡아 둔 시간이 끝났어요', '선점은 10분 동안 유지돼요. 결제는 진행되지 않았어요.'];
-    const seat = last ? seatLabel(last.holdId) : null;
     return (
       <main className="content">
-        <section className="hold-ended" role="alert">
-          <span className="hold-ended-mark" aria-hidden="true">
-            !
-          </span>
-          <h1>{title}</h1>
-          <p>{body}</p>
-          {last && (
-            <dl className="hold-ended-item">
-              <div>
-                <dt>공연</dt>
-                <dd>{last.performanceTitle}</dd>
-              </div>
-              <div>
-                <dt>일시</dt>
-                <dd>{formatDateTime(last.scheduleStartAt)}</dd>
-              </div>
-              <div>
-                <dt>좌석</dt>
-                <dd>{seat ?? `${last.gradeName} 좌석`}</dd>
-              </div>
-            </dl>
-          )}
-          <div className="hold-ended-actions">
-            {last ? (
-              <Link
-                className="btn btn-primary"
-                to={`/performances/${last.performanceId}/schedules/${last.scheduleId}/seats`}
-              >
-                다른 좌석 고르기
-              </Link>
-            ) : (
-              <Link className="btn btn-primary" to="/">
-                공연 둘러보기
-              </Link>
-            )}
-            <Link className="btn btn-ghost" to="/reservations">
-              내 예매
-            </Link>
-          </div>
-        </section>
+        <p className="notice">{pay.isError ? errorMessage(pay.error) : errorMessage(hold.error)}</p>
+        {last ? (
+          <Link to={`/performances/${last.performanceId}/schedules/${last.scheduleId}/seats`}>좌석 다시 고르기</Link>
+        ) : (
+          <Link to="/reservations">내 예매</Link>
+        )}
       </main>
     );
   }
@@ -686,7 +643,7 @@ function CheckoutView({ source }: { source: CheckoutSource }) {
           <div className="checkout-payment-note">
             <h3>예매·결제 안내</h3>
             <p>결제 결과를 확인 중일 때에는 새 결제를 만들지 않고 같은 요청으로 확인해요.</p>
-            <p>좌석을 놓고 나가면 현재 선점이 해제되고 좌석 선택으로 돌아가요.</p>
+            <p>좌석을 놓고 나가면 현재 선점이 해제돼요.</p>
           </div>
         </aside>
       </div>
