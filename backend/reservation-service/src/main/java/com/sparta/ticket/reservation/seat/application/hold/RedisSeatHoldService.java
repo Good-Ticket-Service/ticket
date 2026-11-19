@@ -50,7 +50,6 @@ public class RedisSeatHoldService {
     private final RedisHoldDbReads dbReads;
     private final RedisSeatHoldMetrics metrics;
     private final RedisSeatStateLoader stateLoader;
-    private final RedisSeatStateReconciler reconciler;
     private final Clock clock;
 
     SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldSnapshot seat, SaleValidation validation) {
@@ -120,7 +119,6 @@ public class RedisSeatHoldService {
     private HoldAttempt write(StoredHold hold, SeatHoldSnapshot seat, LocalDateTime nowLocal, Instant now) {
         HoldAttempt result = store.hold(hold, now);
         if (result.outcome() != HoldOutcome.NOT_LOADED) {
-            reconciler.track(hold.scheduleId());
             return result;
         }
         metrics.hold(RedisSeatHoldMetrics.tag(HoldOutcome.NOT_LOADED));

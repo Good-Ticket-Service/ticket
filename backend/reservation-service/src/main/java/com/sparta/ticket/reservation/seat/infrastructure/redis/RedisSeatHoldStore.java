@@ -61,8 +61,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
 
     private static final RedisScript<Long> FREE_RESERVED_SCRIPT = loadScript("seat/free-reserved.lua", Long.class);
 
-    private static final RedisScript<Long> EXTEND_RESERVED_SCRIPT = loadScript("seat/extend-reserved.lua", Long.class);
-
     /** DB 점유 좌석을 올리는 한 번의 호출에 담는 좌석 수. 큰 회차(2만 석)도 한 호출이 Redis를 오래 붙잡지 않게 나눈다. */
     private static final int LOAD_CHUNK = 500;
 
@@ -272,17 +270,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
     @Override
     public boolean isLoaded(Long scheduleId) {
         return Boolean.TRUE.equals(call("loaded", () -> redis.hasKey(SeatHoldKeys.loaded(scheduleId))));
-    }
-
-    @Override
-    public boolean extendReserved(Long scheduleId, Duration ttl) {
-        Long extended = call(
-                "extend_reserved",
-                () -> redis.execute(
-                        EXTEND_RESERVED_SCRIPT,
-                        List.of(SeatHoldKeys.reserved(scheduleId), SeatHoldKeys.loaded(scheduleId)),
-                        String.valueOf(ttl.toMillis())));
-        return extended != null && extended == 1L;
     }
 
     @Override
