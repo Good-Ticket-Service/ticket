@@ -8,15 +8,10 @@
 if redis.call('EXISTS', KEYS[3]) == 1 then
     redis.call('HSET', KEYS[3], 'state', 'CONVERTED', 'reservationId', ARGV[2])
 end
--- 좌석 목록에서는 좌석 키가 다른 선점의 것이 아닐 때만 뺀다. 이 선점이 끝난 뒤 다른 회원이 같은 좌석을 잡았으면 그 회원의 항목이다
-local seatOwner = redis.call('GET', KEYS[1])
-local ownsListEntry = (not seatOwner) or seatOwner == ARGV[1]
-if seatOwner == ARGV[1] then
+if redis.call('GET', KEYS[1]) == ARGV[1] then
     redis.call('DEL', KEYS[1])
 end
-if ownsListEntry then
-    redis.call('ZREM', KEYS[4], ARGV[4])
-    redis.call('ZREM', KEYS[5], ARGV[4])
-end
+redis.call('ZREM', KEYS[4], ARGV[4])
+redis.call('ZREM', KEYS[5], ARGV[4])
 redis.call('SET', KEYS[2], 'CONVERTED:' .. ARGV[2], 'PX', ARGV[3])
 return 0
