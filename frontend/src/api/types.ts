@@ -78,30 +78,12 @@ export interface Seat {
   selectable: boolean;
 }
 
-/** 선점·좌석 선택 완료 응답. REDIS 모드 선점은 holdId가 있고 reservationId가 null이다(DB 모드·좌석 선택 완료는 반대). */
 export interface Hold {
-  reservationId: number | null;
+  reservationId: number;
   scheduleSeatId: number;
   status: 'HOLD';
   holdExpiresAt: string;
   basePrice: number;
-  holdId: string | null;
-}
-
-/** REDIS 모드 선점 조회. reservationId는 CONVERTED일 때만 있다. */
-export interface HoldView {
-  holdId: string;
-  scheduleId: number;
-  scheduleSeatId: number;
-  status: 'HELD' | 'CONVERTING' | 'CONVERTED';
-  reservationId: number | null;
-  holdExpiresAt: string;
-  basePrice: number;
-  performanceId: number;
-  performanceTitle: string;
-  genre: string;
-  scheduleStartAt: string;
-  gradeName: string;
 }
 
 export interface WaitingRoom {

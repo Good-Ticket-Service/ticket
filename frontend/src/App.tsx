@@ -13,7 +13,7 @@ import { AdminVenuesPage } from './pages/admin/AdminVenuesPage';
 import { AdminWaitingRoomsPage } from './pages/admin/AdminWaitingRoomsPage';
 import { BookingDetailPage } from './pages/BookingDetailPage';
 import { BookingsPage } from './pages/BookingsPage';
-import { CheckoutPage, HoldCheckoutPage } from './pages/CheckoutPage';
+import { CheckoutPage } from './pages/CheckoutPage';
 import { CouponsPage } from './pages/CouponsPage';
 import { LoginPage } from './pages/LoginPage';
 import { MyPage } from './pages/MyPage';
@@ -45,7 +45,6 @@ export function App() {
             <Route path="/performances/:performanceId/queue" element={<QueuePage />} />
             <Route path="/performances/:performanceId/schedules/:scheduleId/seats" element={<SeatsPage />} />
             <Route path="/reservations/:reservationId/checkout" element={<CheckoutPage />} />
-            <Route path="/seats/schedules/:scheduleId/holds/:holdId/checkout" element={<HoldCheckoutPage />} />
             <Route path="/reservations/:reservationId" element={<BookingDetailPage />} />
             <Route path="/reservations" element={<BookingsPage />} />
             <Route path="/coupons" element={<CouponsPage />} />
