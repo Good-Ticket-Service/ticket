@@ -24,11 +24,9 @@ public interface SeatHoldStore {
     /**
      * 좌석·회원이 비어 있으면 선점을 기록한다. 결과는 {@link HoldAttempt}의 outcome 설명을 본다.
      *
-     * @param heldInDbBy DB에서 이 좌석을 만료 전 HOLD로 잡고 있는 예약(잠금 없이 읽은 값). 없으면 null. 이 회원이 예약으로 바꾼 그
-     *     예약이면 MINE_IN_DB, 아니면 TAKEN이다
      * @param now 앱 시계의 현재 시각. 키 만료는 "만료 시각 − now"의 상대 시간으로 넘긴다(아래 Note)
      */
-    HoldAttempt hold(StoredHold hold, Long heldInDbBy, Instant now);
+    HoldAttempt hold(StoredHold hold, Instant now);
 
     Optional<StoredHold> find(Long scheduleId, String holdId);
 
@@ -57,8 +55,7 @@ public interface SeatHoldStore {
 
     /**
      * @param outcome CREATED 새로 기록, EXISTING 같은 회원이 같은 좌석을 이미 잡음(holdId는 기존 값), CONVERTED_USER 이 회원은 이미 예약으로
-     *     바꾼 적이 있음(reservationId로 DB 확인 필요), TAKEN 좌석을 다른 선점이 잡음, LIMIT 이 회원이 다른 좌석을 잡고 있음,
-     *     MINE_IN_DB 이 좌석은 이 회원이 이미 예약으로 바꿨음(reservationId)
+     *     바꾼 적이 있음(reservationId로 DB 확인 필요), TAKEN 좌석을 다른 선점이 잡음, LIMIT 이 회원이 다른 좌석을 잡고 있음
      */
     record HoldAttempt(HoldOutcome outcome, String holdId, Long reservationId) {}
 
@@ -67,8 +64,7 @@ public interface SeatHoldStore {
         EXISTING,
         CONVERTED_USER,
         TAKEN,
-        LIMIT,
-        MINE_IN_DB
+        LIMIT
     }
 
     /** @param reservationId outcome이 CONVERTED일 때만 있다. 그 예약은 DB 해제 경로로 푼다 */

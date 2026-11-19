@@ -39,8 +39,6 @@ public class SeatHoldService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final SaleValidationPort saleValidationPort;
     private final SeatHoldTransactions transactions;
-    private final SeatHoldModeSwitch modeSwitch;
-    private final RedisSeatHoldService redisHolds;
 
     public SeatHoldResult hold(Long userId, Long scheduleId, Long scheduleSeatId) {
         // 1. 경로의 회차 좌석인지 확인한다. 다른 회차 좌석을 받으면 그 회차의 판매 기간·매수 제한을 우회할 수 있다
@@ -54,11 +52,6 @@ public class SeatHoldService {
                 saleValidationPort.validate(scheduleId, seat.getConfigVersion(), List.of(seat.getVenueSeatId()));
         if (!validation.allowed()) {
             throw rejected(validation.reasonCode());
-        }
-
-        // REDIS 모드(#449)는 여기서 Redis에만 기록하고 DB 트랜잭션을 열지 않는다
-        if (modeSwitch.current() == SeatHoldMode.REDIS) {
-            return redisHolds.hold(userId, scheduleId, seat, validation);
         }
 
         // 3. 읽은 시점의 점유 예약을 넘긴다. 잠근 뒤 만료됐으면 그 예약의 좌석 전체를 정리해야 해서 함께 잠그기 위해서다

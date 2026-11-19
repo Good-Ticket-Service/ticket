@@ -113,7 +113,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
 
-            HoldAttempt attempt = store.hold(hold, null, Instant.now());
+            HoldAttempt attempt = store.hold(hold, Instant.now());
 
             assertThat(attempt.outcome()).isEqualTo(HoldOutcome.CREATED);
             assertThat(attempt.holdId()).isEqualTo(hold.holdId());
@@ -133,9 +133,9 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void sameUserSameSeat() {
             long schedule = newSchedule();
             StoredHold first = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(first, null, Instant.now());
+            store.hold(first, Instant.now());
 
-            HoldAttempt again = store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), null, Instant.now());
+            HoldAttempt again = store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), Instant.now());
 
             assertThat(again.outcome()).isEqualTo(HoldOutcome.EXISTING);
             assertThat(again.holdId()).isEqualTo(first.holdId());
@@ -145,12 +145,12 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         @DisplayName("다른 회원이 잡은 좌석은 TAKEN, 다른 좌석을 잡은 회원은 LIMIT이다")
         void takenAndLimit() {
             long schedule = newSchedule();
-            store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), null, Instant.now());
+            store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), Instant.now());
 
-            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), null, Instant.now())
+            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), Instant.now())
                             .outcome())
                     .isEqualTo(HoldOutcome.TAKEN);
-            assertThat(store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), null, Instant.now())
+            assertThat(store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), Instant.now())
                             .outcome())
                     .isEqualTo(HoldOutcome.LIMIT);
         }
@@ -160,10 +160,10 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void convertedUser() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
             convert(hold, 77L);
 
-            HoldAttempt again = store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), null, Instant.now());
+            HoldAttempt again = store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), Instant.now());
 
             assertThat(again.outcome()).isEqualTo(HoldOutcome.CONVERTED_USER);
             assertThat(again.reservationId()).isEqualTo(77L);
@@ -176,7 +176,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
             Instant appNow = Instant.now().minus(Duration.ofHours(1));
             StoredHold hold = newHold(schedule, 1L, SEAT, appNow.plus(Duration.ofMinutes(10)));
 
-            assertThat(store.hold(hold, null, appNow).outcome()).isEqualTo(HoldOutcome.CREATED);
+            assertThat(store.hold(hold, appNow).outcome()).isEqualTo(HoldOutcome.CREATED);
 
             // 절대 시각(PXAT)으로 넘겼다면 Redis 시계로는 50분 전이라 곧바로 사라졌다
             for (String key : List.of(
@@ -194,7 +194,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
             Instant now = Instant.now();
             StoredHold hold = newHold(schedule, 1L, SEAT, now.plus(Duration.ofMinutes(10)));
 
-            store.hold(hold, null, now);
+            store.hold(hold, now);
             long elapsed = System.currentTimeMillis() - now.toEpochMilli();
 
             // 테스트 컨테이너는 같은 PC의 시계를 써서 Redis의 절대 만료 시각과 앱의 만료 시각을 비교할 수 있다
@@ -208,24 +208,6 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         }
 
         @Test
-        @DisplayName("DB가 잡은 좌석은 그 예약을 바꾼 회원이면 MINE_IN_DB, 아니면 TAKEN이다")
-        void heldInDb() {
-            long schedule = newSchedule();
-            StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
-            convert(hold, 77L);
-
-            HoldAttempt mine = store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), 77L, Instant.now());
-            assertThat(mine.outcome()).isEqualTo(HoldOutcome.MINE_IN_DB);
-            assertThat(mine.reservationId()).isEqualTo(77L);
-
-            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), 77L, Instant.now())
-                            .outcome())
-                    .isEqualTo(HoldOutcome.TAKEN);
-            assertThat(redis.hasKey(SeatHoldKeys.user(schedule, 2L))).isFalse();
-        }
-
-        @Test
         @DisplayName("만료 시각이 지난 선점 좌석은 목록에서 치운다")
         void prunesExpiredFromHeld() {
             long schedule = newSchedule();
@@ -235,7 +217,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
                             "99",
                             Instant.now().minusSeconds(1).toEpochMilli());
 
-            store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), null, Instant.now());
+            store.hold(newHold(schedule, 1L, SEAT, inMinutes(10)), Instant.now());
 
             assertThat(redis.opsForZSet().range(SeatHoldKeys.held(schedule), 0, -1))
                     .containsExactly(SEAT.toString());
@@ -254,7 +236,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
                     holds.add(hold);
                     futures.add(pool.submit(() -> {
                         start.await();
-                        return store.hold(hold, null, Instant.now());
+                        return store.hold(hold, Instant.now());
                     }));
                 }
                 start.countDown();
@@ -293,16 +275,16 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void releasesOwnHold() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
 
             assertThat(store.release(schedule, hold.holdId(), 1L).outcome()).isEqualTo(ReleaseOutcome.RELEASED);
 
             assertThat(store.find(schedule, hold.holdId())).isEmpty();
             assertThat(redis.opsForZSet().size(SeatHoldKeys.held(schedule))).isZero();
-            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), null, Instant.now())
+            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), Instant.now())
                             .outcome())
                     .isEqualTo(HoldOutcome.CREATED);
-            assertThat(store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), null, Instant.now())
+            assertThat(store.hold(newHold(schedule, 1L, OTHER_SEAT, inMinutes(10)), Instant.now())
                             .outcome())
                     .isEqualTo(HoldOutcome.CREATED);
         }
@@ -312,7 +294,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void otherOutcomes() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
 
             assertThat(store.release(schedule, "h_none", 1L).outcome()).isEqualTo(ReleaseOutcome.GONE);
             assertThat(store.release(schedule, hold.holdId(), 2L).outcome()).isEqualTo(ReleaseOutcome.FORBIDDEN);
@@ -336,7 +318,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void finish() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
 
             convert(hold, 77L);
 
@@ -349,7 +331,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
             assertThat(read.state()).isEqualTo(HoldState.CONVERTED);
             assertThat(read.reservationId()).isEqualTo(77L);
             // 좌석은 이제 DB가 판정하므로 다른 회원이 Redis로는 잡을 수 있다. DB 좌석 행이 막는다
-            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), null, Instant.now())
+            assertThat(store.hold(newHold(schedule, 2L, SEAT, inMinutes(10)), Instant.now())
                             .outcome())
                     .isEqualTo(HoldOutcome.CREATED);
         }
@@ -359,7 +341,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void beginAgain() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
 
             assertThat(store.beginConvert(schedule, hold.holdId(), 1L, Instant.now(), Duration.ofSeconds(3))
                             .outcome())
@@ -380,7 +362,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void beginRejected() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, Instant.now().plusSeconds(2));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
 
             assertThat(store.beginConvert(schedule, "h_none", 1L, Instant.now(), Duration.ofSeconds(3))
                             .outcome())
@@ -398,7 +380,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void remainingByAppClock() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
             Instant appNow = hold.expiresAt().minusSeconds(2);
 
             // Redis 키는 10분 가까이 남았지만, 앱 시계로는 2초 남아 3초 기준에 모자란다
@@ -414,7 +396,7 @@ class RedisSeatHoldStoreIntegrationTest extends ReservationIntegrationTest {
         void abort() {
             long schedule = newSchedule();
             StoredHold hold = newHold(schedule, 1L, SEAT, inMinutes(10));
-            store.hold(hold, null, Instant.now());
+            store.hold(hold, Instant.now());
             store.beginConvert(schedule, hold.holdId(), 1L, Instant.now(), Duration.ofSeconds(3));
 
             store.abortConvert(hold, false);
