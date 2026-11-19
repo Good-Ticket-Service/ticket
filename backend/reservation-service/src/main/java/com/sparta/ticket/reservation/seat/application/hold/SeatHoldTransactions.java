@@ -52,7 +52,6 @@ public class SeatHoldTransactions {
     private final BookingFacade bookingFacade;
     private final SeatChangeStamps changeStamps;
     private final SeatHoldDuration holdDuration;
-    private final RedisSeatStateSync stateSync;
 
     @Transactional
     public SeatHoldResult hold(Long userId, Long scheduleId, SeatHoldTarget target, SaleValidation validation) {
@@ -157,11 +156,9 @@ public class SeatHoldTransactions {
         for (Long reservationId : toExpire) {
             // expireIfDue는 HOLD이고 만료됐을 때만 EXPIRED로 바꾼다. 결제가 시작됐으면 false라 좌석을 건드리지 않는다
             if (bookingFacade.expireIfDue(reservationId)) {
-                List<ScheduleSeat> returned = locked.values().stream()
+                locked.values().stream()
                         .filter(lockedSeat -> lockedSeat.isHeldBy(reservationId))
-                        .toList();
-                returned.forEach(lockedSeat -> lockedSeat.release(reservationId));
-                stateSync.releasedAfterCommit(returned, reservationId);
+                        .forEach(lockedSeat -> lockedSeat.release(reservationId));
                 continue;
             }
             warnIfOrphanSeats(reservationId, locked.values());

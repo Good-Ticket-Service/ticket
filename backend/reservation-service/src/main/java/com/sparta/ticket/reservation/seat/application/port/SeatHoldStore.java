@@ -33,31 +33,6 @@ public interface SeatHoldStore {
      */
     HoldAttempt hold(StoredHold hold, Long heldInDbBy, Instant now);
 
-    /**
-     * DB 좌석을 읽지 않고, Redis에 올린 DB 점유 좌석({@link #loadReserved})으로 판정해 선점을 기록한다. 이 회차를 아직 올리지 않았으면
-     * 기록하지 않고 NOT_LOADED다. MINE_IN_DB는 이 회원이 바꾼 예약이 좌석을 잡고 있다는 뜻일 뿐, 그 예약이 아직 만료 전 HOLD인지는
-     * 모른다(SOLD이거나 만료 뒤 정리 전일 수 있다).
-     */
-    HoldAttempt hold(StoredHold hold, Instant now);
-
-    /**
-     * DB 점유 좌석(좌석 ID → 예약 ID)을 올린다. 이미 있는 좌석 값은 덮지 않는다. last면 다 올렸다는 표시를 남긴다. 두 키 모두 ttl 뒤
-     * 사라지고, 사라지면 다시 올려야 Redis로 판정한다.
-     */
-    void loadReserved(Long scheduleId, Map<Long, Long> seats, boolean last, Duration ttl);
-
-    /** 올린 DB 점유 좌석과 표시를 지운다. 판매 전에 다시 올릴 때만 쓴다. */
-    void clearReserved(Long scheduleId);
-
-    /** DB에서 풀린 좌석(좌석 ID → 예약 ID)을 지운다. 값이 그 예약일 때만 지운다. 지운 수를 돌려준다. */
-    int freeReserved(Long scheduleId, Map<Long, Long> seats);
-
-    /** 올린 DB 점유 좌석 전체(좌석 ID → 예약 ID). 정합 작업이 DB와 비교한다. */
-    Map<Long, Long> reserved(Long scheduleId);
-
-    /** 이 회차를 다 올렸다는 표시가 있는지. */
-    boolean isLoaded(Long scheduleId);
-
     Optional<StoredHold> find(Long scheduleId, String holdId);
 
     ReleaseAttempt release(Long scheduleId, String holdId, Long userId);
@@ -102,9 +77,7 @@ public interface SeatHoldStore {
         CONVERTED_USER,
         TAKEN,
         LIMIT,
-        MINE_IN_DB,
-        /** 이 회차의 DB 점유 좌석을 아직 올리지 않았다. 기록하지 않았다. */
-        NOT_LOADED
+        MINE_IN_DB
     }
 
     /** @param reservationId outcome이 CONVERTED일 때만 있다. 그 예약은 DB 해제 경로로 푼다 */

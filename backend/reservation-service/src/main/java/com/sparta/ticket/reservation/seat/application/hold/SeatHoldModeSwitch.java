@@ -19,11 +19,4 @@ public class SeatHoldModeSwitch {
     public SeatHoldMode current() {
         return mode;
     }
-
-    /**
-     * REDIS 모드 선점이 DB 좌석 상태 대신 Redis에 올린 DB 점유 좌석으로 판정할지(#459). 운영은 끈다. 측정 서버만 바꾼다.
-     */
-    public boolean redisSeatState() {
-        return false;
-    }
 }

@@ -57,13 +57,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
     private static final RedisScript<Long> CLEAR_CONVERTED_USER_SCRIPT =
             loadScript("seat/clear-converted-user.lua", Long.class);
 
-    private static final RedisScript<Long> LOAD_RESERVED_SCRIPT = loadScript("seat/load-reserved.lua", Long.class);
-
-    private static final RedisScript<Long> FREE_RESERVED_SCRIPT = loadScript("seat/free-reserved.lua", Long.class);
-
-    /** DB 점유 좌석을 올리는 한 번의 호출에 담는 좌석 수. 큰 회차(2만 석)도 한 호출이 Redis를 오래 붙잡지 않게 나눈다. */
-    private static final int LOAD_CHUNK = 500;
-
     /** hold.lua 반환 코드 순서와 같다. */
     private static final HoldOutcome[] HOLD_OUTCOMES = {
         HoldOutcome.CREATED,
@@ -71,8 +64,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
         HoldOutcome.CONVERTED_USER,
         HoldOutcome.TAKEN,
         HoldOutcome.LIMIT,
-        HoldOutcome.MINE_IN_DB,
-        HoldOutcome.NOT_LOADED
+        HoldOutcome.MINE_IN_DB
     };
 
     /** release.lua 반환 코드 순서와 같다. */
@@ -107,28 +99,18 @@ public class RedisSeatHoldStore implements SeatHoldStore {
 
     @Override
     public HoldAttempt hold(StoredHold hold, Long heldInDbBy, Instant now) {
-        return hold(hold, heldInDbBy == null ? "" : String.valueOf(heldInDbBy), false, now);
-    }
-
-    @Override
-    public HoldAttempt hold(StoredHold hold, Instant now) {
-        return hold(hold, "", true, now);
-    }
-
-    private HoldAttempt hold(StoredHold hold, String heldInDbBy, boolean redisState, Instant now) {
         List<String> args = new ArrayList<>();
         args.add(hold.holdId());
         args.add(String.valueOf(hold.scheduleSeatId()));
         args.add(String.valueOf(hold.expiresAt().toEpochMilli()));
         args.add(String.valueOf(ttlMillis(hold.expiresAt(), now)));
         args.add(String.valueOf(now.toEpochMilli()));
-        args.add(heldInDbBy);
-        args.add(redisState ? "1" : "0");
+        args.add(heldInDbBy == null ? "" : String.valueOf(heldInDbBy));
         toHash(hold).forEach((field, value) -> {
             args.add(field);
             args.add(value);
         });
-        List<String> result = executeList("hold", HOLD_SCRIPT, stateKeys(hold), args.toArray(String[]::new));
+        List<String> result = executeList("hold", HOLD_SCRIPT, keys(hold), args.toArray(String[]::new));
         HoldOutcome outcome = HOLD_OUTCOMES[code(result)];
         return switch (outcome) {
             case CREATED, EXISTING -> new HoldAttempt(outcome, result.get(1), null);
@@ -184,7 +166,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
                 "convert_finish",
                 () -> redis.execute(
                         CONVERT_FINISH_SCRIPT,
-                        stateKeys(hold),
+                        keys(hold),
                         hold.holdId(),
                         String.valueOf(reservationId),
                         String.valueOf(ttlMillis(userKeyExpiresAt, now)),
@@ -212,64 +194,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
                         List.of(SeatHoldKeys.user(scheduleId, userId)),
                         CONVERTED_PREFIX + reservationId));
         return Long.valueOf(1L).equals(result);
-    }
-
-    @Override
-    public void loadReserved(Long scheduleId, Map<Long, Long> seats, boolean last, Duration ttl) {
-        List<String> keys = List.of(SeatHoldKeys.reserved(scheduleId), SeatHoldKeys.loaded(scheduleId));
-        String ttlMillis = String.valueOf(ttl.toMillis());
-        List<Map.Entry<Long, Long>> entries = List.copyOf(seats.entrySet());
-        // 좌석이 없어도 표시는 남겨야 해서 한 번은 부른다
-        int chunks = Math.max(1, (entries.size() + LOAD_CHUNK - 1) / LOAD_CHUNK);
-        for (int chunk = 0; chunk < chunks; chunk++) {
-            List<String> args = new ArrayList<>();
-            args.add(ttlMillis);
-            args.add(last && chunk == chunks - 1 ? "1" : "0");
-            for (Map.Entry<Long, Long> entry :
-                    entries.subList(chunk * LOAD_CHUNK, Math.min(entries.size(), (chunk + 1) * LOAD_CHUNK))) {
-                args.add(String.valueOf(entry.getKey()));
-                args.add(String.valueOf(entry.getValue()));
-            }
-            call("load_reserved", () -> redis.execute(LOAD_RESERVED_SCRIPT, keys, args.toArray()));
-        }
-    }
-
-    @Override
-    public void clearReserved(Long scheduleId) {
-        call(
-                "clear_reserved",
-                () -> redis.delete(List.of(SeatHoldKeys.reserved(scheduleId), SeatHoldKeys.loaded(scheduleId))));
-    }
-
-    @Override
-    public int freeReserved(Long scheduleId, Map<Long, Long> seats) {
-        if (seats.isEmpty()) {
-            return 0;
-        }
-        List<String> args = new ArrayList<>();
-        seats.forEach((seatId, reservationId) -> {
-            args.add(String.valueOf(seatId));
-            args.add(String.valueOf(reservationId));
-        });
-        Long removed = call(
-                "free_reserved",
-                () -> redis.execute(FREE_RESERVED_SCRIPT, List.of(SeatHoldKeys.reserved(scheduleId)), args.toArray()));
-        return removed == null ? 0 : removed.intValue();
-    }
-
-    @Override
-    public Map<Long, Long> reserved(Long scheduleId) {
-        Map<Object, Object> hash =
-                call("reserved", () -> redis.opsForHash().entries(SeatHoldKeys.reserved(scheduleId)));
-        Map<Long, Long> seats = new HashMap<>();
-        hash.forEach((seatId, reservationId) ->
-                seats.put(Long.valueOf(seatId.toString()), Long.valueOf(reservationId.toString())));
-        return seats;
-    }
-
-    @Override
-    public boolean isLoaded(Long scheduleId) {
-        return Boolean.TRUE.equals(call("loaded", () -> redis.hasKey(SeatHoldKeys.loaded(scheduleId))));
     }
 
     @Override
@@ -314,11 +238,6 @@ public class RedisSeatHoldStore implements SeatHoldStore {
 
     private static List<String> keys(StoredHold hold) {
         return SeatHoldKeys.all(hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId(), gradeId(hold));
-    }
-
-    private static List<String> stateKeys(StoredHold hold) {
-        return SeatHoldKeys.withState(
-                hold.scheduleId(), hold.scheduleSeatId(), hold.userId(), hold.holdId(), gradeId(hold));
     }
 
     private static Long gradeId(StoredHold hold) {
