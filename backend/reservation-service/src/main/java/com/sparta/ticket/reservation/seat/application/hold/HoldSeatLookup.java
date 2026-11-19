@@ -34,11 +34,7 @@ public class HoldSeatLookup {
         Optional<SeatHoldSnapshot> read = scheduleSeatRepository
                 .findForHold(scheduleSeatId, scheduleId)
                 .map(seat -> SeatHoldSnapshot.fixed(
-                        seat.scheduleSeatId(),
-                        seat.venueSeatId(),
-                        seat.configVersion(),
-                        seat.sellable(),
-                        seat.basePrice()));
+                        seat.scheduleSeatId(), seat.venueSeatId(), seat.configVersion(), seat.sellable(), seat.basePrice()));
         if (read.isPresent()) {
             cache.invalidate(scheduleId);
         }
