@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.CannotCreateTransactionException;
 
 /**
  * 결제하기 때 Redis 선점을 DB 예약으로 바꾼다(#449). 예약이 생기는 것은 여기서부터라, 결제 준비·승인·만료·해제는 DB 모드와 같은 경로를 탄다.
@@ -27,8 +26,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
  *   3. 선점 트랜잭션(SeatHoldTransactions.holdUntil)으로 예약을 만든다. 만료 시각과 판매 검증은 Redis 선점 때의 값이다.
  *      좌석 행 잠금과 재판정이 최종 판정이라, Redis 키가 사라져 두 회원이 같은 좌석을 잡았어도 예약은 한 건만 생긴다.
  *   4. 성공하면 Redis 좌석 키를 지우고 회원 키를 CONVERTED로 바꾼다. 실패하면 업무 거절은 Redis 선점을 지우고(다시 시도해도 같은 결과),
- *      트랜잭션을 시작하지 못한 오류는 HELD로 되돌리고, 커밋했는지 모르는 오류는 CONVERTING으로 둔다(해제는 409, 결제하기 재시도로
- *      커밋된 예약을 받거나 새로 만든다). 남은 시간이 모자란 재시도는 DB에서 앞선 요청의 예약을 찾는다.
+ *      그 밖의 오류는 HELD로 되돌린다(다시 결제하기를 누를 수 있다).
  *
  * Note: 같은 선점을 동시에 두 번 바꾸면 둘 다 3단계에 들어간다. 좌석 잠금 뒤 "같은 회원의 만료 전 선점" 판정으로 뒤의 요청이 같은 예약을
  * 받으므로 예약은 한 건이다.
@@ -46,7 +44,6 @@ public class SeatHoldConversionService {
     private final SeatHoldTransactions transactions;
     private final Clock clock;
     private final RedisSeatHoldMetrics metrics;
-    private final RedisHoldDbReads dbReads;
 
     public SeatHoldResult convert(Long userId, Long scheduleId, String holdId) {
         if (!HoldIds.isHoldId(holdId)) {
@@ -68,8 +65,6 @@ public class SeatHoldConversionService {
             case CONVERTED:
                 metrics.convert("already_converted");
                 return converted(scheduleId, holdId, start.reservationId());
-            case CONVERTING_EXPIRING:
-                return convertingExpiring(userId, scheduleId, holdId, now);
             case STARTED:
                 break;
             default:
@@ -110,15 +105,10 @@ public class SeatHoldConversionService {
             metrics.convert("failed");
             abort(hold, false);
             throw e;
-        } catch (CannotCreateTransactionException e) {
-            // DB 연결을 얻지 못해 트랜잭션을 시작하지 못했다. 예약이 생기지 않은 것이 확실하므로 다시 결제하기를 누를 수 있게 되돌린다
+        } catch (RuntimeException e) {
+            // DB 장애 등. 예약이 생기지 않았으므로 다시 결제하기를 누를 수 있게 되돌린다
             metrics.convert("failed");
             abort(hold, false);
-            throw e;
-        } catch (RuntimeException e) {
-            // 커밋했는지 모른다(커밋 응답 유실 등). 되돌리면 해제가 Redis만 지워 DB 예약이 남을 수 있어 CONVERTING으로 둔다.
-            // 해제는 409이고, 결제하기를 다시 누르면 DB가 커밋된 예약을 돌려주거나 새로 만든다
-            metrics.convert("unknown");
             throw e;
         }
 
@@ -140,30 +130,6 @@ public class SeatHoldConversionService {
                 result.basePrice(),
                 result.created(),
                 null);
-    }
-
-    /**
-     * 바꾸는 중인데 남은 시간이 모자란 재시도. 앞선 요청이 결과를 모른 채 끝났을 수 있어, DB에서 이 회원·좌석의 만료 전 예약을 찾아
-     * 있으면 그 예약을 돌려주고 완료를 기록한다. 없으면 409 HOLD_EXPIRED다. 남은 시간 1\~2초짜리 예약을 새로 만들지 않는다.
-     * 없을 때 Redis 선점을 지우지 않는다. 앞선 요청이 아직 커밋 전일 수 있고, 키는 곧 수명이 끝난다.
-     */
-    private SeatHoldResult convertingExpiring(Long userId, Long scheduleId, String holdId, Instant now) {
-        StoredHold hold = store.find(scheduleId, holdId)
-                .orElseThrow(() -> new BusinessException(ReservationErrorCode.HOLD_EXPIRED));
-        LocalDateTime nowLocal = LocalDateTime.ofInstant(now, clock.getZone());
-        SeatHoldResult own = dbReads.findOwnHold(userId, scheduleId, hold.scheduleSeatId(), hold.basePrice(), nowLocal)
-                .orElse(null);
-        if (own == null) {
-            metrics.convert("expired");
-            throw new BusinessException(ReservationErrorCode.HOLD_EXPIRED);
-        }
-        metrics.convert("recovered");
-        try {
-            store.finishConvert(hold, own.reservationId(), userKeyExpiresAt(hold), now);
-        } catch (BusinessException e) {
-            log.warn("앞선 결제하기의 예약을 찾았지만 Redis 완료 기록에 실패했다. holdId={}, reservationId={}", holdId, own.reservationId());
-        }
-        return own;
     }
 
     /** 이미 바꾼 선점의 재요청. 같은 예약을 200으로 돌려준다. */

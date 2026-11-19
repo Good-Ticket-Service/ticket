@@ -12,8 +12,7 @@ import org.springframework.stereotype.Component;
  * 지표: reservation.seat.hold.redis{operation=hold|release|convert, result=...}
  *   - hold: created, existing, mine_in_db, taken, limit, converted_user(DB 확인으로 넘어감), taken_in_db(DB 좌석 사전 검사에서 막음)
  *   - release: released, gone, forbidden, busy, converted
- *   - convert: created, existing, already_converted, expired, not_found, rejected(업무 거절), failed(트랜잭션 시작 실패),
- *     unknown(커밋했는지 모르는 오류), recovered(남은 시간이 모자란 재시도에서 앞선 요청의 예약을 찾음)
+ *   - convert: created, existing, already_converted, expired, not_found, rejected(업무 거절), failed(그 밖의 오류)
  *
  * Note: Redis 키가 수명이 끝나 사라지는 만료는 알려 오는 이벤트가 없어 직접 세지 않는다. 측정에서는 선점 생성 − 해제 − 결제하기 −
  * 측정 끝에 남은 선점 수로 계산한다.

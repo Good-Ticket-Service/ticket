@@ -78,8 +78,7 @@ public class RedisSeatHoldStore implements SeatHoldStore {
         ConvertOutcome.FORBIDDEN,
         ConvertOutcome.CONVERTED,
         ConvertOutcome.EXPIRED,
-        ConvertOutcome.STARTED,
-        ConvertOutcome.CONVERTING_EXPIRING
+        ConvertOutcome.STARTED
     };
 
     private static final String CONVERTED_PREFIX = "CONVERTED:";

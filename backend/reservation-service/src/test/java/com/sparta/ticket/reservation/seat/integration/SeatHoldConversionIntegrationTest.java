@@ -8,7 +8,6 @@ import com.sparta.ticket.reservation.seat.application.hold.SeatHoldConversionSer
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldMode;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldResult;
 import com.sparta.ticket.reservation.seat.application.hold.SeatHoldService;
-import com.sparta.ticket.reservation.seat.application.port.SeatHoldStore;
 import com.sparta.ticket.reservation.seat.application.release.RedisSeatReleaseService;
 import com.sparta.ticket.reservation.seat.application.release.SeatReleaseService;
 import com.sparta.ticket.reservation.seat.domain.ScheduleSeat;
@@ -65,9 +64,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
 
     @Autowired
     private MeterRegistry meters;
-
-    @Autowired
-    private SeatHoldStore store;
 
     @Autowired
     private ScheduleSeatRepository scheduleSeatRepository;
@@ -244,40 +240,6 @@ class SeatHoldConversionIntegrationTest extends ReservationIntegrationTest {
         assertThat(errorOf(() -> conversionService.convert(USER, SCHEDULE, hold.holdId())))
                 .isEqualTo("HOLD_EXPIRED");
         assertThat(count("SELECT COUNT(*) FROM p_reservations")).isZero();
-    }
-
-    @Test
-    @DisplayName("결과를 모른 채 끝난 결제하기를 남은 시간 3초 미만에 다시 누르면, DB에서 앞선 요청의 예약을 찾아 돌려준다")
-    void expiringRetryRecoversCommitted() {
-        Long seatId = seat();
-        String holdId = seatHoldService.hold(USER, SCHEDULE, seatId).holdId();
-        Long reservationId = conversionService.convert(USER, SCHEDULE, holdId).reservationId();
-        // 커밋은 됐지만 Redis 완료 기록 전에 끝난 상태로 되돌린다
-        redis.opsForHash().put(key("hold:" + holdId), "state", "CONVERTING");
-        redis.opsForHash().delete(key("hold:" + holdId), "reservationId");
-        clock.advance(Duration.ofMinutes(10).minusSeconds(2));
-
-        SeatHoldResult retried = conversionService.convert(USER, SCHEDULE, holdId);
-
-        assertThat(retried.created()).isFalse();
-        assertThat(retried.reservationId()).isEqualTo(reservationId);
-        assertThat(redis.opsForHash().get(key("hold:" + holdId), "state")).isEqualTo("CONVERTED");
-        assertThat(count("SELECT COUNT(*) FROM p_reservations")).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("앞선 결제하기가 커밋하지 못했으면, 남은 시간 3초 미만의 재시도는 예약을 새로 만들지 않고 409 HOLD_EXPIRED다")
-    void expiringRetryWithoutCommit() {
-        Long seatId = seat();
-        String holdId = seatHoldService.hold(USER, SCHEDULE, seatId).holdId();
-        store.beginConvert(SCHEDULE, holdId, USER, clock.instant(), Duration.ofSeconds(3));
-        clock.advance(Duration.ofMinutes(10).minusSeconds(2));
-
-        assertThat(errorOf(() -> conversionService.convert(USER, SCHEDULE, holdId)))
-                .isEqualTo("HOLD_EXPIRED");
-        assertThat(count("SELECT COUNT(*) FROM p_reservations")).isZero();
-        // 앞선 요청이 아직 커밋 전일 수 있어 지우지 않는다. 키는 곧 수명이 끝난다
-        assertThat(redis.opsForHash().get(key("hold:" + holdId), "state")).isEqualTo("CONVERTING");
     }
 
     @Test

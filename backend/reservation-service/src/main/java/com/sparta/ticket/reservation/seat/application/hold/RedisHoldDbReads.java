@@ -54,19 +54,4 @@ class RedisHoldDbReads {
     public boolean paymentInProgress(Long reservationId) {
         return !bookingFacade.findPaymentInProgress(List.of(reservationId)).isEmpty();
     }
-
-    /**
-     * 이 회원이 이 좌석을 잡은 만료 전 HOLD 예약. 결제하기가 결과를 모른 채 끝난 뒤 남은 시간이 모자란 재시도에서, 앞선 요청이
-     * 커밋한 예약을 찾는 데 쓴다. 없으면 empty다.
-     */
-    @Transactional(readOnly = true)
-    public Optional<SeatHoldResult> findOwnHold(
-            Long userId, Long scheduleId, Long scheduleSeatId, int basePrice, LocalDateTime now) {
-        return bookingFacade
-                .findActiveHold(userId, scheduleId)
-                .filter(view -> view.scheduleSeatIds().contains(scheduleSeatId))
-                .filter(view -> view.holdExpiresAt().isAfter(now))
-                .map(view -> new SeatHoldResult(
-                        view.reservationId(), scheduleSeatId, view.holdExpiresAt(), basePrice, false, null));
-    }
 }
